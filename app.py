@@ -95,17 +95,21 @@ security_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %
 security_logger.addHandler(security_handler)
 
 # Session configuration
-# Load or generate persistent secret key
-secret_key_file = os.path.join(os.path.dirname(__file__), 'instance', 'secret_key')
-os.makedirs(os.path.dirname(secret_key_file), exist_ok=True)
+# Check environment variable first (for production), then load or generate persistent secret key
+app.secret_key = os.environ.get('SECRET_KEY')
 
-if os.path.exists(secret_key_file):
-    with open(secret_key_file, 'r') as f:
-        app.secret_key = f.read().strip()
-else:
-    app.secret_key = secrets.token_hex(32)
-    with open(secret_key_file, 'w') as f:
-        f.write(app.secret_key)
+if not app.secret_key:
+    # Local development: use file-based secret key
+    secret_key_file = os.path.join(os.path.dirname(__file__), 'instance', 'secret_key')
+    os.makedirs(os.path.dirname(secret_key_file), exist_ok=True)
+
+    if os.path.exists(secret_key_file):
+        with open(secret_key_file, 'r') as f:
+            app.secret_key = f.read().strip()
+    else:
+        app.secret_key = secrets.token_hex(32)
+        with open(secret_key_file, 'w') as f:
+            f.write(app.secret_key)
 
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours in seconds
@@ -145,7 +149,13 @@ agent = None
 config_manager = None
 
 def check_api_key_configured():
-    """Check if API key is configured in .env file."""
+    """Check if API key is configured in environment or .env file."""
+    # First check environment variable (for production)
+    env_api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if env_api_key and env_api_key.startswith('sk-ant-'):
+        return True
+
+    # Fall back to .env file (for local development)
     env_path = os.path.join('config', '.env')
     if not os.path.exists(env_path):
         return False
@@ -215,12 +225,26 @@ def save_aws_credentials(access_key, secret_key, region='us-east-1'):
 
 def get_aws_config_status():
     """Check if AWS credentials are configured."""
+    # First check environment variables (for production)
+    env_access_key = os.environ.get('AWS_ACCESS_KEY_ID')
+    env_region = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
+
+    if env_access_key and env_access_key.startswith('AKIA'):
+        # Credentials found in environment
+        access_key_masked = env_access_key[:4] + '****' + env_access_key[-4:] if len(env_access_key) > 8 else env_access_key
+        return {
+            'configured': True,
+            'access_key': access_key_masked,
+            'region': env_region
+        }
+
+    # Fall back to .env file (for local development)
     env_path = os.path.join('config', '.env')
     if not os.path.exists(env_path):
         return {
             'configured': False,
             'access_key': None,
-            'region': None
+            'region': 'us-east-1'
         }
 
     with open(env_path, 'r') as f:
@@ -1904,9 +1928,15 @@ if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("Starting web server...")
     print("=" * 60)
+
+    # Get port from environment (for production) or use 5000 (for local dev)
+    port = int(os.environ.get('PORT', 5000))
+
     print("\nAccess the agent at:")
-    print("  http://localhost:5000")
+    print(f"  http://localhost:{port}")
     print("\nPress Ctrl+C to stop the server")
     print("=" * 60 + "\n")
 
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    # In production, debug should be False
+    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False)
