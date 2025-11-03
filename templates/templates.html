@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Command Templates - DevOps Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 25px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-danger {
+            background: #ff4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #cc0000;
+        }
+
+        .content-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .section-header h2 {
+            color: #333;
+            font-size: 20px;
+        }
+
+        .templates-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .template-card {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .template-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .template-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .template-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .template-category {
+            display: inline-block;
+            padding: 4px 10px;
+            background: #667eea;
+            color: white;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .template-description {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+
+        .template-command {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            color: #333;
+            margin-bottom: 12px;
+            word-break: break-word;
+        }
+
+        .template-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .template-stats {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .template-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 5px;
+            transition: transform 0.2s;
+        }
+
+        .icon-btn:hover {
+            transform: scale(1.2);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #e7f9ef;
+            color: #2a8755;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .modal-header h2 {
+            color: #333;
+            font-size: 22px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            font-family: inherit;
+        }
+
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            color: #999;
+            margin-top: 5px;
+            font-size: 13px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert-success {
+            background: #e7f9ef;
+            color: #2a8755;
+            border-left: 4px solid #2a8755;
+        }
+
+        .alert-error {
+            background: #fee;
+            color: #c33;
+            border-left: 4px solid #c33;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state h3 {
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .empty-state p {
+            margin-bottom: 20px;
+        }
+
+        .filter-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-tab {
+            padding: 8px 16px;
+            background: #f0f0f0;
+            border: 2px solid transparent;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .filter-tab.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .filter-tab:hover:not(.active) {
+            background: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ Command Templates</h1>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="showCreateModal()">+ New Template</button>
+                <a href="/" class="btn btn-secondary">← Back to Chat</a>
+            </div>
+        </div>
+
+        <div id="successMessage" class="alert alert-success"></div>
+        <div id="errorMessage" class="alert alert-error"></div>
+
+        <!-- My Templates Section -->
+        <div class="content-section">
+            <div class="section-header">
+                <h2>My Templates</h2>
+                <span id="myTemplatesCount" class="badge">0 templates</span>
+            </div>
+
+            <div class="filter-tabs">
+                <div class="filter-tab active" data-category="all" onclick="filterTemplates('all')">All</div>
+                <div class="filter-tab" data-category="aws" onclick="filterTemplates('aws')">AWS</div>
+                <div class="filter-tab" data-category="azure" onclick="filterTemplates('azure')">Azure</div>
+                <div class="filter-tab" data-category="gcp" onclick="filterTemplates('gcp')">GCP</div>
+                <div class="filter-tab" data-category="kubernetes" onclick="filterTemplates('kubernetes')">Kubernetes</div>
+                <div class="filter-tab" data-category="docker" onclick="filterTemplates('docker')">Docker</div>
+                <div class="filter-tab" data-category="other" onclick="filterTemplates('other')">Other</div>
+            </div>
+
+            <div id="myTemplates" class="templates-grid">
+                <!-- Templates will be loaded here -->
+            </div>
+
+            <div id="myTemplatesEmpty" class="empty-state" style="display: none;">
+                <div class="empty-state-icon">📝</div>
+                <h3>No templates yet</h3>
+                <p>Create your first command template to save time on repetitive tasks</p>
+                <button class="btn btn-primary" onclick="showCreateModal()">Create Template</button>
+            </div>
+        </div>
+
+        <!-- Public Templates Section -->
+        <div class="content-section">
+            <div class="section-header">
+                <h2>Community Templates</h2>
+                <span id="publicTemplatesCount" class="badge">0 templates</span>
+            </div>
+            <div id="publicTemplates" class="templates-grid">
+                <!-- Public templates will be loaded here -->
+            </div>
+
+            <div id="publicTemplatesEmpty" class="empty-state" style="display: none;">
+                <div class="empty-state-icon">🌐</div>
+                <h3>No public templates available</h3>
+                <p>Be the first to share a template with the community!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create/Edit Template Modal -->
+    <div id="templateModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Create Template</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+
+            <form id="templateForm" onsubmit="saveTemplate(event)">
+                <input type="hidden" id="templateId">
+
+                <div class="form-group">
+                    <label for="templateName">Template Name *</label>
+                    <input type="text" id="templateName" required placeholder="e.g., List EC2 Instances">
+                    <small>A short, descriptive name for this template</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateCategory">Category</label>
+                    <select id="templateCategory">
+                        <option value="aws">AWS</option>
+                        <option value="azure">Azure</option>
+                        <option value="gcp">Google Cloud (GCP)</option>
+                        <option value="kubernetes">Kubernetes</option>
+                        <option value="docker">Docker</option>
+                        <option value="terraform">Terraform</option>
+                        <option value="git">Git</option>
+                        <option value="cicd">CI/CD</option>
+                        <option value="monitoring">Monitoring</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateDescription">Description</label>
+                    <input type="text" id="templateDescription" placeholder="Brief description of what this template does">
+                    <small>Optional: Helps you remember what this template is for</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateCommand">Command *</label>
+                    <textarea id="templateCommand" required placeholder="e.g., List all running EC2 instances in us-east-1"></textarea>
+                    <small>The command text that will be inserted when you use this template</small>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="templatePublic">
+                        <label for="templatePublic" style="margin: 0;">Share this template publicly</label>
+                    </div>
+                    <small>Public templates can be used by other users</small>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">Save Template</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentFilter = 'all';
+        let allTemplates = { user: [], public: [] };
+        let editingTemplateId = null;
+
+        // Load templates on page load
+        window.addEventListener('load', loadTemplates);
+
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/templates');
+                const data = await response.json();
+
+                allTemplates.user = data.user_templates || [];
+                allTemplates.public = data.public_templates || [];
+
+                displayTemplates();
+            } catch (error) {
+                console.error('Error loading templates:', error);
+                showError('Failed to load templates: ' + error.message);
+            }
+        }
+
+        function displayTemplates() {
+            displayMyTemplates();
+            displayPublicTemplates();
+        }
+
+        function displayMyTemplates() {
+            const container = document.getElementById('myTemplates');
+            const emptyState = document.getElementById('myTemplatesEmpty');
+            const countBadge = document.getElementById('myTemplatesCount');
+
+            const filtered = currentFilter === 'all'
+                ? allTemplates.user
+                : allTemplates.user.filter(t => t.category === currentFilter);
+
+            countBadge.textContent = `${filtered.length} template${filtered.length !== 1 ? 's' : ''}`;
+
+            if (filtered.length === 0) {
+                container.style.display = 'none';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            container.style.display = 'grid';
+            emptyState.style.display = 'none';
+
+            container.innerHTML = filtered.map(template => `
+                <div class="template-card" data-category="${template.category}">
+                    <div class="template-header">
+                        <div>
+                            <div class="template-name">${escapeHtml(template.name)}</div>
+                            <span class="template-category">${template.category || 'other'}</span>
+                        </div>
+                        <div class="template-actions">
+                            <button class="icon-btn" onclick="useTemplate(${template.id})" title="Use template">▶️</button>
+                            <button class="icon-btn" onclick="editTemplate(${template.id})" title="Edit">✏️</button>
+                            <button class="icon-btn" onclick="deleteTemplate(${template.id})" title="Delete">🗑️</button>
+                        </div>
+                    </div>
+                    ${template.description ? `<div class="template-description">${escapeHtml(template.description)}</div>` : ''}
+                    <div class="template-command">${escapeHtml(template.command)}</div>
+                    <div class="template-footer">
+                        <div class="template-stats">
+                            <span>🔢 Used ${template.use_count || 0} times</span>
+                            ${template.is_public ? '<span>🌐 Public</span>' : '<span>🔒 Private</span>'}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function displayPublicTemplates() {
+            const container = document.getElementById('publicTemplates');
+            const emptyState = document.getElementById('publicTemplatesEmpty');
+            const countBadge = document.getElementById('publicTemplatesCount');
+
+            const filtered = currentFilter === 'all'
+                ? allTemplates.public
+                : allTemplates.public.filter(t => t.category === currentFilter);
+
+            countBadge.textContent = `${filtered.length} template${filtered.length !== 1 ? 's' : ''}`;
+
+            if (filtered.length === 0) {
+                container.style.display = 'none';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            container.style.display = 'grid';
+            emptyState.style.display = 'none';
+
+            container.innerHTML = filtered.map(template => `
+                <div class="template-card" data-category="${template.category}">
+                    <div class="template-header">
+                        <div>
+                            <div class="template-name">${escapeHtml(template.name)}</div>
+                            <span class="template-category">${template.category || 'other'}</span>
+                        </div>
+                        <div class="template-actions">
+                            <button class="icon-btn" onclick="useTemplate(${template.id})" title="Use template">▶️</button>
+                        </div>
+                    </div>
+                    ${template.description ? `<div class="template-description">${escapeHtml(template.description)}</div>` : ''}
+                    <div class="template-command">${escapeHtml(template.command)}</div>
+                    <div class="template-footer">
+                        <div class="template-stats">
+                            <span>🔢 Used ${template.use_count || 0} times</span>
+                            <span>🌐 Community</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function filterTemplates(category) {
+            currentFilter = category;
+
+            // Update active tab
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.category === category) {
+                    tab.classList.add('active');
+                }
+            });
+
+            displayTemplates();
+        }
+
+        function showCreateModal() {
+            editingTemplateId = null;
+            document.getElementById('modalTitle').textContent = 'Create Template';
+            document.getElementById('templateForm').reset();
+            document.getElementById('templateId').value = '';
+            document.getElementById('templateModal').classList.add('show');
+        }
+
+        function editTemplate(id) {
+            const template = allTemplates.user.find(t => t.id === id);
+            if (!template) return;
+
+            editingTemplateId = id;
+            document.getElementById('modalTitle').textContent = 'Edit Template';
+            document.getElementById('templateId').value = template.id;
+            document.getElementById('templateName').value = template.name;
+            document.getElementById('templateCategory').value = template.category || 'other';
+            document.getElementById('templateDescription').value = template.description || '';
+            document.getElementById('templateCommand').value = template.command;
+            document.getElementById('templatePublic').checked = template.is_public || false;
+            document.getElementById('templateModal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('templateModal').classList.remove('show');
+            editingTemplateId = null;
+        }
+
+        async function saveTemplate(event) {
+            event.preventDefault();
+
+            const templateData = {
+                name: document.getElementById('templateName').value.trim(),
+                category: document.getElementById('templateCategory').value,
+                description: document.getElementById('templateDescription').value.trim(),
+                command: document.getElementById('templateCommand').value.trim(),
+                is_public: document.getElementById('templatePublic').checked
+            };
+
+            try {
+                let response;
+                if (editingTemplateId) {
+                    // Update existing template
+                    response = await fetch(`/api/templates/${editingTemplateId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(templateData)
+                    });
+                } else {
+                    // Create new template
+                    response = await fetch('/api/templates', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(templateData)
+                    });
+                }
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showSuccess(editingTemplateId ? 'Template updated successfully!' : 'Template created successfully!');
+                    closeModal();
+                    loadTemplates();
+                } else {
+                    showError(data.error || 'Failed to save template');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function deleteTemplate(id) {
+            if (!confirm('Are you sure you want to delete this template?')) return;
+
+            try {
+                const response = await fetch(`/api/templates/${id}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showSuccess('Template deleted successfully!');
+                    loadTemplates();
+                } else {
+                    showError(data.error || 'Failed to delete template');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function useTemplate(id) {
+            try {
+                const response = await fetch(`/api/templates/${id}/use`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Copy command to clipboard
+                    await navigator.clipboard.writeText(data.command);
+                    showSuccess('Command copied to clipboard! Go to the chat to paste it.');
+
+                    // Reload to update use counts
+                    setTimeout(() => loadTemplates(), 1000);
+                } else {
+                    showError(data.error || 'Failed to use template');
+                }
+            } catch (error) {
+                showError('Error: ' + error.message);
+            }
+        }
+
+        function showSuccess(message) {
+            const successMsg = document.getElementById('successMessage');
+            successMsg.textContent = message;
+            successMsg.style.display = 'block';
+            setTimeout(() => { successMsg.style.display = 'none'; }, 5000);
+
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMessage');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            setTimeout(() => { errorMsg.style.display = 'none'; }, 5000);
+
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Close modal on outside click
+        document.getElementById('templateModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>

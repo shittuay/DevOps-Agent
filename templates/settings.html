@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - DevOps Automation Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 25px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 28px;
+        }
+
+        .back-button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .back-button:hover {
+            background: #5568d3;
+            transform: translateY(-1px);
+        }
+
+        .settings-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .settings-section h2 {
+            color: #333;
+            font-size: 22px;
+            margin-bottom: 10px;
+        }
+
+        .settings-section p {
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .status-badge.configured {
+            background: #e7f9ef;
+            color: #2a8755;
+        }
+
+        .status-badge.not-configured {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            color: #999;
+            margin-top: 5px;
+            font-size: 13px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+        }
+
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            flex: 1;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert-error {
+            background: #fee;
+            color: #c33;
+            border-left: 4px solid #c33;
+        }
+
+        .alert-success {
+            background: #efe;
+            color: #3a3;
+            border-left: 4px solid #3a3;
+        }
+
+        .alert-info {
+            background: #e7f3ff;
+            color: #004085;
+            border-left: 4px solid #004085;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .info-box h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            color: #666;
+        }
+
+        .info-box li {
+            margin: 5px 0;
+        }
+
+        .current-config {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .current-config h4 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .current-config p {
+            color: #666;
+            font-size: 14px;
+            margin: 5px 0;
+            font-family: monospace;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Settings</h1>
+            <a href="/" class="back-button">← Back to Chat</a>
+        </div>
+
+        <div class="settings-section">
+            <h2>
+                AWS Configuration
+                <span id="awsStatusBadge" class="status-badge not-configured">Not Configured</span>
+            </h2>
+            <p>Configure your AWS credentials to enable EC2, S3, EKS, CloudWatch, and IAM operations.</p>
+
+            <div id="currentAwsConfig" class="current-config" style="display: none;">
+                <h4>Current Configuration:</h4>
+                <p><strong>Access Key:</strong> <span id="currentAccessKey"></span></p>
+                <p><strong>Region:</strong> <span id="currentRegion"></span></p>
+            </div>
+
+            <div id="errorMessage" class="alert alert-error"></div>
+            <div id="successMessage" class="alert alert-success"></div>
+
+            <form id="awsConfigForm" onsubmit="saveAwsConfig(event)">
+                <div class="form-group">
+                    <label for="accessKey">AWS Access Key ID *</label>
+                    <input
+                        type="text"
+                        id="accessKey"
+                        name="accessKey"
+                        placeholder="AKIA..."
+                        required
+                    />
+                    <small>Your AWS access key (starts with AKIA)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="secretKey">AWS Secret Access Key *</label>
+                    <input
+                        type="password"
+                        id="secretKey"
+                        name="secretKey"
+                        placeholder="Enter your AWS secret key"
+                        required
+                    />
+                    <small>Your AWS secret access key (double-click to show/hide)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="region">AWS Region</label>
+                    <select id="region" name="region">
+                        <option value="us-east-1">US East (N. Virginia) - us-east-1</option>
+                        <option value="us-east-2">US East (Ohio) - us-east-2</option>
+                        <option value="us-west-1">US West (N. California) - us-west-1</option>
+                        <option value="us-west-2">US West (Oregon) - us-west-2</option>
+                        <option value="eu-west-1">EU (Ireland) - eu-west-1</option>
+                        <option value="eu-central-1">EU (Frankfurt) - eu-central-1</option>
+                        <option value="ap-southeast-1">Asia Pacific (Singapore) - ap-southeast-1</option>
+                        <option value="ap-northeast-1">Asia Pacific (Tokyo) - ap-northeast-1</option>
+                    </select>
+                    <small>Default AWS region for operations</small>
+                </div>
+
+                <div class="info-box">
+                    <h4>How to get AWS credentials:</h4>
+                    <ul>
+                        <li>Sign in to the AWS Management Console</li>
+                        <li>Go to IAM (Identity and Access Management)</li>
+                        <li>Create a new user or select existing user</li>
+                        <li>Attach appropriate policies (e.g., EC2FullAccess, S3ReadOnlyAccess)</li>
+                        <li>Generate access keys under "Security credentials"</li>
+                    </ul>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" id="saveBtn" class="btn-primary">
+                        Save AWS Configuration
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="loadCurrentConfig()">
+                        Reload Status
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="settings-section">
+            <h2>
+                Agent Preferences
+                <span class="status-badge configured">Personalization</span>
+            </h2>
+            <p>Configure your personalized DevOps agent experience based on your preferences and work patterns.</p>
+
+            <div id="prefsErrorMessage" class="alert alert-error"></div>
+            <div id="prefsSuccessMessage" class="alert alert-success"></div>
+
+            <form id="preferencesForm" onsubmit="savePreferences(event)">
+                <!-- Cloud Provider Preferences -->
+                <h3 style="color: #667eea; margin: 25px 0 15px 0; font-size: 18px;">Cloud Provider Preferences</h3>
+
+                <div class="form-group">
+                    <label for="preferred_cloud_provider">Preferred Cloud Provider</label>
+                    <select id="preferred_cloud_provider" name="preferred_cloud_provider">
+                        <option value="aws">Amazon Web Services (AWS)</option>
+                        <option value="azure">Microsoft Azure</option>
+                        <option value="gcp">Google Cloud Platform (GCP)</option>
+                    </select>
+                    <small>The agent will prioritize this cloud provider when providing suggestions</small>
+                </div>
+
+                <!-- AWS Defaults -->
+                <h4 style="color: #333; margin: 20px 0 10px 0; font-size: 16px;">AWS Defaults</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="aws_default_region">Default AWS Region</label>
+                        <select id="aws_default_region" name="aws_default_region">
+                            <option value="us-east-1">US East (N. Virginia)</option>
+                            <option value="us-east-2">US East (Ohio)</option>
+                            <option value="us-west-1">US West (N. California)</option>
+                            <option value="us-west-2">US West (Oregon)</option>
+                            <option value="eu-west-1">EU (Ireland)</option>
+                            <option value="eu-central-1">EU (Frankfurt)</option>
+                            <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                            <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="aws_default_instance_type">Default Instance Type</label>
+                        <select id="aws_default_instance_type" name="aws_default_instance_type">
+                            <option value="t2.micro">t2.micro (1 vCPU, 1 GB)</option>
+                            <option value="t2.small">t2.small (1 vCPU, 2 GB)</option>
+                            <option value="t2.medium">t2.medium (2 vCPU, 4 GB)</option>
+                            <option value="t3.micro">t3.micro (2 vCPU, 1 GB)</option>
+                            <option value="t3.small">t3.small (2 vCPU, 2 GB)</option>
+                            <option value="t3.medium">t3.medium (2 vCPU, 4 GB)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Azure Defaults -->
+                <h4 style="color: #333; margin: 20px 0 10px 0; font-size: 16px;">Azure Defaults</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="azure_default_region">Default Azure Region</label>
+                        <select id="azure_default_region" name="azure_default_region">
+                            <option value="eastus">East US</option>
+                            <option value="westus">West US</option>
+                            <option value="centralus">Central US</option>
+                            <option value="westeurope">West Europe</option>
+                            <option value="northeurope">North Europe</option>
+                            <option value="southeastasia">Southeast Asia</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="azure_default_vm_size">Default VM Size</label>
+                        <select id="azure_default_vm_size" name="azure_default_vm_size">
+                            <option value="Standard_B1s">Standard_B1s (1 vCPU, 1 GB)</option>
+                            <option value="Standard_B1ms">Standard_B1ms (1 vCPU, 2 GB)</option>
+                            <option value="Standard_B2s">Standard_B2s (2 vCPU, 4 GB)</option>
+                            <option value="Standard_D2s_v3">Standard_D2s_v3 (2 vCPU, 8 GB)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- GCP Defaults -->
+                <h4 style="color: #333; margin: 20px 0 10px 0; font-size: 16px;">Google Cloud Defaults</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="gcp_default_region">Default GCP Region</label>
+                        <select id="gcp_default_region" name="gcp_default_region">
+                            <option value="us-central1">us-central1 (Iowa)</option>
+                            <option value="us-east1">us-east1 (South Carolina)</option>
+                            <option value="us-west1">us-west1 (Oregon)</option>
+                            <option value="europe-west1">europe-west1 (Belgium)</option>
+                            <option value="asia-southeast1">asia-southeast1 (Singapore)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="gcp_default_machine_type">Default Machine Type</label>
+                        <select id="gcp_default_machine_type" name="gcp_default_machine_type">
+                            <option value="e2-micro">e2-micro (2 vCPU, 1 GB)</option>
+                            <option value="e2-small">e2-small (2 vCPU, 2 GB)</option>
+                            <option value="e2-medium">e2-medium (2 vCPU, 4 GB)</option>
+                            <option value="n1-standard-1">n1-standard-1 (1 vCPU, 3.75 GB)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Kubernetes Defaults -->
+                <h3 style="color: #667eea; margin: 25px 0 15px 0; font-size: 18px;">Kubernetes Preferences</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="k8s_default_namespace">Default Namespace</label>
+                        <input type="text" id="k8s_default_namespace" name="k8s_default_namespace" value="default" />
+                        <small>Default Kubernetes namespace for operations</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="k8s_default_replicas">Default Replicas</label>
+                        <input type="number" id="k8s_default_replicas" name="k8s_default_replicas" min="1" max="10" value="3" />
+                        <small>Default number of replicas for deployments</small>
+                    </div>
+                </div>
+
+                <!-- Agent Behavior -->
+                <h3 style="color: #667eea; margin: 25px 0 15px 0; font-size: 18px;">Agent Behavior</h3>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="enable_cost_warnings" name="enable_cost_warnings" style="width: auto; margin-right: 10px;" checked />
+                        <span>Enable cost warnings for expensive operations</span>
+                    </label>
+                    <small>The agent will warn you before creating expensive cloud resources</small>
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="enable_suggestions" name="enable_suggestions" style="width: auto; margin-right: 10px;" checked />
+                        <span>Enable proactive suggestions</span>
+                    </label>
+                    <small>The agent will offer helpful suggestions based on your commands</small>
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="verbose_mode" name="verbose_mode" style="width: auto; margin-right: 10px;" />
+                        <span>Verbose mode (detailed explanations)</span>
+                    </label>
+                    <small>Get more detailed explanations for each operation</small>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" id="prefsaveBtn" class="btn-primary">
+                        Save Preferences
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="loadPreferences()">
+                        Reset to Defaults
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="settings-section">
+            <h2>Other Services</h2>
+            <p>Additional service configurations can be added here (GitHub, Jenkins, GitLab, etc.)</p>
+            <div class="alert alert-info" style="display: block;">
+                More configuration options coming soon! Currently, you can manually edit config/.env to configure GitHub, Jenkins, and other services.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load current AWS configuration and preferences on page load
+        window.addEventListener('load', () => {
+            loadCurrentConfig();
+            loadPreferences();
+        });
+
+        async function loadCurrentConfig() {
+            try {
+                const response = await fetch('/api/aws-config');
+                const data = await response.json();
+
+                if (data.configured) {
+                    document.getElementById('awsStatusBadge').textContent = 'Configured';
+                    document.getElementById('awsStatusBadge').className = 'status-badge configured';
+                    document.getElementById('currentAwsConfig').style.display = 'block';
+                    document.getElementById('currentAccessKey').textContent = data.access_key;
+                    document.getElementById('currentRegion').textContent = data.region;
+
+                    // Pre-fill region
+                    document.getElementById('region').value = data.region;
+                } else {
+                    document.getElementById('awsStatusBadge').textContent = 'Not Configured';
+                    document.getElementById('awsStatusBadge').className = 'status-badge not-configured';
+                    document.getElementById('currentAwsConfig').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading config:', error);
+            }
+        }
+
+        async function saveAwsConfig(event) {
+            event.preventDefault();
+
+            const accessKey = document.getElementById('accessKey').value.trim();
+            const secretKey = document.getElementById('secretKey').value.trim();
+            const region = document.getElementById('region').value;
+
+            const saveBtn = document.getElementById('saveBtn');
+            const errorMsg = document.getElementById('errorMessage');
+            const successMsg = document.getElementById('successMessage');
+
+            // Hide previous messages
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            // Validate
+            if (!accessKey.startsWith('AKIA')) {
+                showError('Invalid AWS Access Key format. It should start with "AKIA"');
+                return;
+            }
+
+            // Disable button and show loading
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner"></span> Saving...';
+
+            try {
+                const response = await fetch('/api/aws-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        access_key: accessKey,
+                        secret_key: secretKey,
+                        region: region
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showSuccess('AWS credentials saved successfully! The agent has been reloaded.');
+
+                    // Clear form
+                    document.getElementById('awsConfigForm').reset();
+
+                    // Reload config status
+                    setTimeout(() => {
+                        loadCurrentConfig();
+                    }, 1000);
+                } else {
+                    showError(data.error || 'Failed to save AWS credentials');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save AWS Configuration';
+            }
+        }
+
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMessage');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+
+            // Scroll to error
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showSuccess(message) {
+            const successMsg = document.getElementById('successMessage');
+            successMsg.textContent = message;
+            successMsg.style.display = 'block';
+
+            // Scroll to success
+            successMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Toggle password visibility on double-click
+        document.getElementById('secretKey').addEventListener('dblclick', function() {
+            this.type = this.type === 'password' ? 'text' : 'password';
+        });
+
+        // ===== PREFERENCES FUNCTIONS =====
+
+        async function loadPreferences() {
+            try {
+                const response = await fetch('/api/preferences');
+                const data = await response.json();
+
+                if (data.preferences) {
+                    const prefs = data.preferences;
+
+                    // Cloud provider preferences
+                    document.getElementById('preferred_cloud_provider').value = prefs.preferred_cloud_provider || 'aws';
+
+                    // AWS defaults
+                    document.getElementById('aws_default_region').value = prefs.aws_default_region || 'us-east-1';
+                    document.getElementById('aws_default_instance_type').value = prefs.aws_default_instance_type || 't2.micro';
+
+                    // Azure defaults
+                    document.getElementById('azure_default_region').value = prefs.azure_default_region || 'eastus';
+                    document.getElementById('azure_default_vm_size').value = prefs.azure_default_vm_size || 'Standard_B1s';
+
+                    // GCP defaults
+                    document.getElementById('gcp_default_region').value = prefs.gcp_default_region || 'us-central1';
+                    document.getElementById('gcp_default_machine_type').value = prefs.gcp_default_machine_type || 'e2-micro';
+
+                    // Kubernetes defaults
+                    document.getElementById('k8s_default_namespace').value = prefs.k8s_default_namespace || 'default';
+                    document.getElementById('k8s_default_replicas').value = prefs.k8s_default_replicas || 3;
+
+                    // Agent behavior
+                    document.getElementById('enable_cost_warnings').checked = prefs.enable_cost_warnings !== false;
+                    document.getElementById('enable_suggestions').checked = prefs.enable_suggestions !== false;
+                    document.getElementById('verbose_mode').checked = prefs.verbose_mode === true;
+                }
+            } catch (error) {
+                console.error('Error loading preferences:', error);
+                showPrefsError('Failed to load preferences: ' + error.message);
+            }
+        }
+
+        async function savePreferences(event) {
+            event.preventDefault();
+
+            const saveBtn = document.getElementById('prefsaveBtn');
+            const errorMsg = document.getElementById('prefsErrorMessage');
+            const successMsg = document.getElementById('prefsSuccessMessage');
+
+            // Hide previous messages
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            // Collect form data
+            const preferences = {
+                preferred_cloud_provider: document.getElementById('preferred_cloud_provider').value,
+                aws_default_region: document.getElementById('aws_default_region').value,
+                aws_default_instance_type: document.getElementById('aws_default_instance_type').value,
+                azure_default_region: document.getElementById('azure_default_region').value,
+                azure_default_vm_size: document.getElementById('azure_default_vm_size').value,
+                gcp_default_region: document.getElementById('gcp_default_region').value,
+                gcp_default_machine_type: document.getElementById('gcp_default_machine_type').value,
+                k8s_default_namespace: document.getElementById('k8s_default_namespace').value,
+                k8s_default_replicas: parseInt(document.getElementById('k8s_default_replicas').value),
+                enable_cost_warnings: document.getElementById('enable_cost_warnings').checked,
+                enable_suggestions: document.getElementById('enable_suggestions').checked,
+                verbose_mode: document.getElementById('verbose_mode').checked
+            };
+
+            // Disable button and show loading
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner"></span> Saving...';
+
+            try {
+                const response = await fetch('/api/preferences', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(preferences)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showPrefsSuccess('Preferences saved successfully! The agent will now use your personalized settings.');
+                } else {
+                    showPrefsError(data.error || 'Failed to save preferences');
+                }
+            } catch (error) {
+                showPrefsError('Network error: ' + error.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Preferences';
+            }
+        }
+
+        function showPrefsError(message) {
+            const errorMsg = document.getElementById('prefsErrorMessage');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showPrefsSuccess(message) {
+            const successMsg = document.getElementById('prefsSuccessMessage');
+            successMsg.textContent = message;
+            successMsg.style.display = 'block';
+            successMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    </script>
+</body>
+</html>

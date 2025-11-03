@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - DevOps Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 50px;
+        }
+
+        h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .effective-date {
+            text-align: center;
+            color: #666;
+            font-size: 0.95em;
+            margin-bottom: 30px;
+            font-style: italic;
+        }
+
+        h2 {
+            color: #667eea;
+            font-size: 1.8em;
+            margin-top: 40px;
+            margin-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            color: #764ba2;
+            font-size: 1.3em;
+            margin-top: 25px;
+            margin-bottom: 10px;
+        }
+
+        p, li {
+            line-height: 1.8;
+            margin-bottom: 15px;
+            font-size: 1.05em;
+        }
+
+        ul {
+            margin-left: 25px;
+            margin-bottom: 20px;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 5px solid #2196f3;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 8px;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border-left: 5px solid #ff9800;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 8px;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 30px;
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .back-link:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .footer-links {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #eee;
+            text-align: center;
+        }
+
+        .footer-links a {
+            color: #667eea;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 600;
+        }
+
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Privacy Policy</h1>
+        <p class="effective-date">Effective Date: January 1, 2025</p>
+
+        <p><strong>DevOps Agent</strong> is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our service.</p>
+
+        <div class="info-box">
+            <p><strong>📌 Key Points:</strong></p>
+            <ul>
+                <li>We collect account information, usage data, and cloud credentials</li>
+                <li>Your data is encrypted and stored securely</li>
+                <li>We do NOT sell your personal information</li>
+                <li>You have rights to access, correct, and delete your data</li>
+                <li>This policy is GDPR and CCPA compliant</li>
+            </ul>
+        </div>
+
+        <h2>1. Information We Collect</h2>
+
+        <h3>1.1 Account Information</h3>
+        <p>When you create an account, we collect:</p>
+        <ul>
+            <li><strong>Email address</strong> - for account identification and communication</li>
+            <li><strong>Username</strong> - for account identification</li>
+            <li><strong>Password</strong> - hashed using bcrypt (we never store plain-text passwords)</li>
+            <li><strong>Account creation date</strong> - for record keeping</li>
+            <li><strong>Last login information</strong> - for security monitoring</li>
+        </ul>
+
+        <h3>1.2 Usage Data</h3>
+        <p>When you use the Service, we automatically collect:</p>
+        <ul>
+            <li><strong>Commands and prompts</strong> - to process your requests</li>
+            <li><strong>API usage statistics</strong> - to track your credit consumption</li>
+            <li><strong>Chat history</strong> - to provide context for conversations</li>
+            <li><strong>Session data</strong> - for maintaining your login state</li>
+            <li><strong>IP addresses</strong> - for security and fraud prevention</li>
+            <li><strong>Browser and device information</strong> - for compatibility and optimization</li>
+        </ul>
+
+        <h3>1.3 Cloud Provider Credentials</h3>
+        <p>To manage your infrastructure, we store:</p>
+        <ul>
+            <li><strong>AWS Access Keys</strong> - encrypted before storage</li>
+            <li><strong>Azure Service Principals</strong> - encrypted before storage</li>
+            <li><strong>GCP Service Account Keys</strong> - encrypted before storage</li>
+            <li><strong>SSH Keys</strong> - encrypted before storage</li>
+        </ul>
+
+        <div class="warning-box">
+            <p><strong>⚠️ Security Note:</strong> All cloud credentials are encrypted using industry-standard encryption (AES-256) before being stored in our database. We use separate encryption keys that are securely managed and rotated regularly.</p>
+        </div>
+
+        <h3>1.4 Payment Information</h3>
+        <p>If you purchase credits or subscriptions:</p>
+        <ul>
+            <li><strong>Payment details are processed by Stripe</strong> - we do NOT store your credit card information</li>
+            <li>We receive only transaction confirmations and receipt information</li>
+            <li>Stripe complies with PCI-DSS standards</li>
+        </ul>
+
+        <h2>2. How We Use Your Information</h2>
+        <p>We use the collected information for:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Purpose</th>
+                    <th>Data Used</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Service Provision</strong></td>
+                    <td>Account info, usage data, cloud credentials</td>
+                </tr>
+                <tr>
+                    <td><strong>Authentication & Security</strong></td>
+                    <td>Email, password, IP address, login attempts</td>
+                </tr>
+                <tr>
+                    <td><strong>Communication</strong></td>
+                    <td>Email address for service updates and support</td>
+                </tr>
+                <tr>
+                    <td><strong>Billing & Credits</strong></td>
+                    <td>Usage data, payment information</td>
+                </tr>
+                <tr>
+                    <td><strong>Service Improvement</strong></td>
+                    <td>Usage patterns, error logs, performance metrics</td>
+                </tr>
+                <tr>
+                    <td><strong>Fraud Prevention</strong></td>
+                    <td>IP addresses, usage patterns, account activity</td>
+                </tr>
+                <tr>
+                    <td><strong>Legal Compliance</strong></td>
+                    <td>All data as required by law</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>3. How We Share Your Information</h2>
+
+        <h3>3.1 Third-Party Service Providers</h3>
+        <p>We share data with trusted third parties who help us operate the Service:</p>
+
+        <div class="info-box">
+            <p><strong>Our Service Providers:</strong></p>
+            <ul>
+                <li><strong>Anthropic (Claude AI)</strong> - AI model provider for processing commands</li>
+                <li><strong>Cloud Providers (AWS, Azure, GCP)</strong> - Infrastructure hosting</li>
+                <li><strong>Stripe</strong> - Payment processing</li>
+                <li><strong>Database Hosting</strong> - Secure data storage</li>
+            </ul>
+            <p><strong>Note:</strong> These providers are contractually obligated to protect your data and use it only for the purposes we specify.</p>
+        </div>
+
+        <h3>3.2 When We DO NOT Share Your Data</h3>
+        <ul>
+            <li>❌ We do NOT sell your personal information to third parties</li>
+            <li>❌ We do NOT share your data for marketing purposes</li>
+            <li>❌ We do NOT provide your data to advertisers</li>
+            <li>❌ We do NOT share your cloud credentials with anyone</li>
+        </ul>
+
+        <h3>3.3 Legal Requirements</h3>
+        <p>We may disclose your information if required by law, such as:</p>
+        <ul>
+            <li>Compliance with legal process (subpoena, court order)</li>
+            <li>Enforcement of our Terms of Service</li>
+            <li>Protection of our rights, property, or safety</li>
+            <li>Prevention of fraud or illegal activity</li>
+        </ul>
+
+        <h2>4. Data Security</h2>
+
+        <h3>4.1 Security Measures We Implement</h3>
+        <ul>
+            <li>✅ <strong>Encryption at Rest</strong> - All data encrypted in our database (AES-256)</li>
+            <li>✅ <strong>Encryption in Transit</strong> - HTTPS/TLS for all communications</li>
+            <li>✅ <strong>Password Hashing</strong> - bcrypt with salt for password storage</li>
+            <li>✅ <strong>API Key Encryption</strong> - Cloud credentials encrypted separately</li>
+            <li>✅ <strong>Access Controls</strong> - Role-based access to infrastructure</li>
+            <li>✅ <strong>Account Lockout</strong> - Protection against brute force attacks</li>
+            <li>✅ <strong>Rate Limiting</strong> - Prevention of abuse and DDoS</li>
+            <li>✅ <strong>Security Logging</strong> - Monitoring and audit trails</li>
+            <li>✅ <strong>Regular Security Audits</strong> - Periodic vulnerability assessments</li>
+        </ul>
+
+        <div class="warning-box">
+            <p><strong>⚠️ Important Disclaimer:</strong> While we use industry-standard security measures, no method of transmission or storage is 100% secure. We cannot guarantee absolute security of your data. You transmit data to us at your own risk.</p>
+        </div>
+
+        <h3>4.2 Your Security Responsibilities</h3>
+        <p>To keep your account secure, you should:</p>
+        <ul>
+            <li>Use a strong, unique password</li>
+            <li>Never share your password with anyone</li>
+            <li>Enable two-factor authentication (if available)</li>
+            <li>Regularly review your account activity</li>
+            <li>Report suspicious activity immediately</li>
+            <li>Keep your cloud provider credentials secure</li>
+        </ul>
+
+        <h2>5. Data Retention</h2>
+        <p>We retain your data for different periods depending on the type:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Data Type</th>
+                    <th>Retention Period</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Account Information</td>
+                    <td>As long as your account is active</td>
+                </tr>
+                <tr>
+                    <td>Chat History</td>
+                    <td>Until you delete it or close your account</td>
+                </tr>
+                <tr>
+                    <td>Usage Logs</td>
+                    <td>90 days for operational purposes</td>
+                </tr>
+                <tr>
+                    <td>Security Logs</td>
+                    <td>1 year for security and compliance</td>
+                </tr>
+                <tr>
+                    <td>Payment Records</td>
+                    <td>7 years for tax and legal compliance</td>
+                </tr>
+                <tr>
+                    <td>Deleted Account Data</td>
+                    <td>Permanently deleted within 90 days</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>6. Your Privacy Rights</h2>
+
+        <h3>6.1 Rights Under GDPR (European Users)</h3>
+        <p>If you are in the European Economic Area (EEA), you have the right to:</p>
+        <ul>
+            <li>✅ <strong>Access</strong> - Request a copy of your personal data</li>
+            <li>✅ <strong>Rectification</strong> - Correct inaccurate or incomplete data</li>
+            <li>✅ <strong>Erasure ("Right to be Forgotten")</strong> - Request deletion of your data</li>
+            <li>✅ <strong>Restriction</strong> - Limit how we use your data</li>
+            <li>✅ <strong>Data Portability</strong> - Receive your data in a machine-readable format</li>
+            <li>✅ <strong>Object</strong> - Object to processing of your data</li>
+            <li>✅ <strong>Withdraw Consent</strong> - Revoke previously given consent</li>
+        </ul>
+
+        <h3>6.2 Rights Under CCPA (California Users)</h3>
+        <p>If you are a California resident, you have the right to:</p>
+        <ul>
+            <li>✅ Know what personal information is collected</li>
+            <li>✅ Know whether your data is sold or disclosed</li>
+            <li>✅ Opt-out of the sale of your personal information</li>
+            <li>✅ Access your personal information</li>
+            <li>✅ Request deletion of your personal information</li>
+            <li>✅ Non-discrimination for exercising your rights</li>
+        </ul>
+
+        <h3>6.3 How to Exercise Your Rights</h3>
+        <p>To exercise any of these rights, you can:</p>
+        <ul>
+            <li>📧 Contact us through the application support form</li>
+            <li>⚙️ Use the Settings page to manage your account</li>
+            <li>🗑️ Delete your chat history from the dashboard</li>
+            <li>❌ Close your account from the Settings page</li>
+        </ul>
+
+        <div class="info-box">
+            <p><strong>Response Time:</strong> We will respond to your requests within 30 days (GDPR) or 45 days (CCPA).</p>
+        </div>
+
+        <h2>7. Cookies and Tracking</h2>
+
+        <h3>7.1 Cookies We Use</h3>
+        <ul>
+            <li><strong>Session Cookies</strong> - Essential for login and authentication</li>
+            <li><strong>Preference Cookies</strong> - Remember your language and settings</li>
+            <li><strong>Security Cookies</strong> - Prevent fraud and enhance security</li>
+        </ul>
+
+        <h3>7.2 Third-Party Tracking</h3>
+        <p>We do NOT use:</p>
+        <ul>
+            <li>❌ Google Analytics or similar tracking tools</li>
+            <li>❌ Advertising cookies</li>
+            <li>❌ Social media tracking pixels</li>
+        </ul>
+
+        <h2>8. International Data Transfers</h2>
+        <p>Your data may be transferred to and processed in countries other than your own. We ensure that:</p>
+        <ul>
+            <li>Data transfers comply with GDPR and other applicable laws</li>
+            <li>Adequate safeguards are in place (Standard Contractual Clauses)</li>
+            <li>Third-party processors are contractually bound to protect your data</li>
+        </ul>
+
+        <h2>9. Children's Privacy</h2>
+        <p>DevOps Agent is NOT intended for use by children under the age of 13 (or 16 in the EEA). We do not knowingly collect personal information from children. If we discover that a child has provided us with personal information, we will delete it immediately.</p>
+
+        <h2>10. Changes to This Privacy Policy</h2>
+        <p>We may update this Privacy Policy from time to time. Changes will be:</p>
+        <ul>
+            <li>Posted on this page with an updated "Effective Date"</li>
+            <li>Notified to you via email for material changes</li>
+            <li>Effective immediately upon posting</li>
+        </ul>
+        <p>Your continued use of the Service after changes constitutes acceptance of the updated Privacy Policy.</p>
+
+        <h2>11. Third-Party Services</h2>
+
+        <h3>11.1 Services We Integrate With</h3>
+        <p>DevOps Agent integrates with the following third-party services:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Purpose</th>
+                    <th>Privacy Policy</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Anthropic (Claude)</td>
+                    <td>AI model processing</td>
+                    <td><a href="https://www.anthropic.com/privacy" target="_blank">Anthropic Privacy</a></td>
+                </tr>
+                <tr>
+                    <td>AWS</td>
+                    <td>Cloud infrastructure</td>
+                    <td><a href="https://aws.amazon.com/privacy/" target="_blank">AWS Privacy</a></td>
+                </tr>
+                <tr>
+                    <td>Azure</td>
+                    <td>Cloud infrastructure</td>
+                    <td><a href="https://privacy.microsoft.com/" target="_blank">Microsoft Privacy</a></td>
+                </tr>
+                <tr>
+                    <td>GCP</td>
+                    <td>Cloud infrastructure</td>
+                    <td><a href="https://policies.google.com/privacy" target="_blank">Google Privacy</a></td>
+                </tr>
+                <tr>
+                    <td>Stripe</td>
+                    <td>Payment processing</td>
+                    <td><a href="https://stripe.com/privacy" target="_blank">Stripe Privacy</a></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="warning-box">
+            <p><strong>Important:</strong> We are not responsible for the privacy practices of these third-party services. We recommend reviewing their privacy policies.</p>
+        </div>
+
+        <h2>12. Data Breach Notification</h2>
+        <p>In the event of a data breach that affects your personal information, we will:</p>
+        <ul>
+            <li>Notify you via email within 72 hours (GDPR requirement)</li>
+            <li>Inform relevant regulatory authorities as required by law</li>
+            <li>Provide details about the breach and steps we're taking</li>
+            <li>Advise you on protective measures you should take</li>
+        </ul>
+
+        <h2>13. Do Not Track Signals</h2>
+        <p>Our Service does not currently respond to "Do Not Track" (DNT) browser signals, as there is no industry standard for how to respond to such signals.</p>
+
+        <h2>14. Contact Information</h2>
+        <p>For privacy-related questions or concerns, please contact us through:</p>
+        <ul>
+            <li>📧 The support form in the application</li>
+            <li>⚙️ The Settings page</li>
+            <li>📋 Our Usage Policy for general terms</li>
+        </ul>
+
+        <div class="info-box">
+            <p><strong>📢 GDPR Data Protection Officer (DPO):</strong> For GDPR-specific inquiries, please mark your communication as "Attention: Data Protection Officer."</p>
+        </div>
+
+        <h2>15. Summary of Key Points</h2>
+
+        <div class="info-box">
+            <p><strong>Quick Privacy Summary:</strong></p>
+            <table>
+                <tbody>
+                    <tr>
+                        <td><strong>What we collect</strong></td>
+                        <td>Account info, usage data, cloud credentials (encrypted)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>How we use it</strong></td>
+                        <td>Service provision, security, billing, improvement</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Who we share with</strong></td>
+                        <td>Essential service providers only (Anthropic, cloud hosts, Stripe)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Do we sell data?</strong></td>
+                        <td>❌ NO, we do NOT sell your personal information</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Your rights</strong></td>
+                        <td>Access, correct, delete, download your data (GDPR/CCPA)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Security</strong></td>
+                        <td>Encryption, hashing, access controls, monitoring</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Data retention</strong></td>
+                        <td>Active accounts retained; deleted within 90 days after closure</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Compliance</strong></td>
+                        <td>GDPR, CCPA, industry standards</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="footer-links">
+            <a href="/usage-policy">📋 Usage Policy</a>
+            <a href="/">🏠 Back to Dashboard</a>
+        </div>
+
+        <a href="/" class="back-link">← Back to Dashboard</a>
+    </div>
+</body>
+</html>

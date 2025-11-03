@@ -1,0 +1,179 @@
+<!-- Language Switcher Component -->
+<div class="language-switcher-container">
+    <button class="language-button" id="language-button" onclick="toggleLanguageDropdown()">
+        <span id="current-language-display">
+            {% if current_user.is_authenticated and current_user.language %}
+                {{ get_language_display(current_user.language) }}
+            {% else %}
+                🇺🇸 English
+            {% endif %}
+        </span>
+        <span class="dropdown-arrow">▼</span>
+    </button>
+
+    <div class="language-dropdown" id="language-dropdown" style="display: none;">
+        <button class="language-option" onclick="changeLanguage('en')">🇺🇸 English</button>
+        <button class="language-option" onclick="changeLanguage('es')">🇪🇸 Español</button>
+        <button class="language-option" onclick="changeLanguage('fr')">🇫🇷 Français</button>
+        <button class="language-option" onclick="changeLanguage('de')">🇩🇪 Deutsch</button>
+        <button class="language-option" onclick="changeLanguage('zh')">🇨🇳 中文</button>
+        <button class="language-option" onclick="changeLanguage('ja')">🇯🇵 日本語</button>
+        <button class="language-option" onclick="changeLanguage('pt')">🇵🇹 Português</button>
+        <button class="language-option" onclick="changeLanguage('ru')">🇷🇺 Русский</button>
+        <button class="language-option" onclick="changeLanguage('ar')">🇸🇦 العربية</button>
+        <button class="language-option" onclick="changeLanguage('hi')">🇮🇳 हिन्दी</button>
+    </div>
+</div>
+
+<style>
+    .language-switcher-container {
+        position: relative;
+        display: inline-block;
+    }
+
+    .language-button {
+        background: white;
+        border: 1px solid #ddd;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        transition: all 0.2s;
+        color: #2c2d30;
+    }
+
+    .language-button:hover {
+        background: #f5f5f5;
+        border-color: #cd7c48;
+    }
+
+    .dropdown-arrow {
+        font-size: 10px;
+        margin-left: 4px;
+    }
+
+    .language-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        min-width: 200px;
+        max-height: 400px;
+        overflow-y: auto;
+        z-index: 1000;
+    }
+
+    .language-option {
+        width: 100%;
+        padding: 10px 16px;
+        border: none;
+        background: none;
+        text-align: left;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.2s;
+        color: #2c2d30;
+        display: block;
+    }
+
+    .language-option:hover {
+        background: #f5f5f5;
+    }
+
+    .language-option:first-child {
+        border-radius: 6px 6px 0 0;
+    }
+
+    .language-option:last-child {
+        border-radius: 0 0 6px 6px;
+    }
+</style>
+
+<script>
+    function toggleLanguageDropdown() {
+        const dropdown = document.getElementById('language-dropdown');
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(event) {
+        const switcher = event.target.closest('.language-switcher-container');
+        if (!switcher) {
+            document.getElementById('language-dropdown').style.display = 'none';
+        }
+    });
+
+    async function changeLanguage(language) {
+        try {
+            const response = await fetch('/api/language/set', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ language })
+            });
+
+            if (response.ok) {
+                // Show success message
+                showNotification('Language changed successfully!');
+
+                // Reload page after short delay
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+            } else {
+                showNotification('Failed to change language', 'error');
+            }
+        } catch (error) {
+            console.error('Error changing language:', error);
+            showNotification('Failed to change language', 'error');
+        }
+
+        // Close dropdown
+        document.getElementById('language-dropdown').style.display = 'none';
+    }
+
+    function showNotification(message, type = 'success') {
+        const notification = document.createElement('div');
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${type === 'success' ? '#4caf50' : '#f44336'};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 10000;
+            animation: slideIn 0.3s ease-out;
+        `;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => notification.remove(), 300);
+        }, 2000);
+    }
+
+    // Add animations
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+    `;
+    document.head.appendChild(style);
+</script>

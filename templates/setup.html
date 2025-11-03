@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup - DevOps Automation Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .setup-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 50px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .setup-content {
+            margin-bottom: 30px;
+        }
+
+        .setup-content h2 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 15px;
+        }
+
+        .setup-content p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .info-box {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .info-box h3 {
+            color: #667eea;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .info-box ol {
+            margin-left: 20px;
+            color: #666;
+        }
+
+        .info-box li {
+            margin: 5px 0;
+        }
+
+        .info-box a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .info-box a:hover {
+            text-decoration: underline;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            font-family: monospace;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group input::placeholder {
+            color: #999;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #c33;
+            display: none;
+        }
+
+        .success-message {
+            background: #efe;
+            color: #3a3;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #3a3;
+            display: none;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .key-format {
+            font-size: 13px;
+            color: #999;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="logo">
+            <h1>DevOps Automation Agent</h1>
+            <p>Powered by Claude AI</p>
+        </div>
+
+        <div class="setup-content">
+            <h2>Welcome! Let's get started</h2>
+            <p>To use the DevOps Agent, you need an Anthropic API key. This key allows the agent to connect to Claude AI.</p>
+
+            <div class="info-box">
+                <h3>How to get your API key:</h3>
+                <ol>
+                    <li>Visit <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a></li>
+                    <li>Sign up or log in to your account</li>
+                    <li>Navigate to "API Keys" section</li>
+                    <li>Create a new API key</li>
+                    <li>Copy and paste it below</li>
+                </ol>
+            </div>
+        </div>
+
+        <div id="errorMessage" class="error-message"></div>
+        <div id="successMessage" class="success-message"></div>
+
+        <form id="setupForm" onsubmit="submitApiKey(event)">
+            <div class="form-group">
+                <label for="apiKey">Anthropic API Key</label>
+                <input
+                    type="password"
+                    id="apiKey"
+                    name="apiKey"
+                    placeholder="sk-ant-api03-..."
+                    required
+                    autocomplete="off"
+                />
+                <div class="key-format">Format: sk-ant-api03-...</div>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" id="submitBtn" class="btn-primary">
+                    Configure & Start
+                </button>
+            </div>
+        </form>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+            <p style="color: #999; font-size: 13px; text-align: center;">
+                Your API key is stored securely in config/.env and never shared.<br>
+                You can change it anytime by editing the file directly.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        async function submitApiKey(event) {
+            event.preventDefault();
+
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const submitBtn = document.getElementById('submitBtn');
+            const errorMsg = document.getElementById('errorMessage');
+            const successMsg = document.getElementById('successMessage');
+
+            // Hide previous messages
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            // Basic validation
+            if (!apiKey.startsWith('sk-ant-')) {
+                showError('Invalid API key format. Anthropic keys start with "sk-ant-"');
+                return;
+            }
+
+            // Disable button and show loading
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Configuring...';
+
+            try {
+                const response = await fetch('/setup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showSuccess('API key configured successfully! Redirecting...');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1500);
+                } else {
+                    showError(data.error || 'Failed to configure API key');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Configure & Start';
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Configure & Start';
+            }
+        }
+
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMessage');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+        }
+
+        function showSuccess(message) {
+            const successMsg = document.getElementById('successMessage');
+            successMsg.textContent = message;
+            successMsg.style.display = 'block';
+        }
+
+        // Toggle password visibility
+        document.getElementById('apiKey').addEventListener('dblclick', function() {
+            this.type = this.type === 'password' ? 'text' : 'password';
+        });
+    </script>
+</body>
+</html>

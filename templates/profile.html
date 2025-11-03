@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile - DevOps Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f7f7f8;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: white;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .logo-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            border: none;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #2c2d30;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e5e5;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 48px 24px;
+        }
+
+        .profile-header {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .profile-top {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .avatar-large {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 32px;
+            font-weight: 700;
+            background: {{ user.avatar_color }};
+            flex-shrink: 0;
+        }
+
+        .profile-info h1 {
+            font-size: 24px;
+            color: #2c2d30;
+            margin-bottom: 4px;
+        }
+
+        .profile-info .username {
+            font-size: 16px;
+            color: #6e6e80;
+            margin-bottom: 8px;
+        }
+
+        .profile-stats {
+            display: flex;
+            gap: 24px;
+            font-size: 14px;
+            color: #6e6e80;
+        }
+
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c2d30;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #2c2d30;
+            font-weight: 500;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid #e5e5e5;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #cd7c48;
+            box-shadow: 0 0 0 3px rgba(205, 124, 72, 0.1);
+        }
+
+        input:disabled {
+            background: #f7f7f8;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(205, 124, 72, 0.3);
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+
+        .color-picker-group {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .color-preview {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            border: 2px solid #e5e5e5;
+        }
+
+        input[type="color"] {
+            width: 100px;
+            height: 48px;
+            border: 2px solid #e5e5e5;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: #6e6e80;
+            font-size: 14px;
+        }
+
+        .info-value {
+            color: #2c2d30;
+            font-size: 14px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo-section">
+            <div class="logo-icon">D</div>
+            <span class="logo-text">DevOps Agent</span>
+        </div>
+        <div class="header-actions">
+            <a href="/chat" class="btn btn-secondary">Back to Chat</a>
+            <a href="/logout" class="btn btn-secondary">Logout</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="profile-header">
+            <div class="profile-top">
+                <div class="avatar-large" style="background: {{ user.avatar_color }};">
+                    {{ user.get_avatar_initials() }}
+                </div>
+                <div class="profile-info">
+                    <h1>{{ user.full_name or user.username }}</h1>
+                    <div class="username">@{{ user.username }}</div>
+                    <div class="profile-stats">
+                        <span>Member since {{ user.created_at.strftime('%B %Y') if user.created_at else 'N/A' }}</span>
+                        {% if user.last_login %}
+                        <span>Last login: {{ user.last_login.strftime('%b %d, %Y') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if success %}
+        <div class="alert alert-success">{{ success }}</div>
+        {% endif %}
+
+        <form method="POST" action="/profile">
+            <div class="section">
+                <h2 class="section-title">Personal Information</h2>
+
+                <div class="form-group">
+                    <label for="full_name">Full Name</label>
+                    <input
+                        type="text"
+                        id="full_name"
+                        name="full_name"
+                        value="{{ user.full_name or '' }}"
+                        placeholder="Your full name"
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        value="{{ user.email }}"
+                        disabled
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input
+                        type="text"
+                        id="username"
+                        name="username"
+                        value="{{ user.username }}"
+                        disabled
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label for="bio">Bio</label>
+                    <textarea
+                        id="bio"
+                        name="bio"
+                        placeholder="Tell us about yourself..."
+                    >{{ user.bio or '' }}</textarea>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2 class="section-title">Appearance</h2>
+
+                <div class="form-group">
+                    <label for="avatar_color">Avatar Color</label>
+                    <div class="color-picker-group">
+                        <div class="color-preview" id="colorPreview" style="background: {{ user.avatar_color }};"></div>
+                        <input
+                            type="color"
+                            id="avatar_color"
+                            name="avatar_color"
+                            value="{{ user.avatar_color }}"
+                        />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="theme">Theme</label>
+                    <select
+                        id="theme"
+                        name="theme"
+                        style="width: 100%; padding: 10px 14px; border: 2px solid #e5e5e5; border-radius: 8px; font-size: 15px;"
+                    >
+                        <option value="light" {% if user.theme == 'light' %}selected{% endif %}>Light</option>
+                        <option value="dark" {% if user.theme == 'dark' %}selected{% endif %}>Dark</option>
+                    </select>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">Save Changes</button>
+        </form>
+
+        <div class="section">
+            <h2 class="section-title">Account Information</h2>
+            <div class="info-row">
+                <span class="info-label">Account ID</span>
+                <span class="info-value">{{ user.id }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Created</span>
+                <span class="info-value">{{ user.created_at.strftime('%B %d, %Y at %I:%M %p') if user.created_at else 'N/A' }}</span>
+            </div>
+            {% if user.last_login %}
+            <div class="info-row">
+                <span class="info-label">Last Login</span>
+                <span class="info-value">{{ user.last_login.strftime('%B %d, %Y at %I:%M %p') }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        // Update color preview
+        document.getElementById('avatar_color').addEventListener('input', function(e) {
+            document.getElementById('colorPreview').style.background = e.target.value;
+        });
+    </script>
+</body>
+</html>
