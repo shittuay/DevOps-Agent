@@ -153,7 +153,7 @@ Webhooks allow Stripe to notify your application about payment events.
 
 4. The CLI will output a webhook signing secret (starts with `whsec_`). Copy this and add to your `.env`:
    ```bash
-   STRIPE_WEBHOOK_SECRET=whsec_1234567890abcdefghijklmnopqrstuvwxyz
+   STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_from_stripe_cli
    ```
 
 ### For Production (Using Stripe Dashboard)
