@@ -49,6 +49,10 @@ itsdangerous==2.2.0
 blinker==1.9.0
 GitPython==3.1.43
 
+# CI/CD & DevOps Tools
+PyGithub==2.5.0
+python-jenkins==1.8.2
+
 # Date/Time
 python-dateutil==2.9.0.post0
 pytz==2025.1
