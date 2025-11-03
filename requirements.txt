@@ -47,6 +47,7 @@ Jinja2==3.1.6
 MarkupSafe==3.0.2
 itsdangerous==2.2.0
 blinker==1.9.0
+GitPython==3.1.43
 
 # Date/Time
 python-dateutil==2.9.0.post0
