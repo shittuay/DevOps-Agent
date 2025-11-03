@@ -88,6 +88,8 @@ limiter = Limiter(
 # Security logging
 security_logger = logging.getLogger('security')
 security_logger.setLevel(logging.INFO)
+# Create logs directory if it doesn't exist
+os.makedirs('logs', exist_ok=True)
 security_handler = logging.FileHandler('logs/security.log')
 security_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 security_logger.addHandler(security_handler)
