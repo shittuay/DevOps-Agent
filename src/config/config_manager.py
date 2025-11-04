@@ -111,7 +111,7 @@ class ConfigManager:
                     'dd if='
                 ],
                 'dry_run_default': False,
-                'command_timeout_seconds': 300
+                'command_timeout_seconds': 1800  # 30 minutes for long-running operations
             },
             'logging': {
                 'file': 'logs/agent.log',
