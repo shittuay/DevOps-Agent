@@ -1901,6 +1901,78 @@ def health():
     })
 
 
+@app.route('/init-database-secret-endpoint-12345', methods=['GET'])
+def init_database():
+    """Initialize database tables (one-time setup for production)."""
+    try:
+        db.create_all()
+
+        # Also initialize subscription tiers if they don't exist
+        from models import SubscriptionTier
+
+        if SubscriptionTier.query.count() == 0:
+            # Create default subscription tiers
+            free_tier = SubscriptionTier(
+                name='free',
+                display_name='Free',
+                monthly_credits=10,
+                monthly_price=0.0,
+                features={'basic_chat': True},
+                is_active=True
+            )
+
+            starter_tier = SubscriptionTier(
+                name='starter',
+                display_name='Starter',
+                monthly_credits=100,
+                monthly_price=9.99,
+                features={'basic_chat': True, 'aws_tools': True},
+                is_active=True
+            )
+
+            pro_tier = SubscriptionTier(
+                name='professional',
+                display_name='Professional',
+                monthly_credits=500,
+                monthly_price=29.99,
+                features={'basic_chat': True, 'aws_tools': True, 'gcp_tools': True, 'k8s_tools': True},
+                is_active=True
+            )
+
+            business_tier = SubscriptionTier(
+                name='business',
+                display_name='Business',
+                monthly_credits=2000,
+                monthly_price=99.99,
+                features={'basic_chat': True, 'aws_tools': True, 'gcp_tools': True, 'k8s_tools': True, 'priority_support': True},
+                is_active=True
+            )
+
+            db.session.add_all([free_tier, starter_tier, pro_tier, business_tier])
+            db.session.commit()
+
+            return jsonify({
+                'success': True,
+                'message': 'Database initialized successfully with subscription tiers!',
+                'tables_created': True,
+                'tiers_created': 4
+            })
+
+        return jsonify({
+            'success': True,
+            'message': 'Database tables initialized!',
+            'tables_created': True,
+            'tiers_already_exist': True
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("DevOps Automation Agent - Web Interface")
