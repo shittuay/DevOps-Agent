@@ -2,6 +2,7 @@
 import anthropic
 from typing import List, Dict, Any, Optional, Callable
 import json
+from datetime import datetime
 
 from ..config import ConfigManager
 from ..utils import get_logger, log_operation
@@ -184,7 +185,25 @@ Please use these preferences to provide personalized assistance:
             except anthropic.APIError as e:
                 error_msg = f"Claude API error: {str(e)}"
                 self.logger.error(error_msg)
-                return f"❌ Error communicating with Claude: {str(e)}"
+
+                # Check if it's a conversation history corruption error
+                if "unexpected tool_use_id" in str(e) or "tool_result" in str(e):
+                    self.logger.warning("Conversation history corrupted. Clearing and retrying...")
+                    # Save the original user message
+                    last_user_msg = self.conversation.messages[-1] if self.conversation.messages else None
+
+                    # Clear conversation history
+                    self.conversation.clear_history()
+
+                    # Re-add just the last user message if we had one
+                    if last_user_msg and last_user_msg.role == 'user':
+                        self.conversation.messages.append(last_user_msg)
+
+                    # Retry once with clean history
+                    if iteration == 1:  # Only retry on first iteration
+                        continue
+
+                return f"❌ Error communicating with Claude: {str(e)}\n\nThe conversation was reset due to a synchronization error. Please try your request again."
 
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
@@ -277,6 +296,47 @@ Please use these preferences to provide personalized assistance:
         """Clear conversation history."""
         self.conversation.clear_history()
         self.logger.info("Conversation history cleared")
+
+    def reset_conversation_with_diagnostics(self) -> Dict[str, Any]:
+        """
+        Force reset conversation with full diagnostics.
+
+        This is more aggressive than clear_conversation() and provides
+        diagnostic information about the state before reset.
+
+        Returns:
+            Dictionary with diagnostic information
+        """
+        # Gather diagnostics before clearing
+        diagnostics = {
+            'messages_count': len(self.conversation.messages),
+            'session_duration_seconds': (datetime.utcnow() - self.conversation.session_start).total_seconds(),
+            'had_tool_results': False,
+            'had_tool_uses': False,
+            'message_roles': []
+        }
+
+        # Analyze message structure
+        for msg in self.conversation.messages:
+            diagnostics['message_roles'].append(msg.role)
+            for block in msg.content:
+                if isinstance(block, dict):
+                    if block.get('type') == 'tool_result':
+                        diagnostics['had_tool_results'] = True
+                    elif block.get('type') == 'tool_use':
+                        diagnostics['had_tool_uses'] = True
+
+        # Clear conversation
+        self.conversation.clear_history()
+
+        self.logger.warning(
+            f"Conversation forcefully reset. Diagnostics: "
+            f"{diagnostics['messages_count']} messages, "
+            f"tool_uses={diagnostics['had_tool_uses']}, "
+            f"tool_results={diagnostics['had_tool_results']}"
+        )
+
+        return diagnostics
 
     def get_conversation_summary(self) -> Dict[str, Any]:
         """
