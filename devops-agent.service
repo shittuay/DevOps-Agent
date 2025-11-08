@@ -1,0 +1,17 @@
+[Unit]
+Description=DevOps Agent Gunicorn Service
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/var/www/devops-agent
+Environment="PATH=/var/www/devops-agent/venv/bin"
+EnvironmentFile=/var/www/devops-agent/.env
+ExecStart=/var/www/devops-agent/venv/bin/gunicorn --workers 4 --bind 127.0.0.1:8000 --timeout 300 app:app
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

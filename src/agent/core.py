@@ -2,6 +2,7 @@
 import anthropic
 from typing import List, Dict, Any, Optional, Callable
 import json
+import time
 from datetime import datetime
 
 from ..config import ConfigManager
@@ -146,7 +147,7 @@ Please use these preferences to provide personalized assistance:
                 # Build system prompt with user preferences if provided
                 system_prompt = self._build_system_prompt(user_preferences_context)
 
-                # Call Claude API
+                # Call Claude API with streaming to prevent timeouts
                 api_params = {
                     'model': self.config.claude_model,
                     'max_tokens': self.config.claude_max_tokens,
@@ -159,7 +160,11 @@ Please use these preferences to provide personalized assistance:
                 if system_prompt:
                     api_params['system'] = system_prompt
 
-                response = self.client.messages.create(**api_params)
+                # Use streaming to prevent network timeouts on long requests
+                with self.client.messages.stream(**api_params) as stream:
+                    # The stream context manager handles all the event processing
+                    # and assembles the final message for us
+                    response = stream.get_final_message()
 
                 # Add assistant's response to conversation
                 self.conversation.add_assistant_message(response.content)
@@ -182,9 +187,18 @@ Please use these preferences to provide personalized assistance:
                     self.logger.warning(f"Unexpected stop reason: {response.stop_reason}")
                     return self._extract_text_from_response(response.content)
 
-            except anthropic.APIError as e:
-                error_msg = f"Claude API error: {str(e)}"
+            except anthropic.RateLimitError as e:
+                error_msg = f"Rate limit exceeded: {str(e)}"
+                self.logger.warning(error_msg)
+                return "⏸️ Rate limit reached. The API is automatically retrying, but please wait a moment before making another request.\n\nTip: Try combining multiple operations into a single request to reduce API calls."
+
+            except anthropic.APIStatusError as e:
+                error_msg = f"Claude API status error: {e.status_code} - {str(e)}"
                 self.logger.error(error_msg)
+
+                # Check if it's a temporary server error
+                if e.status_code in [500, 502, 503, 504]:
+                    return f"⚠️ Temporary API issue (status {e.status_code}). The API is experiencing issues on Anthropic's side. Please try again in a few moments."
 
                 # Check if it's a conversation history corruption error
                 if "unexpected tool_use_id" in str(e) or "tool_result" in str(e):
@@ -204,6 +218,11 @@ Please use these preferences to provide personalized assistance:
                         continue
 
                 return f"❌ Error communicating with Claude: {str(e)}\n\nThe conversation was reset due to a synchronization error. Please try your request again."
+
+            except anthropic.APIError as e:
+                error_msg = f"Claude API error: {str(e)}"
+                self.logger.error(error_msg)
+                return f"❌ Error communicating with Claude: {str(e)}"
 
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
@@ -275,6 +294,9 @@ Please use these preferences to provide personalized assistance:
                 sanitized_result = self.safety_validator.sanitize_output(result_str)
                 self.conversation.add_tool_result(tool_use_id, sanitized_result)
 
+                # Add small delay to help with rate limiting
+                time.sleep(0.5)
+
     def _extract_text_from_response(self, content: List[Dict[str, Any]]) -> str:
         """
         Extract text from Claude's response content.
@@ -320,11 +342,11 @@ Please use these preferences to provide personalized assistance:
         for msg in self.conversation.messages:
             diagnostics['message_roles'].append(msg.role)
             for block in msg.content:
-                if isinstance(block, dict):
-                    if block.get('type') == 'tool_result':
-                        diagnostics['had_tool_results'] = True
-                    elif block.get('type') == 'tool_use':
-                        diagnostics['had_tool_uses'] = True
+                block_type = block.get('type') if isinstance(block, dict) else getattr(block, 'type', None)
+                if block_type == 'tool_result':
+                    diagnostics['had_tool_results'] = True
+                elif block_type == 'tool_use':
+                    diagnostics['had_tool_uses'] = True
 
         # Clear conversation
         self.conversation.clear_history()

@@ -10,7 +10,7 @@ Your Stripe payment integration has been successfully set up and is ready to use
 
 ### ✓ 2. Environment Configuration
 - Stripe API keys configured in `config/.env`
-- Secret key: `sk_live_51QpAhyBm973hpEK8...`
+- Secret key: `sk_live_51QpAhyBm973C...`
 - Base URL set for redirects: `http://localhost:5000`
 - Price ID placeholders ready for your products
 

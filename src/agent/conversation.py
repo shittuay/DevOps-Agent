@@ -116,18 +116,27 @@ class ConversationManager:
         for i in range(cutoff_index, min(cutoff_index + 5, len(self.messages))):
             msg = self.messages[i]
             # If this is a user message with tool_result, we need to keep the previous assistant message
-            if msg.role == 'user' and any(block.get('type') == 'tool_result' for block in msg.content):
+            if msg.role == 'user' and any(
+                (block.get('type') if isinstance(block, dict) else getattr(block, 'type', None)) == 'tool_result'
+                for block in msg.content
+            ):
                 # Find the previous assistant message with tool_use
                 for j in range(i - 1, max(0, i - 10), -1):
                     if self.messages[j].role == 'assistant':
                         # Check if it has tool_use
-                        has_tool_use = any(block.get('type') == 'tool_use' for block in self.messages[j].content)
+                        has_tool_use = any(
+                            (block.get('type') if isinstance(block, dict) else getattr(block, 'type', None)) == 'tool_use'
+                            for block in self.messages[j].content
+                        )
                         if has_tool_use:
                             safe_cutoff = j
                             break
                 break
             # If this is a safe boundary (user text message), we can cut here
-            elif msg.role == 'user' and all(block.get('type') == 'text' for block in msg.content):
+            elif msg.role == 'user' and all(
+                (block.get('type') if isinstance(block, dict) else getattr(block, 'type', None)) == 'text'
+                for block in msg.content
+            ):
                 safe_cutoff = i
                 break
 
