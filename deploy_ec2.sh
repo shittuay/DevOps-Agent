@@ -19,7 +19,7 @@ fi
 # Configuration
 APP_DIR="/var/www/devops-agent"
 APP_USER="ubuntu"
-PYTHON_VERSION="python3.11"
+PYTHON_VERSION="python3"
 
 echo "Step 1: Updating system packages..."
 sudo apt update && sudo apt upgrade -y
@@ -27,8 +27,8 @@ sudo apt update && sudo apt upgrade -y
 echo ""
 echo "Step 2: Installing system dependencies..."
 sudo apt install -y \
-    python3.11 \
-    python3.11-venv \
+    python3 \
+    python3-venv \
     python3-pip \
     postgresql \
     postgresql-contrib \
