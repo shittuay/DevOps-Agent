@@ -23,7 +23,8 @@ from src.tools import (
     gcp_tools,
     kubernetes_tools,
     git_tools,
-    cicd_tools
+    cicd_tools,
+    pentest_tools
 )
 
 # Import database models
@@ -126,13 +127,47 @@ if database_url:
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+    }
 else:
-    # Development: use SQLite
+    # Development: use SQLite with optimizations for concurrency
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///devops_agent.db'
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'connect_args': {
+            'timeout': 30,  # 30 second timeout for database locks
+            'check_same_thread': False,  # Allow multiple threads
+        },
+        'pool_pre_ping': True,
+        'pool_size': 10,
+        'max_overflow': 20,
+    }
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize database
 db.init_app(app)
+
+# Configure SQLite for better concurrency (WAL mode)
+if not database_url:  # Only for SQLite
+    @app.before_first_request
+    def enable_sqlite_wal_mode():
+        """Enable Write-Ahead Logging mode for SQLite to reduce lock contention."""
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        @event.listens_for(Engine, "connect")
+        def set_sqlite_pragma(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
+
+        # Trigger the event by creating a connection
+        with app.app_context():
+            db.engine.connect()
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -143,6 +178,41 @@ login_manager.login_message = 'Please log in to access this page.'
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+# Ensure proper database session cleanup
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    """Remove database sessions at the end of the request or when the application shuts down."""
+    if exception:
+        db.session.rollback()
+    try:
+        db.session.remove()
+    except Exception:
+        pass
+
+# Error handler for database errors
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle uncaught exceptions and ensure database rollback."""
+    # Rollback database session on error
+    db.session.rollback()
+
+    # Log the error
+    app.logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
+
+    # For database-specific errors, provide helpful message
+    if 'database is locked' in str(e).lower():
+        return jsonify({
+            'error': 'Database is temporarily busy. Please try again in a moment.',
+            'details': 'The system is processing another request. This usually resolves quickly.'
+        }), 503
+
+    # For other errors in API endpoints, return JSON
+    if request.path.startswith('/api/') or request.path.startswith('/chat'):
+        return jsonify({'error': 'An internal error occurred. Please try again.'}), 500
+
+    # For page requests, render error template or return error message
+    return f"An error occurred: {str(e)}", 500
 
 # Global agent instance
 agent = None
@@ -309,6 +379,11 @@ def initialize_agent():
         agent.register_tools_from_module(git_tools)
         if config_manager.jenkins_enabled or config_manager.github_enabled:
             agent.register_tools_from_module(cicd_tools)
+
+        # Register Penetration Testing tools if enabled
+        if config_manager.get('pentest.enabled', False):
+            agent.register_tools_from_module(pentest_tools)
+            logger.info("Penetration testing tools enabled - ensure authorized usage")
 
         logger.info(f"Agent initialized with {len(agent.list_available_tools())} tools")
 

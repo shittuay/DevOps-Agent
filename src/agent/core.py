@@ -25,7 +25,16 @@ class DevOpsAgent:
         self.logger = get_logger(__name__)
         self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
         self.conversation = ConversationManager()
-        self.safety_validator = SafetyValidator(config.dangerous_commands)
+
+        # Initialize SafetyValidator with pentest configuration
+        pentest_config = {
+            'enabled': config.get('pentest.enabled', False),
+            'require_confirmation': config.get('pentest.require_confirmation', True),
+            'whitelisted_targets': config.get('pentest.whitelisted_targets', []),
+            'max_scan_intensity': config.get('pentest.max_scan_intensity', 4),
+            'prohibited_scan_types': config.get('pentest.prohibited_scan_types', [])
+        }
+        self.safety_validator = SafetyValidator(config.dangerous_commands, pentest_config)
         self.tools: Dict[str, Callable] = {}
         self.tool_definitions: List[Dict[str, Any]] = []
 

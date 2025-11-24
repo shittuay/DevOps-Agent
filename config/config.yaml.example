@@ -41,7 +41,7 @@ safety:
     - "dd if="
     - "> /dev/sda"
   dry_run_default: false
-  command_timeout_seconds: 300
+  command_timeout_seconds: 1800
 
 logging:
   file: "logs/agent.log"
@@ -49,3 +49,42 @@ logging:
   max_size_mb: 100
   backup_count: 5
   console_output: true
+
+pentest:
+  enabled: true
+  require_confirmation: true
+  max_scan_intensity: 4
+  prohibited_scan_types:
+    - "dos"
+    - "flood"
+    - "exploit"
+  whitelisted_targets:
+    - "192.168.1.0/24"
+    - "10.0.0.0/8"
+    - "localhost"
+    - "127.0.0.1"
+    - "example.com"
+  audit_log_file: "logs/pentest_audit.log"
+  tools:
+    nmap:
+      enabled: true
+      max_timeout_seconds: 1800
+    nikto:
+      enabled: true
+    sqlmap:
+      enabled: true
+      max_risk_level: 2
+    xss_scanner:
+      enabled: true
+    ssl_scanner:
+      enabled: true
+  cloud_audit:
+    aws:
+      enabled: true
+      regions: ["us-east-1", "us-west-2"]
+    azure:
+      enabled: false
+    gcp:
+      enabled: false
+    kubernetes:
+      enabled: true

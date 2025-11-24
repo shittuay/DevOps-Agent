@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -20,7 +21,8 @@ from src.tools import (
     aws_tools,
     kubernetes_tools,
     git_tools,
-    cicd_tools
+    cicd_tools,
+    pentest_tools
 )
 
 
@@ -92,6 +94,12 @@ def initialize_agent(config_path=None, env_path=None):
         if config.jenkins_enabled or config.github_enabled:
             agent.register_tools_from_module(cicd_tools)
             console.print("[green]✓[/green] CI/CD tools loaded")
+
+        # Register Penetration Testing tools if enabled
+        if config.get('pentest.enabled', False):
+            agent.register_tools_from_module(pentest_tools)
+            console.print("[green]✓[/green] Penetration testing tools loaded")
+            console.print("[yellow]⚠[/yellow]  Ensure you have authorization before scanning targets")
 
         logger.info(f"Agent initialized with {len(agent.list_available_tools())} tools")
 
@@ -220,6 +228,7 @@ def ask(message, config, env):
     response = agent.process_message(message)
 
     # Display response
+    
     console.print(Panel(
         Markdown(response),
         title="[bold green]Agent Response[/bold green]",

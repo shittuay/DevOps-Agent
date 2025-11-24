@@ -66,14 +66,32 @@ class SafetyValidator:
         r'\brollback\b',
     ]
 
-    def __init__(self, dangerous_commands: Optional[List[str]] = None):
+    # Pentest tool patterns (require additional authorization)
+    PENTEST_TOOL_PATTERNS = [
+        r'\bnmap\b',
+        r'\bnikto\b',
+        r'\bsqlmap\b',
+        r'\bmetasploit\b',
+        r'\bburp\b',
+        r'\bzap\b',
+        r'\bhydra\b',
+        r'\bjohn\b',
+        r'\bhashcat\b',
+        r'\bwpscan\b',
+        r'\bwireshark\b',
+        r'\btcpdump\b',
+    ]
+
+    def __init__(self, dangerous_commands: Optional[List[str]] = None, pentest_config: Optional[Dict[str, Any]] = None):
         """
         Initialize safety validator.
 
         Args:
             dangerous_commands: List of dangerous command patterns
+            pentest_config: Penetration testing configuration
         """
         self.dangerous_commands = dangerous_commands or []
+        self.pentest_config = pentest_config or {}
 
     def validate_command(self, command: str) -> ValidationResult:
         """
@@ -105,6 +123,25 @@ class SafetyValidator:
                     reason=f"Command matches destructive pattern: {pattern}",
                     requires_confirmation=False,
                     risk_level='critical'
+                )
+
+        # Check pentest tool patterns
+        for pattern in self.PENTEST_TOOL_PATTERNS:
+            if re.search(pattern, command_lower):
+                pentest_enabled = self.pentest_config.get('enabled', False)
+                if not pentest_enabled:
+                    return ValidationResult(
+                        is_safe=False,
+                        reason=f"Penetration testing tools disabled in configuration",
+                        requires_confirmation=False,
+                        risk_level='critical'
+                    )
+
+                return ValidationResult(
+                    is_safe=True,
+                    reason=f"Command uses penetration testing tool - requires authorization",
+                    requires_confirmation=True,
+                    risk_level='high'
                 )
 
         # Check high-risk patterns
@@ -140,6 +177,22 @@ class SafetyValidator:
         Returns:
             ValidationResult with safety assessment
         """
+        # Define penetration testing tools (require explicit authorization)
+        pentest_tools = {
+            'nmap_port_scan',
+            'nmap_service_detection',
+            'nikto_web_scan',
+            'ssl_scan',
+            'sqlmap_scan',
+            'xss_scan',
+            'zap_spider_scan',
+            'quick_vulnerability_scan',
+            'aws_security_audit',
+            'azure_security_audit',
+            'gcp_security_audit',
+            'kubernetes_security_audit',
+        }
+
         # Define tool risk levels
         high_risk_tools = {
             'execute_command',
@@ -155,6 +208,27 @@ class SafetyValidator:
             'update_resource',
             'apply_configuration',
         }
+
+        # Check if tool is a pentest tool
+        if tool_name in pentest_tools:
+            pentest_enabled = self.pentest_config.get('enabled', False)
+            if not pentest_enabled:
+                return ValidationResult(
+                    is_safe=False,
+                    reason=f"Penetration testing disabled in configuration",
+                    requires_confirmation=False,
+                    risk_level='critical'
+                )
+
+            # Check if target is provided and validate it
+            target = tool_input.get('target') or tool_input.get('target_url', '')
+
+            return ValidationResult(
+                is_safe=True,
+                reason=f"Penetration testing tool '{tool_name}' - ensure target authorization",
+                requires_confirmation=self.pentest_config.get('require_confirmation', True),
+                risk_level='high'
+            )
 
         # Check if tool is high risk
         if tool_name in high_risk_tools:

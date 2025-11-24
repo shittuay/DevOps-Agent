@@ -12,6 +12,7 @@ from . import docker_tools
 from . import terraform_tools
 from . import sonarqube_tools
 from . import monitoring_tools
+from . import pentest_tools
 
 __all__ = [
     'command_tools',
@@ -25,4 +26,5 @@ __all__ = [
     'terraform_tools',
     'sonarqube_tools',
     'monitoring_tools',
+    'pentest_tools',
 ]

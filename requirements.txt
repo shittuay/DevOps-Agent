@@ -60,5 +60,9 @@ pytz==2025.1
 # XML/HTML Processing (for some AWS operations)
 lxml==5.3.0
 
+# Penetration Testing & Security
+python-nmap==0.7.1
+scapy==2.5.0
+
 # Other Dependencies
 typing_extensions==4.12.2

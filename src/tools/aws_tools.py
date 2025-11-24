@@ -56,26 +56,68 @@ def get_ec2_instances(
         instances = []
         for reservation in response['Reservations']:
             for instance in reservation['Instances']:
-                # Extract key information
+                # Extract comprehensive information
                 tags = {tag['Key']: tag['Value'] for tag in instance.get('Tags', [])}
 
-                instances.append({
+                # Build comprehensive instance details
+                inst_details = {
+                    # Basic Details
                     'instance_id': instance['InstanceId'],
                     'instance_type': instance['InstanceType'],
-                    'state': instance['State']['Name'],
-                    'private_ip': instance.get('PrivateIpAddress', 'N/A'),
-                    'public_ip': instance.get('PublicIpAddress', 'N/A'),
+                    'ami_id': instance['ImageId'],
                     'launch_time': instance['LaunchTime'].isoformat(),
                     'availability_zone': instance['Placement']['AvailabilityZone'],
+                    'platform': instance.get('Platform', 'Linux/UNIX'),
+                    'architecture': instance.get('Architecture', 'x86_64'),
+                    'virtualization_type': instance.get('VirtualizationType', 'hvm'),
+
+                    # Status
+                    'state': instance['State']['Name'],
+                    'state_code': instance['State']['Code'],
+                    'monitoring_state': instance['Monitoring']['State'],
+
+                    # Networking
+                    'vpc_id': instance.get('VpcId', 'EC2-Classic'),
+                    'subnet_id': instance.get('SubnetId', 'N/A'),
+                    'private_ip': instance.get('PrivateIpAddress', 'N/A'),
+                    'private_dns': instance.get('PrivateDnsName', 'N/A'),
+                    'public_ip': instance.get('PublicIpAddress', 'N/A'),
+                    'public_dns': instance.get('PublicDnsName', 'N/A'),
+
+                    # Security
+                    'security_groups': [
+                        {'id': sg['GroupId'], 'name': sg['GroupName']}
+                        for sg in instance.get('SecurityGroups', [])
+                    ],
+                    'key_pair': instance.get('KeyName', 'No key pair'),
+                    'iam_role': instance.get('IamInstanceProfile', {}).get('Arn', 'No IAM role'),
+
+                    # Storage
+                    'root_device_type': instance.get('RootDeviceType', 'ebs'),
+                    'root_device_name': instance.get('RootDeviceName', '/dev/xvda'),
+                    'block_devices': [
+                        {
+                            'device_name': bd['DeviceName'],
+                            'volume_id': bd['Ebs']['VolumeId'],
+                            'status': bd['Ebs']['Status'],
+                            'delete_on_termination': bd['Ebs']['DeleteOnTermination'],
+                        } for bd in instance.get('BlockDeviceMappings', [])
+                    ],
+                    'ebs_optimized': instance.get('EbsOptimized', False),
+
+                    # Tags
                     'tags': tags,
-                    'name': tags.get('Name', 'N/A')
-                })
+                    'name': tags.get('Name', 'N/A'),
+                }
+
+                instances.append(inst_details)
 
         return {
             'success': True,
             'count': len(instances),
             'instances': instances,
-            'region': region or 'default'
+            'region': region or 'default',
+            'message': f'Found {len(instances)} EC2 instance(s)'
         }
 
     except ClientError as e:
@@ -486,10 +528,11 @@ def create_ec2_instance(
     subnet_id: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
     user_data: Optional[str] = None,
-    region: Optional[str] = None
+    region: Optional[str] = None,
+    count: int = 1
 ) -> Dict[str, Any]:
     """
-    Create a new EC2 instance.
+    Create EC2 instance(s).
 
     Args:
         ami_id: AMI ID to use (e.g., ami-0c55b159cbfafe1f0)
@@ -500,19 +543,30 @@ def create_ec2_instance(
         tags: Dictionary of tags to apply
         user_data: User data script
         region: AWS region
+        count: Number of instances to create (default: 1, max: 10)
 
     Returns:
         Dictionary with created instance information
     """
     try:
+        # Validate count
+        if count < 1 or count > 10:
+            return {
+                'success': False,
+                'error': 'Invalid count',
+                'message': 'Count must be between 1 and 10'
+            }
+
+        logger.info(f"Creating {count} EC2 instance(s) of type {instance_type}")
+
         ec2 = _get_boto_client('ec2', region)
 
         # Build launch parameters
         launch_params = {
             'ImageId': ami_id,
             'InstanceType': instance_type,
-            'MinCount': 1,
-            'MaxCount': 1
+            'MinCount': count,
+            'MaxCount': count
         }
 
         if key_name:
@@ -527,29 +581,157 @@ def create_ec2_instance(
         if user_data:
             launch_params['UserData'] = user_data
 
-        # Launch instance
+        # Launch instance(s)
         response = ec2.run_instances(**launch_params)
-        instance = response['Instances'][0]
-        instance_id = instance['InstanceId']
+        instances = response['Instances']
+
+        instance_ids = [inst['InstanceId'] for inst in instances]
+
+        logger.info(f"Successfully created {len(instance_ids)} EC2 instance(s): {', '.join(instance_ids)}")
 
         # Apply tags if provided
-        if tags:
+        if tags and instance_ids:
             tag_specifications = [{'Key': k, 'Value': v} for k, v in tags.items()]
             ec2.create_tags(
-                Resources=[instance_id],
+                Resources=instance_ids,
                 Tags=tag_specifications
             )
 
-        return {
-            'success': True,
-            'instance_id': instance_id,
-            'instance_type': instance_type,
-            'ami_id': ami_id,
-            'state': instance['State']['Name'],
-            'private_ip': instance.get('PrivateIpAddress', 'Pending'),
-            'message': f'Successfully created EC2 instance {instance_id}',
-            'region': region or 'default'
-        }
+        # Wait a moment for instance to initialize and fetch full details
+        import time
+        time.sleep(2)  # Brief wait for AWS to populate all fields
+
+        # Fetch complete instance details
+        detailed_instances = ec2.describe_instances(InstanceIds=instance_ids)
+
+        # Return information about created instances
+        if count == 1:
+            # Single instance - return comprehensive details
+            instance = detailed_instances['Reservations'][0]['Instances'][0]
+
+            # Extract all comprehensive details
+            details = {
+                'success': True,
+                'message': f'Successfully created EC2 instance {instance["InstanceId"]}',
+                'region': region or ec2.meta.region_name,
+
+                # DETAILS Section
+                'details': {
+                    'instance_id': instance['InstanceId'],
+                    'instance_type': instance['InstanceType'],
+                    'ami_id': instance['ImageId'],
+                    'launch_time': instance['LaunchTime'].isoformat(),
+                    'availability_zone': instance['Placement']['AvailabilityZone'],
+                    'platform': instance.get('Platform', 'Linux/UNIX'),
+                    'architecture': instance.get('Architecture', 'x86_64'),
+                    'virtualization_type': instance.get('VirtualizationType', 'hvm'),
+                    'hypervisor': instance.get('Hypervisor', 'xen'),
+                    'root_device_type': instance.get('RootDeviceType', 'ebs'),
+                    'root_device_name': instance.get('RootDeviceName', '/dev/xvda'),
+                },
+
+                # STATUS AND ALARMS Section
+                'status': {
+                    'instance_state': instance['State']['Name'],
+                    'instance_state_code': instance['State']['Code'],
+                    'monitoring_state': instance['Monitoring']['State'],
+                    'status_checks': 'Initializing',  # Will be available after a few minutes
+                    'scheduled_events': 'No scheduled events',
+                },
+
+                # MONITORING Section
+                'monitoring': {
+                    'monitoring_enabled': instance['Monitoring']['State'] == 'enabled',
+                    'detailed_monitoring': instance['Monitoring']['State'],
+                    'cloudwatch_available': True,
+                    'metrics_available': ['CPUUtilization', 'NetworkIn', 'NetworkOut', 'DiskReadBytes', 'DiskWriteBytes'],
+                },
+
+                # SECURITY Section
+                'security': {
+                    'security_groups': [
+                        {
+                            'id': sg['GroupId'],
+                            'name': sg['GroupName']
+                        } for sg in instance.get('SecurityGroups', [])
+                    ],
+                    'iam_role': instance.get('IamInstanceProfile', {}).get('Arn', 'No IAM role'),
+                    'key_pair': instance.get('KeyName', 'No key pair'),
+                    'source_dest_check': instance.get('SourceDestCheck', True),
+                },
+
+                # NETWORKING Section
+                'networking': {
+                    'vpc_id': instance.get('VpcId', 'EC2-Classic'),
+                    'subnet_id': instance.get('SubnetId', 'N/A'),
+                    'private_ip': instance.get('PrivateIpAddress', 'Pending'),
+                    'private_dns': instance.get('PrivateDnsName', 'Pending'),
+                    'public_ip': instance.get('PublicIpAddress', 'None'),
+                    'public_dns': instance.get('PublicDnsName', 'None'),
+                    'elastic_ip': 'None',  # Would need separate check
+                    'network_interfaces': [
+                        {
+                            'id': ni['NetworkInterfaceId'],
+                            'status': ni['Status'],
+                            'mac_address': ni.get('MacAddress', 'N/A'),
+                            'private_ip': ni.get('PrivateIpAddress', 'N/A'),
+                            'public_ip': ni.get('Association', {}).get('PublicIp', 'None'),
+                            'ipv6_addresses': [addr['Ipv6Address'] for addr in ni.get('Ipv6Addresses', [])],
+                        } for ni in instance.get('NetworkInterfaces', [])
+                    ],
+                },
+
+                # STORAGE Section
+                'storage': {
+                    'root_device': instance.get('RootDeviceName', '/dev/xvda'),
+                    'root_device_type': instance.get('RootDeviceType', 'ebs'),
+                    'block_devices': [
+                        {
+                            'device_name': bd['DeviceName'],
+                            'volume_id': bd['Ebs']['VolumeId'],
+                            'status': bd['Ebs']['Status'],
+                            'attach_time': bd['Ebs']['AttachTime'].isoformat(),
+                            'delete_on_termination': bd['Ebs']['DeleteOnTermination'],
+                        } for bd in instance.get('BlockDeviceMappings', [])
+                    ],
+                    'ebs_optimized': instance.get('EbsOptimized', False),
+                },
+
+                # TAGS Section
+                'tags': {tag['Key']: tag['Value'] for tag in instance.get('Tags', [])},
+            }
+
+            return details
+
+        else:
+            # Multiple instances - return list with comprehensive details for each
+            all_instances_details = []
+
+            for reservation in detailed_instances['Reservations']:
+                for instance in reservation['Instances']:
+                    inst_details = {
+                        'instance_id': instance['InstanceId'],
+                        'instance_type': instance['InstanceType'],
+                        'state': instance['State']['Name'],
+                        'availability_zone': instance['Placement']['AvailabilityZone'],
+                        'private_ip': instance.get('PrivateIpAddress', 'Pending'),
+                        'public_ip': instance.get('PublicIpAddress', 'None'),
+                        'launch_time': instance['LaunchTime'].isoformat(),
+                        'security_groups': [sg['GroupName'] for sg in instance.get('SecurityGroups', [])],
+                        'vpc_id': instance.get('VpcId', 'N/A'),
+                        'subnet_id': instance.get('SubnetId', 'N/A'),
+                        'tags': {tag['Key']: tag['Value'] for tag in instance.get('Tags', [])},
+                    }
+                    all_instances_details.append(inst_details)
+
+            return {
+                'success': True,
+                'count': len(instances),
+                'instance_ids': instance_ids,
+                'instances': all_instances_details,
+                'message': f'Successfully created {len(instances)} EC2 instances: {", ".join(instance_ids)}',
+                'region': region or ec2.meta.region_name
+            }
 
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -988,6 +1170,1551 @@ def delete_s3_bucket(
         }
 
 
+# ============================================================================
+# VPC OPERATIONS
+# ============================================================================
+
+def list_vpcs(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List all VPCs in the account.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with VPC information
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.describe_vpcs()
+
+        vpcs = []
+        for vpc in response['Vpcs']:
+            tags = {tag['Key']: tag['Value'] for tag in vpc.get('Tags', [])}
+            vpcs.append({
+                'vpc_id': vpc['VpcId'],
+                'cidr_block': vpc['CidrBlock'],
+                'state': vpc['State'],
+                'is_default': vpc.get('IsDefault', False),
+                'name': tags.get('Name', 'N/A'),
+                'tags': tags
+            })
+
+        return {
+            'success': True,
+            'count': len(vpcs),
+            'vpcs': vpcs,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing VPCs: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_subnets(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List subnets, optionally filtered by VPC.
+
+    Args:
+        vpc_id: VPC ID to filter by (optional)
+        region: AWS region
+
+    Returns:
+        Dictionary with subnet information
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+
+        response = ec2.describe_subnets(Filters=filters)
+
+        subnets = []
+        for subnet in response['Subnets']:
+            tags = {tag['Key']: tag['Value'] for tag in subnet.get('Tags', [])}
+            subnets.append({
+                'subnet_id': subnet['SubnetId'],
+                'vpc_id': subnet['VpcId'],
+                'cidr_block': subnet['CidrBlock'],
+                'availability_zone': subnet['AvailabilityZone'],
+                'available_ips': subnet['AvailableIpAddressCount'],
+                'state': subnet['State'],
+                'name': tags.get('Name', 'N/A'),
+                'tags': tags
+            })
+
+        return {
+            'success': True,
+            'count': len(subnets),
+            'subnets': subnets,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing subnets: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_security_groups(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List security groups, optionally filtered by VPC.
+
+    Args:
+        vpc_id: VPC ID to filter by (optional)
+        region: AWS region
+
+    Returns:
+        Dictionary with security group information
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+
+        response = ec2.describe_security_groups(Filters=filters)
+
+        security_groups = []
+        for sg in response['SecurityGroups']:
+            tags = {tag['Key']: tag['Value'] for tag in sg.get('Tags', [])}
+            security_groups.append({
+                'group_id': sg['GroupId'],
+                'group_name': sg['GroupName'],
+                'description': sg['Description'],
+                'vpc_id': sg.get('VpcId', 'EC2-Classic'),
+                'ingress_rules_count': len(sg.get('IpPermissions', [])),
+                'egress_rules_count': len(sg.get('IpPermissionsEgress', [])),
+                'tags': tags
+            })
+
+        return {
+            'success': True,
+            'count': len(security_groups),
+            'security_groups': security_groups,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing security groups: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# DYNAMODB OPERATIONS
+# ============================================================================
+
+def list_dynamodb_tables(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List all DynamoDB tables.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with table information
+    """
+    try:
+        dynamodb = _get_boto_client('dynamodb', region)
+        response = dynamodb.list_tables()
+
+        table_names = response.get('TableNames', [])
+
+        # Get detailed info for each table
+        tables = []
+        for table_name in table_names:
+            try:
+                table_info = dynamodb.describe_table(TableName=table_name)['Table']
+                tables.append({
+                    'table_name': table_name,
+                    'status': table_info.get('TableStatus'),
+                    'item_count': table_info.get('ItemCount', 0),
+                    'size_bytes': table_info.get('TableSizeBytes', 0),
+                    'creation_date': table_info.get('CreationDateTime').isoformat() if table_info.get('CreationDateTime') else 'N/A',
+                    'key_schema': table_info.get('KeySchema', []),
+                    'billing_mode': table_info.get('BillingModeSummary', {}).get('BillingMode', 'PROVISIONED')
+                })
+            except:
+                # If describe fails, just add basic info
+                tables.append({'table_name': table_name, 'status': 'Unknown'})
+
+        return {
+            'success': True,
+            'count': len(tables),
+            'tables': tables,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing DynamoDB tables: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ELASTICACHE OPERATIONS
+# ============================================================================
+
+def list_elasticache_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List ElastiCache clusters (Redis and Memcached).
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with cluster information
+    """
+    try:
+        elasticache = _get_boto_client('elasticache', region)
+        response = elasticache.describe_cache_clusters()
+
+        clusters = []
+        for cluster in response.get('CacheClusters', []):
+            clusters.append({
+                'cluster_id': cluster['CacheClusterId'],
+                'engine': cluster.get('Engine'),
+                'engine_version': cluster.get('EngineVersion'),
+                'node_type': cluster.get('CacheNodeType'),
+                'num_nodes': cluster.get('NumCacheNodes'),
+                'status': cluster.get('CacheClusterStatus'),
+                'created_date': cluster.get('CacheClusterCreateTime').isoformat() if cluster.get('CacheClusterCreateTime') else 'N/A'
+            })
+
+        return {
+            'success': True,
+            'count': len(clusters),
+            'clusters': clusters,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing ElastiCache clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ECS OPERATIONS
+# ============================================================================
+
+def list_ecs_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List ECS clusters.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with ECS cluster information
+    """
+    try:
+        ecs = _get_boto_client('ecs', region)
+        response = ecs.list_clusters()
+
+        cluster_arns = response.get('clusterArns', [])
+
+        # Get detailed info
+        clusters = []
+        if cluster_arns:
+            describe_response = ecs.describe_clusters(clusters=cluster_arns)
+            for cluster in describe_response.get('clusters', []):
+                clusters.append({
+                    'cluster_name': cluster['clusterName'],
+                    'cluster_arn': cluster['clusterArn'],
+                    'status': cluster.get('status'),
+                    'running_tasks': cluster.get('runningTasksCount', 0),
+                    'pending_tasks': cluster.get('pendingTasksCount', 0),
+                    'active_services': cluster.get('activeServicesCount', 0),
+                    'registered_instances': cluster.get('registeredContainerInstancesCount', 0)
+                })
+
+        return {
+            'success': True,
+            'count': len(clusters),
+            'clusters': clusters,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing ECS clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_ecs_services(cluster: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List ECS services in a cluster.
+
+    Args:
+        cluster: ECS cluster name or ARN
+        region: AWS region
+
+    Returns:
+        Dictionary with ECS service information
+    """
+    try:
+        ecs = _get_boto_client('ecs', region)
+        response = ecs.list_services(cluster=cluster)
+
+        service_arns = response.get('serviceArns', [])
+
+        # Get detailed info
+        services = []
+        if service_arns:
+            describe_response = ecs.describe_services(cluster=cluster, services=service_arns)
+            for service in describe_response.get('services', []):
+                services.append({
+                    'service_name': service['serviceName'],
+                    'service_arn': service['serviceArn'],
+                    'status': service.get('status'),
+                    'desired_count': service.get('desiredCount', 0),
+                    'running_count': service.get('runningCount', 0),
+                    'pending_count': service.get('pendingCount', 0),
+                    'launch_type': service.get('launchType', 'N/A'),
+                    'task_definition': service.get('taskDefinition', 'N/A')
+                })
+
+        return {
+            'success': True,
+            'cluster': cluster,
+            'count': len(services),
+            'services': services,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing ECS services: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ELASTIC BEANSTALK OPERATIONS
+# ============================================================================
+
+def list_beanstalk_applications(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Elastic Beanstalk applications.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with application information
+    """
+    try:
+        beanstalk = _get_boto_client('elasticbeanstalk', region)
+        response = beanstalk.describe_applications()
+
+        applications = []
+        for app in response.get('Applications', []):
+            applications.append({
+                'application_name': app['ApplicationName'],
+                'description': app.get('Description', 'N/A'),
+                'created_date': app.get('DateCreated').isoformat() if app.get('DateCreated') else 'N/A',
+                'updated_date': app.get('DateUpdated').isoformat() if app.get('DateUpdated') else 'N/A',
+                'versions_count': len(app.get('Versions', []))
+            })
+
+        return {
+            'success': True,
+            'count': len(applications),
+            'applications': applications,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Beanstalk applications: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_beanstalk_environments(application_name: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Elastic Beanstalk environments.
+
+    Args:
+        application_name: Filter by application name (optional)
+        region: AWS region
+
+    Returns:
+        Dictionary with environment information
+    """
+    try:
+        beanstalk = _get_boto_client('elasticbeanstalk', region)
+
+        kwargs = {}
+        if application_name:
+            kwargs['ApplicationName'] = application_name
+
+        response = beanstalk.describe_environments(**kwargs)
+
+        environments = []
+        for env in response.get('Environments', []):
+            environments.append({
+                'environment_name': env['EnvironmentName'],
+                'environment_id': env['EnvironmentId'],
+                'application_name': env['ApplicationName'],
+                'status': env.get('Status'),
+                'health': env.get('Health'),
+                'health_status': env.get('HealthStatus'),
+                'platform': env.get('PlatformArn', 'N/A'),
+                'url': env.get('CNAME', 'N/A'),
+                'created_date': env.get('DateCreated').isoformat() if env.get('DateCreated') else 'N/A'
+            })
+
+        return {
+            'success': True,
+            'count': len(environments),
+            'environments': environments,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Beanstalk environments: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# CLOUDFRONT OPERATIONS
+# ============================================================================
+
+def list_cloudfront_distributions(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List CloudFront distributions.
+
+    Args:
+        region: AWS region (CloudFront is global, but region can be specified)
+
+    Returns:
+        Dictionary with distribution information
+    """
+    try:
+        cloudfront = _get_boto_client('cloudfront', region)
+        response = cloudfront.list_distributions()
+
+        distributions = []
+        for dist in response.get('DistributionList', {}).get('Items', []):
+            distributions.append({
+                'distribution_id': dist['Id'],
+                'domain_name': dist['DomainName'],
+                'status': dist.get('Status'),
+                'enabled': dist.get('Enabled', False),
+                'aliases': dist.get('Aliases', {}).get('Items', []),
+                'origins_count': dist.get('Origins', {}).get('Quantity', 0),
+                'comment': dist.get('Comment', 'N/A'),
+                'price_class': dist.get('PriceClass', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(distributions),
+            'distributions': distributions
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing CloudFront distributions: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ROUTE 53 OPERATIONS
+# ============================================================================
+
+def list_route53_zones(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Route 53 hosted zones.
+
+    Args:
+        region: AWS region (Route 53 is global, but region can be specified)
+
+    Returns:
+        Dictionary with hosted zone information
+    """
+    try:
+        route53 = _get_boto_client('route53', region)
+        response = route53.list_hosted_zones()
+
+        zones = []
+        for zone in response.get('HostedZones', []):
+            zones.append({
+                'zone_id': zone['Id'].split('/')[-1],
+                'name': zone['Name'],
+                'private_zone': zone.get('Config', {}).get('PrivateZone', False),
+                'resource_record_set_count': zone.get('ResourceRecordSetCount', 0),
+                'comment': zone.get('Config', {}).get('Comment', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(zones),
+            'hosted_zones': zones
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Route 53 hosted zones: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# API GATEWAY OPERATIONS
+# ============================================================================
+
+def list_api_gateways(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List API Gateway REST APIs.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with API information
+    """
+    try:
+        apigateway = _get_boto_client('apigateway', region)
+        response = apigateway.get_rest_apis()
+
+        apis = []
+        for api in response.get('items', []):
+            apis.append({
+                'api_id': api['id'],
+                'name': api['name'],
+                'description': api.get('description', 'N/A'),
+                'created_date': api.get('createdDate').isoformat() if api.get('createdDate') else 'N/A',
+                'api_key_source': api.get('apiKeySource', 'HEADER'),
+                'endpoint_configuration': api.get('endpointConfiguration', {}).get('types', [])
+            })
+
+        return {
+            'success': True,
+            'count': len(apis),
+            'apis': apis,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing API Gateways: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_api_gateway_v2(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List API Gateway V2 APIs (HTTP and WebSocket).
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with API information
+    """
+    try:
+        apigatewayv2 = _get_boto_client('apigatewayv2', region)
+        response = apigatewayv2.get_apis()
+
+        apis = []
+        for api in response.get('Items', []):
+            apis.append({
+                'api_id': api['ApiId'],
+                'name': api['Name'],
+                'protocol_type': api.get('ProtocolType', 'N/A'),
+                'api_endpoint': api.get('ApiEndpoint', 'N/A'),
+                'created_date': api.get('CreatedDate').isoformat() if api.get('CreatedDate') else 'N/A',
+                'description': api.get('Description', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(apis),
+            'apis': apis,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing API Gateway V2: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# LAMBDA OPERATIONS
+# ============================================================================
+
+def list_lambda_functions(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Lambda functions.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Lambda function information
+    """
+    try:
+        lambda_client = _get_boto_client('lambda', region)
+        response = lambda_client.list_functions()
+
+        functions = []
+        for func in response.get('Functions', []):
+            functions.append({
+                'function_name': func['FunctionName'],
+                'function_arn': func['FunctionArn'],
+                'runtime': func.get('Runtime', 'N/A'),
+                'handler': func.get('Handler', 'N/A'),
+                'code_size': func.get('CodeSize', 0),
+                'memory_size': func.get('MemorySize', 128),
+                'timeout': func.get('Timeout', 3),
+                'last_modified': func.get('LastModified', 'N/A'),
+                'description': func.get('Description', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(functions),
+            'functions': functions,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Lambda functions: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# RDS OPERATIONS
+# ============================================================================
+
+def list_rds_instances(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List RDS database instances.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with RDS instance information
+    """
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.describe_db_instances()
+
+        instances = []
+        for db in response.get('DBInstances', []):
+            instances.append({
+                'db_instance_identifier': db['DBInstanceIdentifier'],
+                'engine': db.get('Engine'),
+                'engine_version': db.get('EngineVersion'),
+                'db_instance_class': db.get('DBInstanceClass'),
+                'status': db.get('DBInstanceStatus'),
+                'endpoint': db.get('Endpoint', {}).get('Address', 'N/A'),
+                'port': db.get('Endpoint', {}).get('Port', 'N/A'),
+                'allocated_storage': db.get('AllocatedStorage', 0),
+                'multi_az': db.get('MultiAZ', False),
+                'publicly_accessible': db.get('PubliclyAccessible', False),
+                'created_date': db.get('InstanceCreateTime').isoformat() if db.get('InstanceCreateTime') else 'N/A'
+            })
+
+        return {
+            'success': True,
+            'count': len(instances),
+            'instances': instances,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing RDS instances: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# CLOUDFORMATION OPERATIONS
+# ============================================================================
+
+def list_cloudformation_stacks(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List CloudFormation stacks.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with stack information
+    """
+    try:
+        cfn = _get_boto_client('cloudformation', region)
+        response = cfn.list_stacks(
+            StackStatusFilter=[
+                'CREATE_COMPLETE', 'UPDATE_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE',
+                'CREATE_IN_PROGRESS', 'UPDATE_IN_PROGRESS', 'DELETE_IN_PROGRESS',
+                'ROLLBACK_COMPLETE', 'ROLLBACK_IN_PROGRESS'
+            ]
+        )
+
+        stacks = []
+        for stack in response.get('StackSummaries', []):
+            stacks.append({
+                'stack_name': stack['StackName'],
+                'stack_id': stack['StackId'],
+                'status': stack.get('StackStatus'),
+                'creation_time': stack.get('CreationTime').isoformat() if stack.get('CreationTime') else 'N/A',
+                'last_updated': stack.get('LastUpdatedTime').isoformat() if stack.get('LastUpdatedTime') else 'N/A',
+                'template_description': stack.get('TemplateDescription', 'N/A'),
+                'drift_status': stack.get('DriftInformation', {}).get('StackDriftStatus', 'NOT_CHECKED')
+            })
+
+        return {
+            'success': True,
+            'count': len(stacks),
+            'stacks': stacks,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing CloudFormation stacks: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# SYSTEMS MANAGER OPERATIONS
+# ============================================================================
+
+def list_ssm_parameters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Systems Manager parameters.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with parameter information
+    """
+    try:
+        ssm = _get_boto_client('ssm', region)
+        response = ssm.describe_parameters(MaxResults=50)
+
+        parameters = []
+        for param in response.get('Parameters', []):
+            parameters.append({
+                'name': param['Name'],
+                'type': param.get('Type'),
+                'tier': param.get('Tier', 'Standard'),
+                'last_modified': param.get('LastModifiedDate').isoformat() if param.get('LastModifiedDate') else 'N/A',
+                'version': param.get('Version', 1),
+                'description': param.get('Description', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(parameters),
+            'parameters': parameters,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing SSM parameters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_ssm_managed_instances(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Systems Manager managed instances.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with managed instance information
+    """
+    try:
+        ssm = _get_boto_client('ssm', region)
+        response = ssm.describe_instance_information()
+
+        instances = []
+        for instance in response.get('InstanceInformationList', []):
+            instances.append({
+                'instance_id': instance['InstanceId'],
+                'ping_status': instance.get('PingStatus'),
+                'platform_type': instance.get('PlatformType'),
+                'platform_name': instance.get('PlatformName', 'N/A'),
+                'platform_version': instance.get('PlatformVersion', 'N/A'),
+                'agent_version': instance.get('AgentVersion', 'N/A'),
+                'is_latest_version': instance.get('IsLatestVersion', False),
+                'last_ping': instance.get('LastPingDateTime').isoformat() if instance.get('LastPingDateTime') else 'N/A'
+            })
+
+        return {
+            'success': True,
+            'count': len(instances),
+            'instances': instances,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing SSM managed instances: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# CLOUDTRAIL OPERATIONS
+# ============================================================================
+
+def list_cloudtrail_trails(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List CloudTrail trails.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with trail information
+    """
+    try:
+        cloudtrail = _get_boto_client('cloudtrail', region)
+        response = cloudtrail.describe_trails()
+
+        trails = []
+        for trail in response.get('trailList', []):
+            # Get trail status
+            try:
+                status = cloudtrail.get_trail_status(Name=trail['TrailARN'])
+                is_logging = status.get('IsLogging', False)
+                latest_delivery = status.get('LatestDeliveryTime')
+            except:
+                is_logging = False
+                latest_delivery = None
+
+            trails.append({
+                'name': trail['Name'],
+                'trail_arn': trail['TrailARN'],
+                's3_bucket': trail.get('S3BucketName', 'N/A'),
+                'is_multi_region': trail.get('IsMultiRegionTrail', False),
+                'is_organization_trail': trail.get('IsOrganizationTrail', False),
+                'is_logging': is_logging,
+                'latest_delivery': latest_delivery.isoformat() if latest_delivery else 'N/A',
+                'log_file_validation': trail.get('LogFileValidationEnabled', False)
+            })
+
+        return {
+            'success': True,
+            'count': len(trails),
+            'trails': trails,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing CloudTrail trails: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# AWS CONFIG OPERATIONS
+# ============================================================================
+
+def list_config_rules(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List AWS Config rules.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with config rule information
+    """
+    try:
+        config = _get_boto_client('config', region)
+        response = config.describe_config_rules()
+
+        rules = []
+        for rule in response.get('ConfigRules', []):
+            # Get compliance status
+            try:
+                compliance = config.describe_compliance_by_config_rule(
+                    ConfigRuleNames=[rule['ConfigRuleName']]
+                )
+                compliance_type = compliance['ComplianceByConfigRules'][0]['Compliance']['ComplianceType']
+            except:
+                compliance_type = 'UNKNOWN'
+
+            rules.append({
+                'rule_name': rule['ConfigRuleName'],
+                'rule_arn': rule['ConfigRuleArn'],
+                'description': rule.get('Description', 'N/A'),
+                'compliance_status': compliance_type,
+                'source': rule.get('Source', {}).get('Owner', 'N/A'),
+                'rule_state': rule.get('ConfigRuleState', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(rules),
+            'rules': rules,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Config rules: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# AUTO SCALING OPERATIONS
+# ============================================================================
+
+def list_autoscaling_groups(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Auto Scaling groups.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Auto Scaling group information
+    """
+    try:
+        autoscaling = _get_boto_client('autoscaling', region)
+        response = autoscaling.describe_auto_scaling_groups()
+
+        groups = []
+        for asg in response.get('AutoScalingGroups', []):
+            groups.append({
+                'name': asg['AutoScalingGroupName'],
+                'arn': asg['AutoScalingGroupARN'],
+                'desired_capacity': asg.get('DesiredCapacity', 0),
+                'min_size': asg.get('MinSize', 0),
+                'max_size': asg.get('MaxSize', 0),
+                'current_instances': len(asg.get('Instances', [])),
+                'health_check_type': asg.get('HealthCheckType', 'N/A'),
+                'health_check_grace_period': asg.get('HealthCheckGracePeriod', 0),
+                'availability_zones': asg.get('AvailabilityZones', []),
+                'launch_config': asg.get('LaunchConfigurationName', asg.get('LaunchTemplate', {}).get('LaunchTemplateName', 'N/A')),
+                'created_time': asg.get('CreatedTime').isoformat() if asg.get('CreatedTime') else 'N/A'
+            })
+
+        return {
+            'success': True,
+            'count': len(groups),
+            'groups': groups,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Auto Scaling groups: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# AWS ORGANIZATIONS OPERATIONS
+# ============================================================================
+
+def list_organization_accounts() -> Dict[str, Any]:
+    """
+    List AWS Organization accounts.
+
+    Returns:
+        Dictionary with account information
+    """
+    try:
+        orgs = _get_boto_client('organizations')
+        response = orgs.list_accounts()
+
+        accounts = []
+        for account in response.get('Accounts', []):
+            accounts.append({
+                'account_id': account['Id'],
+                'account_name': account['Name'],
+                'email': account['Email'],
+                'status': account.get('Status'),
+                'joined_method': account.get('JoinedMethod', 'N/A'),
+                'joined_timestamp': account.get('JoinedTimestamp').isoformat() if account.get('JoinedTimestamp') else 'N/A'
+            })
+
+        return {
+            'success': True,
+            'count': len(accounts),
+            'accounts': accounts
+        }
+
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'AWSOrganizationsNotInUseException':
+            return {
+                'success': True,
+                'count': 0,
+                'accounts': [],
+                'message': 'AWS Organizations is not enabled for this account'
+            }
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing organization accounts: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# SERVICE CATALOG OPERATIONS
+# ============================================================================
+
+def list_service_catalog_products(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Service Catalog products.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with product information
+    """
+    try:
+        sc = _get_boto_client('servicecatalog', region)
+        response = sc.search_products_as_admin()
+
+        products = []
+        for product in response.get('ProductViewDetails', []):
+            view = product.get('ProductViewSummary', {})
+            products.append({
+                'product_id': view.get('ProductId'),
+                'name': view.get('Name'),
+                'owner': view.get('Owner', 'N/A'),
+                'type': view.get('Type', 'N/A'),
+                'distributor': view.get('Distributor', 'N/A'),
+                'short_description': view.get('ShortDescription', 'N/A'),
+                'support_description': view.get('SupportDescription', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(products),
+            'products': products,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Service Catalog products: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# TRUSTED ADVISOR OPERATIONS
+# ============================================================================
+
+def list_trusted_advisor_checks(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Trusted Advisor checks.
+
+    Args:
+        region: AWS region (Trusted Advisor is global but region can be specified)
+
+    Returns:
+        Dictionary with check information
+    """
+    try:
+        support = _get_boto_client('support', 'us-east-1')  # Trusted Advisor only in us-east-1
+        response = support.describe_trusted_advisor_checks(language='en')
+
+        checks = []
+        for check in response.get('checks', []):
+            # Get check result
+            try:
+                result = support.describe_trusted_advisor_check_result(checkId=check['id'])
+                status = result['result']['status']
+                resources_flagged = result['result'].get('flaggedResources', [])
+                flagged_count = len(resources_flagged)
+            except:
+                status = 'unknown'
+                flagged_count = 0
+
+            checks.append({
+                'check_id': check['id'],
+                'name': check['name'],
+                'category': check.get('category'),
+                'description': check.get('description', 'N/A'),
+                'status': status,
+                'resources_flagged': flagged_count
+            })
+
+        return {
+            'success': True,
+            'count': len(checks),
+            'checks': checks
+        }
+
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'SubscriptionRequiredException':
+            return {
+                'success': False,
+                'error': 'Trusted Advisor requires AWS Business or Enterprise Support plan',
+                'error_code': 'SubscriptionRequired'
+            }
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Trusted Advisor checks: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# RESOURCE GROUPS OPERATIONS
+# ============================================================================
+
+def list_resource_groups(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Resource Groups.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with resource group information
+    """
+    try:
+        rg = _get_boto_client('resource-groups', region)
+        response = rg.list_groups()
+
+        groups = []
+        for group in response.get('GroupIdentifiers', []):
+            # Get group details
+            try:
+                details = rg.get_group(Group=group['GroupArn'])
+                group_info = details.get('Group', {})
+
+                # Get resources in group
+                resources_response = rg.list_group_resources(Group=group['GroupArn'])
+                resource_count = len(resources_response.get('ResourceIdentifiers', []))
+            except:
+                group_info = {}
+                resource_count = 0
+
+            groups.append({
+                'group_name': group.get('GroupName'),
+                'group_arn': group.get('GroupArn'),
+                'description': group_info.get('Description', 'N/A'),
+                'resource_count': resource_count
+            })
+
+        return {
+            'success': True,
+            'count': len(groups),
+            'groups': groups,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing resource groups: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# CODEARTIFACT OPERATIONS
+# ============================================================================
+
+def list_codeartifact_repositories(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List CodeArtifact repositories.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with repository information
+    """
+    try:
+        codeartifact = _get_boto_client('codeartifact', region)
+        response = codeartifact.list_repositories()
+
+        repositories = []
+        for repo in response.get('repositories', []):
+            repositories.append({
+                'name': repo.get('name'),
+                'domain_name': repo.get('domainName'),
+                'domain_owner': repo.get('domainOwner'),
+                'arn': repo.get('arn'),
+                'description': repo.get('description', 'N/A'),
+                'administrator_account': repo.get('administratorAccount', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(repositories),
+            'repositories': repositories,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing CodeArtifact repositories: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# X-RAY OPERATIONS
+# ============================================================================
+
+def list_xray_traces(region: Optional[str] = None, hours: int = 1) -> Dict[str, Any]:
+    """
+    List X-Ray traces.
+
+    Args:
+        region: AWS region
+        hours: Number of hours to look back
+
+    Returns:
+        Dictionary with trace information
+    """
+    try:
+        xray = _get_boto_client('xray', region)
+
+        # Calculate time range
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=hours)
+
+        response = xray.get_trace_summaries(
+            StartTime=start_time,
+            EndTime=end_time
+        )
+
+        traces = []
+        for trace in response.get('TraceSummaries', []):
+            traces.append({
+                'trace_id': trace.get('Id'),
+                'duration': trace.get('Duration', 0),
+                'response_time': trace.get('ResponseTime', 0),
+                'http_status': trace.get('Http', {}).get('HttpStatus'),
+                'http_method': trace.get('Http', {}).get('HttpMethod'),
+                'http_url': trace.get('Http', {}).get('HttpURL', 'N/A'),
+                'has_error': trace.get('HasError', False),
+                'has_fault': trace.get('HasFault', False),
+                'has_throttle': trace.get('HasThrottle', False)
+            })
+
+        return {
+            'success': True,
+            'count': len(traces),
+            'traces': traces,
+            'time_range_hours': hours,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing X-Ray traces: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# SERVICE QUOTAS OPERATIONS
+# ============================================================================
+
+def list_service_quotas(service_code: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List service quotas for a specific service.
+
+    Args:
+        service_code: AWS service code (e.g., 'ec2', 's3', 'lambda')
+        region: AWS region
+
+    Returns:
+        Dictionary with quota information
+    """
+    try:
+        sq = _get_boto_client('service-quotas', region)
+        response = sq.list_service_quotas(ServiceCode=service_code)
+
+        quotas = []
+        for quota in response.get('Quotas', []):
+            quotas.append({
+                'quota_name': quota.get('QuotaName'),
+                'quota_code': quota.get('QuotaCode'),
+                'value': quota.get('Value', 0),
+                'unit': quota.get('Unit', 'None'),
+                'adjustable': quota.get('Adjustable', False),
+                'global_quota': quota.get('GlobalQuota', False),
+                'usage_metric': quota.get('UsageMetric', {}).get('MetricName', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'service_code': service_code,
+            'count': len(quotas),
+            'quotas': quotas,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing service quotas: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# COMPREHENSIVE RESOURCE INVENTORY
+# ============================================================================
+
+def get_aws_resource_inventory(
+    services: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get comprehensive inventory of AWS resources across multiple services.
+
+    Args:
+        services: List of services to scan (if None, scans all supported services)
+        region: AWS region (if None, uses default region)
+
+    Returns:
+        Dictionary with inventory of all resources
+    """
+    try:
+        logger.info(f"Starting AWS resource inventory scan in region {region or 'default'}")
+
+        # Default to all services if not specified
+        all_services = services or [
+            'ec2', 's3', 'rds', 'dynamodb', 'lambda', 'eks', 'ecs',
+            'elasticache', 'beanstalk', 'vpc', 'cloudfront', 'route53',
+            'apigateway', 'iam'
+        ]
+
+        inventory = {
+            'success': True,
+            'region': region or 'default',
+            'scan_time': datetime.utcnow().isoformat(),
+            'services': {}
+        }
+
+        # EC2 Instances
+        if 'ec2' in all_services:
+            logger.info("Scanning EC2 instances...")
+            ec2_result = get_ec2_instances(region=region)
+            if ec2_result.get('success'):
+                inventory['services']['ec2'] = {
+                    'count': ec2_result.get('count', 0),
+                    'instances': ec2_result.get('instances', [])
+                }
+
+        # S3 Buckets
+        if 's3' in all_services:
+            logger.info("Scanning S3 buckets...")
+            s3_result = list_s3_buckets(region=region)
+            if s3_result.get('success'):
+                inventory['services']['s3'] = {
+                    'count': s3_result.get('count', 0),
+                    'buckets': s3_result.get('buckets', [])
+                }
+
+        # RDS Instances
+        if 'rds' in all_services:
+            logger.info("Scanning RDS instances...")
+            rds_result = list_rds_instances(region=region)
+            if rds_result.get('success'):
+                inventory['services']['rds'] = {
+                    'count': rds_result.get('count', 0),
+                    'instances': rds_result.get('instances', [])
+                }
+
+        # DynamoDB Tables
+        if 'dynamodb' in all_services:
+            logger.info("Scanning DynamoDB tables...")
+            dynamodb_result = list_dynamodb_tables(region=region)
+            if dynamodb_result.get('success'):
+                inventory['services']['dynamodb'] = {
+                    'count': dynamodb_result.get('count', 0),
+                    'tables': dynamodb_result.get('tables', [])
+                }
+
+        # Lambda Functions
+        if 'lambda' in all_services:
+            logger.info("Scanning Lambda functions...")
+            lambda_result = list_lambda_functions(region=region)
+            if lambda_result.get('success'):
+                inventory['services']['lambda'] = {
+                    'count': lambda_result.get('count', 0),
+                    'functions': lambda_result.get('functions', [])
+                }
+
+        # EKS Clusters
+        if 'eks' in all_services:
+            logger.info("Scanning EKS clusters...")
+            eks_result = get_eks_clusters(region=region)
+            if eks_result.get('success'):
+                inventory['services']['eks'] = {
+                    'count': eks_result.get('count', 0),
+                    'clusters': eks_result.get('clusters', [])
+                }
+
+        # ECS Clusters
+        if 'ecs' in all_services:
+            logger.info("Scanning ECS clusters...")
+            ecs_result = list_ecs_clusters(region=region)
+            if ecs_result.get('success'):
+                inventory['services']['ecs'] = {
+                    'count': ecs_result.get('count', 0),
+                    'clusters': ecs_result.get('clusters', [])
+                }
+
+        # ElastiCache
+        if 'elasticache' in all_services:
+            logger.info("Scanning ElastiCache clusters...")
+            cache_result = list_elasticache_clusters(region=region)
+            if cache_result.get('success'):
+                inventory['services']['elasticache'] = {
+                    'count': cache_result.get('count', 0),
+                    'clusters': cache_result.get('clusters', [])
+                }
+
+        # Elastic Beanstalk
+        if 'beanstalk' in all_services:
+            logger.info("Scanning Elastic Beanstalk...")
+            beanstalk_result = list_beanstalk_environments(region=region)
+            if beanstalk_result.get('success'):
+                inventory['services']['beanstalk'] = {
+                    'count': beanstalk_result.get('count', 0),
+                    'environments': beanstalk_result.get('environments', [])
+                }
+
+        # VPC
+        if 'vpc' in all_services:
+            logger.info("Scanning VPCs...")
+            vpc_result = list_vpcs(region=region)
+            if vpc_result.get('success'):
+                inventory['services']['vpc'] = {
+                    'count': vpc_result.get('count', 0),
+                    'vpcs': vpc_result.get('vpcs', [])
+                }
+
+        # CloudFront
+        if 'cloudfront' in all_services:
+            logger.info("Scanning CloudFront distributions...")
+            cf_result = list_cloudfront_distributions(region=region)
+            if cf_result.get('success'):
+                inventory['services']['cloudfront'] = {
+                    'count': cf_result.get('count', 0),
+                    'distributions': cf_result.get('distributions', [])
+                }
+
+        # Route 53
+        if 'route53' in all_services:
+            logger.info("Scanning Route 53 hosted zones...")
+            r53_result = list_route53_zones(region=region)
+            if r53_result.get('success'):
+                inventory['services']['route53'] = {
+                    'count': r53_result.get('count', 0),
+                    'hosted_zones': r53_result.get('hosted_zones', [])
+                }
+
+        # API Gateway
+        if 'apigateway' in all_services:
+            logger.info("Scanning API Gateways...")
+            api_result = list_api_gateways(region=region)
+            if api_result.get('success'):
+                inventory['services']['apigateway'] = {
+                    'count': api_result.get('count', 0),
+                    'apis': api_result.get('apis', [])
+                }
+
+        # IAM
+        if 'iam' in all_services:
+            logger.info("Scanning IAM users and roles...")
+            users_result = list_iam_users()
+            roles_result = list_iam_roles()
+            inventory['services']['iam'] = {
+                'users_count': users_result.get('count', 0) if users_result.get('success') else 0,
+                'roles_count': roles_result.get('count', 0) if roles_result.get('success') else 0,
+                'users': users_result.get('users', []) if users_result.get('success') else [],
+                'roles': roles_result.get('roles', []) if roles_result.get('success') else []
+            }
+
+        # Calculate totals
+        total_resources = sum([
+            inventory['services'].get(svc, {}).get('count', 0)
+            for svc in inventory['services']
+        ])
+
+        inventory['total_resources'] = total_resources
+        inventory['message'] = f'Found {total_resources} resources across {len(inventory["services"])} AWS services'
+
+        logger.info(f"AWS resource inventory scan completed: {total_resources} resources found")
+
+        return inventory
+
+    except Exception as e:
+        logger.error(f"Error getting AWS resource inventory: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to complete AWS resource inventory scan'
+        }
+
+
 def get_tools() -> List[Dict[str, Any]]:
     """
     Get AWS tool definitions.
@@ -1017,7 +2744,12 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'create_ec2_instance',
-            'description': 'Create a new EC2 instance with specified configuration',
+            'description': (
+                'Create one or more EC2 instances with specified configuration. '
+                'IMPORTANT: By default, this creates exactly ONE instance. '
+                'Only specify count parameter if multiple instances are explicitly requested. '
+                'If user asks for "an instance" or "one instance", use count=1 (the default).'
+            ),
             'input_schema': {
                 'type': 'object',
                 'properties': {
@@ -1028,6 +2760,13 @@ def get_tools() -> List[Dict[str, Any]]:
                     'instance_type': {
                         'type': 'string',
                         'description': 'Instance type (e.g., t2.micro, t3.small, m5.large)'
+                    },
+                    'count': {
+                        'type': 'integer',
+                        'description': 'Number of instances to create (default: 1, max: 10). ONLY specify if explicitly asked for multiple instances.',
+                        'default': 1,
+                        'minimum': 1,
+                        'maximum': 10
                     },
                     'key_name': {
                         'type': 'string',
@@ -1408,5 +3147,272 @@ def get_tools() -> List[Dict[str, Any]]:
                 'properties': {}
             },
             'handler': list_iam_roles
+        },
+        # VPC Operations
+        {
+            'name': 'list_vpcs',
+            'description': 'List all VPCs (Virtual Private Clouds) in the account with CIDR blocks and tags',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_vpcs
+        },
+        {
+            'name': 'list_subnets',
+            'description': 'List subnets, optionally filtered by VPC ID',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {
+                        'type': 'string',
+                        'description': 'VPC ID to filter by (optional)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_subnets
+        },
+        {
+            'name': 'list_security_groups',
+            'description': 'List security groups, optionally filtered by VPC ID',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {
+                        'type': 'string',
+                        'description': 'VPC ID to filter by (optional)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_security_groups
+        },
+        # DynamoDB Operations
+        {
+            'name': 'list_dynamodb_tables',
+            'description': 'List all DynamoDB tables with status, item count, and billing mode',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_dynamodb_tables
+        },
+        # ElastiCache Operations
+        {
+            'name': 'list_elasticache_clusters',
+            'description': 'List ElastiCache clusters (Redis and Memcached) with engine info and status',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_elasticache_clusters
+        },
+        # ECS Operations
+        {
+            'name': 'list_ecs_clusters',
+            'description': 'List ECS (Elastic Container Service) clusters with task and service counts',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_ecs_clusters
+        },
+        {
+            'name': 'list_ecs_services',
+            'description': 'List ECS services within a specific cluster',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster': {
+                        'type': 'string',
+                        'description': 'ECS cluster name or ARN'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['cluster']
+            },
+            'handler': list_ecs_services
+        },
+        # Elastic Beanstalk Operations
+        {
+            'name': 'list_beanstalk_applications',
+            'description': 'List Elastic Beanstalk applications',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_beanstalk_applications
+        },
+        {
+            'name': 'list_beanstalk_environments',
+            'description': 'List Elastic Beanstalk environments with health status and URLs',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'application_name': {
+                        'type': 'string',
+                        'description': 'Filter by application name (optional)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_beanstalk_environments
+        },
+        # CloudFront Operations
+        {
+            'name': 'list_cloudfront_distributions',
+            'description': 'List CloudFront CDN distributions with domain names and status',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region (CloudFront is global)'
+                    }
+                }
+            },
+            'handler': list_cloudfront_distributions
+        },
+        # Route 53 Operations
+        {
+            'name': 'list_route53_zones',
+            'description': 'List Route 53 DNS hosted zones (both public and private)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region (Route 53 is global)'
+                    }
+                }
+            },
+            'handler': list_route53_zones
+        },
+        # API Gateway Operations
+        {
+            'name': 'list_api_gateways',
+            'description': 'List API Gateway REST APIs',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_api_gateways
+        },
+        {
+            'name': 'list_api_gateway_v2',
+            'description': 'List API Gateway V2 APIs (HTTP and WebSocket)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_api_gateway_v2
+        },
+        # Lambda Operations
+        {
+            'name': 'list_lambda_functions',
+            'description': 'List Lambda functions with runtime, memory, and timeout information',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_lambda_functions
+        },
+        # RDS Operations
+        {
+            'name': 'list_rds_instances',
+            'description': 'List RDS database instances with engine, status, and endpoint information',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_rds_instances
+        },
+        # Comprehensive Resource Inventory
+        {
+            'name': 'get_aws_resource_inventory',
+            'description': (
+                'Get comprehensive inventory of AWS resources across ALL supported services. '
+                'This is the BEST tool for answering questions like "list all my AWS resources", '
+                '"show me my AWS environment", or "audit my AWS infrastructure". '
+                'Scans EC2, S3, RDS, DynamoDB, Lambda, EKS, ECS, ElastiCache, Beanstalk, VPC, '
+                'CloudFront, Route 53, API Gateway, and IAM.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'services': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': (
+                            'List of services to scan (optional). Options: ec2, s3, rds, dynamodb, '
+                            'lambda, eks, ecs, elasticache, beanstalk, vpc, cloudfront, route53, '
+                            'apigateway, iam. If not specified, scans all services.'
+                        )
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region (if not specified, uses default region)'
+                    }
+                }
+            },
+            'handler': get_aws_resource_inventory
         }
     ]
