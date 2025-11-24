@@ -151,23 +151,17 @@ db.init_app(app)
 
 # Configure SQLite for better concurrency (WAL mode)
 if not database_url:  # Only for SQLite
-    @app.before_first_request
-    def enable_sqlite_wal_mode():
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):
         """Enable Write-Ahead Logging mode for SQLite to reduce lock contention."""
-        from sqlalchemy import event
-        from sqlalchemy.engine import Engine
-
-        @event.listens_for(Engine, "connect")
-        def set_sqlite_pragma(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds
-            cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.close()
-
-        # Trigger the event by creating a connection
-        with app.app_context():
-            db.engine.connect()
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
 
 # Initialize Flask-Login
 login_manager = LoginManager()

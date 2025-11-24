@@ -2517,6 +2517,477 @@ def list_service_quotas(service_code: str, region: Optional[str] = None) -> Dict
 
 
 # ============================================================================
+# SNS (SIMPLE NOTIFICATION SERVICE) OPERATIONS
+# ============================================================================
+
+def list_sns_topics(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List SNS topics.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with SNS topic information
+    """
+    try:
+        sns = _get_boto_client('sns', region)
+        response = sns.list_topics()
+
+        topics = []
+        for topic in response.get('Topics', []):
+            topic_arn = topic['TopicArn']
+
+            # Get topic attributes
+            try:
+                attrs = sns.get_topic_attributes(TopicArn=topic_arn)
+                attributes = attrs.get('Attributes', {})
+
+                # Get subscriptions count
+                subs = sns.list_subscriptions_by_topic(TopicArn=topic_arn)
+                subscription_count = len(subs.get('Subscriptions', []))
+            except:
+                attributes = {}
+                subscription_count = 0
+
+            topics.append({
+                'topic_arn': topic_arn,
+                'topic_name': topic_arn.split(':')[-1],
+                'display_name': attributes.get('DisplayName', 'N/A'),
+                'subscription_count': subscription_count,
+                'owner': attributes.get('Owner', 'N/A'),
+                'subscriptions_confirmed': attributes.get('SubscriptionsConfirmed', '0'),
+                'subscriptions_pending': attributes.get('SubscriptionsPending', '0'),
+                'subscriptions_deleted': attributes.get('SubscriptionsDeleted', '0')
+            })
+
+        return {
+            'success': True,
+            'count': len(topics),
+            'topics': topics,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing SNS topics: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# SQS (SIMPLE QUEUE SERVICE) OPERATIONS
+# ============================================================================
+
+def list_sqs_queues(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List SQS queues.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with SQS queue information
+    """
+    try:
+        sqs = _get_boto_client('sqs', region)
+        response = sqs.list_queues()
+
+        queue_urls = response.get('QueueUrls', [])
+        queues = []
+
+        for queue_url in queue_urls:
+            # Get queue attributes
+            try:
+                attrs = sqs.get_queue_attributes(
+                    QueueUrl=queue_url,
+                    AttributeNames=['All']
+                )
+                attributes = attrs.get('Attributes', {})
+            except:
+                attributes = {}
+
+            queue_name = queue_url.split('/')[-1]
+
+            queues.append({
+                'queue_name': queue_name,
+                'queue_url': queue_url,
+                'queue_arn': attributes.get('QueueArn', 'N/A'),
+                'approximate_messages': int(attributes.get('ApproximateNumberOfMessages', 0)),
+                'approximate_messages_not_visible': int(attributes.get('ApproximateNumberOfMessagesNotVisible', 0)),
+                'approximate_messages_delayed': int(attributes.get('ApproximateNumberOfMessagesDelayed', 0)),
+                'created_timestamp': attributes.get('CreatedTimestamp', 'N/A'),
+                'last_modified_timestamp': attributes.get('LastModifiedTimestamp', 'N/A'),
+                'visibility_timeout': int(attributes.get('VisibilityTimeout', 30)),
+                'message_retention_period': int(attributes.get('MessageRetentionPeriod', 345600)),
+                'delay_seconds': int(attributes.get('DelaySeconds', 0)),
+                'is_fifo': queue_name.endswith('.fifo')
+            })
+
+        return {
+            'success': True,
+            'count': len(queues),
+            'queues': queues,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing SQS queues: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ECR (ELASTIC CONTAINER REGISTRY) OPERATIONS
+# ============================================================================
+
+def list_ecr_repositories(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List ECR repositories.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with ECR repository information
+    """
+    try:
+        ecr = _get_boto_client('ecr', region)
+        response = ecr.describe_repositories()
+
+        repositories = []
+        for repo in response.get('repositories', []):
+            # Get image count
+            try:
+                images = ecr.list_images(repositoryName=repo['repositoryName'])
+                image_count = len(images.get('imageIds', []))
+            except:
+                image_count = 0
+
+            repositories.append({
+                'repository_name': repo['repositoryName'],
+                'repository_arn': repo['repositoryArn'],
+                'repository_uri': repo['repositoryUri'],
+                'created_at': repo.get('createdAt').isoformat() if repo.get('createdAt') else 'N/A',
+                'image_count': image_count,
+                'image_tag_mutability': repo.get('imageTagMutability', 'MUTABLE'),
+                'encryption_type': repo.get('encryptionConfiguration', {}).get('encryptionType', 'AES256'),
+                'scan_on_push': repo.get('imageScanningConfiguration', {}).get('scanOnPush', False)
+            })
+
+        return {
+            'success': True,
+            'count': len(repositories),
+            'repositories': repositories,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing ECR repositories: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# SECRETS MANAGER OPERATIONS
+# ============================================================================
+
+def list_secrets_manager_secrets(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Secrets Manager secrets.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with secrets information
+    """
+    try:
+        sm = _get_boto_client('secretsmanager', region)
+        response = sm.list_secrets()
+
+        secrets = []
+        for secret in response.get('SecretList', []):
+            secrets.append({
+                'secret_name': secret['Name'],
+                'secret_arn': secret['ARN'],
+                'description': secret.get('Description', 'N/A'),
+                'created_date': secret.get('CreatedDate').isoformat() if secret.get('CreatedDate') else 'N/A',
+                'last_accessed_date': secret.get('LastAccessedDate').isoformat() if secret.get('LastAccessedDate') else 'N/A',
+                'last_changed_date': secret.get('LastChangedDate').isoformat() if secret.get('LastChangedDate') else 'N/A',
+                'last_rotated_date': secret.get('LastRotatedDate').isoformat() if secret.get('LastRotatedDate') else 'N/A',
+                'rotation_enabled': secret.get('RotationEnabled', False),
+                'rotation_lambda_arn': secret.get('RotationLambdaARN', 'N/A'),
+                'tags': secret.get('Tags', [])
+            })
+
+        return {
+            'success': True,
+            'count': len(secrets),
+            'secrets': secrets,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Secrets Manager secrets: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# LOAD BALANCER OPERATIONS (ALB, NLB, CLB)
+# ============================================================================
+
+def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List all load balancers (Application, Network, and Classic).
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with load balancer information
+    """
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+        elb = _get_boto_client('elb', region)
+
+        # Get ALB and NLB (ELBv2)
+        modern_lbs = []
+        try:
+            response = elbv2.describe_load_balancers()
+            for lb in response.get('LoadBalancers', []):
+                # Get target groups
+                try:
+                    tgs = elbv2.describe_target_groups(LoadBalancerArn=lb['LoadBalancerArn'])
+                    target_group_count = len(tgs.get('TargetGroups', []))
+                except:
+                    target_group_count = 0
+
+                modern_lbs.append({
+                    'name': lb['LoadBalancerName'],
+                    'arn': lb['LoadBalancerArn'],
+                    'dns_name': lb['DNSName'],
+                    'type': lb.get('Type', 'application'),  # application, network, or gateway
+                    'scheme': lb.get('Scheme', 'internet-facing'),
+                    'vpc_id': lb.get('VpcId'),
+                    'state': lb.get('State', {}).get('Code', 'unknown'),
+                    'availability_zones': [az.get('ZoneName') for az in lb.get('AvailabilityZones', [])],
+                    'created_time': lb.get('CreatedTime').isoformat() if lb.get('CreatedTime') else 'N/A',
+                    'target_groups': target_group_count,
+                    'ip_address_type': lb.get('IpAddressType', 'ipv4')
+                })
+        except:
+            pass
+
+        # Get Classic Load Balancers
+        classic_lbs = []
+        try:
+            response = elb.describe_load_balancers()
+            for lb in response.get('LoadBalancerDescriptions', []):
+                classic_lbs.append({
+                    'name': lb['LoadBalancerName'],
+                    'dns_name': lb['DNSName'],
+                    'type': 'classic',
+                    'scheme': lb.get('Scheme', 'internet-facing'),
+                    'vpc_id': lb.get('VPCId', 'EC2-Classic'),
+                    'availability_zones': lb.get('AvailabilityZones', []),
+                    'instances': len(lb.get('Instances', [])),
+                    'created_time': lb.get('CreatedTime').isoformat() if lb.get('CreatedTime') else 'N/A',
+                    'health_check_target': lb.get('HealthCheck', {}).get('Target', 'N/A'),
+                    'health_check_interval': lb.get('HealthCheck', {}).get('Interval', 30)
+                })
+        except:
+            pass
+
+        all_lbs = modern_lbs + classic_lbs
+
+        return {
+            'success': True,
+            'count': len(all_lbs),
+            'load_balancers': all_lbs,
+            'breakdown': {
+                'modern': len(modern_lbs),
+                'classic': len(classic_lbs)
+            },
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing load balancers: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# EFS (ELASTIC FILE SYSTEM) OPERATIONS
+# ============================================================================
+
+def list_efs_file_systems(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List EFS file systems.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with EFS file system information
+    """
+    try:
+        efs = _get_boto_client('efs', region)
+        response = efs.describe_file_systems()
+
+        file_systems = []
+        for fs in response.get('FileSystems', []):
+            # Get mount targets
+            try:
+                mts = efs.describe_mount_targets(FileSystemId=fs['FileSystemId'])
+                mount_target_count = len(mts.get('MountTargets', []))
+            except:
+                mount_target_count = 0
+
+            file_systems.append({
+                'file_system_id': fs['FileSystemId'],
+                'file_system_arn': fs.get('FileSystemArn', 'N/A'),
+                'name': fs.get('Name', 'N/A'),
+                'creation_token': fs.get('CreationToken'),
+                'creation_time': fs.get('CreationTime').isoformat() if fs.get('CreationTime') else 'N/A',
+                'life_cycle_state': fs.get('LifeCycleState'),
+                'number_of_mount_targets': fs.get('NumberOfMountTargets', mount_target_count),
+                'size_in_bytes': fs.get('SizeInBytes', {}).get('Value', 0),
+                'performance_mode': fs.get('PerformanceMode', 'generalPurpose'),
+                'throughput_mode': fs.get('ThroughputMode', 'bursting'),
+                'encrypted': fs.get('Encrypted', False),
+                'kms_key_id': fs.get('KmsKeyId', 'N/A'),
+                'tags': fs.get('Tags', [])
+            })
+
+        return {
+            'success': True,
+            'count': len(file_systems),
+            'file_systems': file_systems,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing EFS file systems: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# EVENTBRIDGE OPERATIONS
+# ============================================================================
+
+def list_eventbridge_rules(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List EventBridge rules.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with EventBridge rule information
+    """
+    try:
+        events = _get_boto_client('events', region)
+        response = events.list_rules()
+
+        rules = []
+        for rule in response.get('Rules', []):
+            # Get targets for this rule
+            try:
+                targets = events.list_targets_by_rule(Rule=rule['Name'])
+                target_count = len(targets.get('Targets', []))
+            except:
+                target_count = 0
+
+            rules.append({
+                'name': rule['Name'],
+                'arn': rule['Arn'],
+                'state': rule.get('State', 'ENABLED'),
+                'description': rule.get('Description', 'N/A'),
+                'schedule_expression': rule.get('ScheduleExpression', 'N/A'),
+                'event_pattern': rule.get('EventPattern', 'N/A'),
+                'event_bus_name': rule.get('EventBusName', 'default'),
+                'target_count': target_count,
+                'managed_by': rule.get('ManagedBy', 'user'),
+                'created_by': rule.get('CreatedBy', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(rules),
+            'rules': rules,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing EventBridge rules: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_eventbridge_event_buses(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List EventBridge event buses.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with event bus information
+    """
+    try:
+        events = _get_boto_client('events', region)
+        response = events.list_event_buses()
+
+        event_buses = []
+        for bus in response.get('EventBuses', []):
+            # Count rules for this event bus
+            try:
+                rules = events.list_rules(EventBusName=bus['Name'])
+                rule_count = len(rules.get('Rules', []))
+            except:
+                rule_count = 0
+
+            event_buses.append({
+                'name': bus['Name'],
+                'arn': bus['Arn'],
+                'policy': bus.get('Policy', 'N/A'),
+                'rule_count': rule_count,
+                'created_by': bus.get('CreatedBy', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(event_buses),
+            'event_buses': event_buses,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing EventBridge event buses: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
 # COMPREHENSIVE RESOURCE INVENTORY
 # ============================================================================
 
@@ -2541,7 +3012,8 @@ def get_aws_resource_inventory(
         all_services = services or [
             'ec2', 's3', 'rds', 'dynamodb', 'lambda', 'eks', 'ecs',
             'elasticache', 'beanstalk', 'vpc', 'cloudfront', 'route53',
-            'apigateway', 'iam'
+            'apigateway', 'iam', 'sns', 'sqs', 'ecr', 'secrets',
+            'elb', 'efs', 'eventbridge', 'cloudformation', 'ssm', 'autoscaling'
         ]
 
         inventory = {
@@ -2692,6 +3164,106 @@ def get_aws_resource_inventory(
                 'users': users_result.get('users', []) if users_result.get('success') else [],
                 'roles': roles_result.get('roles', []) if roles_result.get('success') else []
             }
+
+        # SNS Topics
+        if 'sns' in all_services:
+            logger.info("Scanning SNS topics...")
+            sns_result = list_sns_topics(region=region)
+            if sns_result.get('success'):
+                inventory['services']['sns'] = {
+                    'count': sns_result.get('count', 0),
+                    'topics': sns_result.get('topics', [])
+                }
+
+        # SQS Queues
+        if 'sqs' in all_services:
+            logger.info("Scanning SQS queues...")
+            sqs_result = list_sqs_queues(region=region)
+            if sqs_result.get('success'):
+                inventory['services']['sqs'] = {
+                    'count': sqs_result.get('count', 0),
+                    'queues': sqs_result.get('queues', [])
+                }
+
+        # ECR Repositories
+        if 'ecr' in all_services:
+            logger.info("Scanning ECR repositories...")
+            ecr_result = list_ecr_repositories(region=region)
+            if ecr_result.get('success'):
+                inventory['services']['ecr'] = {
+                    'count': ecr_result.get('count', 0),
+                    'repositories': ecr_result.get('repositories', [])
+                }
+
+        # Secrets Manager
+        if 'secrets' in all_services:
+            logger.info("Scanning Secrets Manager secrets...")
+            secrets_result = list_secrets_manager_secrets(region=region)
+            if secrets_result.get('success'):
+                inventory['services']['secrets'] = {
+                    'count': secrets_result.get('count', 0),
+                    'secrets': secrets_result.get('secrets', [])
+                }
+
+        # Load Balancers
+        if 'elb' in all_services:
+            logger.info("Scanning Load Balancers...")
+            elb_result = list_load_balancers(region=region)
+            if elb_result.get('success'):
+                inventory['services']['elb'] = {
+                    'count': elb_result.get('count', 0),
+                    'load_balancers': elb_result.get('load_balancers', [])
+                }
+
+        # EFS File Systems
+        if 'efs' in all_services:
+            logger.info("Scanning EFS file systems...")
+            efs_result = list_efs_file_systems(region=region)
+            if efs_result.get('success'):
+                inventory['services']['efs'] = {
+                    'count': efs_result.get('count', 0),
+                    'file_systems': efs_result.get('file_systems', [])
+                }
+
+        # EventBridge Rules
+        if 'eventbridge' in all_services:
+            logger.info("Scanning EventBridge rules...")
+            eb_result = list_eventbridge_rules(region=region)
+            if eb_result.get('success'):
+                inventory['services']['eventbridge'] = {
+                    'count': eb_result.get('count', 0),
+                    'rules': eb_result.get('rules', [])
+                }
+
+        # CloudFormation Stacks
+        if 'cloudformation' in all_services:
+            logger.info("Scanning CloudFormation stacks...")
+            cfn_result = list_cloudformation_stacks(region=region)
+            if cfn_result.get('success'):
+                inventory['services']['cloudformation'] = {
+                    'count': cfn_result.get('count', 0),
+                    'stacks': cfn_result.get('stacks', [])
+                }
+
+        # Systems Manager Parameters
+        if 'ssm' in all_services:
+            logger.info("Scanning SSM parameters...")
+            ssm_result = list_ssm_parameters(region=region)
+            if ssm_result.get('success'):
+                inventory['services']['ssm'] = {
+                    'count': ssm_result.get('count', 0),
+                    'parameters': ssm_result.get('parameters', [])
+                }
+
+        # Auto Scaling Groups
+        if 'autoscaling' in all_services:
+            logger.info("Scanning Auto Scaling groups...")
+            asg_result = list_autoscaling_groups(region=region)
+            if asg_result.get('success'):
+                inventory['services']['autoscaling'] = {
+                    'count': asg_result.get('count', 0),
+                    'groups': asg_result.get('groups', [])
+                }
 
         # Calculate totals
         total_resources = sum([
@@ -3385,6 +3957,184 @@ def get_tools() -> List[Dict[str, Any]]:
             },
             'handler': list_rds_instances
         },
+        # SNS Operations
+        {
+            'name': 'list_sns_topics',
+            'description': 'List SNS (Simple Notification Service) topics with subscription counts',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_sns_topics
+        },
+        # SQS Operations
+        {
+            'name': 'list_sqs_queues',
+            'description': 'List SQS (Simple Queue Service) queues with message counts and configuration',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_sqs_queues
+        },
+        # ECR Operations
+        {
+            'name': 'list_ecr_repositories',
+            'description': 'List ECR (Elastic Container Registry) repositories with image counts',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_ecr_repositories
+        },
+        # Secrets Manager Operations
+        {
+            'name': 'list_secrets_manager_secrets',
+            'description': 'List Secrets Manager secrets with rotation status',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_secrets_manager_secrets
+        },
+        # Load Balancer Operations
+        {
+            'name': 'list_load_balancers',
+            'description': 'List all load balancers (Application, Network, and Classic Load Balancers)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_load_balancers
+        },
+        # EFS Operations
+        {
+            'name': 'list_efs_file_systems',
+            'description': 'List EFS (Elastic File System) file systems with size and mount targets',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_efs_file_systems
+        },
+        # EventBridge Operations
+        {
+            'name': 'list_eventbridge_rules',
+            'description': 'List EventBridge rules with schedules and targets',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_eventbridge_rules
+        },
+        {
+            'name': 'list_eventbridge_event_buses',
+            'description': 'List EventBridge event buses',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_eventbridge_event_buses
+        },
+        # CloudFormation Operations
+        {
+            'name': 'list_cloudformation_stacks',
+            'description': 'List CloudFormation stacks with status and drift information',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_cloudformation_stacks
+        },
+        # Systems Manager Operations
+        {
+            'name': 'list_ssm_parameters',
+            'description': 'List Systems Manager (SSM) Parameter Store parameters',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_ssm_parameters
+        },
+        {
+            'name': 'list_ssm_managed_instances',
+            'description': 'List Systems Manager managed instances with agent status',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_ssm_managed_instances
+        },
+        # Auto Scaling Operations
+        {
+            'name': 'list_autoscaling_groups',
+            'description': 'List Auto Scaling groups with capacity and instance counts',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_autoscaling_groups
+        },
         # Comprehensive Resource Inventory
         {
             'name': 'get_aws_resource_inventory',
@@ -3393,7 +4143,8 @@ def get_tools() -> List[Dict[str, Any]]:
                 'This is the BEST tool for answering questions like "list all my AWS resources", '
                 '"show me my AWS environment", or "audit my AWS infrastructure". '
                 'Scans EC2, S3, RDS, DynamoDB, Lambda, EKS, ECS, ElastiCache, Beanstalk, VPC, '
-                'CloudFront, Route 53, API Gateway, and IAM.'
+                'CloudFront, Route 53, API Gateway, IAM, SNS, SQS, ECR, Secrets Manager, '
+                'Load Balancers, EFS, EventBridge, CloudFormation, SSM, and Auto Scaling Groups.'
             ),
             'input_schema': {
                 'type': 'object',
@@ -3404,7 +4155,8 @@ def get_tools() -> List[Dict[str, Any]]:
                         'description': (
                             'List of services to scan (optional). Options: ec2, s3, rds, dynamodb, '
                             'lambda, eks, ecs, elasticache, beanstalk, vpc, cloudfront, route53, '
-                            'apigateway, iam. If not specified, scans all services.'
+                            'apigateway, iam, sns, sqs, ecr, secrets, elb, efs, eventbridge, '
+                            'cloudformation, ssm, autoscaling. If not specified, scans all services.'
                         )
                     },
                     'region': {
