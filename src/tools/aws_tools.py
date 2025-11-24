@@ -3441,6 +3441,503 @@ def list_nat_gateways(region: Optional[str] = None) -> Dict[str, Any]:
 
 
 # ============================================================================
+# REDSHIFT OPERATIONS
+# ============================================================================
+
+def list_redshift_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Redshift data warehouse clusters.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Redshift cluster information
+    """
+    try:
+        redshift = _get_boto_client('redshift', region)
+        response = redshift.describe_clusters()
+
+        clusters = []
+        for cluster in response.get('Clusters', []):
+            clusters.append({
+                'cluster_identifier': cluster['ClusterIdentifier'],
+                'node_type': cluster.get('NodeType'),
+                'cluster_status': cluster.get('ClusterStatus'),
+                'database_name': cluster.get('DBName'),
+                'master_username': cluster.get('MasterUsername'),
+                'endpoint': cluster.get('Endpoint', {}).get('Address', 'N/A'),
+                'port': cluster.get('Endpoint', {}).get('Port', 5439),
+                'cluster_create_time': cluster.get('ClusterCreateTime').isoformat() if cluster.get('ClusterCreateTime') else 'N/A',
+                'number_of_nodes': cluster.get('NumberOfNodes', 1),
+                'availability_zone': cluster.get('AvailabilityZone'),
+                'encrypted': cluster.get('Encrypted', False),
+                'vpc_id': cluster.get('VpcId', 'N/A'),
+                'publicly_accessible': cluster.get('PubliclyAccessible', False),
+                'cluster_version': cluster.get('ClusterVersion', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(clusters),
+            'clusters': clusters,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Redshift clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ATHENA OPERATIONS
+# ============================================================================
+
+def list_athena_workgroups(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Athena workgroups.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Athena workgroup information
+    """
+    try:
+        athena = _get_boto_client('athena', region)
+        response = athena.list_work_groups()
+
+        workgroups = []
+        for wg in response.get('WorkGroups', []):
+            # Get workgroup details
+            try:
+                details = athena.get_work_group(WorkGroup=wg['Name'])
+                wg_details = details.get('WorkGroup', {})
+                config = wg_details.get('Configuration', {})
+
+                workgroups.append({
+                    'name': wg['Name'],
+                    'state': wg.get('State', 'ENABLED'),
+                    'description': wg.get('Description', 'N/A'),
+                    'creation_time': wg.get('CreationTime').isoformat() if wg.get('CreationTime') else 'N/A',
+                    'output_location': config.get('ResultConfiguration', {}).get('OutputLocation', 'N/A'),
+                    'bytes_scanned_cutoff': config.get('BytesScannedCutoffPerQuery', 0),
+                    'enforce_workgroup_config': config.get('EnforceWorkGroupConfiguration', False)
+                })
+            except:
+                workgroups.append({
+                    'name': wg['Name'],
+                    'state': wg.get('State', 'ENABLED'),
+                    'description': wg.get('Description', 'N/A')
+                })
+
+        return {
+            'success': True,
+            'count': len(workgroups),
+            'workgroups': workgroups,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Athena workgroups: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# GLUE OPERATIONS
+# ============================================================================
+
+def list_glue_jobs(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Glue ETL jobs.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Glue job information
+    """
+    try:
+        glue = _get_boto_client('glue', region)
+        response = glue.get_jobs()
+
+        jobs = []
+        for job in response.get('Jobs', []):
+            jobs.append({
+                'name': job['Name'],
+                'description': job.get('Description', 'N/A'),
+                'role': job.get('Role'),
+                'created_on': job.get('CreatedOn').isoformat() if job.get('CreatedOn') else 'N/A',
+                'last_modified_on': job.get('LastModifiedOn').isoformat() if job.get('LastModifiedOn') else 'N/A',
+                'execution_class': job.get('ExecutionClass', 'STANDARD'),
+                'command': job.get('Command', {}).get('Name', 'N/A'),
+                'max_retries': job.get('MaxRetries', 0),
+                'timeout': job.get('Timeout', 0),
+                'max_capacity': job.get('MaxCapacity', 0),
+                'glue_version': job.get('GlueVersion', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(jobs),
+            'jobs': jobs,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Glue jobs: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_glue_crawlers(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Glue crawlers.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Glue crawler information
+    """
+    try:
+        glue = _get_boto_client('glue', region)
+        response = glue.get_crawlers()
+
+        crawlers = []
+        for crawler in response.get('Crawlers', []):
+            crawlers.append({
+                'name': crawler['Name'],
+                'role': crawler.get('Role'),
+                'state': crawler.get('State', 'READY'),
+                'database_name': crawler.get('DatabaseName'),
+                'description': crawler.get('Description', 'N/A'),
+                'creation_time': crawler.get('CreationTime').isoformat() if crawler.get('CreationTime') else 'N/A',
+                'last_updated': crawler.get('LastUpdated').isoformat() if crawler.get('LastUpdated') else 'N/A',
+                'last_crawl_status': crawler.get('LastCrawl', {}).get('Status', 'N/A'),
+                'crawler_security_configuration': crawler.get('CrawlerSecurityConfiguration', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(crawlers),
+            'crawlers': crawlers,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Glue crawlers: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# SAGEMAKER OPERATIONS
+# ============================================================================
+
+def list_sagemaker_endpoints(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List SageMaker endpoints.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with SageMaker endpoint information
+    """
+    try:
+        sagemaker = _get_boto_client('sagemaker', region)
+        response = sagemaker.list_endpoints()
+
+        endpoints = []
+        for endpoint in response.get('Endpoints', []):
+            endpoints.append({
+                'endpoint_name': endpoint['EndpointName'],
+                'endpoint_arn': endpoint['EndpointArn'],
+                'creation_time': endpoint.get('CreationTime').isoformat() if endpoint.get('CreationTime') else 'N/A',
+                'last_modified_time': endpoint.get('LastModifiedTime').isoformat() if endpoint.get('LastModifiedTime') else 'N/A',
+                'endpoint_status': endpoint.get('EndpointStatus')
+            })
+
+        return {
+            'success': True,
+            'count': len(endpoints),
+            'endpoints': endpoints,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing SageMaker endpoints: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# MSK (MANAGED STREAMING FOR KAFKA) OPERATIONS
+# ============================================================================
+
+def list_msk_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List MSK (Managed Streaming for Kafka) clusters.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with MSK cluster information
+    """
+    try:
+        kafka = _get_boto_client('kafka', region)
+        response = kafka.list_clusters()
+
+        clusters = []
+        for cluster in response.get('ClusterInfoList', []):
+            clusters.append({
+                'cluster_name': cluster['ClusterName'],
+                'cluster_arn': cluster['ClusterArn'],
+                'state': cluster.get('State'),
+                'creation_time': cluster.get('CreationTime').isoformat() if cluster.get('CreationTime') else 'N/A',
+                'kafka_version': cluster.get('CurrentBrokerSoftwareInfo', {}).get('KafkaVersion', 'N/A'),
+                'number_of_broker_nodes': cluster.get('NumberOfBrokerNodes', 0),
+                'enhanced_monitoring': cluster.get('EnhancedMonitoring', 'DEFAULT'),
+                'zookeeper_connect_string': cluster.get('ZookeeperConnectString', 'N/A'),
+                'bootstrap_brokers': cluster.get('CurrentVersion', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(clusters),
+            'clusters': clusters,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing MSK clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# OPENSEARCH (ELASTICSEARCH) OPERATIONS
+# ============================================================================
+
+def list_opensearch_domains(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List OpenSearch (formerly Elasticsearch) domains.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with OpenSearch domain information
+    """
+    try:
+        opensearch = _get_boto_client('opensearch', region)
+        response = opensearch.list_domain_names()
+
+        domains = []
+        for domain in response.get('DomainNames', []):
+            # Get domain details
+            try:
+                details = opensearch.describe_domain(DomainName=domain['DomainName'])
+                domain_status = details.get('DomainStatus', {})
+
+                domains.append({
+                    'domain_name': domain['DomainName'],
+                    'domain_id': domain_status.get('DomainId'),
+                    'arn': domain_status.get('ARN'),
+                    'created': domain_status.get('Created', False),
+                    'deleted': domain_status.get('Deleted', False),
+                    'endpoint': domain_status.get('Endpoint', 'N/A'),
+                    'engine_version': domain_status.get('EngineVersion', 'N/A'),
+                    'processing': domain_status.get('Processing', False),
+                    'upgrade_processing': domain_status.get('UpgradeProcessing', False),
+                    'instance_type': domain_status.get('ClusterConfig', {}).get('InstanceType', 'N/A'),
+                    'instance_count': domain_status.get('ClusterConfig', {}).get('InstanceCount', 0)
+                })
+            except:
+                domains.append({
+                    'domain_name': domain['DomainName'],
+                    'engine_type': domain.get('EngineType', 'OpenSearch')
+                })
+
+        return {
+            'success': True,
+            'count': len(domains),
+            'domains': domains,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing OpenSearch domains: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# NEPTUNE OPERATIONS
+# ============================================================================
+
+def list_neptune_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Neptune graph database clusters.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Neptune cluster information
+    """
+    try:
+        neptune = _get_boto_client('neptune', region)
+        response = neptune.describe_db_clusters()
+
+        clusters = []
+        for cluster in response.get('DBClusters', []):
+            clusters.append({
+                'cluster_identifier': cluster['DBClusterIdentifier'],
+                'status': cluster.get('Status'),
+                'engine': cluster.get('Engine'),
+                'engine_version': cluster.get('EngineVersion'),
+                'endpoint': cluster.get('Endpoint'),
+                'reader_endpoint': cluster.get('ReaderEndpoint'),
+                'port': cluster.get('Port', 8182),
+                'database_name': cluster.get('DatabaseName', 'N/A'),
+                'cluster_create_time': cluster.get('ClusterCreateTime').isoformat() if cluster.get('ClusterCreateTime') else 'N/A',
+                'availability_zones': cluster.get('AvailabilityZones', []),
+                'multi_az': cluster.get('MultiAZ', False),
+                'storage_encrypted': cluster.get('StorageEncrypted', False)
+            })
+
+        return {
+            'success': True,
+            'count': len(clusters),
+            'clusters': clusters,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Neptune clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# DOCUMENTDB OPERATIONS
+# ============================================================================
+
+def list_documentdb_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List DocumentDB (MongoDB-compatible) clusters.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with DocumentDB cluster information
+    """
+    try:
+        docdb = _get_boto_client('docdb', region)
+        response = docdb.describe_db_clusters()
+
+        clusters = []
+        for cluster in response.get('DBClusters', []):
+            clusters.append({
+                'cluster_identifier': cluster['DBClusterIdentifier'],
+                'status': cluster.get('Status'),
+                'engine': cluster.get('Engine'),
+                'engine_version': cluster.get('EngineVersion'),
+                'endpoint': cluster.get('Endpoint'),
+                'reader_endpoint': cluster.get('ReaderEndpoint'),
+                'port': cluster.get('Port', 27017),
+                'master_username': cluster.get('MasterUsername'),
+                'cluster_create_time': cluster.get('ClusterCreateTime').isoformat() if cluster.get('ClusterCreateTime') else 'N/A',
+                'availability_zones': cluster.get('AvailabilityZones', []),
+                'multi_az': cluster.get('MultiAZ', False),
+                'storage_encrypted': cluster.get('StorageEncrypted', False),
+                'db_cluster_members': len(cluster.get('DBClusterMembers', []))
+            })
+
+        return {
+            'success': True,
+            'count': len(clusters),
+            'clusters': clusters,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing DocumentDB clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# APPSYNC OPERATIONS
+# ============================================================================
+
+def list_appsync_apis(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List AppSync GraphQL APIs.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with AppSync API information
+    """
+    try:
+        appsync = _get_boto_client('appsync', region)
+        response = appsync.list_graphql_apis()
+
+        apis = []
+        for api in response.get('graphqlApis', []):
+            apis.append({
+                'api_id': api['apiId'],
+                'name': api['name'],
+                'authentication_type': api.get('authenticationType'),
+                'arn': api.get('arn'),
+                'uris': api.get('uris', {}),
+                'created_date': api.get('createdDate', 'N/A'),
+                'xray_enabled': api.get('xrayEnabled', False),
+                'waf_web_acl_arn': api.get('wafWebAclArn', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(apis),
+            'apis': apis,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing AppSync APIs: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
 # COMPREHENSIVE RESOURCE INVENTORY
 # ============================================================================
 
@@ -3468,7 +3965,8 @@ def get_aws_resource_inventory(
             'apigateway', 'iam', 'sns', 'sqs', 'ecr', 'secrets',
             'elb', 'efs', 'eventbridge', 'cloudformation', 'ssm', 'autoscaling',
             'stepfunctions', 'kinesis', 'acm', 'waf', 'backup', 'ebs',
-            'elasticip', 'natgateway'
+            'elasticip', 'natgateway', 'redshift', 'athena', 'glue',
+            'sagemaker', 'msk', 'opensearch', 'neptune', 'documentdb', 'appsync'
         ]
 
         inventory = {
@@ -3798,6 +4296,98 @@ def get_aws_resource_inventory(
                 inventory['services']['natgateway'] = {
                     'count': nat_result.get('count', 0),
                     'nat_gateways': nat_result.get('nat_gateways', [])
+                }
+
+        # Redshift Clusters
+        if 'redshift' in all_services:
+            logger.info("Scanning Redshift clusters...")
+            redshift_result = list_redshift_clusters(region=region)
+            if redshift_result.get('success'):
+                inventory['services']['redshift'] = {
+                    'count': redshift_result.get('count', 0),
+                    'clusters': redshift_result.get('clusters', [])
+                }
+
+        # Athena Workgroups
+        if 'athena' in all_services:
+            logger.info("Scanning Athena workgroups...")
+            athena_result = list_athena_workgroups(region=region)
+            if athena_result.get('success'):
+                inventory['services']['athena'] = {
+                    'count': athena_result.get('count', 0),
+                    'workgroups': athena_result.get('workgroups', [])
+                }
+
+        # Glue Jobs and Crawlers
+        if 'glue' in all_services:
+            logger.info("Scanning Glue jobs and crawlers...")
+            jobs_result = list_glue_jobs(region=region)
+            crawlers_result = list_glue_crawlers(region=region)
+            inventory['services']['glue'] = {
+                'jobs_count': jobs_result.get('count', 0) if jobs_result.get('success') else 0,
+                'crawlers_count': crawlers_result.get('count', 0) if crawlers_result.get('success') else 0,
+                'jobs': jobs_result.get('jobs', []) if jobs_result.get('success') else [],
+                'crawlers': crawlers_result.get('crawlers', []) if crawlers_result.get('success') else []
+            }
+
+        # SageMaker Endpoints
+        if 'sagemaker' in all_services:
+            logger.info("Scanning SageMaker endpoints...")
+            sagemaker_result = list_sagemaker_endpoints(region=region)
+            if sagemaker_result.get('success'):
+                inventory['services']['sagemaker'] = {
+                    'count': sagemaker_result.get('count', 0),
+                    'endpoints': sagemaker_result.get('endpoints', [])
+                }
+
+        # MSK Clusters
+        if 'msk' in all_services:
+            logger.info("Scanning MSK clusters...")
+            msk_result = list_msk_clusters(region=region)
+            if msk_result.get('success'):
+                inventory['services']['msk'] = {
+                    'count': msk_result.get('count', 0),
+                    'clusters': msk_result.get('clusters', [])
+                }
+
+        # OpenSearch Domains
+        if 'opensearch' in all_services:
+            logger.info("Scanning OpenSearch domains...")
+            opensearch_result = list_opensearch_domains(region=region)
+            if opensearch_result.get('success'):
+                inventory['services']['opensearch'] = {
+                    'count': opensearch_result.get('count', 0),
+                    'domains': opensearch_result.get('domains', [])
+                }
+
+        # Neptune Clusters
+        if 'neptune' in all_services:
+            logger.info("Scanning Neptune clusters...")
+            neptune_result = list_neptune_clusters(region=region)
+            if neptune_result.get('success'):
+                inventory['services']['neptune'] = {
+                    'count': neptune_result.get('count', 0),
+                    'clusters': neptune_result.get('clusters', [])
+                }
+
+        # DocumentDB Clusters
+        if 'documentdb' in all_services:
+            logger.info("Scanning DocumentDB clusters...")
+            documentdb_result = list_documentdb_clusters(region=region)
+            if documentdb_result.get('success'):
+                inventory['services']['documentdb'] = {
+                    'count': documentdb_result.get('count', 0),
+                    'clusters': documentdb_result.get('clusters', [])
+                }
+
+        # AppSync APIs
+        if 'appsync' in all_services:
+            logger.info("Scanning AppSync APIs...")
+            appsync_result = list_appsync_apis(region=region)
+            if appsync_result.get('success'):
+                inventory['services']['appsync'] = {
+                    'count': appsync_result.get('count', 0),
+                    'apis': appsync_result.get('apis', [])
                 }
 
         # Calculate totals
@@ -4790,17 +5380,169 @@ def get_tools() -> List[Dict[str, Any]]:
             },
             'handler': list_nat_gateways
         },
+        # Redshift Operations
+        {
+            'name': 'list_redshift_clusters',
+            'description': 'List Redshift data warehouse clusters with node types and status',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_redshift_clusters
+        },
+        # Athena Operations
+        {
+            'name': 'list_athena_workgroups',
+            'description': 'List Athena workgroups for SQL queries on S3',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_athena_workgroups
+        },
+        # Glue Operations
+        {
+            'name': 'list_glue_jobs',
+            'description': 'List Glue ETL jobs with execution details',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_glue_jobs
+        },
+        {
+            'name': 'list_glue_crawlers',
+            'description': 'List Glue crawlers for data catalog discovery',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_glue_crawlers
+        },
+        # SageMaker Operations
+        {
+            'name': 'list_sagemaker_endpoints',
+            'description': 'List SageMaker ML model endpoints',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_sagemaker_endpoints
+        },
+        # MSK Operations
+        {
+            'name': 'list_msk_clusters',
+            'description': 'List MSK (Managed Streaming for Kafka) clusters',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_msk_clusters
+        },
+        # OpenSearch Operations
+        {
+            'name': 'list_opensearch_domains',
+            'description': 'List OpenSearch (Elasticsearch) search and analytics domains',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_opensearch_domains
+        },
+        # Neptune Operations
+        {
+            'name': 'list_neptune_clusters',
+            'description': 'List Neptune graph database clusters',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_neptune_clusters
+        },
+        # DocumentDB Operations
+        {
+            'name': 'list_documentdb_clusters',
+            'description': 'List DocumentDB (MongoDB-compatible) clusters',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_documentdb_clusters
+        },
+        # AppSync Operations
+        {
+            'name': 'list_appsync_apis',
+            'description': 'List AppSync GraphQL APIs',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_appsync_apis
+        },
         # Comprehensive Resource Inventory
         {
             'name': 'get_aws_resource_inventory',
             'description': (
-                'Get comprehensive inventory of AWS resources across ALL supported services. '
+                'Get comprehensive inventory of AWS resources across ALL 46 supported services. '
                 'This is the BEST tool for answering questions like "list all my AWS resources", '
                 '"show me my AWS environment", or "audit my AWS infrastructure". '
-                'Scans EC2, S3, RDS, DynamoDB, Lambda, EKS, ECS, ElastiCache, Beanstalk, VPC, '
-                'CloudFront, Route 53, API Gateway, IAM, SNS, SQS, ECR, Secrets Manager, '
-                'Load Balancers, EFS, EventBridge, CloudFormation, SSM, Auto Scaling Groups, '
-                'Step Functions, Kinesis, ACM, WAF, Backup, EBS, Elastic IPs, and NAT Gateways.'
+                'Scans: Compute (EC2, Lambda, ECS, EKS, Beanstalk, Auto Scaling), '
+                'Storage (S3, EBS, EFS), Databases (RDS, DynamoDB, ElastiCache, Redshift, Neptune, DocumentDB), '
+                'Networking (VPC, CloudFront, Route 53, Load Balancers, NAT Gateways, Elastic IPs), '
+                'Messaging (SNS, SQS, Kinesis, MSK, EventBridge), Containers (ECR), '
+                'Security (Secrets Manager, ACM, WAF, IAM), Infrastructure (CloudFormation, Step Functions), '
+                'Analytics (Athena, Glue, OpenSearch), ML (SageMaker), APIs (API Gateway, AppSync), '
+                'Management (SSM, Backup, CloudTrail, Config).'
             ),
             'input_schema': {
                 'type': 'object',
@@ -4813,7 +5555,8 @@ def get_tools() -> List[Dict[str, Any]]:
                             'lambda, eks, ecs, elasticache, beanstalk, vpc, cloudfront, route53, '
                             'apigateway, iam, sns, sqs, ecr, secrets, elb, efs, eventbridge, '
                             'cloudformation, ssm, autoscaling, stepfunctions, kinesis, acm, waf, '
-                            'backup, ebs, elasticip, natgateway. If not specified, scans all services.'
+                            'backup, ebs, elasticip, natgateway, redshift, athena, glue, sagemaker, '
+                            'msk, opensearch, neptune, documentdb, appsync. If not specified, scans all 41 services.'
                         )
                     },
                     'region': {
