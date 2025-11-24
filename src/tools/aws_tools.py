@@ -3938,6 +3938,275 @@ def list_appsync_apis(region: Optional[str] = None) -> Dict[str, Any]:
 
 
 # ============================================================================
+# AMAZON BEDROCK OPERATIONS (Generative AI)
+# ============================================================================
+
+def list_bedrock_foundation_models(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Amazon Bedrock foundation models available in the region.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Bedrock foundation models information
+    """
+    try:
+        bedrock = _get_boto_client('bedrock', region)
+        response = bedrock.list_foundation_models()
+
+        models = []
+        for model in response.get('modelSummaries', []):
+            models.append({
+                'model_id': model.get('modelId'),
+                'model_name': model.get('modelName'),
+                'provider_name': model.get('providerName'),
+                'model_arn': model.get('modelArn'),
+                'input_modalities': model.get('inputModalities', []),
+                'output_modalities': model.get('outputModalities', []),
+                'response_streaming_supported': model.get('responseStreamingSupported', False),
+                'customizations_supported': model.get('customizationsSupported', []),
+                'inference_types_supported': model.get('inferenceTypesSupported', [])
+            })
+
+        # Group by provider
+        providers = {}
+        for model in models:
+            provider = model['provider_name']
+            if provider not in providers:
+                providers[provider] = []
+            providers[provider].append(model['model_name'])
+
+        return {
+            'success': True,
+            'count': len(models),
+            'models': models,
+            'providers': providers,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Bedrock foundation models: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_bedrock_custom_models(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Amazon Bedrock custom models (fine-tuned models).
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Bedrock custom models information
+    """
+    try:
+        bedrock = _get_boto_client('bedrock', region)
+        response = bedrock.list_custom_models()
+
+        models = []
+        for model in response.get('modelSummaries', []):
+            models.append({
+                'model_arn': model.get('modelArn'),
+                'model_name': model.get('modelName'),
+                'creation_time': model.get('creationTime').isoformat() if model.get('creationTime') else 'N/A',
+                'base_model_arn': model.get('baseModelArn'),
+                'base_model_name': model.get('baseModelName'),
+                'customization_type': model.get('customizationType')
+            })
+
+        return {
+            'success': True,
+            'count': len(models),
+            'custom_models': models,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Bedrock custom models: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_bedrock_model_customization_jobs(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Amazon Bedrock model customization (fine-tuning) jobs.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Bedrock customization jobs information
+    """
+    try:
+        bedrock = _get_boto_client('bedrock', region)
+        response = bedrock.list_model_customization_jobs()
+
+        jobs = []
+        for job in response.get('modelCustomizationJobSummaries', []):
+            jobs.append({
+                'job_arn': job.get('jobArn'),
+                'job_name': job.get('jobName'),
+                'status': job.get('status'),
+                'creation_time': job.get('creationTime').isoformat() if job.get('creationTime') else 'N/A',
+                'end_time': job.get('endTime').isoformat() if job.get('endTime') else 'In Progress',
+                'base_model_arn': job.get('baseModelArn'),
+                'custom_model_arn': job.get('customModelArn'),
+                'customization_type': job.get('customizationType')
+            })
+
+        # Count by status
+        status_counts = {}
+        for job in jobs:
+            status = job['status']
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        return {
+            'success': True,
+            'count': len(jobs),
+            'jobs': jobs,
+            'status_counts': status_counts,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Bedrock customization jobs: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_bedrock_knowledge_bases(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Amazon Bedrock knowledge bases (for RAG - Retrieval Augmented Generation).
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Bedrock knowledge bases information
+    """
+    try:
+        bedrock_agent = _get_boto_client('bedrock-agent', region)
+        response = bedrock_agent.list_knowledge_bases()
+
+        knowledge_bases = []
+        for kb in response.get('knowledgeBaseSummaries', []):
+            knowledge_bases.append({
+                'knowledge_base_id': kb.get('knowledgeBaseId'),
+                'name': kb.get('name'),
+                'description': kb.get('description', 'N/A'),
+                'status': kb.get('status'),
+                'created_at': kb.get('createdAt').isoformat() if kb.get('createdAt') else 'N/A',
+                'updated_at': kb.get('updatedAt').isoformat() if kb.get('updatedAt') else 'N/A'
+            })
+
+        return {
+            'success': True,
+            'count': len(knowledge_bases),
+            'knowledge_bases': knowledge_bases,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Bedrock knowledge bases: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_bedrock_agents(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Amazon Bedrock agents (AI agents that can use tools and APIs).
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Bedrock agents information
+    """
+    try:
+        bedrock_agent = _get_boto_client('bedrock-agent', region)
+        response = bedrock_agent.list_agents()
+
+        agents = []
+        for agent in response.get('agentSummaries', []):
+            agents.append({
+                'agent_id': agent.get('agentId'),
+                'agent_name': agent.get('agentName'),
+                'agent_status': agent.get('agentStatus'),
+                'description': agent.get('description', 'N/A'),
+                'created_at': agent.get('createdAt').isoformat() if agent.get('createdAt') else 'N/A',
+                'updated_at': agent.get('updatedAt').isoformat() if agent.get('updatedAt') else 'N/A',
+                'latest_agent_version': agent.get('latestAgentVersion', 'N/A')
+            })
+
+        return {
+            'success': True,
+            'count': len(agents),
+            'agents': agents,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Bedrock agents: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_bedrock_provisioned_model_throughputs(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Amazon Bedrock provisioned model throughput configurations.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with provisioned throughput information
+    """
+    try:
+        bedrock = _get_boto_client('bedrock', region)
+        response = bedrock.list_provisioned_model_throughputs()
+
+        throughputs = []
+        for throughput in response.get('provisionedModelSummaries', []):
+            throughputs.append({
+                'provisioned_model_arn': throughput.get('provisionedModelArn'),
+                'provisioned_model_name': throughput.get('provisionedModelName'),
+                'model_arn': throughput.get('modelArn'),
+                'status': throughput.get('status'),
+                'creation_time': throughput.get('creationTime').isoformat() if throughput.get('creationTime') else 'N/A',
+                'commitment_duration': throughput.get('commitmentDuration', 'N/A'),
+                'commitment_expiration_time': throughput.get('commitmentExpirationTime').isoformat() if throughput.get('commitmentExpirationTime') else 'N/A',
+                'desired_model_units': throughput.get('desiredModelUnits', 0),
+                'model_units': throughput.get('modelUnits', 0)
+            })
+
+        return {
+            'success': True,
+            'count': len(throughputs),
+            'provisioned_throughputs': throughputs,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Bedrock provisioned throughputs: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
 # COMPREHENSIVE RESOURCE INVENTORY
 # ============================================================================
 
@@ -3966,7 +4235,8 @@ def get_aws_resource_inventory(
             'elb', 'efs', 'eventbridge', 'cloudformation', 'ssm', 'autoscaling',
             'stepfunctions', 'kinesis', 'acm', 'waf', 'backup', 'ebs',
             'elasticip', 'natgateway', 'redshift', 'athena', 'glue',
-            'sagemaker', 'msk', 'opensearch', 'neptune', 'documentdb', 'appsync'
+            'sagemaker', 'msk', 'opensearch', 'neptune', 'documentdb', 'appsync',
+            'bedrock'
         ]
 
         inventory = {
@@ -4389,6 +4659,62 @@ def get_aws_resource_inventory(
                     'count': appsync_result.get('count', 0),
                     'apis': appsync_result.get('apis', [])
                 }
+
+        # Bedrock (Generative AI)
+        if 'bedrock' in all_services:
+            logger.info("Scanning Bedrock resources...")
+            bedrock_data = {}
+
+            # Foundation models
+            models_result = list_bedrock_foundation_models(region=region)
+            if models_result.get('success'):
+                bedrock_data['foundation_models'] = {
+                    'count': models_result.get('count', 0),
+                    'providers': models_result.get('providers', {})
+                }
+
+            # Custom models
+            custom_models_result = list_bedrock_custom_models(region=region)
+            if custom_models_result.get('success'):
+                bedrock_data['custom_models'] = {
+                    'count': custom_models_result.get('count', 0),
+                    'models': custom_models_result.get('custom_models', [])
+                }
+
+            # Customization jobs
+            jobs_result = list_bedrock_model_customization_jobs(region=region)
+            if jobs_result.get('success'):
+                bedrock_data['customization_jobs'] = {
+                    'count': jobs_result.get('count', 0),
+                    'status_counts': jobs_result.get('status_counts', {})
+                }
+
+            # Knowledge bases
+            kb_result = list_bedrock_knowledge_bases(region=region)
+            if kb_result.get('success'):
+                bedrock_data['knowledge_bases'] = {
+                    'count': kb_result.get('count', 0),
+                    'knowledge_bases': kb_result.get('knowledge_bases', [])
+                }
+
+            # Agents
+            agents_result = list_bedrock_agents(region=region)
+            if agents_result.get('success'):
+                bedrock_data['agents'] = {
+                    'count': agents_result.get('count', 0),
+                    'agents': agents_result.get('agents', [])
+                }
+
+            # Provisioned throughputs
+            throughput_result = list_bedrock_provisioned_model_throughputs(region=region)
+            if throughput_result.get('success'):
+                bedrock_data['provisioned_throughputs'] = {
+                    'count': throughput_result.get('count', 0),
+                    'throughputs': throughput_result.get('provisioned_throughputs', [])
+                }
+
+            if bedrock_data:
+                inventory['services']['bedrock'] = bedrock_data
 
         # Calculate totals
         total_resources = sum([
@@ -5529,11 +5855,96 @@ def get_tools() -> List[Dict[str, Any]]:
             },
             'handler': list_appsync_apis
         },
+        # Amazon Bedrock Operations (Generative AI)
+        {
+            'name': 'list_bedrock_foundation_models',
+            'description': 'List Amazon Bedrock foundation models (Claude, Titan, Llama, etc.)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_bedrock_foundation_models
+        },
+        {
+            'name': 'list_bedrock_custom_models',
+            'description': 'List Amazon Bedrock custom models (fine-tuned models)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_bedrock_custom_models
+        },
+        {
+            'name': 'list_bedrock_model_customization_jobs',
+            'description': 'List Amazon Bedrock model customization (fine-tuning) jobs',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_bedrock_model_customization_jobs
+        },
+        {
+            'name': 'list_bedrock_knowledge_bases',
+            'description': 'List Amazon Bedrock knowledge bases for RAG (Retrieval Augmented Generation)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_bedrock_knowledge_bases
+        },
+        {
+            'name': 'list_bedrock_agents',
+            'description': 'List Amazon Bedrock agents (AI agents that can use tools and APIs)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_bedrock_agents
+        },
+        {
+            'name': 'list_bedrock_provisioned_model_throughputs',
+            'description': 'List Amazon Bedrock provisioned model throughput configurations',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_bedrock_provisioned_model_throughputs
+        },
         # Comprehensive Resource Inventory
         {
             'name': 'get_aws_resource_inventory',
             'description': (
-                'Get comprehensive inventory of AWS resources across ALL 46 supported services. '
+                'Get comprehensive inventory of AWS resources across ALL 47 supported services. '
                 'This is the BEST tool for answering questions like "list all my AWS resources", '
                 '"show me my AWS environment", or "audit my AWS infrastructure". '
                 'Scans: Compute (EC2, Lambda, ECS, EKS, Beanstalk, Auto Scaling), '
@@ -5542,7 +5953,7 @@ def get_tools() -> List[Dict[str, Any]]:
                 'Messaging (SNS, SQS, Kinesis, MSK, EventBridge), Containers (ECR), '
                 'Security (Secrets Manager, ACM, WAF, IAM), Infrastructure (CloudFormation, Step Functions), '
                 'Analytics (Athena, Glue, OpenSearch), ML (SageMaker), APIs (API Gateway, AppSync), '
-                'Management (SSM, Backup, CloudTrail, Config).'
+                'Management (SSM, Backup, CloudTrail, Config), Generative AI (Bedrock).'
             ),
             'input_schema': {
                 'type': 'object',
@@ -5556,7 +5967,7 @@ def get_tools() -> List[Dict[str, Any]]:
                             'apigateway, iam, sns, sqs, ecr, secrets, elb, efs, eventbridge, '
                             'cloudformation, ssm, autoscaling, stepfunctions, kinesis, acm, waf, '
                             'backup, ebs, elasticip, natgateway, redshift, athena, glue, sagemaker, '
-                            'msk, opensearch, neptune, documentdb, appsync. If not specified, scans all 41 services.'
+                            'msk, opensearch, neptune, documentdb, appsync, bedrock. If not specified, scans all 42 services.'
                         )
                     },
                     'region': {
