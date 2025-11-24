@@ -2988,6 +2988,459 @@ def list_eventbridge_event_buses(region: Optional[str] = None) -> Dict[str, Any]
 
 
 # ============================================================================
+# STEP FUNCTIONS OPERATIONS
+# ============================================================================
+
+def list_step_functions(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Step Functions state machines.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with state machine information
+    """
+    try:
+        sfn = _get_boto_client('stepfunctions', region)
+        response = sfn.list_state_machines()
+
+        state_machines = []
+        for sm in response.get('stateMachines', []):
+            # Get execution stats
+            try:
+                executions = sfn.list_executions(
+                    stateMachineArn=sm['stateMachineArn'],
+                    maxResults=10
+                )
+                execution_count = len(executions.get('executions', []))
+            except:
+                execution_count = 0
+
+            state_machines.append({
+                'name': sm['name'],
+                'arn': sm['stateMachineArn'],
+                'type': sm.get('type', 'STANDARD'),
+                'status': sm.get('status', 'ACTIVE'),
+                'creation_date': sm.get('creationDate').isoformat() if sm.get('creationDate') else 'N/A',
+                'recent_executions': execution_count
+            })
+
+        return {
+            'success': True,
+            'count': len(state_machines),
+            'state_machines': state_machines,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Step Functions: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# KINESIS OPERATIONS
+# ============================================================================
+
+def list_kinesis_streams(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Kinesis data streams.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Kinesis stream information
+    """
+    try:
+        kinesis = _get_boto_client('kinesis', region)
+        response = kinesis.list_streams()
+
+        streams = []
+        for stream_name in response.get('StreamNames', []):
+            # Get stream details
+            try:
+                details = kinesis.describe_stream(StreamName=stream_name)
+                stream_desc = details.get('StreamDescription', {})
+
+                streams.append({
+                    'stream_name': stream_name,
+                    'stream_arn': stream_desc.get('StreamARN'),
+                    'status': stream_desc.get('StreamStatus'),
+                    'shard_count': len(stream_desc.get('Shards', [])),
+                    'retention_period_hours': stream_desc.get('RetentionPeriodHours', 24),
+                    'encryption_type': stream_desc.get('EncryptionType', 'NONE'),
+                    'creation_timestamp': stream_desc.get('StreamCreationTimestamp').isoformat() if stream_desc.get('StreamCreationTimestamp') else 'N/A',
+                    'enhanced_monitoring': stream_desc.get('EnhancedMonitoring', [])
+                })
+            except:
+                streams.append({
+                    'stream_name': stream_name,
+                    'stream_arn': 'N/A',
+                    'status': 'UNKNOWN',
+                    'shard_count': 0
+                })
+
+        return {
+            'success': True,
+            'count': len(streams),
+            'streams': streams,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Kinesis streams: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ACM (CERTIFICATE MANAGER) OPERATIONS
+# ============================================================================
+
+def list_acm_certificates(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List ACM SSL/TLS certificates.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with certificate information
+    """
+    try:
+        acm = _get_boto_client('acm', region)
+        response = acm.list_certificates()
+
+        certificates = []
+        for cert in response.get('CertificateSummaryList', []):
+            # Get detailed certificate info
+            try:
+                details = acm.describe_certificate(CertificateArn=cert['CertificateArn'])
+                cert_details = details.get('Certificate', {})
+
+                certificates.append({
+                    'domain_name': cert.get('DomainName'),
+                    'certificate_arn': cert.get('CertificateArn'),
+                    'status': cert_details.get('Status', 'N/A'),
+                    'type': cert_details.get('Type', 'N/A'),
+                    'in_use': len(cert_details.get('InUseBy', [])) > 0,
+                    'subject_alternative_names': cert_details.get('SubjectAlternativeNames', []),
+                    'issuer': cert_details.get('Issuer', 'N/A'),
+                    'created_at': cert_details.get('CreatedAt').isoformat() if cert_details.get('CreatedAt') else 'N/A',
+                    'not_before': cert_details.get('NotBefore').isoformat() if cert_details.get('NotBefore') else 'N/A',
+                    'not_after': cert_details.get('NotAfter').isoformat() if cert_details.get('NotAfter') else 'N/A',
+                    'renewal_eligibility': cert_details.get('RenewalEligibility', 'N/A')
+                })
+            except:
+                certificates.append({
+                    'domain_name': cert.get('DomainName'),
+                    'certificate_arn': cert.get('CertificateArn'),
+                    'status': 'UNKNOWN'
+                })
+
+        return {
+            'success': True,
+            'count': len(certificates),
+            'certificates': certificates,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing ACM certificates: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# WAF (WEB APPLICATION FIREWALL) OPERATIONS
+# ============================================================================
+
+def list_waf_web_acls(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List WAF Web ACLs.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with WAF Web ACL information
+    """
+    try:
+        wafv2 = _get_boto_client('wafv2', region)
+
+        # List regional Web ACLs
+        web_acls = []
+        try:
+            response = wafv2.list_web_acls(Scope='REGIONAL')
+            for acl in response.get('WebACLs', []):
+                web_acls.append({
+                    'name': acl['Name'],
+                    'id': acl['Id'],
+                    'arn': acl['ARN'],
+                    'scope': 'REGIONAL',
+                    'description': acl.get('Description', 'N/A'),
+                    'lock_token': acl.get('LockToken', 'N/A')
+                })
+        except:
+            pass
+
+        # List CloudFront (global) Web ACLs
+        try:
+            response = wafv2.list_web_acls(Scope='CLOUDFRONT')
+            for acl in response.get('WebACLs', []):
+                web_acls.append({
+                    'name': acl['Name'],
+                    'id': acl['Id'],
+                    'arn': acl['ARN'],
+                    'scope': 'CLOUDFRONT',
+                    'description': acl.get('Description', 'N/A'),
+                    'lock_token': acl.get('LockToken', 'N/A')
+                })
+        except:
+            pass
+
+        return {
+            'success': True,
+            'count': len(web_acls),
+            'web_acls': web_acls,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing WAF Web ACLs: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# BACKUP OPERATIONS
+# ============================================================================
+
+def list_backup_plans(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List AWS Backup plans.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with backup plan information
+    """
+    try:
+        backup = _get_boto_client('backup', region)
+        response = backup.list_backup_plans()
+
+        plans = []
+        for plan in response.get('BackupPlansList', []):
+            # Get plan details
+            try:
+                details = backup.get_backup_plan(BackupPlanId=plan['BackupPlanId'])
+                plan_details = details.get('BackupPlan', {})
+
+                plans.append({
+                    'backup_plan_id': plan['BackupPlanId'],
+                    'backup_plan_arn': plan['BackupPlanArn'],
+                    'backup_plan_name': plan['BackupPlanName'],
+                    'version_id': plan.get('VersionId'),
+                    'creation_date': plan.get('CreationDate').isoformat() if plan.get('CreationDate') else 'N/A',
+                    'last_execution_date': plan.get('LastExecutionDate').isoformat() if plan.get('LastExecutionDate') else 'N/A',
+                    'rule_count': len(plan_details.get('Rules', [])),
+                    'advanced_backup_settings': plan_details.get('AdvancedBackupSettings', [])
+                })
+            except:
+                plans.append({
+                    'backup_plan_id': plan['BackupPlanId'],
+                    'backup_plan_name': plan['BackupPlanName'],
+                    'backup_plan_arn': plan['BackupPlanArn']
+                })
+
+        return {
+            'success': True,
+            'count': len(plans),
+            'backup_plans': plans,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Backup plans: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# EBS VOLUME OPERATIONS
+# ============================================================================
+
+def list_ebs_volumes(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List EBS volumes.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with EBS volume information
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.describe_volumes()
+
+        volumes = []
+        for vol in response.get('Volumes', []):
+            # Get attachments info
+            attachments = vol.get('Attachments', [])
+            attached_to = attachments[0].get('InstanceId') if attachments else None
+            device = attachments[0].get('Device') if attachments else None
+
+            volumes.append({
+                'volume_id': vol['VolumeId'],
+                'size': vol.get('Size', 0),
+                'volume_type': vol.get('VolumeType', 'gp2'),
+                'state': vol.get('State'),
+                'iops': vol.get('Iops', 0),
+                'throughput': vol.get('Throughput', 0),
+                'encrypted': vol.get('Encrypted', False),
+                'kms_key_id': vol.get('KmsKeyId', 'N/A'),
+                'availability_zone': vol.get('AvailabilityZone'),
+                'attached_to': attached_to or 'Not attached',
+                'device': device or 'N/A',
+                'created_time': vol.get('CreateTime').isoformat() if vol.get('CreateTime') else 'N/A',
+                'snapshot_id': vol.get('SnapshotId', 'N/A'),
+                'multi_attach_enabled': vol.get('MultiAttachEnabled', False),
+                'tags': {tag['Key']: tag['Value'] for tag in vol.get('Tags', [])}
+            })
+
+        return {
+            'success': True,
+            'count': len(volumes),
+            'volumes': volumes,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing EBS volumes: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# ELASTIC IP OPERATIONS
+# ============================================================================
+
+def list_elastic_ips(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Elastic IP addresses.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with Elastic IP information
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.describe_addresses()
+
+        elastic_ips = []
+        for eip in response.get('Addresses', []):
+            elastic_ips.append({
+                'public_ip': eip.get('PublicIp'),
+                'allocation_id': eip.get('AllocationId', 'N/A'),
+                'association_id': eip.get('AssociationId', 'N/A'),
+                'domain': eip.get('Domain', 'vpc'),
+                'instance_id': eip.get('InstanceId', 'Not associated'),
+                'network_interface_id': eip.get('NetworkInterfaceId', 'N/A'),
+                'private_ip_address': eip.get('PrivateIpAddress', 'N/A'),
+                'network_interface_owner_id': eip.get('NetworkInterfaceOwnerId', 'N/A'),
+                'public_ipv4_pool': eip.get('PublicIpv4Pool', 'amazon'),
+                'tags': {tag['Key']: tag['Value'] for tag in eip.get('Tags', [])}
+            })
+
+        return {
+            'success': True,
+            'count': len(elastic_ips),
+            'elastic_ips': elastic_ips,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing Elastic IPs: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# NAT GATEWAY OPERATIONS
+# ============================================================================
+
+def list_nat_gateways(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List NAT Gateways.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with NAT Gateway information
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.describe_nat_gateways()
+
+        nat_gateways = []
+        for nat in response.get('NatGateways', []):
+            # Get NAT Gateway addresses
+            addresses = nat.get('NatGatewayAddresses', [])
+            public_ip = addresses[0].get('PublicIp') if addresses else 'N/A'
+            private_ip = addresses[0].get('PrivateIp') if addresses else 'N/A'
+
+            nat_gateways.append({
+                'nat_gateway_id': nat['NatGatewayId'],
+                'state': nat.get('State'),
+                'subnet_id': nat.get('SubnetId'),
+                'vpc_id': nat.get('VpcId'),
+                'public_ip': public_ip,
+                'private_ip': private_ip,
+                'connectivity_type': nat.get('ConnectivityType', 'public'),
+                'created_time': nat.get('CreateTime').isoformat() if nat.get('CreateTime') else 'N/A',
+                'delete_time': nat.get('DeleteTime').isoformat() if nat.get('DeleteTime') else 'N/A',
+                'failure_code': nat.get('FailureCode', 'N/A'),
+                'failure_message': nat.get('FailureMessage', 'N/A'),
+                'tags': {tag['Key']: tag['Value'] for tag in nat.get('Tags', [])}
+            })
+
+        return {
+            'success': True,
+            'count': len(nat_gateways),
+            'nat_gateways': nat_gateways,
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing NAT Gateways: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
 # COMPREHENSIVE RESOURCE INVENTORY
 # ============================================================================
 
@@ -3013,7 +3466,9 @@ def get_aws_resource_inventory(
             'ec2', 's3', 'rds', 'dynamodb', 'lambda', 'eks', 'ecs',
             'elasticache', 'beanstalk', 'vpc', 'cloudfront', 'route53',
             'apigateway', 'iam', 'sns', 'sqs', 'ecr', 'secrets',
-            'elb', 'efs', 'eventbridge', 'cloudformation', 'ssm', 'autoscaling'
+            'elb', 'efs', 'eventbridge', 'cloudformation', 'ssm', 'autoscaling',
+            'stepfunctions', 'kinesis', 'acm', 'waf', 'backup', 'ebs',
+            'elasticip', 'natgateway'
         ]
 
         inventory = {
@@ -3263,6 +3718,86 @@ def get_aws_resource_inventory(
                 inventory['services']['autoscaling'] = {
                     'count': asg_result.get('count', 0),
                     'groups': asg_result.get('groups', [])
+                }
+
+        # Step Functions
+        if 'stepfunctions' in all_services:
+            logger.info("Scanning Step Functions...")
+            sfn_result = list_step_functions(region=region)
+            if sfn_result.get('success'):
+                inventory['services']['stepfunctions'] = {
+                    'count': sfn_result.get('count', 0),
+                    'state_machines': sfn_result.get('state_machines', [])
+                }
+
+        # Kinesis Streams
+        if 'kinesis' in all_services:
+            logger.info("Scanning Kinesis streams...")
+            kinesis_result = list_kinesis_streams(region=region)
+            if kinesis_result.get('success'):
+                inventory['services']['kinesis'] = {
+                    'count': kinesis_result.get('count', 0),
+                    'streams': kinesis_result.get('streams', [])
+                }
+
+        # ACM Certificates
+        if 'acm' in all_services:
+            logger.info("Scanning ACM certificates...")
+            acm_result = list_acm_certificates(region=region)
+            if acm_result.get('success'):
+                inventory['services']['acm'] = {
+                    'count': acm_result.get('count', 0),
+                    'certificates': acm_result.get('certificates', [])
+                }
+
+        # WAF Web ACLs
+        if 'waf' in all_services:
+            logger.info("Scanning WAF Web ACLs...")
+            waf_result = list_waf_web_acls(region=region)
+            if waf_result.get('success'):
+                inventory['services']['waf'] = {
+                    'count': waf_result.get('count', 0),
+                    'web_acls': waf_result.get('web_acls', [])
+                }
+
+        # Backup Plans
+        if 'backup' in all_services:
+            logger.info("Scanning Backup plans...")
+            backup_result = list_backup_plans(region=region)
+            if backup_result.get('success'):
+                inventory['services']['backup'] = {
+                    'count': backup_result.get('count', 0),
+                    'backup_plans': backup_result.get('backup_plans', [])
+                }
+
+        # EBS Volumes
+        if 'ebs' in all_services:
+            logger.info("Scanning EBS volumes...")
+            ebs_result = list_ebs_volumes(region=region)
+            if ebs_result.get('success'):
+                inventory['services']['ebs'] = {
+                    'count': ebs_result.get('count', 0),
+                    'volumes': ebs_result.get('volumes', [])
+                }
+
+        # Elastic IPs
+        if 'elasticip' in all_services:
+            logger.info("Scanning Elastic IPs...")
+            eip_result = list_elastic_ips(region=region)
+            if eip_result.get('success'):
+                inventory['services']['elasticip'] = {
+                    'count': eip_result.get('count', 0),
+                    'elastic_ips': eip_result.get('elastic_ips', [])
+                }
+
+        # NAT Gateways
+        if 'natgateway' in all_services:
+            logger.info("Scanning NAT Gateways...")
+            nat_result = list_nat_gateways(region=region)
+            if nat_result.get('success'):
+                inventory['services']['natgateway'] = {
+                    'count': nat_result.get('count', 0),
+                    'nat_gateways': nat_result.get('nat_gateways', [])
                 }
 
         # Calculate totals
@@ -4135,6 +4670,126 @@ def get_tools() -> List[Dict[str, Any]]:
             },
             'handler': list_autoscaling_groups
         },
+        # Step Functions Operations
+        {
+            'name': 'list_step_functions',
+            'description': 'List Step Functions state machines with execution counts',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_step_functions
+        },
+        # Kinesis Operations
+        {
+            'name': 'list_kinesis_streams',
+            'description': 'List Kinesis data streams with shard counts and retention',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_kinesis_streams
+        },
+        # ACM Operations
+        {
+            'name': 'list_acm_certificates',
+            'description': 'List ACM SSL/TLS certificates with expiration and renewal status',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_acm_certificates
+        },
+        # WAF Operations
+        {
+            'name': 'list_waf_web_acls',
+            'description': 'List WAF Web ACLs (both regional and CloudFront/global)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_waf_web_acls
+        },
+        # Backup Operations
+        {
+            'name': 'list_backup_plans',
+            'description': 'List AWS Backup plans with rule counts',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_backup_plans
+        },
+        # EBS Volume Operations
+        {
+            'name': 'list_ebs_volumes',
+            'description': 'List EBS volumes with size, type, encryption, and attachment info',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_ebs_volumes
+        },
+        # Elastic IP Operations
+        {
+            'name': 'list_elastic_ips',
+            'description': 'List Elastic IP addresses with association and allocation info',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_elastic_ips
+        },
+        # NAT Gateway Operations
+        {
+            'name': 'list_nat_gateways',
+            'description': 'List NAT Gateways with state, VPC, subnet, and IP information',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_nat_gateways
+        },
         # Comprehensive Resource Inventory
         {
             'name': 'get_aws_resource_inventory',
@@ -4144,7 +4799,8 @@ def get_tools() -> List[Dict[str, Any]]:
                 '"show me my AWS environment", or "audit my AWS infrastructure". '
                 'Scans EC2, S3, RDS, DynamoDB, Lambda, EKS, ECS, ElastiCache, Beanstalk, VPC, '
                 'CloudFront, Route 53, API Gateway, IAM, SNS, SQS, ECR, Secrets Manager, '
-                'Load Balancers, EFS, EventBridge, CloudFormation, SSM, and Auto Scaling Groups.'
+                'Load Balancers, EFS, EventBridge, CloudFormation, SSM, Auto Scaling Groups, '
+                'Step Functions, Kinesis, ACM, WAF, Backup, EBS, Elastic IPs, and NAT Gateways.'
             ),
             'input_schema': {
                 'type': 'object',
@@ -4156,7 +4812,8 @@ def get_tools() -> List[Dict[str, Any]]:
                             'List of services to scan (optional). Options: ec2, s3, rds, dynamodb, '
                             'lambda, eks, ecs, elasticache, beanstalk, vpc, cloudfront, route53, '
                             'apigateway, iam, sns, sqs, ecr, secrets, elb, efs, eventbridge, '
-                            'cloudformation, ssm, autoscaling. If not specified, scans all services.'
+                            'cloudformation, ssm, autoscaling, stepfunctions, kinesis, acm, waf, '
+                            'backup, ebs, elasticip, natgateway. If not specified, scans all services.'
                         )
                     },
                     'region': {
