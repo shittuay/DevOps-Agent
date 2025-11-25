@@ -76,42 +76,42 @@ def initialize_agent(config_path=None, env_path=None):
 
         # Register command tools (always enabled)
         agent.register_tools_from_module(command_tools)
-        console.print("[green]✓[/green] Command execution tools loaded")
+        console.print("[green][OK][/green] Command execution tools loaded")
 
         # Register AWS tools if enabled
         if config.aws_enabled:
             agent.register_tools_from_module(aws_tools)
-            console.print("[green]✓[/green] AWS tools loaded")
+            console.print("[green][OK][/green] AWS tools loaded")
 
         # Register Azure tools if enabled
         if config.azure_enabled:
             agent.register_tools_from_module(azure_tools)
-            console.print("[green]✓[/green] Azure tools loaded")
+            console.print("[green][OK][/green] Azure tools loaded")
 
         # Register GCP tools if enabled
         if config.gcp_enabled:
             agent.register_tools_from_module(gcp_tools)
-            console.print("[green]✓[/green] GCP tools loaded")
+            console.print("[green][OK][/green] GCP tools loaded")
 
         # Register Kubernetes tools if enabled
         if config.k8s_enabled:
             agent.register_tools_from_module(kubernetes_tools)
-            console.print("[green]✓[/green] Kubernetes tools loaded")
+            console.print("[green][OK][/green] Kubernetes tools loaded")
 
         # Register Git tools
         agent.register_tools_from_module(git_tools)
-        console.print("[green]✓[/green] Git tools loaded")
+        console.print("[green][OK][/green] Git tools loaded")
 
         # Register CI/CD tools if enabled
         if config.jenkins_enabled or config.github_enabled:
             agent.register_tools_from_module(cicd_tools)
-            console.print("[green]✓[/green] CI/CD tools loaded")
+            console.print("[green][OK][/green] CI/CD tools loaded")
 
         # Register Penetration Testing tools if enabled
         if config.get('pentest.enabled', False):
             agent.register_tools_from_module(pentest_tools)
-            console.print("[green]✓[/green] Penetration testing tools loaded")
-            console.print("[yellow]⚠[/yellow]  Ensure you have authorization before scanning targets")
+            console.print("[green][OK][/green] Penetration testing tools loaded")
+            console.print("[yellow][!][/yellow]  Ensure you have authorization before scanning targets")
 
         logger.info(f"Agent initialized with {len(agent.list_available_tools())} tools")
 
