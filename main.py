@@ -19,6 +19,8 @@ from src.utils import setup_logging, get_logger
 from src.tools import (
     command_tools,
     aws_tools,
+    azure_tools,
+    gcp_tools,
     kubernetes_tools,
     git_tools,
     cicd_tools,
@@ -80,6 +82,16 @@ def initialize_agent(config_path=None, env_path=None):
         if config.aws_enabled:
             agent.register_tools_from_module(aws_tools)
             console.print("[green]✓[/green] AWS tools loaded")
+
+        # Register Azure tools if enabled
+        if config.azure_enabled:
+            agent.register_tools_from_module(azure_tools)
+            console.print("[green]✓[/green] Azure tools loaded")
+
+        # Register GCP tools if enabled
+        if config.gcp_enabled:
+            agent.register_tools_from_module(gcp_tools)
+            console.print("[green]✓[/green] GCP tools loaded")
 
         # Register Kubernetes tools if enabled
         if config.k8s_enabled:
@@ -151,6 +163,8 @@ def interactive(config, env):
     console.print("[yellow]Type your DevOps commands in natural language.[/yellow]")
     console.print("[dim]Examples:[/dim]")
     console.print("  • List all EC2 instances in us-east-1")
+    console.print("  • Show me GCP compute instances")
+    console.print("  • List Azure virtual machines")
     console.print("  • Show me pods in the default namespace")
     console.print("  • Get the last 50 lines of logs from pod nginx-123")
     console.print("  • What's the status of my Jenkins job 'deploy-prod'?")
@@ -228,7 +242,6 @@ def ask(message, config, env):
     response = agent.process_message(message)
 
     # Display response
-    
     console.print(Panel(
         Markdown(response),
         title="[bold green]Agent Response[/bold green]",
@@ -299,6 +312,17 @@ def show_help():
 - Show me S3 buckets
 - Get CloudWatch logs from /aws/lambda/my-function
 
+**Azure:**
+- List all Azure virtual machines
+- Show me Azure storage accounts
+- Get details of VM named myvm in resource group myrg
+
+**GCP:**
+- List all GCP compute instances
+- Show me Cloud Storage buckets
+- List GKE clusters
+- Show Cloud SQL instances
+
 **Kubernetes:**
 - Show pods in namespace default
 - Get logs from pod nginx-abc123
@@ -335,7 +359,9 @@ def show_tools(agent):
 
     # Categorize tools
     categories = {
-        'AWS': [t for t in tools_list if t.startswith(('get_ec2', 'list_s3', 'get_eks', 'get_cloudwatch', 'list_iam', 'manage_ec2'))],
+        'AWS': [t for t in tools_list if t.startswith(('get_ec2', 'list_s3', 'get_eks', 'get_cloudwatch', 'list_iam', 'manage_ec2', 'create_ec2', 'delete_ec2'))],
+        'Azure': [t for t in tools_list if 'azure' in t.lower() or t.startswith(('list_virtual_machines', 'get_vm', 'manage_vm', 'list_storage_accounts'))],
+        'GCP': [t for t in tools_list if t.startswith(('list_compute_instances', 'manage_compute', 'create_compute', 'delete_compute', 'list_storage_buckets', 'create_storage', 'delete_storage', 'list_gke', 'list_cloud_sql', 'create_cloud_sql', 'list_cloud_functions', 'get_gcp'))],
         'Kubernetes': [t for t in tools_list if t.startswith(('get_pods', 'get_deployments', 'scale_', 'restart_', 'get_services', 'get_nodes', 'describe_pod'))],
         'Git': [t for t in tools_list if 'repository' in t or 'pull_request' in t or 'commit' in t or 'branch' in t or 'diff' in t],
         'CI/CD': [t for t in tools_list if 'jenkins' in t or 'github_workflow' in t or 'gitlab' in t],

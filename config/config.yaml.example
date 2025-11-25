@@ -21,6 +21,12 @@ azure:
   client_secret: "${AZURE_CLIENT_SECRET}"
   default_location: "eastus"
 
+gcp:
+  enabled: true
+  project_id: "${GCP_PROJECT_ID}"
+  default_region: "us-central1"
+  default_zone: "us-central1-a"
+
 kubernetes:
   default_context: "default"
   default_namespace: "default"

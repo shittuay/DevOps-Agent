@@ -84,6 +84,17 @@ class ConfigManager:
                 'profile': 'default',
                 'enabled': True
             },
+            'azure': {
+                'enabled': True,
+                'subscription_id': None,
+                'default_location': 'eastus'
+            },
+            'gcp': {
+                'enabled': True,
+                'project_id': None,
+                'default_region': 'us-central1',
+                'default_zone': 'us-central1-a'
+            },
             'kubernetes': {
                 'default_context': 'default',
                 'default_namespace': 'default',
@@ -205,6 +216,41 @@ class ConfigManager:
     def aws_enabled(self) -> bool:
         """Check if AWS integration is enabled."""
         return self.get('aws.enabled', True)
+
+    @property
+    def azure_enabled(self) -> bool:
+        """Check if Azure integration is enabled."""
+        return self.get('azure.enabled', True)
+
+    @property
+    def azure_subscription_id(self) -> Optional[str]:
+        """Get Azure subscription ID."""
+        return self.get_env('AZURE_SUBSCRIPTION_ID') or self.get('azure.subscription_id')
+
+    @property
+    def azure_default_location(self) -> str:
+        """Get Azure default location."""
+        return self.get('azure.default_location', 'eastus')
+
+    @property
+    def gcp_enabled(self) -> bool:
+        """Check if GCP integration is enabled."""
+        return self.get('gcp.enabled', True)
+
+    @property
+    def gcp_project_id(self) -> Optional[str]:
+        """Get GCP project ID."""
+        return self.get_env('GCP_PROJECT_ID') or self.get('gcp.project_id')
+
+    @property
+    def gcp_default_region(self) -> str:
+        """Get GCP default region."""
+        return self.get('gcp.default_region', 'us-central1')
+
+    @property
+    def gcp_default_zone(self) -> str:
+        """Get GCP default zone."""
+        return self.get('gcp.default_zone', 'us-central1-a')
 
     @property
     def k8s_enabled(self) -> bool:

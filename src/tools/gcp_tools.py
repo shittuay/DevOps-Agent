@@ -706,6 +706,360 @@ def delete_storage_bucket(
         return {'success': False, 'error': str(e)}
 
 
+def list_cloud_run_services(
+    project_id: Optional[str] = None,
+    region: str = 'us-central1'
+) -> Dict[str, Any]:
+    """
+    List Cloud Run services.
+
+    Args:
+        project_id: GCP project ID
+        region: GCP region (default: us-central1)
+
+    Returns:
+        Dictionary with Cloud Run services information
+    """
+    try:
+        from google.cloud import run_v2
+
+        client = run_v2.ServicesClient()
+        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
+
+        if not proj_id:
+            raise Exception("GCP_PROJECT_ID not found")
+
+        parent = f"projects/{proj_id}/locations/{region}"
+        request = run_v2.ListServicesRequest(parent=parent)
+
+        services = []
+        for service in client.list_services(request=request):
+            services.append({
+                'name': service.name.split('/')[-1],
+                'uri': service.uri,
+                'description': service.description,
+                'labels': dict(service.labels) if service.labels else {},
+                'generation': service.generation,
+                'conditions': [
+                    {'type': c.type_, 'status': c.state.name}
+                    for c in service.conditions
+                ] if service.conditions else []
+            })
+
+        return {
+            'success': True,
+            'project': proj_id,
+            'region': region,
+            'count': len(services),
+            'services': services
+        }
+    except Exception as e:
+        logger.error(f"Error listing Cloud Run services: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def list_pubsub_topics(project_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Pub/Sub topics.
+
+    Args:
+        project_id: GCP project ID
+
+    Returns:
+        Dictionary with Pub/Sub topics information
+    """
+    try:
+        from google.cloud import pubsub_v1
+
+        publisher = pubsub_v1.PublisherClient()
+        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
+
+        if not proj_id:
+            raise Exception("GCP_PROJECT_ID not found")
+
+        project_path = f"projects/{proj_id}"
+
+        topics = []
+        for topic in publisher.list_topics(request={"project": project_path}):
+            topics.append({
+                'name': topic.name.split('/')[-1],
+                'full_name': topic.name,
+                'labels': dict(topic.labels) if topic.labels else {}
+            })
+
+        return {
+            'success': True,
+            'project': proj_id,
+            'count': len(topics),
+            'topics': topics
+        }
+    except Exception as e:
+        logger.error(f"Error listing Pub/Sub topics: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def publish_pubsub_message(
+    topic_name: str,
+    message_data: str,
+    project_id: Optional[str] = None,
+    attributes: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """
+    Publish a message to a Pub/Sub topic.
+
+    Args:
+        topic_name: Topic name
+        message_data: Message data to publish
+        project_id: GCP project ID
+        attributes: Optional message attributes
+
+    Returns:
+        Dictionary with publish result
+    """
+    try:
+        from google.cloud import pubsub_v1
+
+        publisher = pubsub_v1.PublisherClient()
+        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
+
+        if not proj_id:
+            raise Exception("GCP_PROJECT_ID not found")
+
+        topic_path = publisher.topic_path(proj_id, topic_name)
+
+        # Encode message data
+        data = message_data.encode('utf-8')
+
+        # Publish message
+        if attributes:
+            future = publisher.publish(topic_path, data, **attributes)
+        else:
+            future = publisher.publish(topic_path, data)
+
+        message_id = future.result()
+
+        return {
+            'success': True,
+            'project': proj_id,
+            'topic': topic_name,
+            'message_id': message_id,
+            'message': f'Message published to topic {topic_name} with ID: {message_id}'
+        }
+    except Exception as e:
+        logger.error(f"Error publishing Pub/Sub message: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def list_bigquery_datasets(project_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List BigQuery datasets.
+
+    Args:
+        project_id: GCP project ID
+
+    Returns:
+        Dictionary with BigQuery datasets information
+    """
+    try:
+        from google.cloud import bigquery
+
+        client = bigquery.Client(project=project_id or os.environ.get('GCP_PROJECT_ID'))
+
+        datasets = []
+        for dataset in client.list_datasets():
+            datasets.append({
+                'dataset_id': dataset.dataset_id,
+                'full_id': dataset.full_dataset_id,
+                'project': dataset.project,
+                'location': dataset.location if hasattr(dataset, 'location') else None,
+                'labels': dict(dataset.labels) if hasattr(dataset, 'labels') and dataset.labels else {}
+            })
+
+        return {
+            'success': True,
+            'project': client.project,
+            'count': len(datasets),
+            'datasets': datasets
+        }
+    except Exception as e:
+        logger.error(f"Error listing BigQuery datasets: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def query_bigquery(
+    query: str,
+    project_id: Optional[str] = None,
+    max_results: int = 100
+) -> Dict[str, Any]:
+    """
+    Execute a BigQuery SQL query.
+
+    Args:
+        query: SQL query to execute
+        project_id: GCP project ID
+        max_results: Maximum number of results to return
+
+    Returns:
+        Dictionary with query results
+    """
+    try:
+        from google.cloud import bigquery
+
+        client = bigquery.Client(project=project_id or os.environ.get('GCP_PROJECT_ID'))
+
+        query_job = client.query(query)
+        results = query_job.result(max_results=max_results)
+
+        # Convert results to list of dicts
+        rows = []
+        for row in results:
+            rows.append(dict(row))
+
+        return {
+            'success': True,
+            'project': client.project,
+            'total_rows': results.total_rows,
+            'rows_returned': len(rows),
+            'rows': rows,
+            'query': query
+        }
+    except Exception as e:
+        logger.error(f"Error executing BigQuery query: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def list_secrets(project_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List Secret Manager secrets.
+
+    Args:
+        project_id: GCP project ID
+
+    Returns:
+        Dictionary with secrets information
+    """
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
+
+        if not proj_id:
+            raise Exception("GCP_PROJECT_ID not found")
+
+        parent = f"projects/{proj_id}"
+
+        secrets = []
+        for secret in client.list_secrets(request={"parent": parent}):
+            secrets.append({
+                'name': secret.name.split('/')[-1],
+                'full_name': secret.name,
+                'labels': dict(secret.labels) if secret.labels else {},
+                'create_time': secret.create_time.isoformat() if secret.create_time else None
+            })
+
+        return {
+            'success': True,
+            'project': proj_id,
+            'count': len(secrets),
+            'secrets': secrets
+        }
+    except Exception as e:
+        logger.error(f"Error listing Secret Manager secrets: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def get_secret_value(
+    secret_name: str,
+    version: str = 'latest',
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get the value of a secret from Secret Manager.
+
+    Args:
+        secret_name: Secret name
+        version: Secret version (default: 'latest')
+        project_id: GCP project ID
+
+    Returns:
+        Dictionary with secret value
+    """
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
+
+        if not proj_id:
+            raise Exception("GCP_PROJECT_ID not found")
+
+        name = f"projects/{proj_id}/secrets/{secret_name}/versions/{version}"
+        response = client.access_secret_version(request={"name": name})
+
+        payload = response.payload.data.decode('UTF-8')
+
+        return {
+            'success': True,
+            'project': proj_id,
+            'secret_name': secret_name,
+            'version': version,
+            'value': payload
+        }
+    except Exception as e:
+        logger.error(f"Error getting secret value: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def list_cloud_logs(
+    project_id: Optional[str] = None,
+    filter_query: Optional[str] = None,
+    max_entries: int = 50
+) -> Dict[str, Any]:
+    """
+    List Cloud Logging entries.
+
+    Args:
+        project_id: GCP project ID
+        filter_query: Optional filter query (e.g., 'severity>=ERROR')
+        max_entries: Maximum number of log entries to return
+
+    Returns:
+        Dictionary with log entries
+    """
+    try:
+        from google.cloud import logging
+
+        client = logging.Client(project=project_id or os.environ.get('GCP_PROJECT_ID'))
+
+        if filter_query:
+            iterator = client.list_entries(filter_=filter_query, max_results=max_entries)
+        else:
+            iterator = client.list_entries(max_results=max_entries)
+
+        entries = []
+        for entry in iterator:
+            entries.append({
+                'timestamp': entry.timestamp.isoformat() if entry.timestamp else None,
+                'severity': entry.severity,
+                'log_name': entry.log_name,
+                'resource_type': entry.resource.type if entry.resource else None,
+                'payload': str(entry.payload),
+                'labels': dict(entry.labels) if entry.labels else {}
+            })
+
+        return {
+            'success': True,
+            'project': client.project,
+            'count': len(entries),
+            'filter': filter_query,
+            'entries': entries
+        }
+    except Exception as e:
+        logger.error(f"Error listing Cloud Logging entries: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
 # ==================== TOOL REGISTRATION ====================
 
 
@@ -888,5 +1242,111 @@ def get_tools() -> List[Dict[str, Any]]:
                 }
             },
             'handler': list_cloud_functions
+        },
+        # Cloud Run
+        {
+            'name': 'list_cloud_run_services',
+            'description': 'List Google Cloud Run services',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'},
+                    'region': {'type': 'string', 'description': 'GCP region (default: us-central1)', 'default': 'us-central1'}
+                }
+            },
+            'handler': list_cloud_run_services
+        },
+        # Pub/Sub
+        {
+            'name': 'list_pubsub_topics',
+            'description': 'List Google Cloud Pub/Sub topics',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                }
+            },
+            'handler': list_pubsub_topics
+        },
+        {
+            'name': 'publish_pubsub_message',
+            'description': 'Publish a message to a Pub/Sub topic',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'topic_name': {'type': 'string', 'description': 'Topic name'},
+                    'message_data': {'type': 'string', 'description': 'Message data to publish'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'},
+                    'attributes': {'type': 'object', 'description': 'Optional message attributes (key-value pairs)'}
+                },
+                'required': ['topic_name', 'message_data']
+            },
+            'handler': publish_pubsub_message
+        },
+        # BigQuery
+        {
+            'name': 'list_bigquery_datasets',
+            'description': 'List BigQuery datasets',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                }
+            },
+            'handler': list_bigquery_datasets
+        },
+        {
+            'name': 'query_bigquery',
+            'description': 'Execute a BigQuery SQL query',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'query': {'type': 'string', 'description': 'SQL query to execute'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'},
+                    'max_results': {'type': 'integer', 'description': 'Maximum number of results to return (default: 100)', 'default': 100}
+                },
+                'required': ['query']
+            },
+            'handler': query_bigquery
+        },
+        # Secret Manager
+        {
+            'name': 'list_secrets',
+            'description': 'List Google Cloud Secret Manager secrets',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                }
+            },
+            'handler': list_secrets
+        },
+        {
+            'name': 'get_secret_value',
+            'description': 'Get the value of a secret from Secret Manager',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'secret_name': {'type': 'string', 'description': 'Secret name'},
+                    'version': {'type': 'string', 'description': 'Secret version (default: latest)', 'default': 'latest'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['secret_name']
+            },
+            'handler': get_secret_value
+        },
+        # Cloud Logging
+        {
+            'name': 'list_cloud_logs',
+            'description': 'List Google Cloud Logging entries',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'},
+                    'filter_query': {'type': 'string', 'description': 'Optional filter query (e.g., severity>=ERROR)'},
+                    'max_entries': {'type': 'integer', 'description': 'Maximum number of log entries (default: 50)', 'default': 50}
+                }
+            },
+            'handler': list_cloud_logs
         }
     ]
