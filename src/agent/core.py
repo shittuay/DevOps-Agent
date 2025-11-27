@@ -38,6 +38,9 @@ class DevOpsAgent:
         self.tools: Dict[str, Callable] = {}
         self.tool_definitions: List[Dict[str, Any]] = []
 
+        # Store pending file downloads (e.g., keypairs)
+        self.pending_download: Optional[Dict[str, Any]] = None
+
         self.logger.info("DevOps Agent initialized")
 
     def register_tool(
@@ -98,6 +101,9 @@ class DevOpsAgent:
             Agent's response text
         """
         self.logger.info(f"Processing user message: {user_message[:100]}...")
+
+        # Clear any pending downloads from previous messages
+        self.pending_download = None
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -291,6 +297,11 @@ Please use these preferences to provide personalized assistance:
 
                     self.logger.info(f"Tool {tool_name} executed successfully")
 
+                    # Check if result contains a file download
+                    if isinstance(result, dict) and 'download_file' in result:
+                        self.logger.info(f"Tool {tool_name} generated a downloadable file: {result['download_file'].get('filename')}")
+                        self.pending_download = result['download_file']
+
                 except Exception as e:
                     self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                     result = {
@@ -298,8 +309,17 @@ Please use these preferences to provide personalized assistance:
                         'error': f"Tool execution failed: {str(e)}"
                     }
 
-                # Add tool result to conversation
-                result_str = json.dumps(result, indent=2)
+                # Add tool result to conversation (exclude download_file from Claude's view)
+                result_for_claude = result.copy() if isinstance(result, dict) else result
+                if isinstance(result_for_claude, dict) and 'download_file' in result_for_claude:
+                    # Remove the actual file content from Claude's context to save tokens
+                    result_for_claude = result_for_claude.copy()
+                    result_for_claude['download_file'] = {
+                        'filename': result_for_claude['download_file'].get('filename'),
+                        'ready_for_download': True
+                    }
+
+                result_str = json.dumps(result_for_claude, indent=2)
                 sanitized_result = self.safety_validator.sanitize_output(result_str)
                 self.conversation.add_tool_result(tool_use_id, sanitized_result)
 

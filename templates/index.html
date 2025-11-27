@@ -1025,6 +1025,13 @@
 
                 if (response.ok) {
                     addMessage('agent', data.response);
+
+                    // Check if there's a file download available
+                    if (data.download_url) {
+                        // Trigger automatic download
+                        triggerFileDownload(data.download_url, data.download_filename);
+                    }
+
                     // Update credits if returned
                     if (data.credits_remaining !== undefined) {
                         updateCreditsDisplay(data.credits_remaining);
@@ -1432,6 +1439,23 @@
             loadChatHistory();
             loadCredits(); // Load credits on page load
 
+            // Check for template command on page load
+            const templateCommand = sessionStorage.getItem('templateCommand');
+            if (templateCommand) {
+                // Pre-fill the message input
+                const messageInput = document.getElementById('messageInput');
+                messageInput.value = templateCommand;
+
+                // Auto-resize textarea if needed
+                autoResize(messageInput);
+
+                // Focus on the input
+                messageInput.focus();
+
+                // Clear the stored command
+                sessionStorage.removeItem('templateCommand');
+            }
+
             // Refresh credits every 30 seconds
             setInterval(loadCredits, 30000);
         });
@@ -1634,6 +1658,27 @@
                 notification.style.animation = 'slideOutRight 0.3s ease-out';
                 setTimeout(() => notification.remove(), 300);
             }, 3000);
+        }
+
+        // Trigger file download
+        function triggerFileDownload(downloadUrl, filename) {
+            try {
+                // Create a temporary anchor element and trigger download
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = filename || 'download';
+                link.style.display = 'none';
+
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                // Show notification
+                showNotification(`📥 Downloading ${filename}`, 'success');
+            } catch (error) {
+                console.error('Download error:', error);
+                showNotification('Failed to download file', 'error');
+            }
         }
 
         // Add notification animations

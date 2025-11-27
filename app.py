@@ -3,7 +3,7 @@ Flask Web Interface for DevOps Agent with API Key Configuration and Authenticati
 """
 import os
 import sys
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 import secrets
@@ -212,6 +212,10 @@ def handle_exception(e):
 agent = None
 config_manager = None
 
+# Temporary storage for file downloads (token -> {file_data, expires_at})
+# Downloads expire after 5 minutes for security
+download_storage = {}
+
 def check_api_key_configured():
     """Check if API key is configured in environment or .env file."""
     # First check environment variable (for production)
@@ -287,6 +291,81 @@ def save_aws_credentials(access_key, secret_key, region='us-east-1'):
     with open(env_path, 'w') as f:
         f.writelines(lines)
 
+def save_azure_credentials(subscription_id, tenant_id, client_id, client_secret, location='eastus'):
+    """Save Azure credentials to .env file."""
+    env_path = os.path.join('config', '.env')
+
+    # Read existing content
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            lines = f.readlines()
+    else:
+        lines = []
+
+    # Update or add Azure credentials
+    credentials = {
+        'AZURE_SUBSCRIPTION_ID': subscription_id,
+        'AZURE_TENANT_ID': tenant_id,
+        'AZURE_CLIENT_ID': client_id,
+        'AZURE_CLIENT_SECRET': client_secret,
+        'AZURE_DEFAULT_LOCATION': location
+    }
+
+    for key, value in credentials.items():
+        found = False
+        for i, line in enumerate(lines):
+            if line.startswith(f'{key}='):
+                lines[i] = f'{key}={value}\n'
+                found = True
+                break
+
+        if not found:
+            lines.append(f'{key}={value}\n')
+
+    # Write back
+    with open(env_path, 'w') as f:
+        f.writelines(lines)
+
+def save_gcp_credentials(project_id, credentials_json, region='us-central1', zone='us-central1-a'):
+    """Save GCP credentials to .env file."""
+    env_path = os.path.join('config', '.env')
+
+    # Save service account JSON if provided
+    if credentials_json:
+        creds_path = os.path.join('config', 'gcp-service-account.json')
+        with open(creds_path, 'w') as f:
+            f.write(credentials_json)
+
+    # Read existing content
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            lines = f.readlines()
+    else:
+        lines = []
+
+    # Update or add GCP credentials
+    credentials = {
+        'GCP_PROJECT_ID': project_id,
+        'GOOGLE_APPLICATION_CREDENTIALS': os.path.abspath(os.path.join('config', 'gcp-service-account.json')),
+        'GCP_DEFAULT_REGION': region,
+        'GCP_DEFAULT_ZONE': zone
+    }
+
+    for key, value in credentials.items():
+        found = False
+        for i, line in enumerate(lines):
+            if line.startswith(f'{key}='):
+                lines[i] = f'{key}={value}\n'
+                found = True
+                break
+
+        if not found:
+            lines.append(f'{key}={value}\n')
+
+    # Write back
+    with open(env_path, 'w') as f:
+        f.writelines(lines)
+
 def get_aws_config_status():
     """Check if AWS credentials are configured."""
     # First check environment variables (for production)
@@ -338,6 +417,116 @@ def get_aws_config_status():
         'configured': has_access_key,
         'access_key': access_key_masked,
         'region': region or 'us-east-1'
+    }
+
+def get_azure_config_status():
+    """Check if Azure credentials are configured."""
+    # First check environment variables
+    env_subscription_id = os.environ.get('AZURE_SUBSCRIPTION_ID')
+    env_location = os.environ.get('AZURE_DEFAULT_LOCATION', 'eastus')
+
+    if env_subscription_id and len(env_subscription_id) > 10:
+        subscription_masked = env_subscription_id[:8] + '****' + env_subscription_id[-4:]
+        return {
+            'configured': True,
+            'subscription_id': subscription_masked,
+            'location': env_location
+        }
+
+    # Fall back to .env file
+    env_path = os.path.join('config', '.env')
+    if not os.path.exists(env_path):
+        return {
+            'configured': False,
+            'subscription_id': None,
+            'location': 'eastus'
+        }
+
+    with open(env_path, 'r') as f:
+        content = f.read()
+
+    # Check if Azure credentials exist
+    has_subscription = 'AZURE_SUBSCRIPTION_ID=' in content and 'your_azure_subscription' not in content
+
+    # Extract location if available
+    location = None
+    for line in content.split('\n'):
+        if line.startswith('AZURE_DEFAULT_LOCATION='):
+            location = line.split('=', 1)[1].strip()
+            break
+
+    # Extract masked subscription ID
+    subscription_masked = None
+    if has_subscription:
+        for line in content.split('\n'):
+            if line.startswith('AZURE_SUBSCRIPTION_ID='):
+                sub_id = line.split('=', 1)[1].strip()
+                if sub_id and len(sub_id) > 12:
+                    subscription_masked = sub_id[:8] + '****' + sub_id[-4:]
+                break
+
+    return {
+        'configured': has_subscription,
+        'subscription_id': subscription_masked,
+        'location': location or 'eastus'
+    }
+
+def get_gcp_config_status():
+    """Check if GCP credentials are configured."""
+    # First check environment variables
+    env_project_id = os.environ.get('GCP_PROJECT_ID')
+    env_region = os.environ.get('GCP_DEFAULT_REGION', 'us-central1')
+    env_creds_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+
+    if env_project_id and len(env_project_id) > 0:
+        has_creds_file = env_creds_path and os.path.exists(env_creds_path)
+        return {
+            'configured': True,
+            'project_id': env_project_id,
+            'region': env_region,
+            'has_credentials_file': has_creds_file
+        }
+
+    # Fall back to .env file
+    env_path = os.path.join('config', '.env')
+    if not os.path.exists(env_path):
+        return {
+            'configured': False,
+            'project_id': None,
+            'region': 'us-central1',
+            'has_credentials_file': False
+        }
+
+    with open(env_path, 'r') as f:
+        content = f.read()
+
+    # Check if GCP credentials exist
+    has_project = 'GCP_PROJECT_ID=' in content and 'your_gcp_project' not in content
+
+    # Extract region if available
+    region = None
+    for line in content.split('\n'):
+        if line.startswith('GCP_DEFAULT_REGION='):
+            region = line.split('=', 1)[1].strip()
+            break
+
+    # Extract project ID
+    project_id = None
+    if has_project:
+        for line in content.split('\n'):
+            if line.startswith('GCP_PROJECT_ID='):
+                project_id = line.split('=', 1)[1].strip()
+                break
+
+    # Check if credentials file exists
+    creds_path = os.path.join('config', 'gcp-service-account.json')
+    has_creds_file = os.path.exists(creds_path)
+
+    return {
+        'configured': has_project and has_creds_file,
+        'project_id': project_id,
+        'region': region or 'us-central1',
+        'has_credentials_file': has_creds_file
     }
 
 def initialize_agent():
@@ -687,6 +876,91 @@ def aws_config():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/azure-config', methods=['GET', 'POST'])
+@login_required
+def azure_config():
+    """Handle Azure configuration."""
+    if request.method == 'GET':
+        return jsonify(get_azure_config_status())
+
+    # POST - Save Azure credentials
+    try:
+        data = request.get_json()
+        subscription_id = data.get('subscription_id', '').strip()
+        tenant_id = data.get('tenant_id', '').strip()
+        client_id = data.get('client_id', '').strip()
+        client_secret = data.get('client_secret', '').strip()
+        location = data.get('location', 'eastus').strip()
+
+        if not all([subscription_id, tenant_id, client_id, client_secret]):
+            return jsonify({'error': 'All Azure credentials are required'}), 400
+
+        # Save credentials
+        save_azure_credentials(subscription_id, tenant_id, client_id, client_secret, location)
+
+        # Reload agent to use new credentials
+        global agent, config_manager
+        if agent is not None:
+            success, error = initialize_agent()
+            if not success:
+                return jsonify({'error': f'Credentials saved but agent reload failed: {error}'}), 500
+
+        return jsonify({
+            'success': True,
+            'message': 'Azure credentials configured successfully'
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/gcp-config', methods=['GET', 'POST'])
+@login_required
+def gcp_config():
+    """Handle GCP configuration."""
+    if request.method == 'GET':
+        return jsonify(get_gcp_config_status())
+
+    # POST - Save GCP credentials
+    try:
+        data = request.get_json()
+        project_id = data.get('project_id', '').strip()
+        credentials_json = data.get('credentials_json', '').strip()
+        region = data.get('region', 'us-central1').strip()
+        zone = data.get('zone', 'us-central1-a').strip()
+
+        if not project_id:
+            return jsonify({'error': 'GCP Project ID is required'}), 400
+
+        if not credentials_json:
+            return jsonify({'error': 'GCP Service Account credentials (JSON) are required'}), 400
+
+        # Validate JSON
+        try:
+            import json
+            json.loads(credentials_json)
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid JSON format for credentials'}), 400
+
+        # Save credentials
+        save_gcp_credentials(project_id, credentials_json, region, zone)
+
+        # Reload agent to use new credentials
+        global agent, config_manager
+        if agent is not None:
+            success, error = initialize_agent()
+            if not success:
+                return jsonify({'error': f'Credentials saved but agent reload failed: {error}'}), 500
+
+        return jsonify({
+            'success': True,
+            'message': 'GCP credentials configured successfully'
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def api_chat():
@@ -819,18 +1093,102 @@ def api_chat():
 
         db.session.commit()
 
-        return jsonify({
+        # Check if there's a pending download from the agent
+        download_url = None
+        if agent.pending_download:
+            # Generate a secure token
+            download_token = secrets.token_urlsafe(32)
+
+            # Store the download with expiration (5 minutes)
+            download_storage[download_token] = {
+                'filename': agent.pending_download.get('filename'),
+                'content': agent.pending_download.get('content'),
+                'content_type': agent.pending_download.get('content_type', 'application/octet-stream'),
+                'user_id': current_user.id,
+                'expires_at': datetime.utcnow() + timedelta(minutes=5)
+            }
+
+            # Build download URL
+            download_url = f'/api/download/{download_token}'
+
+            # Clear the pending download
+            agent.pending_download = None
+
+            logger = get_logger(__name__)
+            logger.info(f"Download ready for user {current_user.id}: {download_storage[download_token]['filename']}")
+
+        response_data = {
             'response': response,
             'timestamp': datetime.now().isoformat(),
             'credits_remaining': subscription.credits_remaining,
             'credits_used_this_month': subscription.credits_used_this_month,
             'conversation_title': conversation.title if conversation else None
-        })
+        }
+
+        # Add download URL if available
+        if download_url:
+            response_data['download_url'] = download_url
+            response_data['download_filename'] = download_storage[download_token]['filename']
+
+        return jsonify(response_data)
 
     except Exception as e:
         db.session.rollback()
         logger = get_logger(__name__)
         logger.error(f"Error processing chat message: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+def cleanup_expired_downloads():
+    """Remove expired download tokens from storage."""
+    now = datetime.utcnow()
+    expired_tokens = [token for token, data in download_storage.items()
+                      if data['expires_at'] < now]
+    for token in expired_tokens:
+        del download_storage[token]
+
+
+@app.route('/api/download/<token>', methods=['GET'])
+@login_required
+def download_file(token):
+    """Download a file using a temporary token."""
+    try:
+        # Clean up expired downloads
+        cleanup_expired_downloads()
+
+        # Check if token exists
+        if token not in download_storage:
+            return jsonify({'error': 'Invalid or expired download token'}), 404
+
+        download_data = download_storage[token]
+
+        # Verify it belongs to current user
+        if download_data['user_id'] != current_user.id:
+            security_logger.warning(f"Unauthorized download attempt by user {current_user.id} for token {token}")
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        # Get file data
+        filename = download_data['filename']
+        content = download_data['content']
+        content_type = download_data.get('content_type', 'application/octet-stream')
+
+        # Delete token after use (one-time download)
+        del download_storage[token]
+
+        # Create response
+        response = make_response(content)
+        response.headers['Content-Type'] = content_type
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response.headers['X-Download-Success'] = 'true'
+
+        logger = get_logger(__name__)
+        logger.info(f"User {current_user.id} downloaded file: {filename}")
+
+        return response
+
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"Error downloading file: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

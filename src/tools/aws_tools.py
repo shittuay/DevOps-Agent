@@ -520,6 +520,81 @@ def list_iam_roles() -> Dict[str, Any]:
 # CREATE OPERATIONS
 # ============================================================================
 
+def create_ec2_keypair(
+    key_name: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create an EC2 key pair for SSH access.
+
+    Args:
+        key_name: Name for the key pair (must be unique)
+        region: AWS region
+
+    Returns:
+        Dictionary with keypair information and private key material
+    """
+    try:
+        logger.info(f"Creating EC2 key pair: {key_name}")
+
+        ec2 = _get_boto_client('ec2', region)
+
+        # Create the key pair
+        response = ec2.create_key_pair(KeyName=key_name)
+
+        logger.info(f"Successfully created EC2 key pair: {key_name}")
+
+        return {
+            'success': True,
+            'message': f'Successfully created EC2 key pair: {key_name}',
+            'key_name': response['KeyName'],
+            'key_fingerprint': response['KeyFingerprint'],
+            'key_pair_id': response.get('KeyPairId', 'N/A'),
+            'region': region or ec2.meta.region_name,
+            'private_key': response['KeyMaterial'],
+            # Special field to trigger download
+            'download_file': {
+                'filename': f'{key_name}.pem',
+                'content': response['KeyMaterial'],
+                'content_type': 'application/x-pem-file'
+            },
+            'warning': 'IMPORTANT: Save the private key now! This is the only time you can download it.',
+            'instructions': [
+                f'The private key has been generated and is ready for download as {key_name}.pem',
+                'Save this file in a secure location',
+                'Set appropriate permissions: chmod 400 {}.pem (on Linux/Mac)'.format(key_name),
+                f'Use it to connect: ssh -i {key_name}.pem ec2-user@<instance-ip>'
+            ]
+        }
+
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        error_msg = e.response['Error']['Message']
+
+        logger.error(f"Failed to create key pair {key_name}: {error_msg}")
+
+        if error_code == 'InvalidKeyPair.Duplicate':
+            return {
+                'success': False,
+                'error': 'Duplicate key pair',
+                'message': f'Key pair "{key_name}" already exists. Please choose a different name or delete the existing key pair first.'
+            }
+
+        return {
+            'success': False,
+            'error': error_code,
+            'message': error_msg
+        }
+
+    except Exception as e:
+        logger.error(f"Unexpected error creating key pair: {str(e)}")
+        return {
+            'success': False,
+            'error': 'Unexpected error',
+            'message': str(e)
+        }
+
+
 def create_ec2_instance(
     ami_id: str,
     instance_type: str,
@@ -4863,6 +4938,30 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['instance_id', 'action']
             },
             'handler': manage_ec2_instance
+        },
+        {
+            'name': 'create_ec2_keypair',
+            'description': (
+                'Create a new EC2 key pair for SSH access to instances. '
+                'The private key will be automatically downloaded to your browser. '
+                'IMPORTANT: Save the private key securely - this is the only time it will be available. '
+                'Use this tool when user wants to create a new SSH keypair for EC2 access.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'key_name': {
+                        'type': 'string',
+                        'description': 'Name for the key pair (must be unique within the region)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region (e.g., us-east-1, us-west-2)'
+                    }
+                },
+                'required': ['key_name']
+            },
+            'handler': create_ec2_keypair
         },
         # S3 Operations
         {
