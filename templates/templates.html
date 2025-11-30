@@ -744,12 +744,11 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Copy command to clipboard
-                    await navigator.clipboard.writeText(data.command);
-                    showSuccess('Command copied to clipboard! Go to the chat to paste it.');
+                    // Store command in sessionStorage
+                    sessionStorage.setItem('templateCommand', data.command);
 
-                    // Reload to update use counts
-                    setTimeout(() => loadTemplates(), 1000);
+                    // Redirect to chat page
+                    window.location.href = '/chat';
                 } else {
                     showError(data.error || 'Failed to use template');
                 }

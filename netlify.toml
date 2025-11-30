@@ -1,5 +1,5 @@
 [build]
-  command = "pip install -r requirements.txt"
+  command = "bash build.sh"
   functions = "functions"
   publish = "static"
 
@@ -15,7 +15,8 @@
   status = 200
 
 [functions]
-  node_bundler = "esbuild"
+  # Explicitly set Python runtime
+  runtime = "python3.11"
 
 [functions."api"]
   timeout = 26

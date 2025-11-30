@@ -344,6 +344,211 @@
 
         <div class="settings-section">
             <h2>
+                Azure Configuration
+                <span id="azureStatusBadge" class="status-badge not-configured">Not Configured</span>
+            </h2>
+            <p>Configure your Azure credentials to enable Virtual Machines, Storage Accounts, SQL Databases, and other Azure operations.</p>
+
+            <div id="currentAzureConfig" class="current-config" style="display: none;">
+                <h4>Current Configuration:</h4>
+                <p><strong>Subscription ID:</strong> <span id="currentSubscriptionId"></span></p>
+                <p><strong>Location:</strong> <span id="currentAzureLocation"></span></p>
+            </div>
+
+            <div id="azureErrorMessage" class="alert alert-error"></div>
+            <div id="azureSuccessMessage" class="alert alert-success"></div>
+
+            <form id="azureConfigForm" onsubmit="saveAzureConfig(event)">
+                <div class="form-group">
+                    <label for="azureSubscriptionId">Azure Subscription ID *</label>
+                    <input
+                        type="text"
+                        id="azureSubscriptionId"
+                        name="azureSubscriptionId"
+                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        required
+                    />
+                    <small>Your Azure subscription ID (UUID format)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="azureTenantId">Azure Tenant ID *</label>
+                    <input
+                        type="text"
+                        id="azureTenantId"
+                        name="azureTenantId"
+                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        required
+                    />
+                    <small>Your Azure tenant ID (UUID format)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="azureClientId">Azure Client ID *</label>
+                    <input
+                        type="text"
+                        id="azureClientId"
+                        name="azureClientId"
+                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        required
+                    />
+                    <small>Your Azure application (client) ID</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="azureClientSecret">Azure Client Secret *</label>
+                    <input
+                        type="password"
+                        id="azureClientSecret"
+                        name="azureClientSecret"
+                        placeholder="Enter your Azure client secret"
+                        required
+                    />
+                    <small>Your Azure client secret (double-click to show/hide)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="azureLocation">Azure Default Location</label>
+                    <select id="azureLocation" name="azureLocation">
+                        <option value="eastus">East US</option>
+                        <option value="eastus2">East US 2</option>
+                        <option value="westus">West US</option>
+                        <option value="westus2">West US 2</option>
+                        <option value="centralus">Central US</option>
+                        <option value="northeurope">North Europe</option>
+                        <option value="westeurope">West Europe</option>
+                        <option value="southeastasia">Southeast Asia</option>
+                        <option value="eastasia">East Asia</option>
+                    </select>
+                    <small>Default Azure location for operations</small>
+                </div>
+
+                <div class="info-box">
+                    <h4>How to get Azure credentials:</h4>
+                    <ul>
+                        <li>Go to Azure Portal (portal.azure.com)</li>
+                        <li>Navigate to Azure Active Directory</li>
+                        <li>Register an application (App registrations > New registration)</li>
+                        <li>Note the Application (client) ID and Directory (tenant) ID</li>
+                        <li>Create a client secret (Certificates & secrets > New client secret)</li>
+                        <li>Copy your Subscription ID from the Subscriptions page</li>
+                    </ul>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" id="azureSaveBtn" class="btn-primary">
+                        Save Azure Configuration
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="loadCurrentAzureConfig()">
+                        Reload Status
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="settings-section">
+            <h2>
+                Google Cloud Platform (GCP) Configuration
+                <span id="gcpStatusBadge" class="status-badge not-configured">Not Configured</span>
+            </h2>
+            <p>Configure your GCP credentials to enable Compute Engine, Cloud Storage, GKE, BigQuery, and other GCP operations.</p>
+
+            <div id="currentGcpConfig" class="current-config" style="display: none;">
+                <h4>Current Configuration:</h4>
+                <p><strong>Project ID:</strong> <span id="currentProjectId"></span></p>
+                <p><strong>Region:</strong> <span id="currentGcpRegion"></span></p>
+                <p><strong>Credentials File:</strong> <span id="currentGcpCredsStatus"></span></p>
+            </div>
+
+            <div id="gcpErrorMessage" class="alert alert-error"></div>
+            <div id="gcpSuccessMessage" class="alert alert-success"></div>
+
+            <form id="gcpConfigForm" onsubmit="saveGcpConfig(event)">
+                <div class="form-group">
+                    <label for="gcpProjectId">GCP Project ID *</label>
+                    <input
+                        type="text"
+                        id="gcpProjectId"
+                        name="gcpProjectId"
+                        placeholder="my-project-id"
+                        required
+                    />
+                    <small>Your GCP project ID</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="gcpCredentialsJson">Service Account Key (JSON) *</label>
+                    <textarea
+                        id="gcpCredentialsJson"
+                        name="gcpCredentialsJson"
+                        rows="8"
+                        placeholder='Paste your service account JSON here:
+{
+  "type": "service_account",
+  "project_id": "...",
+  "private_key_id": "...",
+  ...
+}'
+                        required
+                        style="font-family: monospace; font-size: 12px;"
+                    ></textarea>
+                    <small>Paste the entire contents of your service account JSON key file</small>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="gcpRegion">GCP Default Region</label>
+                        <select id="gcpRegion" name="gcpRegion">
+                            <option value="us-central1">us-central1 (Iowa)</option>
+                            <option value="us-east1">us-east1 (South Carolina)</option>
+                            <option value="us-east4">us-east4 (N. Virginia)</option>
+                            <option value="us-west1">us-west1 (Oregon)</option>
+                            <option value="us-west2">us-west2 (Los Angeles)</option>
+                            <option value="europe-west1">europe-west1 (Belgium)</option>
+                            <option value="europe-west2">europe-west2 (London)</option>
+                            <option value="asia-southeast1">asia-southeast1 (Singapore)</option>
+                            <option value="asia-northeast1">asia-northeast1 (Tokyo)</option>
+                        </select>
+                        <small>Default GCP region for operations</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="gcpZone">GCP Default Zone</label>
+                        <select id="gcpZone" name="gcpZone">
+                            <option value="us-central1-a">us-central1-a</option>
+                            <option value="us-central1-b">us-central1-b</option>
+                            <option value="us-central1-c">us-central1-c</option>
+                            <option value="us-east1-a">us-east1-a</option>
+                            <option value="us-west1-a">us-west1-a</option>
+                        </select>
+                        <small>Default zone within region</small>
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    <h4>How to get GCP credentials:</h4>
+                    <ul>
+                        <li>Go to Google Cloud Console (console.cloud.google.com)</li>
+                        <li>Select or create a project</li>
+                        <li>Go to IAM & Admin > Service Accounts</li>
+                        <li>Create a service account with appropriate roles (e.g., Editor, Viewer)</li>
+                        <li>Create and download a JSON key for the service account</li>
+                        <li>Copy and paste the entire JSON content into the field above</li>
+                    </ul>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" id="gcpSaveBtn" class="btn-primary">
+                        Save GCP Configuration
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="loadCurrentGcpConfig()">
+                        Reload Status
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="settings-section">
+            <h2>
                 Agent Preferences
                 <span class="status-badge configured">Personalization</span>
             </h2>
@@ -728,6 +933,222 @@
             successMsg.style.display = 'block';
             successMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
+
+        // ===== AZURE CONFIGURATION FUNCTIONS =====
+
+        async function loadCurrentAzureConfig() {
+            try {
+                const response = await fetch('/api/azure-config');
+                const data = await response.json();
+
+                if (data.configured) {
+                    document.getElementById('azureStatusBadge').textContent = 'Configured';
+                    document.getElementById('azureStatusBadge').className = 'status-badge configured';
+                    document.getElementById('currentAzureConfig').style.display = 'block';
+                    document.getElementById('currentSubscriptionId').textContent = data.subscription_id;
+                    document.getElementById('currentAzureLocation').textContent = data.location;
+
+                    // Pre-fill location
+                    document.getElementById('azureLocation').value = data.location;
+                } else {
+                    document.getElementById('azureStatusBadge').textContent = 'Not Configured';
+                    document.getElementById('azureStatusBadge').className = 'status-badge not-configured';
+                    document.getElementById('currentAzureConfig').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading Azure config:', error);
+            }
+        }
+
+        async function saveAzureConfig(event) {
+            event.preventDefault();
+
+            const subscriptionId = document.getElementById('azureSubscriptionId').value.trim();
+            const tenantId = document.getElementById('azureTenantId').value.trim();
+            const clientId = document.getElementById('azureClientId').value.trim();
+            const clientSecret = document.getElementById('azureClientSecret').value.trim();
+            const location = document.getElementById('azureLocation').value;
+
+            const saveBtn = document.getElementById('azureSaveBtn');
+            const errorMsg = document.getElementById('azureErrorMessage');
+            const successMsg = document.getElementById('azureSuccessMessage');
+
+            // Hide previous messages
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            // Disable button and show loading
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner"></span> Saving...';
+
+            try {
+                const response = await fetch('/api/azure-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        subscription_id: subscriptionId,
+                        tenant_id: tenantId,
+                        client_id: clientId,
+                        client_secret: clientSecret,
+                        location: location
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAzureSuccess('Azure credentials saved successfully! The agent has been reloaded.');
+
+                    // Clear form
+                    document.getElementById('azureConfigForm').reset();
+
+                    // Reload config status
+                    setTimeout(() => {
+                        loadCurrentAzureConfig();
+                    }, 1000);
+                } else {
+                    showAzureError(data.error || 'Failed to save Azure credentials');
+                }
+            } catch (error) {
+                showAzureError('Network error: ' + error.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Azure Configuration';
+            }
+        }
+
+        function showAzureError(message) {
+            const errorMsg = document.getElementById('azureErrorMessage');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showAzureSuccess(message) {
+            const successMsg = document.getElementById('azureSuccessMessage');
+            successMsg.textContent = message;
+            successMsg.style.display = 'block';
+            successMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Toggle Azure password visibility on double-click
+        document.getElementById('azureClientSecret').addEventListener('dblclick', function() {
+            this.type = this.type === 'password' ? 'text' : 'password';
+        });
+
+        // ===== GCP CONFIGURATION FUNCTIONS =====
+
+        async function loadCurrentGcpConfig() {
+            try {
+                const response = await fetch('/api/gcp-config');
+                const data = await response.json();
+
+                if (data.configured) {
+                    document.getElementById('gcpStatusBadge').textContent = 'Configured';
+                    document.getElementById('gcpStatusBadge').className = 'status-badge configured';
+                    document.getElementById('currentGcpConfig').style.display = 'block';
+                    document.getElementById('currentProjectId').textContent = data.project_id;
+                    document.getElementById('currentGcpRegion').textContent = data.region;
+                    document.getElementById('currentGcpCredsStatus').textContent = data.has_credentials_file ? 'Uploaded' : 'Missing';
+
+                    // Pre-fill region
+                    document.getElementById('gcpRegion').value = data.region;
+                } else {
+                    document.getElementById('gcpStatusBadge').textContent = 'Not Configured';
+                    document.getElementById('gcpStatusBadge').className = 'status-badge not-configured';
+                    document.getElementById('currentGcpConfig').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading GCP config:', error);
+            }
+        }
+
+        async function saveGcpConfig(event) {
+            event.preventDefault();
+
+            const projectId = document.getElementById('gcpProjectId').value.trim();
+            const credentialsJson = document.getElementById('gcpCredentialsJson').value.trim();
+            const region = document.getElementById('gcpRegion').value;
+            const zone = document.getElementById('gcpZone').value;
+
+            const saveBtn = document.getElementById('gcpSaveBtn');
+            const errorMsg = document.getElementById('gcpErrorMessage');
+            const successMsg = document.getElementById('gcpSuccessMessage');
+
+            // Hide previous messages
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            // Validate JSON
+            try {
+                JSON.parse(credentialsJson);
+            } catch (e) {
+                showGcpError('Invalid JSON format. Please paste valid JSON credentials.');
+                return;
+            }
+
+            // Disable button and show loading
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner"></span> Saving...';
+
+            try {
+                const response = await fetch('/api/gcp-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        project_id: projectId,
+                        credentials_json: credentialsJson,
+                        region: region,
+                        zone: zone
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showGcpSuccess('GCP credentials saved successfully! The agent has been reloaded.');
+
+                    // Clear form
+                    document.getElementById('gcpConfigForm').reset();
+
+                    // Reload config status
+                    setTimeout(() => {
+                        loadCurrentGcpConfig();
+                    }, 1000);
+                } else {
+                    showGcpError(data.error || 'Failed to save GCP credentials');
+                }
+            } catch (error) {
+                showGcpError('Network error: ' + error.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save GCP Configuration';
+            }
+        }
+
+        function showGcpError(message) {
+            const errorMsg = document.getElementById('gcpErrorMessage');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showGcpSuccess(message) {
+            const successMsg = document.getElementById('gcpSuccessMessage');
+            successMsg.textContent = message;
+            successMsg.style.display = 'block';
+            successMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Load Azure and GCP configs on page load
+        window.addEventListener('load', () => {
+            loadCurrentAzureConfig();
+            loadCurrentGcpConfig();
+        });
     </script>
 </body>
 </html>
