@@ -589,3 +589,99 @@ class UsageLog(db.Model):
 
     def __repr__(self):
         return f'<UsageLog user={self.user_id} action={self.action_type}>'
+
+
+class InfrastructureResource(db.Model):
+    """Track user's infrastructure resources across cloud providers"""
+    __tablename__ = 'infrastructure_resources'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    # Resource identification
+    cloud_provider = db.Column(db.String(20), nullable=False, index=True)  # aws, gcp, azure
+    resource_type = db.Column(db.String(50), nullable=False, index=True)  # ec2, rds, gce, etc
+    resource_id = db.Column(db.String(200), nullable=False, index=True)  # Cloud-specific ID
+    resource_name = db.Column(db.String(200))
+    region = db.Column(db.String(50))
+
+    # Resource state
+    status = db.Column(db.String(20))  # running, stopped, terminated, etc
+    monthly_cost = db.Column(db.Float, default=0.0)
+
+    # Additional details (JSON for flexibility)
+    resource_metadata = db.Column(db.JSON)  # instance_type, tags, IP addresses, etc
+
+    # Tracking
+    last_synced = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('infrastructure_resources', lazy='dynamic'))
+
+    def to_dict(self):
+        """Convert resource to dictionary"""
+        return {
+            'id': self.id,
+            'cloud_provider': self.cloud_provider,
+            'resource_type': self.resource_type,
+            'resource_id': self.resource_id,
+            'resource_name': self.resource_name,
+            'region': self.region,
+            'status': self.status,
+            'monthly_cost': self.monthly_cost,
+            'metadata': self.resource_metadata or {},
+            'last_synced': self.last_synced.isoformat() if self.last_synced else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<InfrastructureResource {self.cloud_provider}:{self.resource_type}:{self.resource_name}>'
+
+
+class CostOptimization(db.Model):
+    """Track cost optimization recommendations"""
+    __tablename__ = 'cost_optimizations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('infrastructure_resources.id'))
+
+    # Recommendation details
+    recommendation_type = db.Column(db.String(50), nullable=False)  # idle_resource, rightsizing, reserved_instance, etc
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    potential_monthly_savings = db.Column(db.Float, default=0.0)
+
+    # Status tracking
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, applied, dismissed
+    applied_at = db.Column(db.DateTime)
+    dismissed_at = db.Column(db.DateTime)
+
+    # Action details (what to do to apply this optimization)
+    action_data = db.Column(db.JSON)  # Parameters needed to apply the optimization
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('cost_optimizations', lazy='dynamic'))
+    resource = db.relationship('InfrastructureResource', backref=db.backref('optimizations', lazy='dynamic'))
+
+    def to_dict(self):
+        """Convert optimization to dictionary"""
+        return {
+            'id': self.id,
+            'resource_id': self.resource_id,
+            'recommendation_type': self.recommendation_type,
+            'title': self.title,
+            'description': self.description,
+            'potential_monthly_savings': self.potential_monthly_savings,
+            'status': self.status,
+            'applied_at': self.applied_at.isoformat() if self.applied_at else None,
+            'dismissed_at': self.dismissed_at.isoformat() if self.dismissed_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<CostOptimization {self.recommendation_type}: ${self.potential_monthly_savings}/mo>'
