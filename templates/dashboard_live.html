@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - DevOps Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f7f7f8;
+            color: #2c2d30;
+            font-size: 16px;
+            font-weight: 500;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-bottom: 1px solid #e5e5e5;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+        }
+
+        .logo {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-button {
+            padding: 8px 12px;
+            background: transparent;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            transition: all 0.15s;
+            text-decoration: none;
+        }
+
+        .header-button:hover {
+            background: #f7f7f8;
+            border-color: #d0d0d0;
+        }
+
+        .header-button.active {
+            background: #fff9f5;
+            border-color: #cd7c48;
+            color: #cd7c48;
+        }
+
+        /* Main Content */
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #2c2d30;
+        }
+
+        .sync-button {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .sync-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(205, 124, 72, 0.3);
+        }
+
+        .sync-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Summary Cards */
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .summary-card {
+            background: white;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.15s;
+        }
+
+        .summary-card:hover {
+            border-color: #cd7c48;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .summary-card h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #6e6e80;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .summary-card .stat {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2c2d30;
+        }
+
+        .summary-card.cost-savings .stat {
+            color: #28a745;
+        }
+
+        /* Section */
+        .section {
+            background: white;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .section h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c2d30;
+            margin-bottom: 16px;
+        }
+
+        /* Recommendations */
+        .recommendation-card {
+            background: #fff9f5;
+            border: 1px solid #ffd4a8;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .rec-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .rec-header h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+        }
+
+        .savings {
+            font-size: 18px;
+            font-weight: 700;
+            color: #28a745;
+        }
+
+        .recommendation-card p {
+            font-size: 14px;
+            color: #6e6e80;
+            margin-bottom: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.15s;
+            margin-right: 8px;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #6e6e80;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        /* Resources Table */
+        .resources-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .resources-table th {
+            background: #f7f7f8;
+            padding: 12px;
+            text-align: left;
+            font-size: 14px;
+            font-weight: 600;
+            color: #6e6e80;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .resources-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e5e5;
+            font-size: 14px;
+        }
+
+        .resources-table tr:hover {
+            background: #f7f7f8;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-stopped {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .cloud-section {
+            margin-bottom: 24px;
+        }
+
+        .cloud-section h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c2d30;
+            margin-bottom: 12px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6e6e80;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6e6e80;
+        }
+
+        .empty-state h3 {
+            font-size: 20px;
+            color: #2c2d30;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-content">
+            <a href="/chat" class="logo">
+                <div class="logo-icon">D</div>
+                <span>DevOps Agent</span>
+            </a>
+            <div class="header-right">
+                <a href="/chat" class="header-button">💬 Chat</a>
+                <a href="/dashboard" class="header-button active">📊 Dashboard</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Content -->
+    <div class="dashboard-container">
+        <div class="page-header">
+            <h1>Infrastructure Dashboard</h1>
+            <button class="sync-button" onclick="syncInfrastructure()" id="syncButton">
+                🔄 Sync Now
+            </button>
+        </div>
+
+        <div id="loadingState" class="loading">
+            <p>Loading dashboard data...</p>
+        </div>
+
+        <div id="dashboardContent" style="display: none;">
+            <!-- Summary Cards -->
+            <div class="summary-cards">
+                <div class="summary-card">
+                    <h3>Total Resources</h3>
+                    <div class="stat" id="totalResources">0</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Monthly Cost</h3>
+                    <div class="stat" id="monthlyCost">$0.00</div>
+                </div>
+                <div class="summary-card cost-savings">
+                    <h3>Potential Savings</h3>
+                    <div class="stat" id="potentialSavings">$0.00</div>
+                </div>
+            </div>
+
+            <!-- Recommendations -->
+            <div id="recommendationsSection"></div>
+
+            <!-- Resources -->
+            <div id="resourcesSection"></div>
+        </div>
+
+        <div id="emptyState" class="empty-state" style="display: none;">
+            <h3>No Infrastructure Found</h3>
+            <p>We couldn't find any cloud resources yet.</p>
+            <p>Make sure your AWS credentials are configured, then click "Sync Now" to scan your infrastructure.</p>
+        </div>
+    </div>
+
+    <script>
+        let isSyncing = false;
+
+        async function loadDashboard() {
+            try {
+                const response = await fetch('/api/dashboard/summary');
+                const data = await response.json();
+
+                if (data.error) {
+                    showEmptyState();
+                    return;
+                }
+
+                if (data.total_resources === 0) {
+                    showEmptyState();
+                    return;
+                }
+
+                updateSummaryCards(data);
+                renderRecommendations(data.recommendations || []);
+                renderResources(data.resources_by_cloud || {});
+
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('dashboardContent').style.display = 'block';
+                document.getElementById('emptyState').style.display = 'none';
+
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                showEmptyState();
+            }
+        }
+
+        function updateSummaryCards(data) {
+            document.getElementById('totalResources').textContent = data.total_resources;
+            document.getElementById('monthlyCost').textContent = `$${data.total_monthly_cost.toFixed(2)}`;
+            document.getElementById('potentialSavings').textContent = `$${data.total_potential_savings.toFixed(2)}`;
+        }
+
+        function renderRecommendations(recommendations) {
+            const section = document.getElementById('recommendationsSection');
+
+            if (recommendations.length === 0) {
+                section.innerHTML = '';
+                return;
+            }
+
+            let html = '<div class="section"><h2>💡 Cost Optimization Recommendations</h2>';
+
+            recommendations.forEach(rec => {
+                html += `
+                    <div class="recommendation-card">
+                        <div class="rec-header">
+                            <h4>${rec.title}</h4>
+                            <span class="savings">$${rec.potential_monthly_savings.toFixed(2)}/mo</span>
+                        </div>
+                        <p>${rec.description}</p>
+                        <button class="btn btn-success" onclick="applyRecommendation(${rec.id})">
+                            Apply Optimization
+                        </button>
+                        <button class="btn btn-secondary" onclick="dismissRecommendation(${rec.id})">
+                            Dismiss
+                        </button>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            section.innerHTML = html;
+        }
+
+        function renderResources(resourcesByCloud) {
+            const section = document.getElementById('resourcesSection');
+
+            if (Object.keys(resourcesByCloud).length === 0) {
+                section.innerHTML = '';
+                return;
+            }
+
+            let html = '<div class="section"><h2>Your Infrastructure</h2>';
+
+            for (const [cloud, resources] of Object.entries(resourcesByCloud)) {
+                const cloudName = cloud.toUpperCase();
+                const cloudIcon = cloud === 'aws' ? '☁️' : cloud === 'gcp' ? '🌐' : '🔷';
+
+                html += `
+                    <div class="cloud-section">
+                        <h3>${cloudIcon} ${cloudName} (${resources.length} resources)</h3>
+                        <table class="resources-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Region</th>
+                                    <th>Status</th>
+                                    <th>Monthly Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                resources.forEach(resource => {
+                    const statusClass = resource.status === 'running' ? 'status-running' : 'status-stopped';
+                    html += `
+                        <tr>
+                            <td>${resource.resource_name || resource.resource_id}</td>
+                            <td>${resource.resource_type.toUpperCase()}</td>
+                            <td>${resource.region || 'N/A'}</td>
+                            <td><span class="status-badge ${statusClass}">${resource.status}</span></td>
+                            <td>$${(resource.monthly_cost || 0).toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            section.innerHTML = html;
+        }
+
+        function showEmptyState() {
+            document.getElementById('loadingState').style.display = 'none';
+            document.getElementById('dashboardContent').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'block';
+        }
+
+        async function syncInfrastructure() {
+            if (isSyncing) return;
+
+            isSyncing = true;
+            const button = document.getElementById('syncButton');
+            button.disabled = true;
+            button.textContent = '⏳ Syncing...';
+
+            try {
+                const response = await fetch('/api/dashboard/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Infrastructure sync completed! Refreshing dashboard...');
+                    await loadDashboard();
+                } else {
+                    alert('Error syncing: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error syncing infrastructure: ' + error.message);
+            } finally {
+                isSyncing = false;
+                button.disabled = false;
+                button.textContent = '🔄 Sync Now';
+            }
+        }
+
+        async function applyRecommendation(recId) {
+            if (!confirm('Are you sure you want to apply this optimization?')) return;
+
+            try {
+                const response = await fetch(`/api/dashboard/recommendations/${recId}/apply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`Success! You'll save $${data.savings.toFixed(2)}/month`);
+                    await loadDashboard();
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error applying recommendation: ' + error.message);
+            }
+        }
+
+        async function dismissRecommendation(recId) {
+            try {
+                const response = await fetch(`/api/dashboard/recommendations/${recId}/dismiss`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    await loadDashboard();
+                }
+            } catch (error) {
+                console.error('Error dismissing recommendation:', error);
+            }
+        }
+
+        // Load dashboard on page load
+        document.addEventListener('DOMContentLoaded', loadDashboard);
+    </script>
+</body>
+</html>

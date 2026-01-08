@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Mockup - DevOps Agent</title>
+    <style>
+        /* EXACT SAME STYLES AS YOUR CHAT UI */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f7f7f8;
+            color: #2c2d30;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        /* Header - SAME AS YOUR CHAT */
+        .header {
+            background: white;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+        }
+
+        .logo {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .header-button {
+            padding: 8px 12px;
+            background: transparent;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            transition: all 0.15s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-button:hover {
+            background: #f7f7f8;
+            border-color: #d0d0d0;
+        }
+
+        .header-button.active {
+            background: #fff9f5;
+            border-color: #cd7c48;
+            color: #cd7c48;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* Dashboard Content */
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .page-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #2c2d30;
+            margin-bottom: 24px;
+        }
+
+        /* Summary Cards */
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .summary-card {
+            background: white;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.15s;
+        }
+
+        .summary-card:hover {
+            border-color: #cd7c48;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .summary-card h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #6e6e80;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .summary-card .stat {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2c2d30;
+        }
+
+        .summary-card.cost-savings .stat {
+            color: #28a745;
+        }
+
+        /* Sections */
+        .section {
+            background: white;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .section h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c2d30;
+            margin-bottom: 16px;
+        }
+
+        /* Recommendation Cards */
+        .recommendation-card {
+            background: #fff9f5;
+            border: 1px solid #ffd4a8;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .rec-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .rec-header h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+        }
+
+        .savings {
+            font-size: 18px;
+            font-weight: 700;
+            color: #28a745;
+        }
+
+        .recommendation-card p {
+            font-size: 14px;
+            color: #6e6e80;
+            margin-bottom: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.15s;
+            margin-right: 8px;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #6e6e80;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        /* Resources Table */
+        .resources-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .resources-table th {
+            background: #f7f7f8;
+            padding: 12px;
+            text-align: left;
+            font-size: 14px;
+            font-weight: 600;
+            color: #6e6e80;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .resources-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e5e5;
+            font-size: 14px;
+        }
+
+        .resources-table tr:hover {
+            background: #f7f7f8;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-stopped {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+            background: #f0f0f0;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn-sm:hover {
+            background: #e0e0e0;
+            border-color: #cd7c48;
+        }
+
+        .cloud-section {
+            margin-bottom: 24px;
+        }
+
+        .cloud-section h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c2d30;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header - EXACT SAME AS YOUR CHAT UI -->
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">D</div>
+                <span>DevOps Agent</span>
+            </div>
+            <div class="header-right">
+                <a href="/" class="header-button">💬 Chat</a>
+                <a href="/dashboard" class="header-button active">📊 Dashboard</a>
+                <a href="/workflows" class="header-button">⚡ Workflows</a>
+                <div style="padding: 8px 12px; background: #fff9f5; border: 1px solid #cd7c48; border-radius: 6px; font-size: 14px; font-weight: 600; color: #cd7c48;">
+                    💰 125 credits
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Content -->
+    <div class="dashboard-container">
+        <h1 class="page-title">Infrastructure Dashboard</h1>
+
+        <!-- Summary Cards -->
+        <div class="summary-cards">
+            <div class="summary-card">
+                <h3>Total Resources</h3>
+                <div class="stat">12</div>
+            </div>
+            <div class="summary-card">
+                <h3>Monthly Cost</h3>
+                <div class="stat">$284.50</div>
+            </div>
+            <div class="summary-card cost-savings">
+                <h3>Potential Savings</h3>
+                <div class="stat">$87.00</div>
+            </div>
+        </div>
+
+        <!-- Cost Optimization Recommendations -->
+        <div class="section">
+            <h2>💡 Cost Optimization Recommendations</h2>
+
+            <div class="recommendation-card">
+                <div class="rec-header">
+                    <h4>Idle EC2 Instance: web-server-dev</h4>
+                    <span class="savings">$52.00/mo</span>
+                </div>
+                <p>Instance running at 2% CPU for the last 7 days. Consider stopping during non-business hours or downsizing to t3.small.</p>
+                <button class="btn btn-success">Apply Optimization</button>
+                <button class="btn btn-secondary">Dismiss</button>
+            </div>
+
+            <div class="recommendation-card">
+                <div class="rec-header">
+                    <h4>Unattached EBS Volume: backup-vol-123</h4>
+                    <span class="savings">$20.00/mo</span>
+                </div>
+                <p>200GB volume not attached to any instance for 30+ days. Create snapshot and delete volume.</p>
+                <button class="btn btn-success">Apply Optimization</button>
+                <button class="btn btn-secondary">Dismiss</button>
+            </div>
+
+            <div class="recommendation-card">
+                <div class="rec-header">
+                    <h4>Reserved Instance Opportunity</h4>
+                    <span class="savings">$15.00/mo</span>
+                </div>
+                <p>You've been running t3.medium instances continuously for 3+ months. Switch to Reserved Instances for 30% savings.</p>
+                <button class="btn btn-success">View Details</button>
+                <button class="btn btn-secondary">Dismiss</button>
+            </div>
+        </div>
+
+        <!-- Resources by Cloud Provider -->
+        <div class="section">
+            <h2>Your Infrastructure</h2>
+
+            <div class="cloud-section">
+                <h3>☁️ AWS (8 resources)</h3>
+                <table class="resources-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Region</th>
+                            <th>Status</th>
+                            <th>Monthly Cost</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>web-server-prod</td>
+                            <td>EC2 (t3.medium)</td>
+                            <td>us-east-1</td>
+                            <td><span class="status-badge status-running">running</span></td>
+                            <td>$30.00</td>
+                            <td><button class="btn-sm">Details</button></td>
+                        </tr>
+                        <tr>
+                            <td>web-server-dev</td>
+                            <td>EC2 (t3.large)</td>
+                            <td>us-east-1</td>
+                            <td><span class="status-badge status-running">running</span></td>
+                            <td>$60.00</td>
+                            <td><button class="btn-sm">Details</button></td>
+                        </tr>
+                        <tr>
+                            <td>db-primary</td>
+                            <td>RDS (db.t3.small)</td>
+                            <td>us-east-1</td>
+                            <td><span class="status-badge status-running">running</span></td>
+                            <td>$45.00</td>
+                            <td><button class="btn-sm">Details</button></td>
+                        </tr>
+                        <tr>
+                            <td>analytics-instance</td>
+                            <td>EC2 (m5.large)</td>
+                            <td>us-west-2</td>
+                            <td><span class="status-badge status-stopped">stopped</span></td>
+                            <td>$0.00</td>
+                            <td><button class="btn-sm">Details</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="cloud-section">
+                <h3>🌐 GCP (3 resources)</h3>
+                <table class="resources-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Region</th>
+                            <th>Status</th>
+                            <th>Monthly Cost</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>api-server</td>
+                            <td>Compute (e2-medium)</td>
+                            <td>us-central1</td>
+                            <td><span class="status-badge status-running">running</span></td>
+                            <td>$24.50</td>
+                            <td><button class="btn-sm">Details</button></td>
+                        </tr>
+                        <tr>
+                            <td>data-bucket</td>
+                            <td>Cloud Storage</td>
+                            <td>multi-region</td>
+                            <td><span class="status-badge status-running">active</span></td>
+                            <td>$15.00</td>
+                            <td><button class="btn-sm">Details</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="cloud-section">
+                <h3>☁️ Azure (1 resource)</h3>
+                <table class="resources-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Region</th>
+                            <th>Status</th>
+                            <th>Monthly Cost</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>backup-storage</td>
+                            <td>Blob Storage</td>
+                            <td>East US</td>
+                            <td><span class="status-badge status-running">active</span></td>
+                            <td>$110.00</td>
+                            <td><button class="btn-sm">Details</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

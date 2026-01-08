@@ -251,7 +251,6 @@ def aws_config():
         save_aws_credentials(access_key, secret_key, region)
 
         # Reload agent to use new credentials
-        global agent, config_manager
         if agent is not None:
             success, error = initialize_agent()
             if not success:

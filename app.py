@@ -750,6 +750,13 @@ def chat():
     return render_template('index.html', user=current_user)
 
 
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    """Infrastructure dashboard with real-time monitoring."""
+    return render_template('dashboard_live.html', user=current_user)
+
+
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
@@ -861,7 +868,6 @@ def aws_config():
         save_aws_credentials(access_key, secret_key, region)
 
         # Reload agent to use new credentials
-        global agent, config_manager
         if agent is not None:
             success, error = initialize_agent()
             if not success:
@@ -899,7 +905,6 @@ def azure_config():
         save_azure_credentials(subscription_id, tenant_id, client_id, client_secret, location)
 
         # Reload agent to use new credentials
-        global agent, config_manager
         if agent is not None:
             success, error = initialize_agent()
             if not success:
@@ -946,7 +951,6 @@ def gcp_config():
         save_gcp_credentials(project_id, credentials_json, region, zone)
 
         # Reload agent to use new credentials
-        global agent, config_manager
         if agent is not None:
             success, error = initialize_agent()
             if not success:
@@ -1189,6 +1193,91 @@ def download_file(token):
     except Exception as e:
         logger = get_logger(__name__)
         logger.error(f"Error downloading file: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/summary', methods=['GET'])
+@login_required
+def get_dashboard_summary():
+    """Get dashboard summary data."""
+    try:
+        from services.infrastructure_sync import get_dashboard_summary
+        summary = get_dashboard_summary(current_user.id)
+        return jsonify(summary)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/sync', methods=['POST'])
+@login_required
+def sync_infrastructure():
+    """Trigger infrastructure sync for current user."""
+    try:
+        from services.infrastructure_sync import sync_user_infrastructure
+        result = sync_user_infrastructure(current_user.id)
+        return jsonify({
+            'success': True,
+            'message': 'Infrastructure sync completed',
+            'result': result
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/dashboard/recommendations/<int:rec_id>/apply', methods=['POST'])
+@login_required
+def apply_recommendation(rec_id):
+    """Apply a cost optimization recommendation."""
+    try:
+        from models import CostOptimization, InfrastructureResource
+        from datetime import datetime
+
+        # Get recommendation
+        recommendation = CostOptimization.query.get_or_404(rec_id)
+
+        # Verify ownership
+        if recommendation.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        # For now, just mark as applied
+        # In production, actually execute the action (stop instance, etc.)
+        recommendation.status = 'applied'
+        recommendation.applied_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'Optimization applied successfully',
+            'savings': recommendation.potential_monthly_savings
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/recommendations/<int:rec_id>/dismiss', methods=['POST'])
+@login_required
+def dismiss_recommendation(rec_id):
+    """Dismiss a cost optimization recommendation."""
+    try:
+        from models import CostOptimization
+        from datetime import datetime
+
+        # Get recommendation
+        recommendation = CostOptimization.query.get_or_404(rec_id)
+
+        # Verify ownership
+        if recommendation.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        recommendation.status = 'dismissed'
+        recommendation.dismissed_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'success': True})
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
