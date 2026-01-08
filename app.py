@@ -750,6 +750,13 @@ def chat():
     return render_template('index.html', user=current_user)
 
 
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    """Infrastructure dashboard (coming soon)."""
+    return render_template('dashboard.html', user=current_user)
+
+
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
