@@ -868,7 +868,6 @@ def aws_config():
         save_aws_credentials(access_key, secret_key, region)
 
         # Reload agent to use new credentials
-        global agent, config_manager
         if agent is not None:
             success, error = initialize_agent()
             if not success:
@@ -906,7 +905,6 @@ def azure_config():
         save_azure_credentials(subscription_id, tenant_id, client_id, client_secret, location)
 
         # Reload agent to use new credentials
-        global agent, config_manager
         if agent is not None:
             success, error = initialize_agent()
             if not success:
@@ -953,7 +951,6 @@ def gcp_config():
         save_gcp_credentials(project_id, credentials_json, region, zone)
 
         # Reload agent to use new credentials
-        global agent, config_manager
         if agent is not None:
             success, error = initialize_agent()
             if not success:
