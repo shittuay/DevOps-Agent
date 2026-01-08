@@ -76,7 +76,7 @@ google-cloud-scheduler==2.15.1
 google-cloud-redis==2.16.1
 google-cloud-bigquery==3.27.0
 google-cloud-dataflow-client==0.8.9
-google-cloud-dataproc==5.12.1
+google-cloud-dataproc==5.12.0
 google-cloud-orchestration-airflow==1.15.0
 google-cloud-aiplatform==1.74.0
 google-cloud-vision==3.8.1
