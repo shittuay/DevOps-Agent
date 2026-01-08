@@ -51,7 +51,7 @@ azure-mgmt-applicationinsights==4.0.0
 azure-mgmt-datafactory==7.1.0
 azure-mgmt-synapse==2.0.0
 azure-mgmt-databricks==2.0.0
-azure-mgmt-machinelearningservices==2.0.0
+azure-mgmt-machinelearningservices==1.0.0
 azure-mgmt-cognitiveservices==13.5.0
 azure-mgmt-logic==10.0.0
 
