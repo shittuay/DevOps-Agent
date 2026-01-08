@@ -69,7 +69,7 @@ google-cloud-vpc-access==1.11.0
 # google-cloud-cdn==1.11.0  # Package doesn't exist on PyPI
 # google-cloud-armor==1.9.0  # Package doesn't exist on PyPI
 google-cloud-secret-manager==2.21.1
-google-cloud-kms==2.24.3
+google-cloud-kms==2.24.2
 google-cloud-pubsub==2.26.1
 google-cloud-tasks==2.17.1
 google-cloud-scheduler==2.15.1
