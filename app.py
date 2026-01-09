@@ -843,6 +843,174 @@ def privacy_policy():
     return render_template('privacy-policy.html')
 
 
+@app.route('/teams')
+@login_required
+def teams():
+    """Team management page."""
+    # Get all users for team management
+    users = User.query.order_by(User.created_at.desc()).all()
+    return render_template('teams.html', users=users, current_user=current_user)
+
+
+@app.route('/about')
+def about():
+    """About page - Explains all features."""
+    return render_template('about.html')
+
+
+@app.route('/api/team/invite', methods=['POST'])
+@login_required
+def invite_team_member():
+    """Invite a new team member."""
+    # Only admins can invite members
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Only administrators can invite team members'}), 403
+
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        username = data.get('username', '').strip()
+        role = data.get('role', 'user').strip()
+
+        if not email or not username:
+            return jsonify({'error': 'Email and username are required'}), 400
+
+        # Validate role
+        valid_roles = ['admin', 'approver', 'user', 'viewer']
+        if role not in valid_roles:
+            return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
+
+        # Check if user already exists
+        existing_user = User.query.filter(
+            (User.email == email) | (User.username == username)
+        ).first()
+
+        if existing_user:
+            return jsonify({'error': 'A user with this email or username already exists'}), 400
+
+        # Create new user with a default password (they should change it on first login)
+        from werkzeug.security import generate_password_hash
+        default_password = 'ChangeMe123!'  # They'll need to change this
+
+        new_user = User(
+            username=username,
+            email=email,
+            password=generate_password_hash(default_password),
+            role=role
+        )
+        db.session.add(new_user)
+        db.session.commit()
+
+        # In a production app, you'd send an email invitation here
+        return jsonify({
+            'success': True,
+            'message': f'Team member invited successfully. Default password: {default_password}',
+            'user': {
+                'id': new_user.id,
+                'username': new_user.username,
+                'email': new_user.email,
+                'role': new_user.role
+            }
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/team/users/<int:user_id>/role', methods=['PUT'])
+@login_required
+def update_user_role(user_id):
+    """Update a user's role."""
+    # Only admins can update roles
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Only administrators can update user roles'}), 403
+
+    # Can't change your own role
+    if user_id == current_user.id:
+        return jsonify({'error': 'You cannot change your own role'}), 400
+
+    try:
+        data = request.get_json()
+        new_role = data.get('role', '').strip()
+
+        # Validate role
+        valid_roles = ['admin', 'approver', 'user', 'viewer']
+        if new_role not in valid_roles:
+            return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        old_role = user.role
+        user.role = new_role
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'User role updated from {old_role} to {new_role}',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role
+            }
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/team/users/<int:user_id>', methods=['DELETE'])
+@login_required
+def remove_team_member(user_id):
+    """Remove a team member."""
+    # Only admins can remove members
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Only administrators can remove team members'}), 403
+
+    # Can't remove yourself
+    if user_id == current_user.id:
+        return jsonify({'error': 'You cannot remove yourself from the team'}), 400
+
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        username = user.username
+
+        # Delete user's related data
+        # Delete conversations
+        Conversation.query.filter_by(user_id=user_id).delete()
+
+        # Delete infrastructure resources
+        InfrastructureResource.query.filter_by(user_id=user_id).delete()
+
+        # Delete cost optimizations
+        CostOptimization.query.filter_by(user_id=user_id).delete()
+
+        # Delete security findings
+        SecurityFinding.query.filter_by(user_id=user_id).delete()
+
+        # Delete alerts
+        Alert.query.filter_by(user_id=user_id).delete()
+
+        # Delete the user
+        db.session.delete(user)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'Team member {username} removed successfully'
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/aws-config', methods=['GET', 'POST'])
 @login_required
 def aws_config():

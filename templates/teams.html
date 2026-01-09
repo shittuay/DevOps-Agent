@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Management - DevOps Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f7f7f8;
+            color: #2c2d30;
+            font-size: 16px;
+            font-weight: 500;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-button {
+            padding: 8px 12px;
+            background: transparent;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            transition: all 0.15s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-button:hover {
+            background: #f7f7f8;
+            border-color: #d0d0d0;
+        }
+
+        /* Main Content */
+        .main-container {
+            max-width: 1200px;
+            margin: 32px auto;
+            padding: 0 24px;
+            flex: 1;
+            width: 100%;
+        }
+
+        .page-title {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .page-description {
+            color: #666;
+            margin-bottom: 32px;
+        }
+
+        .actions-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(205, 124, 72, 0.3);
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e5e5e5;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .members-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .members-table th {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 2px solid #e5e5e5;
+            font-weight: 600;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .members-table td {
+            padding: 16px 12px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .members-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .member-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .member-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .member-details {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .member-name {
+            font-weight: 600;
+            color: #2c2d30;
+        }
+
+        .member-email {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .role-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .role-admin {
+            background: #fef3f2;
+            color: #b42318;
+        }
+
+        .role-approver {
+            background: #fef6ee;
+            color: #c4320a;
+        }
+
+        .role-user {
+            background: #f0f9ff;
+            color: #026aa2;
+        }
+
+        .role-viewer {
+            background: #f9fafb;
+            color: #667085;
+        }
+
+        .btn-action {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid #e5e5e5;
+            background: white;
+            color: #2c2d30;
+            transition: all 0.15s;
+            margin-right: 8px;
+        }
+
+        .btn-action:hover {
+            background: #f7f7f8;
+        }
+
+        .btn-danger {
+            color: #dc2626;
+            border-color: #fecaca;
+        }
+
+        .btn-danger:hover {
+            background: #fef2f2;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #2c2d30;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: inherit;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #cd7c48;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: inherit;
+            background: white;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+        }
+
+        .btn-secondary {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid #e5e5e5;
+            background: white;
+            color: #2c2d30;
+        }
+
+        .btn-secondary:hover {
+            background: #f7f7f8;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .alert-success {
+            background: #f0fdf4;
+            color: #15803d;
+            border: 1px solid #bbf7d0;
+        }
+
+        .alert-error {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            color: #666;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <a href="/chat" class="logo">
+                    <div class="logo-icon">C</div>
+                    <span>DevOps Agent</span>
+                </a>
+            </div>
+            <div class="header-right">
+                <a href="/chat" class="header-button">Chat</a>
+                <a href="/dashboard" class="header-button">Dashboard</a>
+                <a href="/teams" class="header-button active">Teams</a>
+                <a href="/settings" class="header-button">Settings</a>
+                <a href="/logout" class="header-button">Logout</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <h1 class="page-title">Team Management</h1>
+        <p class="page-description">Invite team members and manage their roles and permissions</p>
+
+        <!-- Alert Messages -->
+        <div id="alert" class="alert"></div>
+
+        <!-- Actions Bar -->
+        <div class="actions-bar">
+            <div>
+                <strong id="member-count">{{ users|length }}</strong> team member(s)
+            </div>
+            <button class="btn-primary" onclick="showInviteModal()">
+                + Invite Member
+            </button>
+        </div>
+
+        <!-- Team Members Card -->
+        <div class="card">
+            <h2 class="card-title">Team Members</h2>
+
+            {% if users %}
+            <table class="members-table">
+                <thead>
+                    <tr>
+                        <th>Member</th>
+                        <th>Role</th>
+                        <th>Joined</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="members-list">
+                    {% for user in users %}
+                    <tr data-user-id="{{ user.id }}">
+                        <td>
+                            <div class="member-info">
+                                <div class="member-avatar">
+                                    {{ user.username[0].upper() }}
+                                </div>
+                                <div class="member-details">
+                                    <div class="member-name">{{ user.username }}</div>
+                                    <div class="member-email">{{ user.email }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="role-badge role-{{ user.role }}">
+                                {{ user.role|title }}
+                            </span>
+                        </td>
+                        <td>{{ user.created_at.strftime('%b %d, %Y') if user.created_at else 'N/A' }}</td>
+                        <td>
+                            {% if current_user.role == 'admin' and user.id != current_user.id %}
+                            <button class="btn-action" onclick="showEditRoleModal({{ user.id }}, '{{ user.username }}', '{{ user.role }}')">
+                                Edit Role
+                            </button>
+                            <button class="btn-action btn-danger" onclick="removeMember({{ user.id }}, '{{ user.username }}')">
+                                Remove
+                            </button>
+                            {% elif user.id == current_user.id %}
+                            <span style="color: #666; font-size: 14px;">You</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-state-icon">👥</div>
+                <p>No team members yet. Invite your first member!</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Role Descriptions -->
+        <div class="card">
+            <h2 class="card-title">Role Permissions</h2>
+            <table class="members-table">
+                <thead>
+                    <tr>
+                        <th>Role</th>
+                        <th>Description</th>
+                        <th>Permissions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="role-badge role-admin">Admin</span></td>
+                        <td>Full system access</td>
+                        <td>Manage team, configure settings, view all resources, execute all operations</td>
+                    </tr>
+                    <tr>
+                        <td><span class="role-badge role-approver">Approver</span></td>
+                        <td>Can approve and execute operations</td>
+                        <td>Execute operations, view resources, approve changes</td>
+                    </tr>
+                    <tr>
+                        <td><span class="role-badge role-user">User</span></td>
+                        <td>Standard user access</td>
+                        <td>Execute operations, view own resources</td>
+                    </tr>
+                    <tr>
+                        <td><span class="role-badge role-viewer">Viewer</span></td>
+                        <td>Read-only access</td>
+                        <td>View resources and dashboards only</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Invite Member Modal -->
+    <div id="inviteModal" class="modal">
+        <div class="modal-content">
+            <h2 class="modal-title">Invite Team Member</h2>
+            <form id="inviteForm" onsubmit="inviteMember(event)">
+                <div class="form-group">
+                    <label class="form-label">Email Address</label>
+                    <input type="email" class="form-input" name="email" required placeholder="colleague@example.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-input" name="username" required placeholder="username">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Role</label>
+                    <select class="form-select" name="role" required>
+                        <option value="viewer">Viewer - Read-only access</option>
+                        <option value="user" selected>User - Standard access</option>
+                        <option value="approver">Approver - Can approve operations</option>
+                        <option value="admin">Admin - Full access</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeInviteModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Send Invite</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Role Modal -->
+    <div id="editRoleModal" class="modal">
+        <div class="modal-content">
+            <h2 class="modal-title">Change User Role</h2>
+            <form id="editRoleForm" onsubmit="updateRole(event)">
+                <input type="hidden" name="user_id" id="editUserId">
+                <p style="margin-bottom: 20px;">
+                    Changing role for: <strong id="editUsername"></strong>
+                </p>
+                <div class="form-group">
+                    <label class="form-label">New Role</label>
+                    <select class="form-select" name="role" id="editRole" required>
+                        <option value="viewer">Viewer - Read-only access</option>
+                        <option value="user">User - Standard access</option>
+                        <option value="approver">Approver - Can approve operations</option>
+                        <option value="admin">Admin - Full access</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeEditRoleModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Update Role</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = message;
+            alert.className = `alert alert-${type} show`;
+            setTimeout(() => {
+                alert.classList.remove('show');
+            }, 5000);
+        }
+
+        function showInviteModal() {
+            document.getElementById('inviteModal').classList.add('show');
+        }
+
+        function closeInviteModal() {
+            document.getElementById('inviteModal').classList.remove('show');
+            document.getElementById('inviteForm').reset();
+        }
+
+        function showEditRoleModal(userId, username, currentRole) {
+            document.getElementById('editUserId').value = userId;
+            document.getElementById('editUsername').textContent = username;
+            document.getElementById('editRole').value = currentRole;
+            document.getElementById('editRoleModal').classList.add('show');
+        }
+
+        function closeEditRoleModal() {
+            document.getElementById('editRoleModal').classList.remove('show');
+        }
+
+        async function inviteMember(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData);
+
+            try {
+                const response = await fetch('/api/team/invite', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showAlert(result.message || 'Team member invited successfully!', 'success');
+                    closeInviteModal();
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showAlert(result.error || 'Failed to invite member', 'error');
+                }
+            } catch (error) {
+                showAlert('Error inviting member: ' + error.message, 'error');
+            }
+        }
+
+        async function updateRole(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const userId = formData.get('user_id');
+            const role = formData.get('role');
+
+            try {
+                const response = await fetch(`/api/team/users/${userId}/role`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ role })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showAlert(result.message || 'Role updated successfully!', 'success');
+                    closeEditRoleModal();
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showAlert(result.error || 'Failed to update role', 'error');
+                }
+            } catch (error) {
+                showAlert('Error updating role: ' + error.message, 'error');
+            }
+        }
+
+        async function removeMember(userId, username) {
+            if (!confirm(`Are you sure you want to remove ${username} from the team?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/team/users/${userId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showAlert(result.message || 'Member removed successfully!', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showAlert(result.error || 'Failed to remove member', 'error');
+                }
+            } catch (error) {
+                showAlert('Error removing member: ' + error.message, 'error');
+            }
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('show');
+            }
+        }
+    </script>
+</body>
+</html>
