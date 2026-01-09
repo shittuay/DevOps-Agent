@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About - DevOps Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f7f7f8;
+            color: #2c2d30;
+            font-size: 16px;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-button {
+            padding: 8px 12px;
+            background: transparent;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c2d30;
+            transition: all 0.15s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-button:hover {
+            background: #f7f7f8;
+            border-color: #d0d0d0;
+        }
+
+        .header-button.active {
+            background: #fff9f5;
+            border-color: #cd7c48;
+            color: #cd7c48;
+        }
+
+        /* Main Content */
+        .main-container {
+            max-width: 900px;
+            margin: 48px auto;
+            padding: 0 24px;
+            flex: 1;
+            width: 100%;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 64px;
+        }
+
+        .hero-title {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-subtitle {
+            font-size: 20px;
+            color: #666;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .features {
+            display: grid;
+            gap: 32px;
+            margin-bottom: 64px;
+        }
+
+        .feature-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e5e5e5;
+            padding: 32px;
+            transition: all 0.2s;
+        }
+
+        .feature-card:hover {
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+            transform: translateY(-2px);
+        }
+
+        .feature-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .feature-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+        }
+
+        .feature-title {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .feature-description {
+            color: #666;
+            margin-bottom: 16px;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-list li {
+            padding: 8px 0;
+            padding-left: 24px;
+            position: relative;
+        }
+
+        .feature-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #cd7c48;
+            font-weight: 700;
+        }
+
+        .cta {
+            text-align: center;
+            padding: 48px;
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e5e5e5;
+        }
+
+        .cta-title {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .cta-description {
+            color: #666;
+            margin-bottom: 24px;
+        }
+
+        .btn-primary {
+            display: inline-block;
+            padding: 12px 32px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(205, 124, 72, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <a href="/chat" class="logo">
+                    <div class="logo-icon">D</div>
+                    <span>DevOps Agent</span>
+                </a>
+            </div>
+            <div class="header-right">
+                <a href="/chat" class="header-button">Chat</a>
+                <a href="/dashboard" class="header-button">Dashboard</a>
+                <a href="/teams" class="header-button">Teams</a>
+                <a href="/about" class="header-button active">About</a>
+                <a href="/settings" class="header-button">Settings</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <div class="hero">
+            <h1 class="hero-title">DevOps Agent</h1>
+            <p class="hero-subtitle">
+                AI-powered DevOps automation for AWS, Azure, and GCP. Manage your cloud infrastructure with natural language.
+            </p>
+        </div>
+
+        <div class="features">
+            <!-- Multi-Cloud Support -->
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">☁️</div>
+                    <h2 class="feature-title">Multi-Cloud Infrastructure</h2>
+                </div>
+                <p class="feature-description">
+                    Comprehensive support for all major AWS services and cloud providers
+                </p>
+                <ul class="feature-list">
+                    <li><strong>AWS:</strong> EC2, S3, RDS, Lambda, DynamoDB, ECS, Load Balancers, API Gateway, SNS/SQS, ElastiCache, CloudFront, EBS, Elastic IPs</li>
+                    <li><strong>Azure & GCP:</strong> Virtual Machines, Storage, Databases, and more</li>
+                    <li>Automatic resource discovery and tracking</li>
+                    <li>Real-time infrastructure monitoring</li>
+                </ul>
+            </div>
+
+            <!-- Cost Optimization -->
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">💰</div>
+                    <h2 class="feature-title">Cost Optimization</h2>
+                </div>
+                <p class="feature-description">
+                    Intelligent recommendations to reduce your cloud spending
+                </p>
+                <ul class="feature-list">
+                    <li>Automated cost analysis across all resources</li>
+                    <li>Spot instance opportunities for EC2</li>
+                    <li>Rightsizing recommendations</li>
+                    <li>S3 lifecycle policies and Intelligent-Tiering suggestions</li>
+                    <li>Unattached EBS volume detection</li>
+                    <li>Reserved Instance recommendations</li>
+                    <li>Unused Elastic IP identification</li>
+                </ul>
+            </div>
+
+            <!-- Security Scanning -->
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">🔒</div>
+                    <h2 class="feature-title">Security Scanning</h2>
+                </div>
+                <p class="feature-description">
+                    Continuous security monitoring and compliance checking
+                </p>
+                <ul class="feature-list">
+                    <li>Security group analysis and recommendations</li>
+                    <li>IAM policy review and best practices</li>
+                    <li>Encryption status checks</li>
+                    <li>Compliance framework support (CIS, SOC2)</li>
+                    <li>Auto-remediation for common vulnerabilities</li>
+                    <li>Severity-based finding classification</li>
+                </ul>
+            </div>
+
+            <!-- Alerting & Auto-Remediation -->
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">🔔</div>
+                    <h2 class="feature-title">Alerting & Auto-Remediation</h2>
+                </div>
+                <p class="feature-description">
+                    Proactive monitoring with automated issue resolution
+                </p>
+                <ul class="feature-list">
+                    <li>Resource health monitoring</li>
+                    <li>Custom alert rules and thresholds</li>
+                    <li>Automated remediation actions</li>
+                    <li>Email and in-app notifications</li>
+                    <li>Alert history and tracking</li>
+                </ul>
+            </div>
+
+            <!-- Team Collaboration -->
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">👥</div>
+                    <h2 class="feature-title">Team Collaboration</h2>
+                </div>
+                <p class="feature-description">
+                    Manage your DevOps team with role-based access control
+                </p>
+                <ul class="feature-list">
+                    <li>Role-based permissions (Admin, Approver, User, Viewer)</li>
+                    <li>Team member invitation system</li>
+                    <li>User role management</li>
+                    <li>Approval workflows for critical operations</li>
+                    <li>Audit logging and tracking</li>
+                </ul>
+            </div>
+
+            <!-- AI-Powered Chat -->
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">💬</div>
+                    <h2 class="feature-title">AI-Powered Chat</h2>
+                </div>
+                <p class="feature-description">
+                    Natural language interface for DevOps operations
+                </p>
+                <ul class="feature-list">
+                    <li>Execute operations with plain English</li>
+                    <li>120+ specialized DevOps tools</li>
+                    <li>Kubernetes, Docker, Git integration</li>
+                    <li>CI/CD pipeline management</li>
+                    <li>Infrastructure as Code support</li>
+                    <li>Conversation history and context retention</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Call to Action -->
+        <div class="cta">
+            <h2 class="cta-title">Ready to automate your DevOps?</h2>
+            <p class="cta-description">
+                Start managing your cloud infrastructure with AI today
+            </p>
+            <a href="/chat" class="btn-primary">Get Started</a>
+        </div>
+    </div>
+</body>
+</html>
