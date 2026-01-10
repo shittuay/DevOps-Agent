@@ -10,6 +10,7 @@ import secrets
 import logging
 import re
 from email_validator import validate_email, EmailNotValidError
+from models import InfrastructureResource, CostOptimization, SecurityFinding, Alert
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
