@@ -33,6 +33,9 @@ class User(UserMixin, db.Model):
     locked_until = db.Column(db.DateTime, nullable=True)
     last_login_ip = db.Column(db.String(45), nullable=True)  # IPv6 support
 
+    # Role-based access control
+    role = db.Column(db.String(20), default='user')  # user, admin, approver, viewer
+
     def set_password(self, password):
         """Hash and set user password"""
         salt = bcrypt.gensalt()
@@ -685,3 +688,229 @@ class CostOptimization(db.Model):
 
     def __repr__(self):
         return f'<CostOptimization {self.recommendation_type}: ${self.potential_monthly_savings}/mo>'
+
+
+class InfrastructureChange(db.Model):
+    """Track infrastructure changes for audit trail and approval workflows"""
+    __tablename__ = 'infrastructure_changes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    # Change details
+    action_type = db.Column(db.String(50), nullable=False)  # create, update, delete, start, stop, terminate
+    resource_type = db.Column(db.String(50), nullable=False)  # ec2, rds, security_group, etc
+    resource_id = db.Column(db.String(200))  # Cloud-specific resource ID
+    resource_name = db.Column(db.String(200))
+    cloud_provider = db.Column(db.String(20))  # aws, gcp, azure
+
+    # Change description
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    change_details = db.Column(db.JSON)  # Before/after state, parameters, etc
+
+    # Approval workflow
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, approved, rejected, executed, failed
+    approver_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    approval_comment = db.Column(db.Text)
+
+    # Execution tracking
+    executed_at = db.Column(db.DateTime)
+    execution_result = db.Column(db.JSON)  # Result data, error messages, etc
+    rollback_data = db.Column(db.JSON)  # Data needed to rollback the change
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    approved_at = db.Column(db.DateTime)
+
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('initiated_changes', lazy='dynamic'))
+    approver = db.relationship('User', foreign_keys=[approver_id], backref=db.backref('approved_changes', lazy='dynamic'))
+
+    def to_dict(self):
+        """Convert change to dictionary"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'action_type': self.action_type,
+            'resource_type': self.resource_type,
+            'resource_id': self.resource_id,
+            'resource_name': self.resource_name,
+            'cloud_provider': self.cloud_provider,
+            'title': self.title,
+            'description': self.description,
+            'change_details': self.change_details or {},
+            'status': self.status,
+            'approver_id': self.approver_id,
+            'approval_comment': self.approval_comment,
+            'executed_at': self.executed_at.isoformat() if self.executed_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None
+        }
+
+    def __repr__(self):
+        return f'<InfrastructureChange {self.action_type} {self.resource_type} ({self.status})>'
+
+
+class SecurityFinding(db.Model):
+    """Track security findings and compliance issues"""
+    __tablename__ = 'security_findings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('infrastructure_resources.id'))
+
+    # Finding details
+    finding_type = db.Column(db.String(50), nullable=False, index=True)  # open_s3_bucket, security_group, unencrypted_db, etc
+    severity = db.Column(db.String(20), nullable=False, index=True)  # critical, high, medium, low, info
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+
+    # Compliance frameworks
+    compliance_frameworks = db.Column(db.JSON)  # ['CIS', 'SOC2', 'HIPAA', etc]
+    cis_benchmark_id = db.Column(db.String(50))  # CIS benchmark identifier
+
+    # Resource details
+    cloud_provider = db.Column(db.String(20))  # aws, gcp, azure
+    affected_resource_type = db.Column(db.String(50))
+    affected_resource_id = db.Column(db.String(200))
+    affected_resource_name = db.Column(db.String(200))
+    region = db.Column(db.String(50))
+
+    # Finding details
+    finding_data = db.Column(db.JSON)  # Specific details about the finding
+    remediation_steps = db.Column(db.Text)  # How to fix this issue
+    auto_remediation_available = db.Column(db.Boolean, default=False)
+
+    # Status tracking
+    status = db.Column(db.String(20), default='open', index=True)  # open, in_progress, resolved, suppressed
+    resolved_at = db.Column(db.DateTime)
+    resolved_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    resolution_notes = db.Column(db.Text)
+
+    # Risk assessment
+    risk_score = db.Column(db.Integer)  # 0-100
+    exploitability = db.Column(db.String(20))  # high, medium, low
+
+    # Timestamps
+    first_detected = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    last_detected = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('security_findings', lazy='dynamic'))
+    resolver = db.relationship('User', foreign_keys=[resolved_by], backref=db.backref('resolved_findings', lazy='dynamic'))
+    resource = db.relationship('InfrastructureResource', backref=db.backref('security_findings', lazy='dynamic'))
+
+    def to_dict(self):
+        """Convert finding to dictionary"""
+        return {
+            'id': self.id,
+            'finding_type': self.finding_type,
+            'severity': self.severity,
+            'title': self.title,
+            'description': self.description,
+            'compliance_frameworks': self.compliance_frameworks or [],
+            'cis_benchmark_id': self.cis_benchmark_id,
+            'cloud_provider': self.cloud_provider,
+            'affected_resource_type': self.affected_resource_type,
+            'affected_resource_id': self.affected_resource_id,
+            'affected_resource_name': self.affected_resource_name,
+            'region': self.region,
+            'finding_data': self.finding_data or {},
+            'remediation_steps': self.remediation_steps,
+            'auto_remediation_available': self.auto_remediation_available,
+            'status': self.status,
+            'risk_score': self.risk_score,
+            'exploitability': self.exploitability,
+            'first_detected': self.first_detected.isoformat() if self.first_detected else None,
+            'last_detected': self.last_detected.isoformat() if self.last_detected else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None
+        }
+
+    def __repr__(self):
+        return f'<SecurityFinding {self.severity}: {self.title}>'
+
+
+class Alert(db.Model):
+    """Track alerts and notifications for infrastructure monitoring"""
+    __tablename__ = 'alerts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('infrastructure_resources.id'))
+
+    # Alert details
+    alert_type = db.Column(db.String(50), nullable=False, index=True)  # high_cpu, disk_full, health_check_failed, cost_spike, etc
+    severity = db.Column(db.String(20), nullable=False, index=True)  # critical, warning, info
+    title = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text)
+
+    # Resource context
+    cloud_provider = db.Column(db.String(20))  # aws, gcp, azure
+    resource_type = db.Column(db.String(50))
+    resource_name = db.Column(db.String(200))
+    affected_resource_id = db.Column(db.String(200))
+    region = db.Column(db.String(50))
+
+    # Alert data
+    alert_data = db.Column(db.JSON)  # Metrics, thresholds, current values
+    threshold_value = db.Column(db.Float)  # The threshold that was crossed
+    current_value = db.Column(db.Float)  # The current value
+
+    # Auto-remediation
+    auto_remediation_available = db.Column(db.Boolean, default=False)
+    auto_remediation_action = db.Column(db.String(100))  # restart_service, scale_up, expand_disk, etc
+    auto_remediated = db.Column(db.Boolean, default=False)
+    remediation_result = db.Column(db.JSON)
+
+    # Status tracking
+    status = db.Column(db.String(20), default='active', index=True)  # active, acknowledged, resolved, suppressed
+    acknowledged_at = db.Column(db.DateTime)
+    acknowledged_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    resolved_at = db.Column(db.DateTime)
+    resolution_notes = db.Column(db.Text)
+
+    # Notification tracking
+    notification_sent = db.Column(db.Boolean, default=False)
+    notification_channels = db.Column(db.JSON)  # ['email', 'slack', 'pagerduty']
+    notification_sent_at = db.Column(db.DateTime)
+
+    # Timestamps
+    triggered_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('alerts', lazy='dynamic'))
+    acknowledger = db.relationship('User', foreign_keys=[acknowledged_by], backref=db.backref('acknowledged_alerts', lazy='dynamic'))
+    resource = db.relationship('InfrastructureResource', backref=db.backref('alerts', lazy='dynamic'))
+
+    def to_dict(self):
+        """Convert alert to dictionary"""
+        return {
+            'id': self.id,
+            'alert_type': self.alert_type,
+            'severity': self.severity,
+            'title': self.title,
+            'message': self.message,
+            'cloud_provider': self.cloud_provider,
+            'resource_type': self.resource_type,
+            'resource_name': self.resource_name,
+            'affected_resource_id': self.affected_resource_id,
+            'region': self.region,
+            'alert_data': self.alert_data or {},
+            'threshold_value': self.threshold_value,
+            'current_value': self.current_value,
+            'auto_remediation_available': self.auto_remediation_available,
+            'auto_remediation_action': self.auto_remediation_action,
+            'auto_remediated': self.auto_remediated,
+            'status': self.status,
+            'notification_sent': self.notification_sent,
+            'notification_channels': self.notification_channels or [],
+            'triggered_at': self.triggered_at.isoformat() if self.triggered_at else None,
+            'acknowledged_at': self.acknowledged_at.isoformat() if self.acknowledged_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None
+        }
+
+    def __repr__(self):
+        return f'<Alert {self.severity}: {self.title}>'
