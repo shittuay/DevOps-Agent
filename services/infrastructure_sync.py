@@ -248,6 +248,32 @@ def generate_cost_recommendations(user_id: int):
                     savings=resource.monthly_cost * 0.9  # 90% savings if stopped
                 )
 
+            # Check for rightsizing opportunities
+            rightsizing_savings = check_rightsizing_opportunity(resource)
+            if rightsizing_savings > 0:
+                instance_type = resource.resource_metadata.get('instance_type', 'unknown')
+                smaller_type = get_smaller_instance_type(instance_type)
+                create_or_update_recommendation(
+                    user_id=user_id,
+                    resource_id=resource.id,
+                    rec_type='rightsizing',
+                    title=f"Rightsizing opportunity: {resource.resource_name}",
+                    description=f"Instance {resource.resource_name} ({instance_type}) is underutilized. Downgrade to {smaller_type} to save costs.",
+                    savings=rightsizing_savings
+                )
+
+            # Check for Spot instance opportunities
+            if is_spot_candidate(resource):
+                spot_savings = resource.monthly_cost * 0.7  # 70% savings with Spot
+                create_or_update_recommendation(
+                    user_id=user_id,
+                    resource_id=resource.id,
+                    rec_type='spot_instance',
+                    title=f"Spot instance opportunity: {resource.resource_name}",
+                    description=f"This workload appears suitable for Spot instances. Save up to 70% by using Spot instances.",
+                    savings=spot_savings
+                )
+
         # Check for stopped instances that have been stopped for a long time
         if resource.resource_type == 'ec2' and resource.status == 'stopped':
             days_stopped = (datetime.utcnow() - resource.last_synced).days
@@ -260,6 +286,12 @@ def generate_cost_recommendations(user_id: int):
                     description=f"This instance has been stopped for over 30 days. Consider terminating it and creating a snapshot if needed.",
                     savings=5.00  # EBS storage savings
                 )
+
+    # Check for Reserved Instance opportunities
+    check_reserved_instance_opportunities(user_id, resources)
+
+    # Check for unattached EBS volumes
+    check_unattached_volumes(user_id)
 
     db.session.commit()
 
@@ -302,6 +334,93 @@ def create_or_update_recommendation(
             potential_monthly_savings=savings
         )
         db.session.add(recommendation)
+
+
+def check_rightsizing_opportunity(resource: InfrastructureResource) -> float:
+    """Check if instance can be downsized to save costs"""
+    instance_type = resource.resource_metadata.get('instance_type', '')
+
+    # Simulate rightsizing logic - in production, check actual CloudWatch metrics
+    # If instance family supports smaller size, suggest 30% savings
+    if any(size in instance_type for size in ['xlarge', '2xlarge', 'large']):
+        return resource.monthly_cost * 0.3
+
+    return 0.0
+
+
+def get_smaller_instance_type(instance_type: str) -> str:
+    """Suggest a smaller instance type"""
+    if '2xlarge' in instance_type:
+        return instance_type.replace('2xlarge', 'xlarge')
+    elif 'xlarge' in instance_type:
+        return instance_type.replace('xlarge', 'large')
+    elif 'large' in instance_type:
+        return instance_type.replace('large', 'medium')
+    return instance_type
+
+
+def is_spot_candidate(resource: InfrastructureResource) -> bool:
+    """Determine if workload is suitable for Spot instances"""
+    # Simulate spot candidacy - in production, analyze workload patterns
+    # Dev/test environments and batch jobs are good candidates
+    resource_name = resource.resource_name.lower()
+    return any(keyword in resource_name for keyword in ['dev', 'test', 'batch', 'worker'])
+
+
+def check_reserved_instance_opportunities(user_id: int, resources: List):
+    """Check if user should purchase Reserved Instances"""
+    # Count running instances by type
+    instance_types = {}
+    for r in resources:
+        if r.resource_type == 'ec2' and r.status == 'running':
+            inst_type = r.resource_metadata.get('instance_type', 'unknown')
+            if inst_type not in instance_types:
+                instance_types[inst_type] = []
+            instance_types[inst_type].append(r)
+
+    # If 3+ instances of same type, recommend RI
+    for inst_type, instances in instance_types.items():
+        if len(instances) >= 3:
+            total_cost = sum(i.monthly_cost for i in instances)
+            ri_savings = total_cost * 0.35  # 35% savings with 1-year RI
+
+            create_or_update_recommendation(
+                user_id=user_id,
+                resource_id=None,
+                rec_type='reserved_instance',
+                title=f"Reserved Instance opportunity for {inst_type}",
+                description=f"You're running {len(instances)} {inst_type} instances continuously. Purchase Reserved Instances to save 35-40%.",
+                savings=ri_savings
+            )
+
+
+def check_unattached_volumes(user_id: int):
+    """Check for unattached EBS volumes"""
+    try:
+        ec2 = _get_boto_client('ec2')
+        volumes = ec2.describe_volumes(
+            Filters=[{'Name': 'status', 'Values': ['available']}]
+        )
+
+        for volume in volumes.get('Volumes', []):
+            volume_id = volume['VolumeId']
+            size_gb = volume['Size']
+            volume_type = volume.get('VolumeType', 'gp2')
+
+            # Calculate monthly cost (rough estimate)
+            cost_per_gb = 0.10 if volume_type == 'gp2' else 0.125
+            monthly_cost = size_gb * cost_per_gb
+
+            create_or_update_recommendation(
+                user_id=user_id,
+                resource_id=None,
+                rec_type='unattached_volume',
+                title=f"Unattached EBS volume: {volume_id}",
+                description=f"EBS volume {volume_id} ({size_gb}GB) is not attached to any instance. Delete it to save ${monthly_cost:.2f}/month.",
+                savings=monthly_cost
+            )
+    except Exception as e:
+        print(f'Error checking unattached volumes: {e}')
 
 
 def get_dashboard_summary(user_id: int) -> Dict:
