@@ -21,40 +21,63 @@ jobs:
         key: ${{ secrets.EC2_SSH_KEY }}
         port: 22
         script: |
-          # Navigate to app directory
+          set -e
+
+          echo "🚀 Starting DevOps Agent Deployment..."
+
+          # Set deployment directory
+          DEPLOY_DIR="/home/ec2-user/app/DevOps-Agent"
+
+          # Navigate to deployment directory
           cd /home/ec2-user/app
 
-          # Stop existing application
-          pm2 stop all || true
+          # Stop existing PM2 processes
+          echo "⏸️  Stopping existing processes..."
+          pm2 stop devops-agent 2>/dev/null || true
+          pm2 delete devops-agent 2>/dev/null || true
 
           # Remove old code
+          echo "🗑️  Removing old code..."
           rm -rf DevOps-Agent
 
-          # Clone latest code
+          # Clone fresh code
+          echo "📥 Cloning latest code..."
           git clone https://github.com/shittuay/DevOps-Agent.git
           cd DevOps-Agent
 
-          # Check if package.json exists and install dependencies
-          if [ -f "package.json" ]; then
-            npm install
-            # Build if build script exists
-            npm run build --if-present
-            # Start with PM2
-            pm2 start npm --name "devops-agent" -- start
-          else
-            # For Python applications
-            if [ -f "requirements.txt" ]; then
-              pip3 install -r requirements.txt
-              # Start Python app (adjust as needed)
-              pm2 start "python3 app.py" --name "devops-agent"
-            else
-              echo "No package.json or requirements.txt found. Please configure manually."
-            fi
-          fi
+          # Install Python dependencies
+          echo "📦 Installing dependencies..."
+          pip3 install --user -r requirements.txt
+
+          # Create necessary directories
+          mkdir -p logs instance config
+
+          # Create or update .env file
+          echo "⚙️  Configuring environment..."
+          cat > config/.env << 'ENVEOF'
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
+          DATABASE_URL=sqlite:///devops_agent.db
+          FLASK_ENV=production
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          PORT=5000
+          HOST=0.0.0.0
+          LOG_LEVEL=INFO
+          ENVEOF
+
+          # Initialize database
+          echo "🗄️  Initializing database..."
+          python3 -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
+
+          # Start the application with PM2
+          echo "🚀 Starting application..."
+          pm2 start app.py --name devops-agent --interpreter python3
 
           # Save PM2 configuration
           pm2 save
-          pm2 startup
 
+          # Check status
+          pm2 status devops-agent
+
+          echo ""
           echo "✅ Deployment completed successfully!"
-          echo "🌐 Your app should be accessible at: http://3.91.154.244"
+          echo "🌐 Your app is accessible at: http://3.91.154.244:5000"
