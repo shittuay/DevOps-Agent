@@ -4,7 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1a2332;
+            --bg-elevated: #212d3f;
+            --glass-bg: rgba(26, 35, 50, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --accent-primary: #ff6b35;
+            --accent-secondary: #f7931e;
+            --accent-electric: #00d4ff;
+            --accent-success: #10b981;
+            --accent-warning: #fbbf24;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #64748b;
+            --text-muted: #475569;
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --border-medium: rgba(255, 255, 255, 0.12);
+            --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -12,62 +38,116 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #f7f7f8;
-            color: #2c2d30;
-            font-size: 16px;
-            font-weight: 500;
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            position: relative;
         }
 
-        /* Header - Same as chat UI */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Header */
         .header {
-            background: white;
-            border-bottom: 1px solid #e5e5e5;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle);
             padding: 0;
             position: sticky;
             top: 0;
             z-index: 100;
+            animation: slideInDown 0.6s ease-out;
+        }
+
+        @keyframes slideInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .header-content {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 24px;
+            padding: 16px 32px;
         }
 
         .header-left {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 20px;
         }
 
         .logo {
             font-size: 16px;
             font-weight: 600;
-            color: #2c2d30;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 12px;
             text-decoration: none;
         }
 
         .logo-icon {
-            width: 24px;
-            height: 24px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
-            border-radius: 6px;
+            width: 40px;
+            height: 40px;
+            background: var(--gradient-primary);
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
+            font-family: 'IBM Plex Mono', monospace;
             color: white;
             font-weight: 700;
-            font-size: 14px;
+            font-size: 18px;
+            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+        }
+
+        .logo span {
+            font-family: 'Syne', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
         }
 
         .header-right {
@@ -77,175 +157,242 @@
         }
 
         .header-button {
-            padding: 8px 12px;
-            background: transparent;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 14px;
             font-weight: 600;
-            color: #2c2d30;
-            transition: all 0.15s;
+            cursor: pointer;
+            transition: all 0.3s ease;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
         }
 
         .header-button:hover {
-            background: #f7f7f8;
-            border-color: #d0d0d0;
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--border-medium);
+            transform: translateY(-2px);
         }
 
         .header-button.active {
-            background: #fff9f5;
-            border-color: #cd7c48;
-            color: #cd7c48;
+            background: rgba(255, 107, 53, 0.15);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
         }
 
         .profile-button {
-            width: 40px;
-            height: 40px;
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: 2px solid #e5e5e5;
+            background: var(--gradient-primary);
+            border: 2px solid var(--border-subtle);
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s ease;
             font-size: 20px;
-            padding: 0;
-            text-decoration: none;
             color: white;
+            text-decoration: none;
+            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
         }
 
         .profile-button:hover {
-            transform: scale(1.05);
-            border-color: #cd7c48;
-            box-shadow: 0 2px 8px rgba(205, 124, 72, 0.2);
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: 0 6px 24px rgba(255, 107, 53, 0.5);
         }
 
         /* Main Content */
         .container {
             flex: 1;
-            max-width: 1200px;
+            max-width: 1400px;
             width: 100%;
             margin: 0 auto;
-            padding: 60px 24px;
+            padding: 60px 32px;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            position: relative;
+            z-index: 1;
         }
 
-        .coming-soon {
+        .page-header {
             text-align: center;
-            max-width: 600px;
+            margin-bottom: 60px;
+            animation: fadeInUp 0.8s ease-out;
         }
 
-        .icon-large {
-            font-size: 80px;
-            margin-bottom: 24px;
-            animation: pulse 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% {
-                transform: scale(1);
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
                 opacity: 1;
+                transform: translateY(0);
             }
-            50% {
-                transform: scale(1.05);
-                opacity: 0.8;
-            }
+        }
+
+        .coming-soon-icon {
+            font-size: 96px;
+            margin-bottom: 24px;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-15px); }
         }
 
         h1 {
-            font-size: 48px;
-            font-weight: 700;
-            color: #2c2d30;
+            font-family: 'Syne', sans-serif;
+            font-size: 56px;
+            font-weight: 800;
             margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent-electric));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -2px;
         }
 
         .subtitle {
             font-size: 20px;
-            color: #6e6e80;
-            margin-bottom: 32px;
+            color: var(--text-secondary);
+            margin-bottom: 48px;
             line-height: 1.6;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .features-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
             margin-top: 48px;
-            width: 100%;
-            max-width: 800px;
+            animation: fadeIn 0.8s ease-out 0.3s both;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         .feature-card {
-            background: white;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 24px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 32px;
             text-align: left;
-            transition: all 0.15s;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card:nth-child(1) { animation-delay: 0.1s; }
+        .feature-card:nth-child(2) { animation-delay: 0.2s; }
+        .feature-card:nth-child(3) { animation-delay: 0.3s; }
+        .feature-card:nth-child(4) { animation-delay: 0.4s; }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-primary);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s ease;
         }
 
         .feature-card:hover {
-            border-color: #cd7c48;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transform: translateY(-8px);
+            border-color: var(--accent-primary);
+            box-shadow: 0 20px 60px rgba(255, 107, 53, 0.2);
+        }
+
+        .feature-card:hover::before {
+            transform: scaleX(1);
         }
 
         .feature-icon {
-            font-size: 32px;
-            margin-bottom: 12px;
+            font-size: 48px;
+            margin-bottom: 20px;
+            display: block;
         }
 
         .feature-card h3 {
-            font-size: 18px;
-            font-weight: 600;
-            color: #2c2d30;
-            margin-bottom: 8px;
+            font-family: 'Syne', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
         }
 
         .feature-card p {
-            font-size: 14px;
-            color: #6e6e80;
-            line-height: 1.5;
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.6;
         }
 
         .back-button {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 12px 24px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            gap: 10px;
+            padding: 14px 28px;
+            background: var(--gradient-primary);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 12px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             text-decoration: none;
-            transition: all 0.2s;
-            margin-top: 32px;
+            transition: all 0.3s ease;
+            margin: 0 auto;
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .back-button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
         }
 
         .back-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(205, 124, 72, 0.3);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(255, 107, 53, 0.6);
         }
 
-        /* Mobile Responsive Styles */
+        .back-button:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        /* Mobile Responsive */
         @media (max-width: 768px) {
             .header-content {
-                padding: 12px 16px;
+                padding: 16px 20px;
             }
 
             .header-button {
-                padding: 6px 10px;
+                padding: 8px 12px;
                 font-size: 14px;
             }
 
@@ -258,61 +405,61 @@
             }
 
             .container {
-                padding: 40px 16px;
+                padding: 40px 20px;
             }
 
             h1 {
-                font-size: 36px;
+                font-size: 40px;
             }
 
             .subtitle {
                 font-size: 18px;
             }
 
-            .icon-large {
-                font-size: 60px;
+            .coming-soon-icon {
+                font-size: 72px;
             }
 
             .features-grid {
                 grid-template-columns: 1fr;
-                gap: 16px;
+                gap: 20px;
             }
 
             .feature-card {
-                padding: 20px;
+                padding: 24px;
             }
 
             .profile-button {
-                width: 36px;
-                height: 36px;
+                width: 40px;
+                height: 40px;
                 font-size: 18px;
             }
         }
 
         @media (max-width: 480px) {
             h1 {
-                font-size: 28px;
+                font-size: 32px;
             }
 
             .subtitle {
                 font-size: 16px;
             }
 
-            .icon-large {
-                font-size: 48px;
+            .coming-soon-icon {
+                font-size: 60px;
             }
 
             .header-right {
-                gap: 6px;
+                gap: 8px;
             }
 
             .header-button {
-                padding: 6px 8px;
+                padding: 8px 10px;
                 font-size: 18px;
             }
 
             .back-button {
-                padding: 10px 20px;
+                padding: 12px 24px;
                 font-size: 14px;
             }
         }
@@ -330,16 +477,20 @@
             </div>
             <div class="header-right">
                 <a href="/chat" class="header-button">
-                    💬 Chat
+                    <span>💬</span>
+                    <span>Chat</span>
                 </a>
                 <a href="/dashboard" class="header-button active">
-                    📊 Dashboard
+                    <span>📊</span>
+                    <span>Dashboard</span>
                 </a>
                 <a href="/teams" class="header-button">
-                    👥 Teams
+                    <span>👥</span>
+                    <span>Teams</span>
                 </a>
                 <a href="/settings" class="header-button">
-                    ⚙️ Settings
+                    <span>⚙️</span>
+                    <span>Settings</span>
                 </a>
                 <a href="/profile" class="profile-button" title="Profile">
                     👤
@@ -350,40 +501,42 @@
 
     <!-- Main Content -->
     <div class="container">
-        <div class="coming-soon">
-            <div class="icon-large">🚀</div>
+        <div class="page-header">
+            <div class="coming-soon-icon">🚀</div>
             <h1>Coming Soon</h1>
             <p class="subtitle">
                 The Infrastructure Dashboard is currently under development.
-                Soon you'll be able to view and manage all your cloud resources from one place.
+                Soon you'll be able to view and manage all your cloud resources from one unified command center.
             </p>
+        </div>
 
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">📊</div>
-                    <h3>Real-time Monitoring</h3>
-                    <p>View all your AWS, GCP, and Azure resources in one unified dashboard</p>
-                </div>
-
-                <div class="feature-card">
-                    <div class="feature-icon">💰</div>
-                    <h3>Cost Optimization</h3>
-                    <p>Get AI-powered recommendations to reduce your cloud spending</p>
-                </div>
-
-                <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <h3>Quick Actions</h3>
-                    <p>Deploy and manage infrastructure with one-click workflows</p>
-                </div>
-
-                <div class="feature-card">
-                    <div class="feature-icon">🔒</div>
-                    <h3>Security Insights</h3>
-                    <p>Automated compliance checks and security recommendations</p>
-                </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <span class="feature-icon">📊</span>
+                <h3>Real-time Monitoring</h3>
+                <p>View all your AWS, GCP, and Azure resources in one unified dashboard with live status updates and metrics</p>
             </div>
 
+            <div class="feature-card">
+                <span class="feature-icon">💰</span>
+                <h3>Cost Optimization</h3>
+                <p>Get AI-powered recommendations to reduce your cloud spending with intelligent resource analysis</p>
+            </div>
+
+            <div class="feature-card">
+                <span class="feature-icon">⚡</span>
+                <h3>Quick Actions</h3>
+                <p>Deploy and manage infrastructure with one-click workflows and automated deployment pipelines</p>
+            </div>
+
+            <div class="feature-card">
+                <span class="feature-icon">🔒</span>
+                <h3>Security Insights</h3>
+                <p>Automated compliance checks, security recommendations, and vulnerability scanning across your infrastructure</p>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 60px;">
             <a href="/chat" class="back-button">
                 ← Back to Chat
             </a>
