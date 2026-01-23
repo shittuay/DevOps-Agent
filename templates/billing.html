@@ -299,6 +299,67 @@
             color: #856404;
             border: 1px solid #ffeaa7;
         }
+
+        /* Mobile Responsive Styles */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 16px;
+            }
+
+            .header h1 {
+                font-size: 26px;
+            }
+
+            .header p {
+                font-size: 14px;
+            }
+
+            .credits-card {
+                padding: 20px;
+            }
+
+            .credits-header {
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .credits-display {
+                text-align: center;
+                width: 100%;
+            }
+
+            .tier-card {
+                margin-bottom: 16px;
+            }
+
+            .pricing-grid {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .credits-card {
+                padding: 16px;
+            }
+
+            .tier-card {
+                padding: 20px 16px;
+            }
+
+            .btn {
+                padding: 10px 16px;
+                font-size: 14px;
+            }
+
+            .back-link {
+                font-size: 14px;
+            }
+        }
     </style>
 </head>
 <body>

@@ -255,6 +255,78 @@
             font-size: 14px;
             font-weight: 500;
         }
+
+        /* Mobile Responsive Styles */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 16px;
+            }
+
+            .header-actions {
+                width: 100%;
+                display: flex;
+                gap: 8px;
+            }
+
+            .header-actions .btn {
+                flex: 1;
+                text-align: center;
+                padding: 10px 12px;
+                font-size: 14px;
+            }
+
+            .container {
+                padding: 20px 16px;
+            }
+
+            .profile-card {
+                padding: 24px 20px;
+            }
+
+            .profile-header {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+
+            .profile-avatar {
+                margin-right: 0;
+                margin-bottom: 16px;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .action-buttons .btn {
+                width: 100%;
+            }
+
+            .profile-stats {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .logo-text {
+                display: none;
+            }
+
+            .profile-card h2 {
+                font-size: 18px;
+            }
+
+            .profile-avatar {
+                width: 80px;
+                height: 80px;
+                font-size: 32px;
+            }
+        }
     </style>
 </head>
 <body>
