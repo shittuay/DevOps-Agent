@@ -654,6 +654,158 @@
             }
         }
 
+        /* Mobile Responsive Styles */
+        @media (max-width: 768px) {
+            body {
+                font-size: 14px;
+            }
+
+            .sidebar {
+                position: fixed;
+                left: -280px;
+                top: 0;
+                z-index: 1000;
+                transition: left 0.3s ease;
+            }
+
+            .sidebar.active {
+                left: 0;
+            }
+
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 999;
+            }
+
+            .sidebar-overlay.active {
+                display: block;
+            }
+
+            .mobile-menu-button {
+                display: block;
+                background: transparent;
+                border: none;
+                font-size: 24px;
+                cursor: pointer;
+                padding: 8px;
+                color: #2c2d30;
+            }
+
+            .header-content {
+                padding: 12px 16px;
+            }
+
+            .header-button {
+                padding: 6px 10px;
+                font-size: 14px;
+            }
+
+            .header-button span {
+                display: none;
+            }
+
+            .logo span {
+                display: none;
+            }
+
+            .chat-container {
+                padding: 16px 12px;
+            }
+
+            .message {
+                gap: 12px;
+            }
+
+            .message-avatar {
+                width: 28px;
+                height: 28px;
+                font-size: 12px;
+            }
+
+            .message-text {
+                font-size: 15px;
+            }
+
+            .input-container {
+                padding: 0 12px;
+            }
+
+            #messageInput {
+                font-size: 16px;
+            }
+
+            .welcome-examples {
+                grid-template-columns: 1fr;
+            }
+
+            .example-card {
+                padding: 12px;
+            }
+
+            .profile-button {
+                width: 36px;
+                height: 36px;
+                font-size: 18px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header-right {
+                gap: 6px;
+            }
+
+            .header-button {
+                padding: 6px 8px;
+                font-size: 18px;
+            }
+
+            #credits-badge {
+                padding: 6px 8px !important;
+                font-size: 12px !important;
+            }
+
+            .chat-wrapper {
+                padding-bottom: 0;
+            }
+
+            .input-wrapper {
+                padding: 12px 0;
+            }
+
+            .message-text pre {
+                font-size: 13px;
+                padding: 12px;
+                padding-top: 36px;
+            }
+
+            .copy-code-button {
+                padding: 4px 8px;
+                font-size: 10px;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            .welcome h2 {
+                font-size: 20px;
+            }
+
+            .welcome p {
+                font-size: 14px;
+            }
+        }
+
+        .mobile-menu-button {
+            display: none;
+        }
+
         /* Language Switcher Styles */
         .submenu-arrow {
             font-size: 10px;
@@ -783,8 +935,11 @@
     </style>
 </head>
 <body>
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
     <!-- Sidebar -->
-    <div class="sidebar">
+    <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <button class="new-chat-button" onclick="startNewChat()">
                 <span>+</span>
@@ -802,6 +957,7 @@
         <div class="header">
         <div class="header-content">
             <div class="header-left">
+                <button class="mobile-menu-button" onclick="toggleSidebar()">☰</button>
                 <div class="logo">
                     <div class="logo-icon">D</div>
                     <span>DevOps Agent</span>
@@ -943,6 +1099,13 @@
         function toggleMenu() {
             const menu = document.getElementById('mainMenu');
             menu.classList.toggle('active');
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
         }
 
         // Close menu when clicking outside
