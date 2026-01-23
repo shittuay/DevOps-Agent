@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - DevOps Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f1e;
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        .split-container {
+            display: flex;
+            width: 100%;
+            min-height: 100vh;
+        }
+
+        /* Left Side - Features */
+        .features-side {
+            flex: 1;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            padding: 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Animated background elements */
+        .features-side::before {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(205,124,72,0.1) 0%, transparent 70%);
+            border-radius: 50%;
+            top: -100px;
+            left: -100px;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .features-side::after {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(103,126,234,0.1) 0%, transparent 70%);
+            border-radius: 50%;
+            bottom: -100px;
+            right: -100px;
+            animation: float 15s ease-in-out infinite reverse;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) translateX(0px); }
+            50% { transform: translateY(-30px) translateX(30px); }
+        }
+
+        .features-content {
+            position: relative;
+            z-index: 1;
+            color: white;
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 48px;
+        }
+
+        .brand-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 28px;
+            box-shadow: 0 8px 24px rgba(205,124,72,0.3);
+        }
+
+        .brand-name {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-title {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #ffffff 0%, #cd7c48 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.2;
+        }
+
+        .hero-subtitle {
+            font-size: 20px;
+            color: #b8b8d4;
+            margin-bottom: 48px;
+            line-height: 1.6;
+        }
+
+        .feature-list {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .feature-item:hover {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(205,124,72,0.3);
+            transform: translateX(8px);
+        }
+
+        .feature-icon {
+            font-size: 32px;
+            flex-shrink: 0;
+        }
+
+        .feature-content h3 {
+            font-size: 18px;
+            margin-bottom: 4px;
+            color: #ffffff;
+        }
+
+        .feature-content p {
+            font-size: 14px;
+            color: #9898b8;
+            line-height: 1.5;
+        }
+
+        /* Right Side - Login Form */
+        .login-side {
+            flex: 0 0 500px;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 48px;
+            box-shadow: -10px 0 40px rgba(0,0,0,0.2);
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .login-header h1 {
+            font-size: 32px;
+            color: #2c2d30;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .login-header p {
+            color: #6e6e80;
+            font-size: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            color: #2c2d30;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e5e5e5;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.2s;
+            font-family: inherit;
+            background: #f9f9fb;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #cd7c48;
+            background: white;
+            box-shadow: 0 0 0 4px rgba(205, 124, 72, 0.1);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 8px;
+            box-shadow: 0 4px 16px rgba(205,124,72,0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(205,124,72,0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .alert {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            font-weight: 500;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .alert-error {
+            background: #fee;
+            color: #c33;
+            border: 2px solid #fcc;
+        }
+
+        .signup-link {
+            text-align: center;
+            margin-top: 32px;
+            font-size: 14px;
+            color: #6e6e80;
+        }
+
+        .signup-link a {
+            color: #cd7c48;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .signup-link a:hover {
+            text-decoration: underline;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 32px;
+            margin-top: 48px;
+            padding-top: 32px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #cd7c48 0%, #ffb347 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #9898b8;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .features-side {
+                padding: 40px;
+            }
+            .hero-title {
+                font-size: 36px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .split-container {
+                flex-direction: column;
+            }
+            .features-side {
+                padding: 40px 24px;
+                min-height: auto;
+            }
+            .login-side {
+                flex: 1;
+                padding: 40px 24px;
+            }
+            .hero-title {
+                font-size: 32px;
+            }
+            .stats-row {
+                gap: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="split-container">
+        <!-- Left Side - Features & Marketing -->
+        <div class="features-side">
+            <div class="features-content">
+                <div class="brand-logo">
+                    <div class="brand-icon">D</div>
+                    <div class="brand-name">DevOps Agent</div>
+                </div>
+
+                <h1 class="hero-title">
+                    Automate Your DevOps Workflow ⚡
+                </h1>
+                <p class="hero-subtitle">
+                    Your AI-powered assistant for cloud infrastructure, CI/CD pipelines, and everything DevOps.
+                </p>
+
+                <div class="feature-list">
+                    <div class="feature-item">
+                        <div class="feature-icon">☁️</div>
+                        <div class="feature-content">
+                            <h3>Multi-Cloud Management</h3>
+                            <p>Manage AWS, Azure, and GCP resources with natural language commands</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-item">
+                        <div class="feature-icon">🚀</div>
+                        <div class="feature-content">
+                            <h3>CI/CD Automation</h3>
+                            <p>Deploy, monitor, and manage your pipelines across Jenkins, GitHub, GitLab</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-item">
+                        <div class="feature-icon">🎯</div>
+                        <div class="feature-content">
+                            <h3>Kubernetes Made Easy</h3>
+                            <p>Deploy and scale applications with intelligent cluster management</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-item">
+                        <div class="feature-icon">🔒</div>
+                        <div class="feature-content">
+                            <h3>Security First</h3>
+                            <p>Built-in security best practices and compliance checking</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-item">
+                        <div class="feature-icon">🌍</div>
+                        <div class="feature-content">
+                            <h3>10 Languages Supported</h3>
+                            <p>Work in your preferred language with full translation support</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-row">
+                    <div class="stat-item">
+                        <div class="stat-number">36+</div>
+                        <div class="stat-label">DevOps Tools</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">3</div>
+                        <div class="stat-label">Cloud Providers</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">24/7</div>
+                        <div class="stat-label">AI Assistant</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Side - Login Form -->
+        <div class="login-side">
+            <div class="login-container">
+                <div class="login-header">
+                    <h1>Welcome Back! 👋</h1>
+                    <p>Sign in to continue your DevOps journey</p>
+                </div>
+
+                {% if error %}
+                <div class="alert alert-error">{{ error }}</div>
+                {% endif %}
+
+                <form method="POST" action="/login" id="loginForm">
+                    <div class="form-group">
+                        <label for="email">Email or Username</label>
+                        <input
+                            type="text"
+                            id="email"
+                            name="email"
+                            placeholder="your@email.com"
+                            required
+                            autofocus
+                        />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="Enter your password"
+                            required
+                        />
+                    </div>
+
+                    <button type="submit" class="btn-primary" id="submitBtn">
+                        Sign In →
+                    </button>
+                </form>
+
+                <div class="signup-link">
+                    New to DevOps Agent? <a href="/signup">Create an account</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Signing in...';
+        });
+
+        // Add subtle parallax effect to features
+        document.addEventListener('mousemove', function(e) {
+            const features = document.querySelectorAll('.feature-item');
+            const xAxis = (window.innerWidth / 2 - e.pageX) / 50;
+            const yAxis = (window.innerHeight / 2 - e.pageY) / 50;
+
+            features.forEach(feature => {
+                feature.style.transform = `perspective(1000px) rotateY(${xAxis}deg) rotateX(${yAxis}deg)`;
+            });
+        });
+    </script>
+</body>
+</html>
