@@ -15,6 +15,19 @@ from models import InfrastructureResource, CostOptimization, SecurityFinding, Al
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+# Initialize secrets from AWS Secrets Manager before loading config
+try:
+    from services.secrets_manager import init_secrets, get_anthropic_api_key
+    # Load secrets into environment variables
+    init_secrets()
+    # Also try to get API key directly if not in env
+    if not os.environ.get('ANTHROPIC_API_KEY'):
+        api_key = get_anthropic_api_key()
+        if api_key:
+            os.environ['ANTHROPIC_API_KEY'] = api_key
+except Exception as e:
+    print(f"Warning: Could not initialize secrets from AWS: {e}")
+
 from src.config import ConfigManager
 from src.agent import DevOpsAgent
 from src.utils import setup_logging, get_logger
@@ -2656,6 +2669,30 @@ def init_database():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# Auto-initialize agent when module loads (for gunicorn/wsgi)
+# This runs when the app is imported, not just when run directly
+def _auto_initialize():
+    """Auto-initialize the agent if API key is configured."""
+    global agent
+    if agent is None:
+        # Check if API key is available (from secrets manager or env)
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if api_key and api_key.startswith('sk-ant-'):
+            try:
+                success, error = initialize_agent()
+                if success:
+                    print(f"Agent auto-initialized with {len(agent.list_available_tools())} tools")
+                else:
+                    print(f"Warning: Failed to auto-initialize agent: {error}")
+            except Exception as e:
+                print(f"Warning: Exception during auto-initialization: {e}")
+
+# Run auto-initialization
+with app.app_context():
+    db.create_all()
+    _auto_initialize()
 
 
 if __name__ == '__main__':
