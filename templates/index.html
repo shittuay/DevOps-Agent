@@ -12,7 +12,7 @@
 
     <style>
         :root {
-            /* Dark Theme */
+            /* Dark Theme (Default) */
             --bg-primary: #0a0e1a;
             --bg-secondary: #111827;
             --bg-tertiary: #1a2332;
@@ -44,6 +44,36 @@
             --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             --gradient-mesh: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
                              radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+        }
+
+        /* Light Theme */
+        [data-theme="light"] {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f1f5f9;
+            --bg-elevated: #ffffff;
+
+            --glass-bg: rgba(255, 255, 255, 0.85);
+            --glass-border: rgba(0, 0, 0, 0.08);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #64748b;
+            --text-muted: #94a3b8;
+
+            --border-subtle: rgba(0, 0, 0, 0.08);
+            --border-medium: rgba(0, 0, 0, 0.12);
+
+            --gradient-mesh: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.08) 0%, transparent 50%),
+                             radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.08) 0%, transparent 50%);
+        }
+
+        /* Smooth theme transitions */
+        body, .sidebar, .header, .main-content,
+        .message, .input-box, .conversation-item,
+        .welcome, .example-card, .dropdown {
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
         }
 
         * {
@@ -1276,14 +1306,37 @@
     <script>
         let isProcessing = false;
 
-        // Theme Toggle
+        // Theme Toggle Functionality
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+
+            // Update button states
+            document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+                if (btn.getAttribute('data-theme') === theme) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        // Initialize theme on page load
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            setTheme(savedTheme);
+        }
+
+        // Theme toggle button click handlers
         document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('.theme-toggle-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                // Add light mode styles implementation here
+                const theme = btn.getAttribute('data-theme');
+                setTheme(theme);
             });
         });
+
+        // Initialize theme when DOM is ready
+        initTheme();
 
         function toggleMenu() {
             const menu = document.getElementById('mainMenu');
