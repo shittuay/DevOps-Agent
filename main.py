@@ -244,6 +244,7 @@ def ask(message, config, env):
     # Display response
     console.print(Panel(
         Markdown(response),
+
         title="[bold green]Agent Response[/bold green]",
         border_style="green"
     ))
