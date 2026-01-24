@@ -1127,6 +1127,19 @@
             .welcome-examples {
                 grid-template-columns: 1fr;
             }
+
+            /* Move theme toggle below header on mobile to avoid overlap with profile button */
+            .theme-toggle {
+                top: 70px;
+                right: 12px;
+                padding: 6px;
+            }
+
+            .theme-toggle-btn {
+                width: 32px;
+                height: 32px;
+                font-size: 14px;
+            }
         }
 
         @media (max-width: 480px) {
