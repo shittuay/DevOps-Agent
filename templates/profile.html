@@ -4,7 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Profile - DevOps Agent</title>
+
+    <!-- Terminal Luxury Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-elevated: #212d3f;
+            --glass-bg: rgba(26, 35, 50, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --accent-primary: #ff6b35;
+            --accent-electric: #00d4ff;
+            --accent-success: #10b981;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #64748b;
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -12,18 +34,68 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #f7f7f8;
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
         }
 
+        /* Animated Grid Background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+            z-index: 0;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        /* Gradient Mesh */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .page-container {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
         .header {
-            background: white;
-            border-bottom: 1px solid #e5e5e5;
-            padding: 16px 24px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 20px 32px;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
 
         .logo-section {
@@ -33,22 +105,45 @@
         }
 
         .logo-icon {
-            width: 32px;
-            height: 32px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
-            border-radius: 6px;
+            width: 40px;
+            height: 40px;
+            background: var(--gradient-primary);
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-weight: 700;
-            font-size: 16px;
+            font-weight: 800;
+            font-size: 20px;
+            font-family: 'Syne', sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo-icon::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
         }
 
         .logo-text {
-            font-size: 16px;
-            font-weight: 600;
-            color: #2c2d30;
+            font-size: 20px;
+            font-weight: 700;
+            font-family: 'Syne', sans-serif;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .header-actions {
@@ -57,188 +152,299 @@
         }
 
         .btn {
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 10px 20px;
+            border-radius: 8px;
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s ease;
             text-decoration: none;
             border: none;
+            position: relative;
+            overflow: hidden;
         }
 
         .btn-secondary {
-            background: #f0f0f0;
-            color: #2c2d30;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--glass-border);
         }
 
         .btn-secondary:hover {
-            background: #e5e5e5;
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
         }
 
+        /* Main Container */
         .container {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
-            padding: 48px 24px;
+            padding: 60px 32px;
         }
 
+        /* Profile Header Card */
         .profile-header {
-            background: white;
-            border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            background: var(--glass-bg);
+            backdrop-filter: blur(40px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 40px;
+            margin-bottom: 32px;
+            position: relative;
+            overflow: hidden;
+            animation: fadeSlideUp 0.6s ease;
+        }
+
+        @keyframes fadeSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .profile-top {
             display: flex;
             align-items: center;
-            gap: 24px;
-            margin-bottom: 24px;
+            gap: 32px;
         }
 
         .avatar-large {
-            width: 80px;
-            height: 80px;
+            width: 100px;
+            height: 100px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 32px;
-            font-weight: 700;
+            font-size: 40px;
+            font-weight: 800;
+            font-family: 'Syne', sans-serif;
             background: {{ user.avatar_color }};
             flex-shrink: 0;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .avatar-large::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            animation: shimmer 3s infinite;
         }
 
         .profile-info h1 {
-            font-size: 24px;
-            color: #2c2d30;
-            margin-bottom: 4px;
+            font-size: 32px;
+            font-weight: 800;
+            font-family: 'Syne', sans-serif;
+            color: var(--text-primary);
+            margin-bottom: 8px;
         }
 
         .profile-info .username {
             font-size: 16px;
-            color: #6e6e80;
-            margin-bottom: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--accent-electric);
+            margin-bottom: 16px;
         }
 
         .profile-stats {
             display: flex;
-            gap: 24px;
+            gap: 32px;
             font-size: 14px;
-            color: #6e6e80;
+            color: var(--text-secondary);
         }
 
-        .section {
-            background: white;
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        .profile-stats span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
+
+        /* Section Cards */
+        .section {
+            background: var(--glass-bg);
+            backdrop-filter: blur(40px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 24px;
+            animation: fadeSlideUp 0.6s ease;
+        }
+
+        .section:nth-child(2) { animation-delay: 0.1s; }
+        .section:nth-child(3) { animation-delay: 0.2s; }
+        .section:nth-child(4) { animation-delay: 0.3s; }
 
         .section-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #2c2d30;
-            margin-bottom: 20px;
+            font-size: 24px;
+            font-weight: 700;
+            font-family: 'Syne', sans-serif;
+            color: var(--text-primary);
+            margin-bottom: 24px;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
+        /* Form Elements */
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
 
         label {
             display: block;
-            color: #2c2d30;
-            font-weight: 500;
-            margin-bottom: 8px;
-            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            margin-bottom: 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        input, textarea {
+        input, textarea, select {
             width: 100%;
-            padding: 10px 14px;
-            border: 2px solid #e5e5e5;
-            border-radius: 8px;
+            padding: 14px 18px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px solid var(--glass-border);
+            border-radius: 10px;
             font-size: 15px;
-            transition: all 0.2s;
-            font-family: inherit;
+            font-family: 'Outfit', sans-serif;
+            color: var(--text-primary);
+            transition: all 0.3s ease;
         }
 
         textarea {
             resize: vertical;
-            min-height: 80px;
+            min-height: 100px;
         }
 
-        input:focus, textarea:focus {
+        input:focus, textarea:focus, select:focus {
             outline: none;
-            border-color: #cd7c48;
-            box-shadow: 0 0 0 3px rgba(205, 124, 72, 0.1);
+            border-color: var(--accent-primary);
+            background: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.1);
         }
 
         input:disabled {
-            background: #f7f7f8;
+            background: rgba(255, 255, 255, 0.02);
             cursor: not-allowed;
+            opacity: 0.6;
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(205, 124, 72, 0.3);
-        }
-
-        .alert {
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-
-        .alert-success {
-            background: #efe;
-            color: #3c3;
-            border: 1px solid #cfc;
-        }
-
+        /* Color Picker */
         .color-picker-group {
             display: flex;
-            gap: 12px;
+            gap: 16px;
             align-items: center;
         }
 
         .color-preview {
-            width: 48px;
-            height: 48px;
-            border-radius: 8px;
-            border: 2px solid #e5e5e5;
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            border: 2px solid var(--glass-border);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .color-preview:hover {
+            transform: scale(1.05);
         }
 
         input[type="color"] {
-            width: 100px;
-            height: 48px;
-            border: 2px solid #e5e5e5;
-            border-radius: 8px;
+            width: 120px;
+            height: 60px;
+            border: 2px solid var(--glass-border);
+            border-radius: 12px;
             cursor: pointer;
+            padding: 4px;
         }
 
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+
+        input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 8px;
+        }
+
+        /* Primary Button */
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: white;
+            padding: 14px 32px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn-primary:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(255, 107, 53, 0.4);
+        }
+
+        /* Alert */
+        .alert {
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            font-family: 'Outfit', sans-serif;
+            animation: fadeSlideUp 0.4s ease;
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent-success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        /* Info Rows */
         .info-row {
             display: flex;
             justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid #f0f0f0;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--glass-border);
         }
 
         .info-row:last-child {
@@ -246,69 +452,77 @@
         }
 
         .info-label {
-            color: #6e6e80;
+            color: var(--text-tertiary);
             font-size: 14px;
+            font-family: 'IBM Plex Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .info-value {
-            color: #2c2d30;
+            color: var(--text-primary);
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
         }
 
-        /* Mobile Responsive Styles */
+        /* Mobile Responsive */
         @media (max-width: 768px) {
             .header {
                 flex-direction: column;
                 align-items: flex-start;
-                gap: 12px;
-                padding: 16px;
+                gap: 16px;
+                padding: 20px;
             }
 
             .header-actions {
                 width: 100%;
-                display: flex;
-                gap: 8px;
             }
 
             .header-actions .btn {
                 flex: 1;
                 text-align: center;
-                padding: 10px 12px;
-                font-size: 14px;
             }
 
             .container {
-                padding: 20px 16px;
-            }
-
-            .profile-card {
-                padding: 24px 20px;
+                padding: 32px 20px;
             }
 
             .profile-header {
+                padding: 28px 24px;
+            }
+
+            .profile-top {
                 flex-direction: column;
                 align-items: center;
                 text-align: center;
             }
 
-            .profile-avatar {
-                margin-right: 0;
-                margin-bottom: 16px;
-            }
-
-            .action-buttons {
-                flex-direction: column;
-                width: 100%;
-            }
-
-            .action-buttons .btn {
-                width: 100%;
+            .profile-info h1 {
+                font-size: 26px;
             }
 
             .profile-stats {
-                grid-template-columns: 1fr;
+                flex-direction: column;
                 gap: 12px;
+                align-items: center;
+            }
+
+            .section {
+                padding: 24px 20px;
+            }
+
+            .section-title {
+                font-size: 20px;
+            }
+
+            .color-picker-group {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .info-row {
+                flex-direction: column;
+                gap: 8px;
             }
         }
 
@@ -317,153 +531,175 @@
                 display: none;
             }
 
-            .profile-card h2 {
-                font-size: 18px;
-            }
-
-            .profile-avatar {
+            .avatar-large {
                 width: 80px;
                 height: 80px;
                 font-size: 32px;
+            }
+
+            .profile-info h1 {
+                font-size: 22px;
             }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="logo-section">
-            <div class="logo-icon">D</div>
-            <span class="logo-text">DevOps Agent</span>
+    <div class="page-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo-section">
+                <div class="logo-icon">D</div>
+                <span class="logo-text">DevOps Agent</span>
+            </div>
+            <div class="header-actions">
+                <a href="/chat" class="btn btn-secondary">Back to Chat</a>
+                <a href="/logout" class="btn btn-secondary">Logout</a>
+            </div>
         </div>
-        <div class="header-actions">
-            <a href="/chat" class="btn btn-secondary">Back to Chat</a>
-            <a href="/logout" class="btn btn-secondary">Logout</a>
-        </div>
-    </div>
 
-    <div class="container">
-        <div class="profile-header">
-            <div class="profile-top">
-                <div class="avatar-large" style="background: {{ user.avatar_color }};">
-                    {{ user.get_avatar_initials() }}
-                </div>
-                <div class="profile-info">
-                    <h1>{{ user.full_name or user.username }}</h1>
-                    <div class="username">@{{ user.username }}</div>
-                    <div class="profile-stats">
-                        <span>Member since {{ user.created_at.strftime('%B %Y') if user.created_at else 'N/A' }}</span>
-                        {% if user.last_login %}
-                        <span>Last login: {{ user.last_login.strftime('%b %d, %Y') }}</span>
-                        {% endif %}
+        <!-- Main Content -->
+        <div class="container">
+            <!-- Profile Header -->
+            <div class="profile-header">
+                <div class="profile-top">
+                    <div class="avatar-large" style="background: {{ user.avatar_color }};">
+                        {{ user.get_avatar_initials() }}
+                    </div>
+                    <div class="profile-info">
+                        <h1>{{ user.full_name or user.username }}</h1>
+                        <div class="username">@{{ user.username }}</div>
+                        <div class="profile-stats">
+                            <span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                                </svg>
+                                Member since {{ user.created_at.strftime('%B %Y') if user.created_at else 'N/A' }}
+                            </span>
+                            {% if user.last_login %}
+                            <span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polyline points="12 6 12 12 16 14"></polyline>
+                                </svg>
+                                Last login: {{ user.last_login.strftime('%b %d, %Y') }}
+                            </span>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        {% if success %}
-        <div class="alert alert-success">{{ success }}</div>
-        {% endif %}
+            {% if success %}
+            <div class="alert alert-success">{{ success }}</div>
+            {% endif %}
 
-        <form method="POST" action="/profile">
-            <div class="section">
-                <h2 class="section-title">Personal Information</h2>
+            <!-- Edit Form -->
+            <form method="POST" action="/profile">
+                <!-- Personal Information -->
+                <div class="section">
+                    <h2 class="section-title">Personal Information</h2>
 
-                <div class="form-group">
-                    <label for="full_name">Full Name</label>
-                    <input
-                        type="text"
-                        id="full_name"
-                        name="full_name"
-                        value="{{ user.full_name or '' }}"
-                        placeholder="Your full name"
-                    />
-                </div>
-
-                <div class="form-group">
-                    <label for="email">Email</label>
-                    <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        value="{{ user.email }}"
-                        disabled
-                    />
-                </div>
-
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input
-                        type="text"
-                        id="username"
-                        name="username"
-                        value="{{ user.username }}"
-                        disabled
-                    />
-                </div>
-
-                <div class="form-group">
-                    <label for="bio">Bio</label>
-                    <textarea
-                        id="bio"
-                        name="bio"
-                        placeholder="Tell us about yourself..."
-                    >{{ user.bio or '' }}</textarea>
-                </div>
-            </div>
-
-            <div class="section">
-                <h2 class="section-title">Appearance</h2>
-
-                <div class="form-group">
-                    <label for="avatar_color">Avatar Color</label>
-                    <div class="color-picker-group">
-                        <div class="color-preview" id="colorPreview" style="background: {{ user.avatar_color }};"></div>
+                    <div class="form-group">
+                        <label for="full_name">Full Name</label>
                         <input
-                            type="color"
-                            id="avatar_color"
-                            name="avatar_color"
-                            value="{{ user.avatar_color }}"
+                            type="text"
+                            id="full_name"
+                            name="full_name"
+                            value="{{ user.full_name or '' }}"
+                            placeholder="Enter your full name"
                         />
                     </div>
+
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            value="{{ user.email }}"
+                            disabled
+                        />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input
+                            type="text"
+                            id="username"
+                            name="username"
+                            value="{{ user.username }}"
+                            disabled
+                        />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="bio">Bio</label>
+                        <textarea
+                            id="bio"
+                            name="bio"
+                            placeholder="Tell us about yourself..."
+                        >{{ user.bio or '' }}</textarea>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="theme">Theme</label>
-                    <select
-                        id="theme"
-                        name="theme"
-                        style="width: 100%; padding: 10px 14px; border: 2px solid #e5e5e5; border-radius: 8px; font-size: 15px;"
-                    >
-                        <option value="light" {% if user.theme == 'light' %}selected{% endif %}>Light</option>
-                        <option value="dark" {% if user.theme == 'dark' %}selected{% endif %}>Dark</option>
-                    </select>
+                <!-- Appearance -->
+                <div class="section">
+                    <h2 class="section-title">Appearance</h2>
+
+                    <div class="form-group">
+                        <label for="avatar_color">Avatar Color</label>
+                        <div class="color-picker-group">
+                            <div class="color-preview" id="colorPreview" style="background: {{ user.avatar_color }};"></div>
+                            <input
+                                type="color"
+                                id="avatar_color"
+                                name="avatar_color"
+                                value="{{ user.avatar_color }}"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="theme">Theme Preference</label>
+                        <select
+                            id="theme"
+                            name="theme"
+                        >
+                            <option value="light" {% if user.theme == 'light' %}selected{% endif %}>Light Mode</option>
+                            <option value="dark" {% if user.theme == 'dark' %}selected{% endif %}>Dark Mode</option>
+                        </select>
+                    </div>
                 </div>
-            </div>
 
-            <button type="submit" class="btn-primary">Save Changes</button>
-        </form>
+                <button type="submit" class="btn-primary">Save Changes</button>
+            </form>
 
-        <div class="section">
-            <h2 class="section-title">Account Information</h2>
-            <div class="info-row">
-                <span class="info-label">Account ID</span>
-                <span class="info-value">{{ user.id }}</span>
+            <!-- Account Information -->
+            <div class="section">
+                <h2 class="section-title">Account Information</h2>
+                <div class="info-row">
+                    <span class="info-label">Account ID</span>
+                    <span class="info-value">{{ user.id }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Account Created</span>
+                    <span class="info-value">{{ user.created_at.strftime('%B %d, %Y at %I:%M %p') if user.created_at else 'N/A' }}</span>
+                </div>
+                {% if user.last_login %}
+                <div class="info-row">
+                    <span class="info-label">Last Login</span>
+                    <span class="info-value">{{ user.last_login.strftime('%B %d, %Y at %I:%M %p') }}</span>
+                </div>
+                {% endif %}
             </div>
-            <div class="info-row">
-                <span class="info-label">Created</span>
-                <span class="info-value">{{ user.created_at.strftime('%B %d, %Y at %I:%M %p') if user.created_at else 'N/A' }}</span>
-            </div>
-            {% if user.last_login %}
-            <div class="info-row">
-                <span class="info-label">Last Login</span>
-                <span class="info-value">{{ user.last_login.strftime('%B %d, %Y at %I:%M %p') }}</span>
-            </div>
-            {% endif %}
         </div>
     </div>
 
     <script>
-        // Update color preview
+        // Update color preview in real-time
         document.getElementById('avatar_color').addEventListener('input', function(e) {
             document.getElementById('colorPreview').style.background = e.target.value;
         });
