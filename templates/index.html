@@ -147,6 +147,84 @@
             position: relative;
             z-index: 10;
             animation: slideInLeft 0.6s ease-out;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar.collapsed {
+            width: 70px;
+        }
+
+        .sidebar.collapsed .sidebar-header {
+            padding: 16px 12px;
+        }
+
+        .sidebar.collapsed .logo-container {
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .sidebar.collapsed .logo-text {
+            display: none;
+        }
+
+        .sidebar.collapsed .new-chat-button span:last-child {
+            display: none;
+        }
+
+        .sidebar.collapsed .new-chat-button {
+            padding: 14px;
+            justify-content: center;
+        }
+
+        .sidebar.collapsed .conversations-list {
+            overflow: hidden;
+        }
+
+        .sidebar.collapsed .conversation-item {
+            padding: 12px;
+        }
+
+        .sidebar.collapsed .conversation-title,
+        .sidebar.collapsed .conversation-preview,
+        .sidebar.collapsed .conversation-time {
+            display: none;
+        }
+
+        .sidebar.collapsed .conversations-header {
+            display: none;
+        }
+
+        /* Collapse Toggle Button */
+        .collapse-toggle {
+            position: absolute;
+            top: 24px;
+            right: -15px;
+            width: 30px;
+            height: 30px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-subtle);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 20;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .collapse-toggle:hover {
+            background: var(--accent-primary);
+            color: white;
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+        }
+
+        .sidebar.collapsed .collapse-toggle {
+            right: -15px;
         }
 
         @keyframes slideInLeft {
@@ -1062,6 +1140,9 @@
 
     <!-- Sidebar -->
     <div class="sidebar" id="sidebar">
+        <button class="collapse-toggle" id="collapseToggle" onclick="toggleSidebarCollapse()" title="Collapse sidebar">
+            ◀
+        </button>
         <div class="sidebar-header">
             <div class="logo-container">
                 <div class="logo-icon">D</div>
@@ -1215,6 +1296,34 @@
             sidebar.classList.toggle('active');
             overlay.classList.toggle('active');
         }
+
+        function toggleSidebarCollapse() {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('collapseToggle');
+            const isCollapsed = sidebar.classList.toggle('collapsed');
+
+            // Update button icon
+            toggleBtn.innerHTML = isCollapsed ? '▶' : '◀';
+            toggleBtn.title = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
+
+            // Save preference to localStorage
+            localStorage.setItem('sidebarCollapsed', isCollapsed);
+        }
+
+        // Restore sidebar state on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('collapseToggle');
+            const wasCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+
+            if (wasCollapsed) {
+                sidebar.classList.add('collapsed');
+                toggleBtn.innerHTML = '▶';
+                toggleBtn.title = 'Expand sidebar';
+            }
+
+            loadConversations();
+        });
 
         // Close menu when clicking outside
         document.addEventListener('click', (e) => {
@@ -1446,10 +1555,7 @@
             }
         }
 
-        // Load on page ready
-        document.addEventListener('DOMContentLoaded', () => {
-            loadConversations();
-        });
+        // Load on page ready - handled in toggleSidebarCollapse function above
     </script>
 </body>
 </html>
