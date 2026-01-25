@@ -3,6 +3,7 @@ import anthropic
 from typing import List, Dict, Any, Optional, Callable
 import json
 import time
+import threading
 from datetime import datetime
 
 from ..config import ConfigManager
@@ -26,6 +27,9 @@ class DevOpsAgent:
         self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
         self.conversation = ConversationManager()
 
+        # Thread lock for conversation context isolation
+        self._conversation_lock = threading.Lock()
+
         # Initialize SafetyValidator with pentest configuration
         pentest_config = {
             'enabled': config.get('pentest.enabled', False),
@@ -38,7 +42,7 @@ class DevOpsAgent:
         self.tools: Dict[str, Callable] = {}
         self.tool_definitions: List[Dict[str, Any]] = []
 
-        # Store pending file downloads (e.g., keypairs)
+        # Store pending file downloads (e.g., keypairs) - per request, protected by lock
         self.pending_download: Optional[Dict[str, Any]] = None
 
         self.logger.info("DevOps Agent initialized")
@@ -88,10 +92,43 @@ class DevOpsAgent:
                     handler=tool['handler']
                 )
 
+    def _set_cloud_user_context(self, user_id: Optional[int] = None):
+        """
+        Set user context for cloud operations (AWS, Azure, GCP).
+
+        Args:
+            user_id: User ID for credential lookup
+        """
+        if user_id is None:
+            return
+
+        try:
+            # Set AWS user context
+            from ..tools.aws_tools import set_user_context as set_aws_context
+            set_aws_context(user_id)
+            self.logger.debug(f"Set AWS user context for user {user_id}")
+        except ImportError:
+            self.logger.warning("Failed to import AWS user context setter")
+        except Exception as e:
+            self.logger.warning(f"Failed to set AWS user context: {str(e)}")
+
+    def _clear_cloud_user_context(self):
+        """Clear user context for cloud operations."""
+        try:
+            # Clear AWS user context
+            from ..tools.aws_tools import clear_user_context as clear_aws_context
+            clear_aws_context()
+            self.logger.debug("Cleared AWS user context")
+        except ImportError:
+            self.logger.warning("Failed to import AWS user context clearer")
+        except Exception as e:
+            self.logger.warning(f"Failed to clear AWS user context: {str(e)}")
+
     @log_operation("process_user_message")
     def process_message(self, user_message: str, user_preferences_context: Optional[str] = None) -> str:
         """
         Process a user message and return the agent's response.
+        NOTE: This method is NOT thread-safe. Use process_message_isolated() for multi-user scenarios.
 
         Args:
             user_message: User's input message
@@ -112,6 +149,75 @@ class DevOpsAgent:
         response_text = self._call_claude_api(user_preferences_context)
 
         return response_text
+
+    def process_message_isolated(
+        self,
+        user_message: str,
+        conversation_history: List[Dict[str, str]],
+        user_preferences_context: Optional[str] = None,
+        user_id: Optional[int] = None
+    ) -> str:
+        """
+        Process a user message with isolated conversation context (thread-safe).
+
+        This method is designed for multi-user scenarios where each user needs
+        their own conversation context without interference from other users.
+
+        Args:
+            user_message: User's input message
+            conversation_history: List of prior messages [{'role': 'user'|'assistant', 'content': str}]
+            user_preferences_context: Optional context string with user preferences
+            user_id: Optional user ID for per-user cloud credentials
+
+        Returns:
+            Agent's response text
+        """
+        self.logger.info(f"Processing isolated message for user {user_id}: {user_message[:100]}...")
+
+        # Set user context for cloud operations (thread-local)
+        self._set_cloud_user_context(user_id)
+
+        # Use lock to ensure thread safety
+        with self._conversation_lock:
+            # Save current conversation state
+            original_conversation = self.conversation
+            original_pending_download = self.pending_download
+
+            try:
+                # Create fresh conversation context for this request
+                self.conversation = ConversationManager()
+                self.pending_download = None
+
+                # Load conversation history
+                for msg in conversation_history:
+                    if msg['role'] == 'user':
+                        self.conversation.add_user_message(msg['content'])
+                    elif msg['role'] == 'assistant':
+                        self.conversation.add_assistant_message([{
+                            'type': 'text',
+                            'text': msg['content']
+                        }])
+
+                # Add the new user message
+                self.conversation.add_user_message(user_message)
+
+                # Process with Claude API
+                response_text = self._call_claude_api(user_preferences_context)
+
+                # Capture pending download before restoring state
+                result_pending_download = self.pending_download
+
+                return response_text
+
+            finally:
+                # Clear cloud user context
+                self._clear_cloud_user_context()
+
+                # Restore original conversation state for backwards compatibility
+                # Note: pending_download is kept from this request if it was set
+                if self.pending_download is None:
+                    self.pending_download = original_pending_download
+                self.conversation = original_conversation
 
     def _build_system_prompt(self, user_preferences_context: Optional[str] = None) -> Optional[str]:
         """
