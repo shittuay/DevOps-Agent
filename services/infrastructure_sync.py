@@ -3,8 +3,23 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from models import db, InfrastructureResource, CostOptimization
-from src.tools.aws_tools import _get_boto_client
 from botocore.exceptions import ClientError, NoCredentialsError
+
+
+def _get_user_boto_client(user_id: int, service: str, region: str = None):
+    """
+    Get boto3 client using per-user credentials.
+
+    Args:
+        user_id: The user's ID
+        service: AWS service name (ec2, s3, rds, etc.)
+        region: Optional region override
+
+    Returns:
+        boto3 client configured with user's credentials
+    """
+    from services.credential_service import get_user_boto_client
+    return get_user_boto_client(user_id, service, region)
 
 
 # Simplified cost estimates (USD/month)
@@ -203,7 +218,7 @@ def sync_aws_resources(user_id: int) -> Dict:
 def sync_aws_ec2_instances(user_id: int) -> int:
     """Sync AWS EC2 instances"""
     try:
-        ec2 = _get_boto_client('ec2')
+        ec2 = _get_user_boto_client(user_id, 'ec2')
         response = ec2.describe_instances()
 
         count = 0
@@ -263,7 +278,7 @@ def sync_aws_ec2_instances(user_id: int) -> int:
 def sync_aws_rds_instances(user_id: int) -> int:
     """Sync AWS RDS instances"""
     try:
-        rds = _get_boto_client('rds')
+        rds = _get_user_boto_client(user_id, 'rds')
         response = rds.describe_db_instances()
 
         count = 0
@@ -315,8 +330,8 @@ def sync_aws_rds_instances(user_id: int) -> int:
 def sync_aws_s3_buckets(user_id: int) -> int:
     """Sync AWS S3 buckets"""
     try:
-        s3 = _get_boto_client('s3')
-        cloudwatch = _get_boto_client('cloudwatch')
+        s3 = _get_user_boto_client(user_id, 's3')
+        cloudwatch = _get_user_boto_client(user_id, 'cloudwatch')
 
         response = s3.list_buckets()
 
@@ -421,7 +436,7 @@ def calculate_s3_cost(size_bytes: float) -> float:
 def sync_aws_lambda_functions(user_id: int) -> int:
     """Sync AWS Lambda functions"""
     try:
-        lambda_client = _get_boto_client('lambda')
+        lambda_client = _get_user_boto_client(user_id, 'lambda')
         response = lambda_client.list_functions()
 
         count = 0
@@ -474,7 +489,7 @@ def sync_aws_lambda_functions(user_id: int) -> int:
 def sync_aws_dynamodb_tables(user_id: int) -> int:
     """Sync AWS DynamoDB tables"""
     try:
-        dynamodb = _get_boto_client('dynamodb')
+        dynamodb = _get_user_boto_client(user_id, 'dynamodb')
         response = dynamodb.list_tables()
 
         count = 0
@@ -534,7 +549,7 @@ def sync_aws_dynamodb_tables(user_id: int) -> int:
 def sync_aws_load_balancers(user_id: int) -> int:
     """Sync AWS Load Balancers (ALB, NLB, CLB)"""
     try:
-        elbv2 = _get_boto_client('elbv2')
+        elbv2 = _get_user_boto_client(user_id, 'elbv2')
         response = elbv2.describe_load_balancers()
 
         count = 0
@@ -591,7 +606,7 @@ def sync_aws_load_balancers(user_id: int) -> int:
 def sync_aws_ecs_services(user_id: int) -> int:
     """Sync AWS ECS services"""
     try:
-        ecs = _get_boto_client('ecs')
+        ecs = _get_user_boto_client(user_id, 'ecs')
         clusters = ecs.list_clusters()
 
         count = 0
@@ -656,7 +671,7 @@ def sync_aws_ecs_services(user_id: int) -> int:
 def sync_aws_api_gateways(user_id: int) -> int:
     """Sync AWS API Gateways"""
     try:
-        apigw = _get_boto_client('apigateway')
+        apigw = _get_user_boto_client(user_id, 'apigateway')
         response = apigw.get_rest_apis()
 
         count = 0
@@ -707,7 +722,7 @@ def sync_aws_api_gateways(user_id: int) -> int:
 def sync_aws_sns_topics(user_id: int) -> int:
     """Sync AWS SNS topics"""
     try:
-        sns = _get_boto_client('sns')
+        sns = _get_user_boto_client(user_id, 'sns')
         response = sns.list_topics()
 
         count = 0
@@ -762,7 +777,7 @@ def sync_aws_sns_topics(user_id: int) -> int:
 def sync_aws_sqs_queues(user_id: int) -> int:
     """Sync AWS SQS queues"""
     try:
-        sqs = _get_boto_client('sqs')
+        sqs = _get_user_boto_client(user_id, 'sqs')
         response = sqs.list_queues()
 
         count = 0
@@ -819,7 +834,7 @@ def sync_aws_sqs_queues(user_id: int) -> int:
 def sync_aws_elasticache_clusters(user_id: int) -> int:
     """Sync AWS ElastiCache clusters"""
     try:
-        elasticache = _get_boto_client('elasticache')
+        elasticache = _get_user_boto_client(user_id, 'elasticache')
         response = elasticache.describe_cache_clusters()
 
         count = 0
@@ -871,7 +886,7 @@ def sync_aws_elasticache_clusters(user_id: int) -> int:
 def sync_aws_cloudfront_distributions(user_id: int) -> int:
     """Sync AWS CloudFront distributions"""
     try:
-        cloudfront = _get_boto_client('cloudfront')
+        cloudfront = _get_user_boto_client(user_id, 'cloudfront')
         response = cloudfront.list_distributions()
 
         count = 0
@@ -922,7 +937,7 @@ def sync_aws_cloudfront_distributions(user_id: int) -> int:
 def sync_aws_ebs_volumes(user_id: int) -> int:
     """Sync AWS EBS volumes"""
     try:
-        ec2 = _get_boto_client('ec2')
+        ec2 = _get_user_boto_client(user_id, 'ec2')
         response = ec2.describe_volumes()
 
         count = 0
@@ -993,7 +1008,7 @@ def sync_aws_ebs_volumes(user_id: int) -> int:
 def sync_aws_elastic_ips(user_id: int) -> int:
     """Sync AWS Elastic IPs"""
     try:
-        ec2 = _get_boto_client('ec2')
+        ec2 = _get_user_boto_client(user_id, 'ec2')
         response = ec2.describe_addresses()
 
         count = 0
@@ -1238,7 +1253,7 @@ def check_reserved_instance_opportunities(user_id: int, resources: List):
 def check_unattached_volumes(user_id: int):
     """Check for unattached EBS volumes"""
     try:
-        ec2 = _get_boto_client('ec2')
+        ec2 = _get_user_boto_client(user_id, 'ec2')
         volumes = ec2.describe_volumes(
             Filters=[{'Name': 'status', 'Values': ['available']}]
         )
