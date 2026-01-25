@@ -3,15 +3,40 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+import threading
 from ..utils import get_logger
 
 
 logger = get_logger(__name__)
 
+# Thread-local storage for user context
+_user_context = threading.local()
+
+
+def set_user_context(user_id: Optional[int] = None):
+    """
+    Set user context for AWS operations in this thread.
+
+    Args:
+        user_id: User ID to use for credential lookup
+    """
+    _user_context.user_id = user_id
+
+
+def clear_user_context():
+    """Clear user context from this thread."""
+    _user_context.user_id = None
+
+
+def get_current_user_id() -> Optional[int]:
+    """Get the current user ID from thread-local storage."""
+    return getattr(_user_context, 'user_id', None)
+
 
 def _get_boto_client(service: str, region: Optional[str] = None):
     """
     Get boto3 client for AWS service.
+    Uses per-user credentials if user context is set, otherwise falls back to environment credentials.
 
     Args:
         service: AWS service name
@@ -20,12 +45,34 @@ def _get_boto_client(service: str, region: Optional[str] = None):
     Returns:
         Boto3 client instance
     """
+    user_id = get_current_user_id()
+
+    # If user context is set, use per-user credentials
+    if user_id is not None:
+        try:
+            # Import here to avoid circular dependency
+            import sys
+            import os
+
+            # Add parent directory to path to import from services
+            parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            if parent_dir not in sys.path:
+                sys.path.insert(0, parent_dir)
+
+            from services.credential_service import get_user_boto_client
+
+            return get_user_boto_client(user_id, service, region)
+        except Exception as e:
+            logger.warning(f"Failed to get user-specific credentials for user {user_id}: {str(e)}")
+            # Fall through to environment credentials
+
+    # Fall back to environment credentials
     try:
         if region:
             return boto3.client(service, region_name=region)
         return boto3.client(service)
     except NoCredentialsError:
-        raise Exception("AWS credentials not found. Please configure AWS credentials.")
+        raise Exception("AWS credentials not found. Please configure AWS credentials in Settings.")
 
 
 def get_ec2_instances(
