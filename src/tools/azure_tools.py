@@ -5,19 +5,36 @@ from ..utils import get_logger
 logger = get_logger(__name__)
 
 
-def _get_azure_client(service_type: str, credential=None):
+def _get_current_user_id() -> Optional[int]:
+    """Get current user ID from Flask context if available."""
+    try:
+        from flask import g, has_request_context
+        if has_request_context() and hasattr(g, 'current_user_id'):
+            return g.current_user_id
+    except ImportError:
+        pass
+    return None
+
+
+def _get_azure_client(service_type: str, credential=None, user_id: Optional[int] = None):
     """
-    Get Azure client for specified service.
+    Get Azure client for specified service using per-user credentials ONLY.
+
+    SECURITY: Never falls back to environment/default credentials.
+    Each user MUST configure their own Azure credentials.
 
     Args:
         service_type: Type of Azure service (compute, storage, network, etc.)
-        credential: Azure credential object
+        credential: Azure credential object (optional, will use user credentials if user_id provided)
+        user_id: Optional user ID to get per-user credentials
 
     Returns:
         Azure client instance
+
+    Raises:
+        Exception: If user context is not set or credentials are not configured
     """
     try:
-        from azure.identity import DefaultAzureCredential
         from azure.mgmt.compute import ComputeManagementClient
         from azure.mgmt.storage import StorageManagementClient
         from azure.mgmt.network import NetworkManagementClient
@@ -25,14 +42,29 @@ def _get_azure_client(service_type: str, credential=None):
         from azure.mgmt.monitor import MonitorManagementClient
         from azure.mgmt.containerinstance import ContainerInstanceManagementClient
         from azure.mgmt.sql import SqlManagementClient
-        import os
 
-        if credential is None:
-            credential = DefaultAzureCredential()
+        # Try to get user_id from Flask context if not provided
+        if user_id is None:
+            user_id = _get_current_user_id()
 
-        subscription_id = os.environ.get('AZURE_SUBSCRIPTION_ID')
-        if not subscription_id:
-            raise Exception("AZURE_SUBSCRIPTION_ID not found in environment variables")
+        # SECURITY: User context is REQUIRED - no anonymous Azure access
+        if user_id is None:
+            logger.error("Azure operation attempted without user context")
+            raise Exception(
+                "Authentication required. Please log in to access Azure resources."
+            )
+
+        # Use per-user credentials ONLY - no fallback to shared credentials
+        try:
+            from services.credential_service import get_user_azure_credential
+            credential, subscription_id, location = get_user_azure_credential(user_id)
+            logger.info(f"Using per-user Azure credentials for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to get Azure credentials for user {user_id}: {str(e)}")
+            # SECURITY: Do NOT fall back to environment/default credentials
+            raise Exception(
+                "Azure credentials not configured. Please add your Azure credentials in Settings > Cloud Credentials."
+            )
 
         clients = {
             'compute': ComputeManagementClient(credential, subscription_id),
@@ -247,26 +279,41 @@ def get_azure_metrics(
     resource_id: str,
     metric_names: List[str],
     timespan: Optional[str] = None,
-    aggregation: str = 'Average'
+    aggregation: str = 'Average',
+    user_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Get Azure Monitor metrics for a resource.
+    Get Azure Monitor metrics for a resource using per-user credentials.
 
     Args:
         resource_id: Full Azure resource ID
         metric_names: List of metric names to retrieve
         timespan: ISO 8601 timespan (e.g., 'PT1H' for last hour)
         aggregation: Aggregation type (Average, Total, Minimum, Maximum)
+        user_id: Optional user ID for credential lookup
 
     Returns:
         Dictionary with metrics data
     """
     try:
-        from azure.identity import DefaultAzureCredential
         from azure.monitor.query import MetricsQueryClient
         from datetime import datetime, timedelta
 
-        credential = DefaultAzureCredential()
+        # Get user_id from Flask context if not provided
+        if user_id is None:
+            user_id = _get_current_user_id()
+
+        # SECURITY: Require user authentication
+        if user_id is None:
+            raise Exception("Authentication required. Please log in to access Azure metrics.")
+
+        # Get per-user credentials
+        try:
+            from services.credential_service import get_user_azure_credential
+            credential, subscription_id, location = get_user_azure_credential(user_id)
+        except Exception as e:
+            raise Exception("Azure credentials not configured. Please add your Azure credentials in Settings.")
+
         client = MetricsQueryClient(credential)
 
         # Default to last hour if not specified

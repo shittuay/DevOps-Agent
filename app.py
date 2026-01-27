@@ -15,19 +15,6 @@ from models import InfrastructureResource, CostOptimization, SecurityFinding, Al
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-# Initialize secrets from AWS Secrets Manager before loading config
-try:
-    from services.secrets_manager import init_secrets, get_anthropic_api_key
-    # Load secrets into environment variables
-    init_secrets()
-    # Also try to get API key directly if not in env
-    if not os.environ.get('ANTHROPIC_API_KEY'):
-        api_key = get_anthropic_api_key()
-        if api_key:
-            os.environ['ANTHROPIC_API_KEY'] = api_key
-except Exception as e:
-    print(f"Warning: Could not initialize secrets from AWS: {e}")
-
 from src.config import ConfigManager
 from src.agent import DevOpsAgent
 from src.utils import setup_logging, get_logger
@@ -126,7 +113,8 @@ if not app.secret_key:
         with open(secret_key_file, 'w') as f:
             f.write(app.secret_key)
 
-app.config['SESSION_TYPE'] = 'filesystem'
+# Use default Flask sessions (signed cookies) instead of filesystem to prevent session sharing
+# app.config['SESSION_TYPE'] = 'filesystem'  # REMOVED - caused session sharing between users
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours in seconds
 app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -231,11 +219,23 @@ config_manager = None
 download_storage = {}
 
 def check_api_key_configured():
-    """Check if API key is configured in environment or .env file."""
+    """Check if API key is configured in environment, .env file, or AWS Secrets Manager."""
     # First check environment variable (for production)
     env_api_key = os.environ.get('ANTHROPIC_API_KEY')
     if env_api_key and env_api_key.startswith('sk-ant-'):
         return True
+
+    # Try AWS Secrets Manager (for IAM role-based access)
+    try:
+        from src.config.config_manager import get_secret_from_aws
+        aws_region = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
+        secret_value = get_secret_from_aws('ANTHROPIC_API_KEY', aws_region)
+        if secret_value and secret_value.startswith('sk-ant-'):
+            # Set it in environment for subsequent checks
+            os.environ['ANTHROPIC_API_KEY'] = secret_value
+            return True
+    except Exception:
+        pass
 
     # Fall back to .env file (for local development)
     env_path = os.path.join('config', '.env')
@@ -902,9 +902,12 @@ def invite_team_member():
         if existing_user:
             return jsonify({'error': 'A user with this email or username already exists'}), 400
 
-        # Create new user with a default password (they should change it on first login)
+        # Create new user with a randomly generated secure password
         from werkzeug.security import generate_password_hash
-        default_password = 'ChangeMe123!'  # They'll need to change this
+        # Generate a secure random password (16 characters with uppercase, lowercase, digits, special chars)
+        import string
+        password_chars = string.ascii_letters + string.digits + '!@#$%^&*'
+        default_password = ''.join(secrets.choice(password_chars) for _ in range(16))
 
         new_user = User(
             username=username,
@@ -915,10 +918,11 @@ def invite_team_member():
         db.session.add(new_user)
         db.session.commit()
 
-        # In a production app, you'd send an email invitation here
+        # In a production app, you'd send an email invitation with a password reset link instead
         return jsonify({
             'success': True,
-            'message': f'Team member invited successfully. Default password: {default_password}',
+            'message': f'Team member invited successfully. Temporary password: {default_password}',
+            'temporary_password': default_password,  # Admin will need to securely communicate this
             'user': {
                 'id': new_user.id,
                 'username': new_user.username,
@@ -1025,53 +1029,104 @@ def remove_team_member(user_id):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/aws-config', methods=['GET', 'POST'])
+@app.route('/api/aws-config', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def aws_config():
-    """Handle AWS configuration."""
-    if request.method == 'GET':
-        return jsonify(get_aws_config_status())
+    """Handle AWS configuration - per-user credential storage."""
+    from services.credential_service import (
+        save_user_aws_credentials,
+        get_user_aws_credentials,
+        delete_user_cloud_credentials
+    )
+    from models import UserCloudCredential
 
-    # POST - Save AWS credentials
+    if request.method == 'GET':
+        # Get user's AWS credential status
+        cred = UserCloudCredential.query.filter_by(
+            user_id=current_user.id,
+            cloud_provider='aws'
+        ).first()
+
+        if cred and cred.is_active:
+            # Get credentials to show masked access key
+            credentials = cred.get_credentials()
+            access_key = credentials.get('access_key', '')
+            masked_access_key = access_key[:8] + '****' if len(access_key) > 8 else '****'
+
+            return jsonify({
+                'configured': True,
+                'access_key': masked_access_key,
+                'region': cred.default_region,
+                'verification_status': cred.verification_status,
+                'last_verified': cred.last_verified.isoformat() if cred.last_verified else None
+            })
+        return jsonify({'configured': False})
+
+    if request.method == 'DELETE':
+        # Delete user's AWS credentials
+        success, message = delete_user_cloud_credentials(current_user.id, 'aws')
+        if success:
+            return jsonify({'success': True, 'message': message})
+        return jsonify({'error': message}), 400
+
+    # POST - Save AWS credentials for this user
     try:
         data = request.get_json()
         access_key = data.get('access_key', '').strip()
         secret_key = data.get('secret_key', '').strip()
         region = data.get('region', 'us-east-1').strip()
 
-        if not access_key or not secret_key:
-            return jsonify({'error': 'AWS Access Key and Secret Key are required'}), 400
+        success, message = save_user_aws_credentials(
+            user_id=current_user.id,
+            access_key=access_key,
+            secret_key=secret_key,
+            region=region
+        )
 
-        # Basic validation
-        if not access_key.startswith('AKIA'):
-            return jsonify({'error': 'Invalid AWS Access Key format (should start with AKIA)'}), 400
-
-        # Save credentials
-        save_aws_credentials(access_key, secret_key, region)
-
-        # Reload agent to use new credentials
-        if agent is not None:
-            success, error = initialize_agent()
-            if not success:
-                return jsonify({'error': f'Credentials saved but agent reload failed: {error}'}), 500
-
-        return jsonify({
-            'success': True,
-            'message': 'AWS credentials configured successfully'
-        })
+        if success:
+            return jsonify({'success': True, 'message': message})
+        return jsonify({'error': message}), 400
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/azure-config', methods=['GET', 'POST'])
+@app.route('/api/azure-config', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def azure_config():
-    """Handle Azure configuration."""
-    if request.method == 'GET':
-        return jsonify(get_azure_config_status())
+    """Handle Azure configuration - per-user credential storage."""
+    from services.credential_service import (
+        save_user_azure_credentials,
+        delete_user_cloud_credentials
+    )
+    from models import UserCloudCredential
 
-    # POST - Save Azure credentials
+    if request.method == 'GET':
+        # Get user's Azure credential status
+        cred = UserCloudCredential.query.filter_by(
+            user_id=current_user.id,
+            cloud_provider='azure'
+        ).first()
+
+        if cred and cred.is_active:
+            creds = cred.get_credentials()
+            return jsonify({
+                'configured': True,
+                'subscription_id': creds.get('subscription_id'),
+                'location': cred.default_region,
+                'verification_status': cred.verification_status,
+                'last_verified': cred.last_verified.isoformat() if cred.last_verified else None
+            })
+        return jsonify({'configured': False})
+
+    if request.method == 'DELETE':
+        # Delete user's Azure credentials
+        success, message = delete_user_cloud_credentials(current_user.id, 'azure')
+        if success:
+            return jsonify({'success': True, 'message': message})
+        return jsonify({'error': message}), 400
+
+    # POST - Save Azure credentials for this user
     try:
         data = request.get_json()
         subscription_id = data.get('subscription_id', '').strip()
@@ -1080,35 +1135,60 @@ def azure_config():
         client_secret = data.get('client_secret', '').strip()
         location = data.get('location', 'eastus').strip()
 
-        if not all([subscription_id, tenant_id, client_id, client_secret]):
-            return jsonify({'error': 'All Azure credentials are required'}), 400
+        success, message = save_user_azure_credentials(
+            user_id=current_user.id,
+            subscription_id=subscription_id,
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            location=location
+        )
 
-        # Save credentials
-        save_azure_credentials(subscription_id, tenant_id, client_id, client_secret, location)
-
-        # Reload agent to use new credentials
-        if agent is not None:
-            success, error = initialize_agent()
-            if not success:
-                return jsonify({'error': f'Credentials saved but agent reload failed: {error}'}), 500
-
-        return jsonify({
-            'success': True,
-            'message': 'Azure credentials configured successfully'
-        })
+        if success:
+            return jsonify({'success': True, 'message': message})
+        return jsonify({'error': message}), 400
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/gcp-config', methods=['GET', 'POST'])
+@app.route('/api/gcp-config', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def gcp_config():
-    """Handle GCP configuration."""
-    if request.method == 'GET':
-        return jsonify(get_gcp_config_status())
+    """Handle GCP configuration - per-user credential storage."""
+    from services.credential_service import (
+        save_user_gcp_credentials,
+        delete_user_cloud_credentials
+    )
+    from models import UserCloudCredential
 
-    # POST - Save GCP credentials
+    if request.method == 'GET':
+        # Get user's GCP credential status
+        cred = UserCloudCredential.query.filter_by(
+            user_id=current_user.id,
+            cloud_provider='gcp'
+        ).first()
+
+        if cred and cred.is_active:
+            creds = cred.get_credentials()
+            return jsonify({
+                'configured': True,
+                'project_id': creds.get('project_id'),
+                'region': cred.default_region,
+                'zone': cred.default_zone,
+                'verification_status': cred.verification_status,
+                'last_verified': cred.last_verified.isoformat() if cred.last_verified else None
+            })
+        return jsonify({'configured': False})
+
+    if request.method == 'DELETE':
+        # Delete user's GCP credentials
+        success, message = delete_user_cloud_credentials(current_user.id, 'gcp')
+        if success:
+            return jsonify({'success': True, 'message': message})
+        return jsonify({'error': message}), 400
+
+    # POST - Save GCP credentials for this user
     try:
         data = request.get_json()
         project_id = data.get('project_id', '').strip()
@@ -1116,43 +1196,70 @@ def gcp_config():
         region = data.get('region', 'us-central1').strip()
         zone = data.get('zone', 'us-central1-a').strip()
 
-        if not project_id:
-            return jsonify({'error': 'GCP Project ID is required'}), 400
+        success, message = save_user_gcp_credentials(
+            user_id=current_user.id,
+            project_id=project_id,
+            service_account_json=credentials_json,
+            region=region,
+            zone=zone
+        )
 
-        if not credentials_json:
-            return jsonify({'error': 'GCP Service Account credentials (JSON) are required'}), 400
-
-        # Validate JSON
-        try:
-            import json
-            json.loads(credentials_json)
-        except json.JSONDecodeError:
-            return jsonify({'error': 'Invalid JSON format for credentials'}), 400
-
-        # Save credentials
-        save_gcp_credentials(project_id, credentials_json, region, zone)
-
-        # Reload agent to use new credentials
-        if agent is not None:
-            success, error = initialize_agent()
-            if not success:
-                return jsonify({'error': f'Credentials saved but agent reload failed: {error}'}), 500
-
-        return jsonify({
-            'success': True,
-            'message': 'GCP credentials configured successfully'
-        })
+        if success:
+            return jsonify({'success': True, 'message': message})
+        return jsonify({'error': message}), 400
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cloud-credentials', methods=['GET'])
+@login_required
+def get_cloud_credentials_status():
+    """Get status of all cloud credentials for the current user."""
+    from services.credential_service import get_user_configured_providers
+    from models import UserCloudCredential
+
+    providers = get_user_configured_providers(current_user.id)
+
+    # Get detailed status for each provider
+    result = {}
+    for provider in ['aws', 'azure', 'gcp']:
+        cred = UserCloudCredential.query.filter_by(
+            user_id=current_user.id,
+            cloud_provider=provider
+        ).first()
+
+        if cred:
+            result[provider] = {
+                'configured': cred.is_active and cred.verification_status == 'valid',
+                'verification_status': cred.verification_status,
+                'default_region': cred.default_region,
+                'last_verified': cred.last_verified.isoformat() if cred.last_verified else None
+            }
+        else:
+            result[provider] = {
+                'configured': False,
+                'verification_status': None,
+                'default_region': None,
+                'last_verified': None
+            }
+
+    return jsonify(result)
 
 
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def api_chat():
     """Handle chat messages."""
+    global agent
     if agent is None:
-        return jsonify({'error': 'Agent not initialized. Please configure API key.'}), 503
+        # Try to initialize the agent
+        if check_api_key_configured():
+            success, error = initialize_agent()
+            if not success:
+                return jsonify({'error': f'Failed to initialize agent: {error}'}), 503
+        else:
+            return jsonify({'error': 'Agent not initialized. Please configure API key.'}), 503
 
     try:
         data = request.get_json()
@@ -1215,13 +1322,27 @@ def api_chat():
             )
             db.session.add(conversation)
         else:
-            # Update conversation timestamp
-            conversation = Conversation.query.get(conversation_id)
+            # Update conversation timestamp - MUST filter by user_id for security
+            conversation = Conversation.query.filter_by(
+                id=conversation_id,
+                user_id=current_user.id
+            ).first()
             if conversation:
                 conversation.updated_at = datetime.utcnow()
                 # Check if this is the first message (title still default)
                 if conversation.title == 'New Chat':
                     is_first_message = True
+            else:
+                # Conversation doesn't exist, create a new one
+                conversation_id = secrets.token_hex(8)
+                session['conversation_id'] = conversation_id
+                is_first_message = True
+                conversation = Conversation(
+                    id=conversation_id,
+                    user_id=current_user.id,
+                    title='New Chat'
+                )
+                db.session.add(conversation)
 
         # Save user message
         user_message = ChatMessage(
@@ -1238,9 +1359,26 @@ def api_chat():
         if prefs:
             preferences_context = prefs.get_context_for_prompt()
 
-        # Process message with agent
+        # Load prior messages for this user's conversation from database
+        prior_messages = ChatMessage.query.filter_by(
+            user_id=current_user.id,
+            conversation_id=conversation_id
+        ).order_by(ChatMessage.timestamp).all()
+
+        # Convert to format expected by agent (exclude the message we just added)
+        conversation_history = [
+            {'role': msg.role, 'content': msg.content}
+            for msg in prior_messages
+        ]
+
+        # Process message with agent using thread-safe isolated context
         try:
-            response = agent.process_message(message, user_preferences_context=preferences_context)
+            response = agent.process_message_isolated(
+                user_message=message,
+                conversation_history=conversation_history,
+                user_preferences_context=preferences_context,
+                user_id=current_user.id
+            )
             success = True
             error_msg = None
         except Exception as agent_error:
@@ -1559,13 +1697,40 @@ def clear_conversation():
 @app.route('/api/stats', methods=['GET'])
 @login_required
 def get_stats():
-    """Get conversation statistics."""
-    if agent is None:
-        return jsonify({'error': 'Agent not initialized'}), 503
-
+    """Get conversation statistics for the current user."""
     try:
-        stats = agent.get_conversation_summary()
-        return jsonify(stats)
+        conversation_id = session.get('conversation_id')
+        if not conversation_id:
+            return jsonify({
+                'total_messages': 0,
+                'user_messages': 0,
+                'assistant_messages': 0,
+                'session_duration_seconds': 0
+            })
+
+        # Get stats from database for this user's conversation
+        messages = ChatMessage.query.filter_by(
+            user_id=current_user.id,
+            conversation_id=conversation_id
+        ).all()
+
+        user_messages = sum(1 for msg in messages if msg.role == 'user')
+        assistant_messages = sum(1 for msg in messages if msg.role == 'assistant')
+
+        # Calculate session duration from first to last message
+        if messages:
+            first_msg = min(messages, key=lambda m: m.timestamp)
+            last_msg = max(messages, key=lambda m: m.timestamp)
+            duration = (last_msg.timestamp - first_msg.timestamp).total_seconds()
+        else:
+            duration = 0
+
+        return jsonify({
+            'total_messages': len(messages),
+            'user_messages': user_messages,
+            'assistant_messages': assistant_messages,
+            'session_duration_seconds': duration
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1640,9 +1805,10 @@ def load_conversation(conversation_id):
         # Set as current conversation
         session['conversation_id'] = conversation_id
 
-        # Get messages for this conversation
+        # Get messages for this conversation (filter by user_id for defense in depth)
         messages = ChatMessage.query.filter_by(
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            user_id=current_user.id
         ).order_by(ChatMessage.timestamp).all()
 
         return jsonify({
@@ -1669,9 +1835,10 @@ def delete_conversation(conversation_id):
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
 
-        # Delete all messages in this conversation
+        # Delete all messages in this conversation (include user_id for defense in depth)
         ChatMessage.query.filter_by(
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            user_id=current_user.id
         ).delete()
 
         # Delete the conversation
@@ -2599,9 +2766,26 @@ def health():
     })
 
 
-@app.route('/init-database-secret-endpoint-12345', methods=['GET'])
+@app.route('/init-database-secret-endpoint-12345', methods=['POST'])
 def init_database():
-    """Initialize database tables (one-time setup for production)."""
+    """Initialize database tables (one-time setup for production).
+
+    SECURITY: This endpoint requires a secret token from environment variable.
+    Set INIT_DB_SECRET environment variable to enable database initialization.
+    """
+    # Require a secret token from environment variable
+    init_secret = os.environ.get('INIT_DB_SECRET')
+    if not init_secret:
+        return jsonify({
+            'error': 'Database initialization is not enabled. Set INIT_DB_SECRET environment variable.'
+        }), 403
+
+    # Verify the secret token
+    provided_token = request.headers.get('X-Init-Secret') or request.json.get('secret') if request.json else None
+    if not provided_token or provided_token != init_secret:
+        security_logger.warning(f"Unauthorized database initialization attempt from {request.remote_addr}")
+        return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         db.create_all()
 
@@ -2669,30 +2853,6 @@ def init_database():
             'success': False,
             'error': str(e)
         }), 500
-
-
-# Auto-initialize agent when module loads (for gunicorn/wsgi)
-# This runs when the app is imported, not just when run directly
-def _auto_initialize():
-    """Auto-initialize the agent if API key is configured."""
-    global agent
-    if agent is None:
-        # Check if API key is available (from secrets manager or env)
-        api_key = os.environ.get('ANTHROPIC_API_KEY')
-        if api_key and api_key.startswith('sk-ant-'):
-            try:
-                success, error = initialize_agent()
-                if success:
-                    print(f"Agent auto-initialized with {len(agent.list_available_tools())} tools")
-                else:
-                    print(f"Warning: Failed to auto-initialize agent: {error}")
-            except Exception as e:
-                print(f"Warning: Exception during auto-initialization: {e}")
-
-# Run auto-initialization
-with app.app_context():
-    db.create_all()
-    _auto_initialize()
 
 
 if __name__ == '__main__':
