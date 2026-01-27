@@ -117,9 +117,10 @@ class Conversation(db.Model):
 
     def to_dict(self):
         """Convert conversation to dictionary"""
-        # Get first message for preview
+        # Get first message for preview - MUST filter by user_id to prevent data leakage
         first_message = ChatMessage.query.filter_by(
             conversation_id=self.id,
+            user_id=self.user_id,  # Added user_id filter for security
             role='user'
         ).first()
 
@@ -914,3 +915,115 @@ class Alert(db.Model):
 
     def __repr__(self):
         return f'<Alert {self.severity}: {self.title}>'
+
+
+class UserCloudCredential(db.Model):
+    """Store per-user cloud credentials (encrypted) for AWS, Azure, and GCP"""
+    __tablename__ = 'user_cloud_credentials'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    cloud_provider = db.Column(db.String(20), nullable=False, index=True)  # aws, azure, gcp
+
+    # Encrypted credential storage (all sensitive values encrypted)
+    credentials_encrypted = db.Column(db.Text, nullable=False)  # JSON string, encrypted
+
+    # Non-sensitive metadata (not encrypted)
+    default_region = db.Column(db.String(50))
+    default_zone = db.Column(db.String(50))  # For GCP
+    is_active = db.Column(db.Boolean, default=True)
+    last_verified = db.Column(db.DateTime)
+    verification_status = db.Column(db.String(20), default='pending')  # pending, valid, invalid
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('cloud_credentials', lazy='dynamic'))
+
+    # Unique constraint: one credential set per user per provider
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'cloud_provider', name='unique_user_cloud_provider'),
+    )
+
+    @staticmethod
+    def _get_encryption_key():
+        """Get or generate encryption key from environment"""
+        import os
+        import base64
+        from cryptography.fernet import Fernet
+
+        key = os.environ.get('CREDENTIAL_ENCRYPTION_KEY')
+        if not key:
+            # Generate a key if not set (should be set in production)
+            # In production, this should be a persistent secret
+            key = os.environ.get('SECRET_KEY', 'default-secret-key-change-in-production')
+            # Derive a Fernet-compatible key from the secret
+            import hashlib
+            derived_key = hashlib.sha256(key.encode()).digest()
+            key = base64.urlsafe_b64encode(derived_key)
+        else:
+            key = key.encode() if isinstance(key, str) else key
+        return key
+
+    def set_credentials(self, credentials_dict):
+        """Encrypt and store credentials"""
+        import json
+        from cryptography.fernet import Fernet
+
+        key = self._get_encryption_key()
+        fernet = Fernet(key)
+
+        # Convert credentials to JSON and encrypt
+        json_str = json.dumps(credentials_dict)
+        encrypted = fernet.encrypt(json_str.encode())
+        self.credentials_encrypted = encrypted.decode()
+
+    def get_credentials(self):
+        """Decrypt and return credentials"""
+        import json
+        from cryptography.fernet import Fernet
+
+        if not self.credentials_encrypted:
+            return {}
+
+        key = self._get_encryption_key()
+        fernet = Fernet(key)
+
+        try:
+            decrypted = fernet.decrypt(self.credentials_encrypted.encode())
+            return json.loads(decrypted.decode())
+        except Exception:
+            return {}
+
+    def to_dict(self, include_credentials=False):
+        """Convert to dictionary (credentials only included if explicitly requested)"""
+        result = {
+            'id': self.id,
+            'cloud_provider': self.cloud_provider,
+            'default_region': self.default_region,
+            'default_zone': self.default_zone,
+            'is_active': self.is_active,
+            'verification_status': self.verification_status,
+            'last_verified': self.last_verified.isoformat() if self.last_verified else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+        if include_credentials:
+            creds = self.get_credentials()
+            # Mask sensitive values
+            if self.cloud_provider == 'aws':
+                result['has_access_key'] = bool(creds.get('access_key'))
+                result['access_key_preview'] = creds.get('access_key', '')[:8] + '****' if creds.get('access_key') else None
+            elif self.cloud_provider == 'azure':
+                result['has_client_secret'] = bool(creds.get('client_secret'))
+                result['subscription_id'] = creds.get('subscription_id')
+                result['tenant_id'] = creds.get('tenant_id')
+            elif self.cloud_provider == 'gcp':
+                result['has_service_account'] = bool(creds.get('service_account_json'))
+                result['project_id'] = creds.get('project_id')
+        return result
+
+    def __repr__(self):
+        return f'<UserCloudCredential user={self.user_id} provider={self.cloud_provider}>'

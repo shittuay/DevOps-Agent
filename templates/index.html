@@ -515,6 +515,26 @@
             font-family: 'IBM Plex Mono', monospace;
         }
 
+        .conversation-delete {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .conversation-item:hover .conversation-delete {
+            opacity: 1;
+        }
+
         /* Main Content */
         .main-content {
             flex: 1;
@@ -1165,6 +1185,68 @@
                 padding: 0 16px;
             }
         }
+
+        /* Ensure chat interface is visible on mobile */
+        @media (max-width: 768px) {
+            body {
+                height: 100vh;
+                height: 100dvh; /* Dynamic viewport height for mobile browsers */
+            }
+
+            .main-content {
+                height: 100vh;
+                height: 100dvh;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .chat-wrapper {
+                flex: 1;
+                min-height: 0; /* Allow flex shrinking */
+                overflow-y: auto;
+            }
+
+            .input-wrapper {
+                flex-shrink: 0;
+                padding: 16px 0;
+                background: var(--bg-secondary);
+                border-top: 1px solid var(--border-subtle);
+                position: relative; /* Changed from sticky for mobile */
+            }
+
+            .input-box {
+                padding: 10px 12px;
+            }
+
+            #messageInput {
+                font-size: 16px; /* Prevents iOS zoom on focus */
+            }
+
+            #sendButton {
+                padding: 10px 16px;
+                font-size: 14px;
+            }
+
+            .welcome {
+                padding: 40px 16px;
+            }
+
+            .welcome h2 {
+                font-size: 28px;
+            }
+
+            .welcome p {
+                font-size: 16px;
+            }
+
+            .welcome-examples {
+                gap: 12px;
+            }
+
+            .example-card {
+                padding: 16px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1607,11 +1689,129 @@
         }
 
         async function loadConversations() {
-            // Load conversations implementation
+            try {
+                const response = await fetch('/api/conversations');
+                const data = await response.json();
+
+                const listContainer = document.getElementById('conversationsList');
+                listContainer.innerHTML = '';
+
+                if (data.conversations && data.conversations.length > 0) {
+                    // Add "Recent" header
+                    const header = document.createElement('div');
+                    header.className = 'conversations-header';
+                    header.textContent = 'Recent';
+                    listContainer.appendChild(header);
+
+                    data.conversations.forEach(conv => {
+                        const item = document.createElement('div');
+                        item.className = 'conversation-item';
+                        item.setAttribute('data-id', conv.id);
+                        item.onclick = () => loadConversation(conv.id);
+
+                        const title = document.createElement('div');
+                        title.className = 'conversation-title';
+                        title.textContent = conv.title;
+
+                        const preview = document.createElement('div');
+                        preview.className = 'conversation-preview';
+                        preview.textContent = conv.preview;
+
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.className = 'conversation-delete';
+                        deleteBtn.textContent = 'Delete';
+                        deleteBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            deleteConversation(conv.id);
+                        };
+
+                        item.appendChild(title);
+                        item.appendChild(preview);
+                        item.appendChild(deleteBtn);
+                        listContainer.appendChild(item);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+            }
         }
 
         async function startNewChat() {
-            // Start new chat implementation
+            try {
+                const response = await fetch('/api/conversations/new', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    // Clear chat display
+                    const container = document.getElementById('chatContainer');
+                    container.innerHTML = `
+                        <div class="welcome">
+                            <h2>Welcome to DevOps Agent</h2>
+                            <p>I'm an AI assistant powered by Claude that can help you manage your infrastructure</p>
+                        </div>
+                    `;
+
+                    // Reload conversations list
+                    loadConversations();
+                }
+            } catch (error) {
+                console.error('Error starting new chat:', error);
+            }
+        }
+
+        async function loadConversation(conversationId) {
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}`);
+                const data = await response.json();
+
+                // Clear current chat
+                const container = document.getElementById('chatContainer');
+                container.innerHTML = '';
+
+                // Load messages
+                if (data.messages && data.messages.length > 0) {
+                    data.messages.forEach(msg => {
+                        addMessage(msg.role, msg.content, false);
+                    });
+                    container.scrollTop = container.scrollHeight;
+                }
+
+                // Update active state
+                document.querySelectorAll('.conversation-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                const activeItem = document.querySelector(`[data-id="${conversationId}"]`);
+                if (activeItem) activeItem.classList.add('active');
+
+            } catch (error) {
+                console.error('Error loading conversation:', error);
+            }
+        }
+
+        async function deleteConversation(conversationId) {
+            if (!confirm('Are you sure you want to delete this conversation?')) return;
+
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    loadConversations();
+
+                    // If this was the active conversation, start a new one
+                    const container = document.getElementById('chatContainer');
+                    if (container.children.length === 0 ||
+                        document.querySelector(`[data-id="${conversationId}"]`)?.classList.contains('active')) {
+                        startNewChat();
+                    }
+                }
+            } catch (error) {
+                console.error('Error deleting conversation:', error);
+            }
         }
 
         function updateCreditsDisplay(credits) {
