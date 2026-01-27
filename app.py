@@ -186,15 +186,50 @@ def shutdown_session(exception=None):
     except Exception:
         pass
 
+
+# PostgreSQL transaction fix: ensure clean transaction state before each request
+@app.before_request
+def ensure_clean_transaction():
+    """
+    Ensure database transaction is in a clean state before processing request.
+    This fixes PostgreSQL's 'InFailedSqlTransaction' error that occurs when
+    a previous transaction failed and wasn't properly rolled back.
+    """
+    try:
+        # Check if there's a transaction in an invalid state and rollback if needed
+        if db.session.is_active:
+            # Try a simple query to check transaction state
+            try:
+                db.session.execute(db.text('SELECT 1'))
+            except Exception:
+                # Transaction is in a failed state, rollback
+                db.session.rollback()
+    except Exception:
+        # If anything goes wrong, try to rollback anyway
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
 # Error handler for database errors
 @app.errorhandler(Exception)
 def handle_exception(e):
     """Handle uncaught exceptions and ensure database rollback."""
     # Rollback database session on error
-    db.session.rollback()
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
 
     # Log the error
     app.logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
+
+    # For PostgreSQL transaction errors, provide helpful message
+    if 'InFailedSqlTransaction' in str(e) or 'current transaction is aborted' in str(e):
+        return jsonify({
+            'error': 'A database error occurred. Please try again.',
+            'details': 'The previous operation encountered an issue. Your request has been reset.'
+        }), 500
 
     # For database-specific errors, provide helpful message
     if 'database is locked' in str(e).lower():
