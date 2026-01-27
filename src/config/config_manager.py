@@ -1,9 +1,63 @@
 """Configuration manager for DevOps Agent."""
 import os
+import json
 import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 from dotenv import load_dotenv
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
+
+
+def get_secret_from_aws(secret_name: str, region_name: str = "us-east-1") -> Optional[str]:
+    """
+    Fetch a secret value from AWS Secrets Manager.
+
+    Args:
+        secret_name: Name of the secret in AWS Secrets Manager
+        region_name: AWS region where the secret is stored
+
+    Returns:
+        Secret value as string, or None if not found
+    """
+    try:
+        client = boto3.client('secretsmanager', region_name=region_name)
+        response = client.get_secret_value(SecretId=secret_name)
+
+        if 'SecretString' in response:
+            secret = response['SecretString']
+            # Try to parse as JSON (in case it's a key-value pair)
+            try:
+                secret_dict = json.loads(secret)
+                # If it's a dict, try to get the API key value
+                if isinstance(secret_dict, dict):
+                    # Common key names for API keys
+                    for key in ['ANTHROPIC_API_KEY', 'api_key', 'apiKey', 'key']:
+                        if key in secret_dict:
+                            return secret_dict[key]
+                    # If only one value, return it
+                    if len(secret_dict) == 1:
+                        return list(secret_dict.values())[0]
+            except json.JSONDecodeError:
+                pass
+            # Return the raw secret string
+            return secret
+        return None
+    except NoCredentialsError:
+        print("Warning: AWS credentials not found. Cannot fetch secrets from Secrets Manager.")
+        return None
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        if error_code == 'ResourceNotFoundException':
+            print(f"Warning: Secret '{secret_name}' not found in AWS Secrets Manager.")
+        elif error_code == 'AccessDeniedException':
+            print(f"Warning: Access denied to secret '{secret_name}'. Check IAM permissions.")
+        else:
+            print(f"Warning: Error fetching secret from AWS: {e}")
+        return None
+    except Exception as e:
+        print(f"Warning: Unexpected error fetching secret: {e}")
+        return None
 
 
 class ConfigManager:
@@ -27,7 +81,7 @@ class ConfigManager:
         self._validate_config()
 
     def _load_env(self) -> None:
-        """Load environment variables from .env file."""
+        """Load environment variables from .env file and AWS Secrets Manager."""
         if self.env_path and os.path.exists(self.env_path):
             load_dotenv(self.env_path)
         else:
@@ -41,6 +95,14 @@ class ConfigManager:
                 if env_file.exists():
                     load_dotenv(env_file)
                     break
+
+        # Try to fetch ANTHROPIC_API_KEY from AWS Secrets Manager if not already set
+        if not os.getenv('ANTHROPIC_API_KEY'):
+            aws_region = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+            secret_value = get_secret_from_aws('ANTHROPIC_API_KEY', aws_region)
+            if secret_value:
+                os.environ['ANTHROPIC_API_KEY'] = secret_value
+                print("Successfully loaded ANTHROPIC_API_KEY from AWS Secrets Manager.")
 
     def _load_yaml(self) -> None:
         """Load configuration from YAML file."""
