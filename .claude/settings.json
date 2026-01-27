@@ -1,0 +1,76 @@
+{
+  "hooks": {
+    "preToolExecution": [
+      {
+        "name": "security-check",
+        "description": "Validate dangerous commands before execution",
+        "pattern": "Bash(*)",
+        "script": "python scripts/hooks/security_check.py"
+      }
+    ],
+    "postToolExecution": [
+      {
+        "name": "audit-log",
+        "description": "Log all tool executions for audit",
+        "pattern": "*",
+        "script": "python scripts/hooks/audit_log.py"
+      }
+    ],
+    "preCommit": [
+      {
+        "name": "lint-check",
+        "description": "Run linting before commits",
+        "script": "python -m black --check . && python -m pylint src --fail-under=7"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python app.py:*)",
+      "Bash(python main.py:*)",
+      "Bash(pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(git status)",
+      "Bash(git diff)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Read(*)",
+      "Write(*.py)",
+      "Write(*.html)",
+      "Write(*.js)",
+      "Write(*.css)",
+      "Write(*.md)",
+      "Write(*.json)",
+      "Write(*.yaml)",
+      "Write(*.yml)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(*DROP DATABASE*)",
+      "Bash(*DELETE FROM*WHERE 1=1*)",
+      "Bash(*password*)",
+      "Bash(*secret*)",
+      "Write(*.env)",
+      "Write(*credentials*)"
+    ],
+    "ask": [
+      "Bash(pip uninstall*)",
+      "Bash(git reset --hard*)",
+      "Bash(git push --force*)",
+      "Bash(*migrate*)",
+      "Bash(*production*)"
+    ]
+  },
+  "context": {
+    "alwaysInclude": [
+      "CLAUDE.md",
+      ".github/copilot-instructions.md"
+    ],
+    "maxTokens": 8000
+  },
+  "mcp": {
+    "servers": []
+  }
+}
