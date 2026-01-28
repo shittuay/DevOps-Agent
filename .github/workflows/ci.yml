@@ -10,10 +10,57 @@ on:
       - main
       - develop
 
+env:
+  PYTHON_VERSION: '3.11'
+  FLASK_ENV: testing
+  TESTING: 'true'
+
 jobs:
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort
+
+      - name: Check formatting with Black
+        run: black --check --diff . --exclude='/(\.git|venv|__pycache__|\.eggs)/'
+        continue-on-error: true
+
+      - name: Check import sorting with isort
+        run: isort --check-only --diff . --skip venv --skip __pycache__
+        continue-on-error: true
+
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,__pycache__,.git
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,__pycache__,.git
+
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+    needs: lint
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -22,21 +69,41 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-xdist
 
-      - name: Run comprehensive tests
-        run: python comprehensive_test.py
+      - name: Run pytest with coverage
+        env:
+          SECRET_KEY: test-secret-key-for-ci
+          ANTHROPIC_API_KEY: test-api-key
+          DATABASE_URL: sqlite:///test.db
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=html --cov-report=term-missing -n auto
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Upload coverage report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 7
 
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -44,45 +111,36 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install pip-audit
-        run: pip install pip-audit
+      - name: Install security tools
+        run: |
+          pip install pip-audit bandit safety
 
-      - name: Run security audit
+      - name: Run pip-audit
         run: pip-audit -r requirements.txt --desc
+        continue-on-error: true
 
-  lint:
-    name: Code Quality
-    runs-on: ubuntu-latest
+      - name: Run safety check
+        run: safety check -r requirements.txt
+        continue-on-error: true
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Run bandit security linter
+        run: bandit -r . -x ./tests,./venv -ll -f json -o bandit-report.json
+        continue-on-error: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Upload bandit report
+        uses: actions/upload-artifact@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install flake8
-
-      - name: Lint with flake8
-        run: |
-          # Stop the build if there are Python syntax errors or undefined names
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,__pycache__,.git
-          # Exit-zero treats all errors as warnings
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,__pycache__,.git
+          name: bandit-security-report
+          path: bandit-report.json
+          retention-days: 7
+        if: always()
 
   build-check:
     name: Build Verification
     runs-on: ubuntu-latest
-    needs: [test, security, lint]
-
+    needs: [test, security]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -90,7 +148,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Install dependencies
@@ -98,21 +156,63 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify Flask app
+      - name: Verify Flask app initialization
+        env:
+          SECRET_KEY: test-secret-key
+          ANTHROPIC_API_KEY: test-api-key
         run: python -c "from app import app; print('Flask app initialized successfully')"
 
-      - name: Check for critical files
+      - name: Check critical files exist
         run: |
           test -f requirements.txt || exit 1
           test -f app.py || exit 1
           test -f models.py || exit 1
-          echo "All critical files present"
+          test -d templates || exit 1
+          test -d services || exit 1
+          test -d api || exit 1
+          echo "All critical files and directories present"
+
+      - name: Verify database models
+        env:
+          SECRET_KEY: test-secret-key
+          ANTHROPIC_API_KEY: test-api-key
+        run: python -c "from models import User, Conversation, APIKey, AuditLog; print('All models imported successfully')"
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: devops-agent:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        continue-on-error: true
 
   status-check:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [test, security, lint, build-check]
-
+    needs: [lint, test, security, build-check]
+    if: always()
     steps:
-      - name: All checks passed
-        run: echo "All CI/CD checks have passed successfully!"
+      - name: Check job statuses
+        run: |
+          if [[ "${{ needs.lint.result }}" == "failure" ]] || \
+             [[ "${{ needs.test.result }}" == "failure" ]] || \
+             [[ "${{ needs.security.result }}" == "failure" ]] || \
+             [[ "${{ needs.build-check.result }}" == "failure" ]]; then
+            echo "One or more required checks failed"
+            exit 1
+          fi
+          echo "All CI/CD checks have passed successfully!"

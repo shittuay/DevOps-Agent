@@ -36,6 +36,17 @@ class User(UserMixin, db.Model):
     # Role-based access control
     role = db.Column(db.String(20), default='user')  # user, admin, approver, viewer
 
+    # Two-Factor Authentication
+    two_factor_enabled = db.Column(db.Boolean, default=False)
+    two_factor_secret = db.Column(db.String(32), nullable=True)
+    backup_codes = db.Column(db.JSON, nullable=True)  # List of hashed backup codes
+    two_factor_verified_at = db.Column(db.DateTime, nullable=True)
+    two_factor_attempts = db.Column(db.Integer, default=0)
+    two_factor_locked_until = db.Column(db.DateTime, nullable=True)
+
+    # API Key Management
+    api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+
     def set_password(self, password):
         """Hash and set user password"""
         salt = bcrypt.gensalt()
@@ -1027,3 +1038,200 @@ class UserCloudCredential(db.Model):
 
     def __repr__(self):
         return f'<UserCloudCredential user={self.user_id} provider={self.cloud_provider}>'
+
+
+class APIKey(db.Model):
+    """API keys for programmatic access to the platform"""
+    __tablename__ = 'api_keys'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    # Key identification
+    name = db.Column(db.String(100), nullable=False)  # User-friendly name for the key
+    key_prefix = db.Column(db.String(8), nullable=False, index=True)  # First 8 chars for identification
+    key_hash = db.Column(db.String(64), nullable=False, unique=True)  # SHA-256 hash of full key
+
+    # Permissions and scopes
+    scopes = db.Column(db.JSON, default=list)  # List of allowed scopes: ['read', 'write', 'admin']
+    allowed_ips = db.Column(db.JSON, default=list)  # IP whitelist (empty = all allowed)
+
+    # Rate limiting
+    rate_limit = db.Column(db.Integer, default=1000)  # Requests per hour
+    requests_today = db.Column(db.Integer, default=0)
+    last_request_date = db.Column(db.Date)
+
+    # Usage tracking
+    last_used_at = db.Column(db.DateTime)
+    last_used_ip = db.Column(db.String(45))
+    total_requests = db.Column(db.Integer, default=0)
+
+    # Status
+    is_active = db.Column(db.Boolean, default=True)
+    expires_at = db.Column(db.DateTime, nullable=True)  # Optional expiration
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
+    @staticmethod
+    def generate_key():
+        """Generate a new API key"""
+        import secrets
+        # Format: doa_live_<32 random chars>
+        random_part = secrets.token_hex(16)
+        return f"doa_live_{random_part}"
+
+    @staticmethod
+    def hash_key(key: str) -> str:
+        """Hash an API key for storage"""
+        import hashlib
+        return hashlib.sha256(key.encode()).hexdigest()
+
+    @classmethod
+    def create_for_user(cls, user_id: int, name: str, scopes: list = None):
+        """Create a new API key for a user"""
+        key = cls.generate_key()
+        api_key = cls(
+            user_id=user_id,
+            name=name,
+            key_prefix=key[:8],
+            key_hash=cls.hash_key(key),
+            scopes=scopes or ['read']
+        )
+        return api_key, key  # Return both model and plain key (key shown once)
+
+    @classmethod
+    def verify_key(cls, key: str):
+        """Verify an API key and return the APIKey object if valid"""
+        key_hash = cls.hash_key(key)
+        api_key = cls.query.filter_by(key_hash=key_hash, is_active=True).first()
+
+        if api_key:
+            # Check expiration
+            if api_key.expires_at and api_key.expires_at < datetime.utcnow():
+                return None
+
+            # Update usage stats
+            api_key.last_used_at = datetime.utcnow()
+            api_key.total_requests += 1
+            db.session.commit()
+
+        return api_key
+
+    def has_scope(self, scope: str) -> bool:
+        """Check if key has a specific scope"""
+        return scope in (self.scopes or []) or 'admin' in (self.scopes or [])
+
+    def revoke(self):
+        """Revoke the API key"""
+        self.is_active = False
+        self.revoked_at = datetime.utcnow()
+        db.session.commit()
+
+    def to_dict(self):
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'key_prefix': self.key_prefix,
+            'scopes': self.scopes or [],
+            'allowed_ips': self.allowed_ips or [],
+            'rate_limit': self.rate_limit,
+            'is_active': self.is_active,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'last_used_at': self.last_used_at.isoformat() if self.last_used_at else None,
+            'total_requests': self.total_requests,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<APIKey {self.key_prefix}*** ({self.name})>'
+
+
+class AuditLog(db.Model):
+    """Comprehensive audit logging for all user and system actions"""
+    __tablename__ = 'audit_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)  # Nullable for system actions
+
+    # Action details
+    action = db.Column(db.String(100), nullable=False, index=True)  # login, logout, create_resource, delete_resource, etc.
+    action_category = db.Column(db.String(50), nullable=False, index=True)  # auth, resource, billing, security, settings
+    resource_type = db.Column(db.String(50), index=True)  # user, conversation, ec2_instance, api_key, etc.
+    resource_id = db.Column(db.String(200))  # ID of the affected resource
+
+    # Request context
+    ip_address = db.Column(db.String(45))  # IPv6 support
+    user_agent = db.Column(db.String(500))
+    request_method = db.Column(db.String(10))  # GET, POST, PUT, DELETE
+    request_path = db.Column(db.String(500))
+    api_key_id = db.Column(db.Integer, db.ForeignKey('api_keys.id'))  # If action was via API key
+
+    # Action details
+    description = db.Column(db.Text)  # Human-readable description
+    old_value = db.Column(db.JSON)  # Previous state (for updates)
+    new_value = db.Column(db.JSON)  # New state (for creates/updates)
+    metadata = db.Column(db.JSON)  # Additional context
+
+    # Result
+    status = db.Column(db.String(20), default='success', index=True)  # success, failure, error
+    error_message = db.Column(db.Text)
+
+    # Timestamp
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('audit_logs', lazy='dynamic'))
+    api_key = db.relationship('APIKey', backref=db.backref('audit_logs', lazy='dynamic'))
+
+    # Indexes for common queries
+    __table_args__ = (
+        db.Index('idx_audit_user_action', 'user_id', 'action'),
+        db.Index('idx_audit_created_at_desc', created_at.desc()),
+    )
+
+    @classmethod
+    def log(cls, action: str, category: str, user_id: int = None, **kwargs):
+        """Create an audit log entry"""
+        log_entry = cls(
+            user_id=user_id,
+            action=action,
+            action_category=category,
+            resource_type=kwargs.get('resource_type'),
+            resource_id=kwargs.get('resource_id'),
+            ip_address=kwargs.get('ip_address'),
+            user_agent=kwargs.get('user_agent'),
+            request_method=kwargs.get('request_method'),
+            request_path=kwargs.get('request_path'),
+            api_key_id=kwargs.get('api_key_id'),
+            description=kwargs.get('description'),
+            old_value=kwargs.get('old_value'),
+            new_value=kwargs.get('new_value'),
+            metadata=kwargs.get('metadata'),
+            status=kwargs.get('status', 'success'),
+            error_message=kwargs.get('error_message')
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+        return log_entry
+
+    def to_dict(self):
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'action': self.action,
+            'action_category': self.action_category,
+            'resource_type': self.resource_type,
+            'resource_id': self.resource_id,
+            'ip_address': self.ip_address,
+            'description': self.description,
+            'status': self.status,
+            'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<AuditLog {self.action} by user {self.user_id}>'
