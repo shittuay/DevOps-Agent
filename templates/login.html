@@ -291,6 +291,233 @@
             line-height: 1.6;
         }
 
+        .feature-item .learn-more {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--accent-primary);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .feature-item .learn-more:hover {
+            color: var(--accent-electric);
+            gap: 10px;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            max-width: 700px;
+            width: 100%;
+            max-height: 85vh;
+            overflow-y: auto;
+            position: relative;
+            animation: modalSlideUp 0.4s ease;
+        }
+
+        @keyframes modalSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(40px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .modal-header {
+            padding: 32px 32px 24px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        .modal-icon {
+            font-size: 48px;
+            flex-shrink: 0;
+        }
+
+        .modal-title-section h2 {
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .modal-title-section p {
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: var(--text-secondary);
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 107, 53, 0.2);
+            color: var(--accent-primary);
+        }
+
+        .modal-body {
+            padding: 32px;
+        }
+
+        .capability-section {
+            margin-bottom: 28px;
+        }
+
+        .capability-section h3 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--accent-electric);
+            margin-bottom: 16px;
+        }
+
+        .capability-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .capability-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            border: 1px solid var(--border-subtle);
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .capability-item span {
+            color: var(--accent-primary);
+        }
+
+        .example-commands {
+            background: var(--bg-primary);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 16px;
+        }
+
+        .example-commands h4 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-tertiary);
+            margin-bottom: 16px;
+        }
+
+        .command-example {
+            background: rgba(255, 107, 53, 0.1);
+            border-left: 3px solid var(--accent-primary);
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            border-radius: 0 8px 8px 0;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .command-example:last-child {
+            margin-bottom: 0;
+        }
+
+        .modal-footer {
+            padding: 24px 32px;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-footer p {
+            color: var(--text-tertiary);
+            font-size: 14px;
+        }
+
+        .modal-cta {
+            padding: 14px 28px;
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .modal-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+        }
+
+        @media (max-width: 600px) {
+            .capability-grid {
+                grid-template-columns: 1fr;
+            }
+            .modal-header {
+                padding: 24px;
+            }
+            .modal-body {
+                padding: 24px;
+            }
+            .modal-title-section h2 {
+                font-size: 22px;
+            }
+        }
+
         .stats-row {
             display: flex;
             gap: 48px;
@@ -621,35 +848,39 @@
                 </p>
 
                 <div class="feature-list">
-                    <div class="feature-item">
+                    <div class="feature-item" onclick="openModal('cloud')">
                         <div class="feature-icon">☁️</div>
                         <div class="feature-content">
                             <h3>Multi-Cloud Management</h3>
                             <p>Manage AWS, Azure, and GCP resources with natural language commands</p>
+                            <div class="learn-more">Learn more <span>→</span></div>
                         </div>
                     </div>
 
-                    <div class="feature-item">
+                    <div class="feature-item" onclick="openModal('cicd')">
                         <div class="feature-icon">🚀</div>
                         <div class="feature-content">
                             <h3>CI/CD Automation</h3>
                             <p>Deploy, monitor, and manage your pipelines across Jenkins, GitHub, GitLab</p>
+                            <div class="learn-more">Learn more <span>→</span></div>
                         </div>
                     </div>
 
-                    <div class="feature-item">
+                    <div class="feature-item" onclick="openModal('kubernetes')">
                         <div class="feature-icon">🎯</div>
                         <div class="feature-content">
                             <h3>Kubernetes Made Easy</h3>
                             <p>Deploy and scale applications with intelligent cluster management</p>
+                            <div class="learn-more">Learn more <span>→</span></div>
                         </div>
                     </div>
 
-                    <div class="feature-item">
+                    <div class="feature-item" onclick="openModal('security')">
                         <div class="feature-icon">🔒</div>
                         <div class="feature-content">
-                            <h3>Security First</h3>
-                            <p>Built-in security best practices and compliance checking</p>
+                            <h3>Security & Monitoring</h3>
+                            <p>Built-in security best practices, compliance checking, and cost optimization</p>
+                            <div class="learn-more">Learn more <span>→</span></div>
                         </div>
                     </div>
                 </div>
@@ -719,11 +950,212 @@
         </div>
     </div>
 
+    <!-- Feature Detail Modals -->
+    <div class="modal-overlay" id="cloudModal" onclick="closeModal(event, 'cloud')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <button class="modal-close" onclick="closeModal(event, 'cloud')">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon">☁️</div>
+                <div class="modal-title-section">
+                    <h2>Multi-Cloud Management</h2>
+                    <p>Unified control across AWS, Azure, and Google Cloud Platform</p>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="capability-section">
+                    <h3>AWS Capabilities</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>EC2</span> Instance management</div>
+                        <div class="capability-item"><span>S3</span> Bucket operations</div>
+                        <div class="capability-item"><span>RDS</span> Database management</div>
+                        <div class="capability-item"><span>Lambda</span> Serverless functions</div>
+                        <div class="capability-item"><span>EKS</span> Kubernetes clusters</div>
+                        <div class="capability-item"><span>CloudWatch</span> Monitoring & logs</div>
+                    </div>
+                </div>
+                <div class="capability-section">
+                    <h3>Azure & GCP Support</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>VMs</span> Virtual machines</div>
+                        <div class="capability-item"><span>Storage</span> Blob & Cloud Storage</div>
+                        <div class="capability-item"><span>AKS/GKE</span> Managed Kubernetes</div>
+                        <div class="capability-item"><span>SQL</span> Database services</div>
+                    </div>
+                </div>
+                <div class="example-commands">
+                    <h4>Example Commands</h4>
+                    <div class="command-example">"Show me all running EC2 instances in us-east-1"</div>
+                    <div class="command-example">"Create an S3 bucket with versioning enabled"</div>
+                    <div class="command-example">"What's the cost breakdown for my AWS resources?"</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <p>Connect your own cloud accounts securely</p>
+                <a href="/signup" class="modal-cta">Get Started Free</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="cicdModal" onclick="closeModal(event, 'cicd')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <button class="modal-close" onclick="closeModal(event, 'cicd')">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon">🚀</div>
+                <div class="modal-title-section">
+                    <h2>CI/CD Automation</h2>
+                    <p>Streamline your deployment pipelines with AI assistance</p>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="capability-section">
+                    <h3>Supported Platforms</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>GitHub</span> Actions & workflows</div>
+                        <div class="capability-item"><span>GitLab</span> CI/CD pipelines</div>
+                        <div class="capability-item"><span>Jenkins</span> Job management</div>
+                        <div class="capability-item"><span>Docker</span> Container builds</div>
+                    </div>
+                </div>
+                <div class="capability-section">
+                    <h3>What You Can Do</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>Deploy</span> Push to production</div>
+                        <div class="capability-item"><span>Monitor</span> Pipeline status</div>
+                        <div class="capability-item"><span>Rollback</span> Quick recovery</div>
+                        <div class="capability-item"><span>Debug</span> Failed builds</div>
+                    </div>
+                </div>
+                <div class="example-commands">
+                    <h4>Example Commands</h4>
+                    <div class="command-example">"Deploy the latest version to production"</div>
+                    <div class="command-example">"Show me the status of recent GitHub Actions"</div>
+                    <div class="command-example">"Why did my last Jenkins build fail?"</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <p>Automate your entire deployment workflow</p>
+                <a href="/signup" class="modal-cta">Get Started Free</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="kubernetesModal" onclick="closeModal(event, 'kubernetes')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <button class="modal-close" onclick="closeModal(event, 'kubernetes')">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon">🎯</div>
+                <div class="modal-title-section">
+                    <h2>Kubernetes Made Easy</h2>
+                    <p>Manage containers and clusters with natural language</p>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="capability-section">
+                    <h3>Cluster Management</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>Pods</span> Deploy & scale</div>
+                        <div class="capability-item"><span>Services</span> Networking</div>
+                        <div class="capability-item"><span>Deployments</span> Rolling updates</div>
+                        <div class="capability-item"><span>ConfigMaps</span> Configuration</div>
+                        <div class="capability-item"><span>Secrets</span> Secure storage</div>
+                        <div class="capability-item"><span>Ingress</span> Traffic routing</div>
+                    </div>
+                </div>
+                <div class="capability-section">
+                    <h3>Supported Platforms</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>EKS</span> AWS Kubernetes</div>
+                        <div class="capability-item"><span>AKS</span> Azure Kubernetes</div>
+                        <div class="capability-item"><span>GKE</span> Google Kubernetes</div>
+                        <div class="capability-item"><span>Local</span> Minikube/Kind</div>
+                    </div>
+                </div>
+                <div class="example-commands">
+                    <h4>Example Commands</h4>
+                    <div class="command-example">"Scale my web deployment to 5 replicas"</div>
+                    <div class="command-example">"Show me pods that are not running"</div>
+                    <div class="command-example">"Get the logs from my api-server pod"</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <p>No more memorizing kubectl commands</p>
+                <a href="/signup" class="modal-cta">Get Started Free</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="securityModal" onclick="closeModal(event, 'security')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <button class="modal-close" onclick="closeModal(event, 'security')">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon">🔒</div>
+                <div class="modal-title-section">
+                    <h2>Security & Monitoring</h2>
+                    <p>Keep your infrastructure secure and costs optimized</p>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="capability-section">
+                    <h3>Security Features</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>IAM</span> Access management</div>
+                        <div class="capability-item"><span>Audit</span> Activity logging</div>
+                        <div class="capability-item"><span>Compliance</span> Best practices</div>
+                        <div class="capability-item"><span>Encryption</span> Data protection</div>
+                    </div>
+                </div>
+                <div class="capability-section">
+                    <h3>Cost Optimization</h3>
+                    <div class="capability-grid">
+                        <div class="capability-item"><span>Analysis</span> Spend breakdown</div>
+                        <div class="capability-item"><span>Alerts</span> Budget warnings</div>
+                        <div class="capability-item"><span>Rightsizing</span> Resource optimization</div>
+                        <div class="capability-item"><span>Savings</span> Recommendations</div>
+                    </div>
+                </div>
+                <div class="example-commands">
+                    <h4>Example Commands</h4>
+                    <div class="command-example">"Check for security vulnerabilities in my setup"</div>
+                    <div class="command-example">"What resources are costing me the most?"</div>
+                    <div class="command-example">"Find unused resources I can delete"</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <p>Your credentials are encrypted and never shared</p>
+                <a href="/signup" class="modal-cta">Get Started Free</a>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Login form handler
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             const btn = document.getElementById('submitBtn');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> Signing in...';
+        });
+
+        // Modal functions
+        function openModal(type) {
+            const modalId = type + 'Modal';
+            document.getElementById(modalId).classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal(event, type) {
+            const modalId = type + 'Modal';
+            document.getElementById(modalId).classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal-overlay.active').forEach(modal => {
+                    modal.classList.remove('active');
+                });
+                document.body.style.overflow = '';
+            }
         });
     </script>
 </body>
