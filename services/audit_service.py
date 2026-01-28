@@ -104,7 +104,7 @@ class AuditService:
             description=description,
             old_value=old_value,
             new_value=new_value,
-            metadata=metadata,
+            extra_data=metadata,
             status=status,
             error_message=error_message
         )

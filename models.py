@@ -1173,7 +1173,7 @@ class AuditLog(db.Model):
     description = db.Column(db.Text)  # Human-readable description
     old_value = db.Column(db.JSON)  # Previous state (for updates)
     new_value = db.Column(db.JSON)  # New state (for creates/updates)
-    metadata = db.Column(db.JSON)  # Additional context
+    extra_data = db.Column(db.JSON)  # Additional context
 
     # Result
     status = db.Column(db.String(20), default='success', index=True)  # success, failure, error
