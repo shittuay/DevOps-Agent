@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimization Recommendations - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .filters {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            border: 1px solid var(--border-subtle);
+        }
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        .filter-group label {
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+        }
+        .filter-group select {
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            min-width: 140px;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-success { background: var(--accent-success); color: white; }
+        .btn-danger { background: var(--accent-danger); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-sm {
+            padding: 0.35rem 0.7rem;
+            font-size: 0.75rem;
+        }
+        .recommendation-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--border-subtle);
+            border-left: 4px solid var(--accent-info);
+        }
+        .recommendation-card.priority-critical { border-left-color: var(--accent-danger); }
+        .recommendation-card.priority-high { border-left-color: var(--accent-warning); }
+        .recommendation-card.priority-medium { border-left-color: var(--accent-info); }
+        .recommendation-card.priority-low { border-left-color: var(--text-tertiary); }
+        .recommendation-card.status-implemented {
+            opacity: 0.7;
+            border-left-color: var(--accent-success);
+        }
+        .recommendation-card.status-dismissed {
+            opacity: 0.5;
+        }
+        .recommendation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+        .recommendation-header h3 {
+            font-size: 1rem;
+            flex: 1;
+        }
+        .recommendation-badges {
+            display: flex;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+        .recommendation-card p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 0.75rem;
+        }
+        .recommendation-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            margin-bottom: 0.75rem;
+        }
+        .recommendation-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .action-steps {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-top: 0.75rem;
+        }
+        .action-steps h4 {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            margin-bottom: 0.5rem;
+        }
+        .action-steps ol {
+            margin-left: 1.25rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .action-steps li { margin-bottom: 0.25rem; }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 50px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-cost { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .badge-performance { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+        .badge-reliability { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .badge-security { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-scalability { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .priority-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .priority-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .priority-medium { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .priority-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .status-implemented { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .status-dismissed { background: rgba(100, 116, 139, 0.2); color: #64748b; }
+        .savings-highlight {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-success);
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-tertiary);
+        }
+        #message {
+            display: none;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-success); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-danger); }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Optimization Recommendations</h1>
+        <nav>
+            <a href="{{ url_for('optimization.optimization_dashboard') }}">Overview</a>
+            <a href="{{ url_for('monitoring.monitoring_dashboard') }}">Monitoring</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div id="message"></div>
+
+        <form class="filters" method="get">
+            <div class="filter-group">
+                <label>Type</label>
+                <select name="type" onchange="this.form.submit()">
+                    <option value="">All Types</option>
+                    {% for type in optimization_types %}
+                    <option value="{{ type }}" {{ 'selected' if current_filters.type == type }}>{{ type.title() }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Resource</label>
+                <select name="resource" onchange="this.form.submit()">
+                    <option value="">All Resources</option>
+                    {% for res in resource_types %}
+                    <option value="{{ res }}" {{ 'selected' if current_filters.resource == res }}>{{ res.replace('_', ' ').title() }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Priority</label>
+                <select name="priority" onchange="this.form.submit()">
+                    <option value="">All Priorities</option>
+                    {% for prio in priorities %}
+                    <option value="{{ prio }}" {{ 'selected' if current_filters.priority == prio }}>{{ prio.title() }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Status</label>
+                <select name="status" onchange="this.form.submit()">
+                    <option value="">All Statuses</option>
+                    {% for stat in statuses %}
+                    <option value="{{ stat }}" {{ 'selected' if current_filters.status == stat }}>{{ stat.replace('_', ' ').title() }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <a href="{{ url_for('optimization.list_recommendations') }}" class="btn btn-secondary">Clear Filters</a>
+        </form>
+
+        {% if recommendations %}
+            {% for rec in recommendations %}
+            <div class="recommendation-card priority-{{ rec.priority }} status-{{ rec.status }}" id="rec-{{ rec.id }}">
+                <div class="recommendation-header">
+                    <h3>{{ rec.title }}</h3>
+                    <div class="recommendation-badges">
+                        <span class="badge badge-{{ rec.optimization_type }}">{{ rec.optimization_type }}</span>
+                        <span class="badge priority-{{ rec.priority }}">{{ rec.priority }}</span>
+                        {% if rec.status != 'pending' %}
+                        <span class="badge status-{{ rec.status }}">{{ rec.status.replace('_', ' ') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <p>{{ rec.description }}</p>
+
+                <div class="recommendation-meta">
+                    <span>Resource: {{ rec.resource_type.replace('_', ' ').title() }}</span>
+                    {% if rec.resource_id %}
+                    <span>ID: {{ rec.resource_id }}</span>
+                    {% endif %}
+                    <span>Impact: {{ rec.impact[:60] }}{% if rec.impact|length > 60 %}...{% endif %}</span>
+                    {% if rec.estimated_savings %}
+                    <span class="savings-highlight">${{ "%.0f"|format(rec.estimated_savings) }}/mo potential savings</span>
+                    {% endif %}
+                    {% if rec.auto_fixable %}
+                    <span style="color: var(--accent-success);">Auto-fixable</span>
+                    {% endif %}
+                </div>
+
+                {% if rec.action_steps %}
+                <div class="action-steps">
+                    <h4>Action Steps</h4>
+                    <ol>
+                        {% for step in rec.action_steps %}
+                        <li>{{ step }}</li>
+                        {% endfor %}
+                    </ol>
+                </div>
+                {% endif %}
+
+                {% if rec.status == 'pending' %}
+                <div class="recommendation-actions" style="margin-top: 1rem;">
+                    {% if rec.auto_fixable %}
+                    <button class="btn btn-success btn-sm" onclick="implementRecommendation('{{ rec.id }}')">
+                        Auto-Implement
+                    </button>
+                    {% endif %}
+                    <button class="btn btn-primary btn-sm" onclick="updateStatus('{{ rec.id }}', 'in_progress')">
+                        Mark In Progress
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="updateStatus('{{ rec.id }}', 'implemented')">
+                        Mark Implemented
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="dismissRecommendation('{{ rec.id }}')">
+                        Dismiss
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">
+                <p>No recommendations found matching your filters</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.className = 'alert-' + type;
+            msg.textContent = text;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 5000);
+        }
+
+        async function updateStatus(recId, status) {
+            try {
+                const resp = await fetch(`/optimization/api/recommendations/${recId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: status })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage(`Status updated to ${status}`, 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to update status', 'error');
+            }
+        }
+
+        async function implementRecommendation(recId) {
+            if (!confirm('Automatically implement this recommendation?')) return;
+
+            try {
+                const resp = await fetch(`/optimization/api/recommendations/${recId}/implement`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to implement recommendation', 'error');
+            }
+        }
+
+        async function dismissRecommendation(recId) {
+            const reason = prompt('Reason for dismissing (optional):');
+            if (reason === null) return;
+
+            try {
+                const resp = await fetch(`/optimization/api/recommendations/${recId}/dismiss`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: reason })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('Recommendation dismissed', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to dismiss recommendation', 'error');
+            }
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

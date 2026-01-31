@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proactive Monitoring - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .status-bar {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-subtle);
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.running { background: var(--accent-success); }
+        .status-dot.stopped { background: var(--accent-danger); animation: none; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-subtle);
+            text-align: center;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .stat-card .label {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+        }
+        .stat-card.firing .value { color: var(--accent-danger); }
+        .stat-card.pending .value { color: var(--accent-warning); }
+        .stat-card.active .value { color: var(--accent-success); }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 1024px) { .grid-2 { grid-template-columns: 1fr; } }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header h2 { font-size: 1rem; }
+        .section-content { padding: 1.25rem; }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-success { background: var(--accent-success); color: white; }
+        .btn-danger { background: var(--accent-danger); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .alert-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            border-left: 3px solid var(--accent-danger);
+        }
+        .alert-card.severity-critical { border-left-color: var(--accent-danger); }
+        .alert-card.severity-high { border-left-color: var(--accent-warning); }
+        .alert-card.severity-medium { border-left-color: var(--accent-info); }
+        .alert-card h4 {
+            font-size: 0.9rem;
+            margin-bottom: 0.35rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        .alert-card p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .alert-meta {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+        }
+        .rule-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .rule-card h4 {
+            font-size: 0.9rem;
+            margin-bottom: 0.35rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .rule-card p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .rule-meta {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 50px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-ok { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .badge-pending { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .badge-firing { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-disabled { background: rgba(100, 116, 139, 0.2); color: #64748b; }
+        .severity-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .severity-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .severity-medium { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .severity-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-tertiary);
+        }
+        #message {
+            display: none;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-success); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-danger); }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Proactive Monitoring</h1>
+        <nav>
+            <a href="{{ url_for('monitoring.list_rules') }}">Rules</a>
+            <a href="{{ url_for('monitoring.list_alerts') }}">Alerts</a>
+            <a href="{{ url_for('notifications.notifications_settings') }}">Notifications</a>
+            <a href="{{ url_for('incidents.incidents_dashboard') }}">Incidents</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div id="message"></div>
+
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot {{ 'running' if status.running else 'stopped' }}"></div>
+                <span>Monitoring Service: <strong>{{ 'Running' if status.running else 'Stopped' }}</strong></span>
+            </div>
+            <div>
+                {% if status.running %}
+                <button class="btn btn-danger" onclick="stopService()">Stop Monitoring</button>
+                {% else %}
+                <button class="btn btn-success" onclick="startService()">Start Monitoring</button>
+                {% endif %}
+                <button class="btn btn-secondary" onclick="checkAll()">Check All Now</button>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="value">{{ status.rules_total }}</div>
+                <div class="label">Total Rules</div>
+            </div>
+            <div class="stat-card active">
+                <div class="value">{{ status.rules_enabled }}</div>
+                <div class="label">Enabled</div>
+            </div>
+            <div class="stat-card firing">
+                <div class="value">{{ status.alerts_firing }}</div>
+                <div class="label">Firing</div>
+            </div>
+            <div class="stat-card pending">
+                <div class="value">{{ status.alerts_pending }}</div>
+                <div class="label">Pending</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ status.alerts_active }}</div>
+                <div class="label">Active Alerts</div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="section">
+                <div class="section-header">
+                    <h2>Active Alerts</h2>
+                    <a href="{{ url_for('monitoring.list_alerts') }}" class="btn btn-secondary">View All</a>
+                </div>
+                <div class="section-content">
+                    {% if alerts %}
+                        {% for alert in alerts[:5] %}
+                        <div class="alert-card severity-{{ alert.severity }}">
+                            <h4>
+                                {{ alert.rule_name }}
+                                <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+                            </h4>
+                            <p>{{ alert.message }}</p>
+                            <div class="alert-meta">
+                                <span>Value: {{ "%.2f"|format(alert.value) }}</span>
+                                <span>Threshold: {{ alert.threshold }}</span>
+                                <span>Fired: {{ alert.fired_at[:19] }}</span>
+                                {% if alert.incident_id %}
+                                <span>Incident: #{{ alert.incident_id }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">No active alerts</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>Monitoring Rules</h2>
+                    <a href="{{ url_for('monitoring.list_rules') }}" class="btn btn-secondary">Manage</a>
+                </div>
+                <div class="section-content">
+                    {% for rule in rules[:6] %}
+                    <div class="rule-card">
+                        <h4>
+                            {{ rule.name }}
+                            {% if not rule.enabled %}
+                            <span class="badge badge-disabled">Disabled</span>
+                            {% elif rule.state == 'firing' %}
+                            <span class="badge badge-firing">Firing</span>
+                            {% elif rule.state == 'pending' %}
+                            <span class="badge badge-pending">Pending</span>
+                            {% else %}
+                            <span class="badge badge-ok">OK</span>
+                            {% endif %}
+                        </h4>
+                        <p>{{ rule.description[:80] }}{% if rule.description|length > 80 %}...{% endif %}</p>
+                        <div class="rule-meta">
+                            <span>Source: {{ rule.source }}</span>
+                            <span>Threshold: {{ rule.condition }} {{ rule.threshold }}</span>
+                            {% if rule.last_value is not none %}
+                            <span>Last: {{ "%.2f"|format(rule.last_value) }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.className = 'alert-' + type;
+            msg.textContent = text;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 5000);
+        }
+
+        async function startService() {
+            try {
+                const resp = await fetch('{{ url_for("monitoring.api_start_service") }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('Monitoring service started', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to start service', 'error');
+            }
+        }
+
+        async function stopService() {
+            try {
+                const resp = await fetch('{{ url_for("monitoring.api_stop_service") }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('Monitoring service stopped', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to stop service', 'error');
+            }
+        }
+
+        async function checkAll() {
+            try {
+                const resp = await fetch('{{ url_for("monitoring.api_check_all") }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('All rules checked', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error || 'Check failed', 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to check rules', 'error');
+            }
+        }
+
+        // Auto-refresh every 30 seconds
+        setTimeout(() => location.reload(), 30000);
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

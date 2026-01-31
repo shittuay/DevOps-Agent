@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Root Cause Analysis - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .hero {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .hero-content h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .hero-content p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header h3 { font-size: 1rem; }
+        .analysis-card {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            transition: background 0.2s;
+        }
+        .analysis-card:last-child { border-bottom: none; }
+        .analysis-card:hover { background: rgba(255, 255, 255, 0.02); }
+        .analysis-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+        .analysis-header h4 {
+            font-size: 0.95rem;
+            margin-bottom: 0.25rem;
+        }
+        .analysis-header p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .analysis-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.6rem;
+            border-radius: 50px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-completed { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .badge-analyzing { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .badge-failed { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .confidence-high { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .confidence-medium { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .confidence-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .root-causes {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+        .root-cause-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.35rem;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-tertiary);
+        }
+        .empty-state p { margin-bottom: 1rem; }
+        #message {
+            display: none;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-success); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-danger); }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Root Cause Analysis</h1>
+        <nav>
+            <a href="{{ url_for('incidents.incidents_dashboard') }}">Incidents</a>
+            <a href="{{ url_for('monitoring.monitoring_dashboard') }}">Monitoring</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div id="message"></div>
+
+        <div class="hero">
+            <div class="hero-content">
+                <h2>AI-Powered Root Cause Analysis</h2>
+                <p>Automatically analyze incidents using Claude AI to identify root causes, correlate events, and get remediation recommendations.</p>
+            </div>
+            <a href="{{ url_for('incidents.incidents_dashboard') }}" class="btn btn-primary">
+                Analyze an Incident
+            </a>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h3>Recent Analyses</h3>
+            </div>
+            {% if analyses %}
+                {% for analysis in analyses|reverse %}
+                <a href="{{ url_for('analysis.view_analysis', analysis_id=analysis.id) }}" class="analysis-card" style="display: block; text-decoration: none; color: inherit;">
+                    <div class="analysis-header">
+                        <div>
+                            <h4>Analysis #{{ analysis.id }} - Incident #{{ analysis.incident_id }}</h4>
+                            <p>{{ analysis.summary[:100] }}{% if analysis.summary|length > 100 %}...{% endif %}</p>
+                        </div>
+                        <span class="badge badge-{{ analysis.status }}">{{ analysis.status }}</span>
+                    </div>
+                    <div class="analysis-meta">
+                        <span>Analyzed: {{ analysis.analyzed_at[:19] }}</span>
+                        <span>Duration: {{ "%.1f"|format(analysis.analysis_duration_seconds) }}s</span>
+                        <span>Root Causes: {{ analysis.root_causes|length }}</span>
+                    </div>
+                    {% if analysis.root_causes %}
+                    <div class="root-causes">
+                        {% for rc in analysis.root_causes[:3] %}
+                        <div class="root-cause-item">
+                            <span class="badge confidence-{{ rc.confidence }}">{{ rc.confidence }}</span>
+                            {{ rc.title }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <p>No analyses yet</p>
+                    <p style="font-size: 0.85rem;">Go to an incident and click "Analyze Root Cause" to get started</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

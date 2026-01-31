@@ -25,7 +25,11 @@ from src.tools import (
     kubernetes_tools,
     git_tools,
     cicd_tools,
-    pentest_tools
+    pentest_tools,
+    terraform_tools,
+    monitoring_tools,
+    ansible_tools,
+    alerting_tools
 )
 
 # Import database models
@@ -174,6 +178,83 @@ login_manager.login_message = 'Please log in to access this page.'
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+# Register admin blueprint
+from routes.admin import admin_bp
+app.register_blueprint(admin_bp)
+
+# Register incidents blueprint
+from routes.incidents import incidents_bp
+app.register_blueprint(incidents_bp)
+
+# Register monitoring blueprint and initialize proactive monitoring
+from routes.monitoring import monitoring_bp
+app.register_blueprint(monitoring_bp)
+
+# Register notifications blueprint
+from routes.notifications import notifications_bp
+app.register_blueprint(notifications_bp)
+
+# Register optimization blueprint
+from routes.optimization import optimization_bp
+app.register_blueprint(optimization_bp)
+
+# Register analysis blueprint for AI-powered root cause analysis
+from routes.analysis import analysis_bp
+app.register_blueprint(analysis_bp)
+
+# Register webhooks blueprint for GitHub/GitLab/Bitbucket integrations
+from routes.webhooks import webhooks_bp
+app.register_blueprint(webhooks_bp)
+
+# Register chatops blueprint for Slack/Teams bot integration
+from routes.chatops import chatops_bp
+app.register_blueprint(chatops_bp)
+
+# Register drift detection blueprint for infrastructure drift detection
+from routes.drift import drift_bp
+app.register_blueprint(drift_bp)
+
+# Register predictive scaling blueprint
+from routes.scaling import scaling_bp
+app.register_blueprint(scaling_bp)
+
+# Initialize proactive monitoring service with incident integration
+from services.proactive_monitoring import get_monitoring_service
+from services.incident_response import get_incident_engine
+from services.notification_service import get_notification_service
+
+monitoring_service = get_monitoring_service()
+incident_engine = get_incident_engine()
+notification_service = get_notification_service()
+
+monitoring_service.set_incident_engine(incident_engine)
+
+# Add notification callback to monitoring service for alert notifications
+def send_alert_notification(event_type, alert_data):
+    """Send notifications when alerts fire or resolve."""
+    if event_type == "firing":
+        notification_service.send_alert(alert_data)
+
+monitoring_service.add_alert_callback(send_alert_notification)
+
+# RBAC context processor - makes RBAC helpers available in all templates
+from services.rbac import RBACContext, get_user_role, user_has_permission, Permission
+
+@app.context_processor
+def inject_rbac():
+    """Inject RBAC context into all templates."""
+    if current_user.is_authenticated:
+        return {
+            'rbac': RBACContext(current_user),
+            'user_role': get_user_role(current_user),
+            'Permission': Permission
+        }
+    return {
+        'rbac': None,
+        'user_role': None,
+        'Permission': Permission
+    }
 
 # Ensure proper database session cleanup
 @app.teardown_appcontext
@@ -611,6 +692,26 @@ def initialize_agent():
         agent.register_tools_from_module(git_tools)
         if config_manager.jenkins_enabled or config_manager.github_enabled:
             agent.register_tools_from_module(cicd_tools)
+
+        # Register Terraform tools if enabled
+        if config_manager.get('terraform.enabled', True):
+            agent.register_tools_from_module(terraform_tools)
+            logger.info("Terraform tools enabled")
+
+        # Register Monitoring tools (Prometheus, Grafana, Datadog)
+        if config_manager.get('monitoring.enabled', True):
+            agent.register_tools_from_module(monitoring_tools)
+            logger.info("Monitoring tools enabled (Prometheus, Grafana, Datadog)")
+
+        # Register Ansible tools if enabled
+        if config_manager.get('ansible.enabled', True):
+            agent.register_tools_from_module(ansible_tools)
+            logger.info("Ansible tools enabled")
+
+        # Register Alerting tools (PagerDuty, OpsGenie) if enabled
+        if config_manager.get('alerting.enabled', True):
+            agent.register_tools_from_module(alerting_tools)
+            logger.info("Alerting tools enabled (PagerDuty, OpsGenie)")
 
         # Register Penetration Testing tools if enabled
         if config_manager.get('pentest.enabled', False):
@@ -2917,6 +3018,14 @@ if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("Starting web server...")
     print("=" * 60)
+
+    # Debug: Print registered blueprints and key routes
+    print("\nRegistered Blueprints:", list(app.blueprints.keys()))
+    print("Key Routes:")
+    for rule in app.url_map.iter_rules():
+        if any(x in rule.rule for x in ['/monitoring', '/incidents', '/optimization', '/notifications', '/admin']):
+            if rule.rule.endswith('/'):
+                print(f"  {rule.rule}")
 
     # Get port from environment (for production) or use 5000 (for local dev)
     port = int(os.environ.get('PORT', 5000))

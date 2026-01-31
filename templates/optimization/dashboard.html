@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance Optimization - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-subtle);
+        }
+        .stat-card .value {
+            font-size: 2.25rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        .stat-card .label {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+        }
+        .stat-card.savings .value { color: var(--accent-success); }
+        .stat-card.critical .value { color: var(--accent-danger); }
+        .stat-card.cost .value { color: var(--accent-info); }
+        .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }
+        @media (max-width: 1024px) { .grid-2 { grid-template-columns: 1fr; } }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header h2 { font-size: 1rem; }
+        .section-content { padding: 1.25rem; }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-success { background: var(--accent-success); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; }
+        .recommendation-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 0.75rem;
+            border-left: 4px solid var(--accent-info);
+        }
+        .recommendation-card.priority-critical { border-left-color: var(--accent-danger); }
+        .recommendation-card.priority-high { border-left-color: var(--accent-warning); }
+        .recommendation-card.priority-medium { border-left-color: var(--accent-info); }
+        .recommendation-card.priority-low { border-left-color: var(--text-tertiary); }
+        .recommendation-card h4 {
+            font-size: 0.95rem;
+            margin-bottom: 0.35rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        .recommendation-card p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            line-height: 1.5;
+        }
+        .recommendation-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 50px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-cost { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .badge-performance { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+        .badge-reliability { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .badge-security { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-scalability { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .priority-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .priority-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .priority-medium { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .priority-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .savings-tag {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-success);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .chart-placeholder {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-tertiary);
+        }
+        .type-breakdown {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .type-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+        }
+        .type-item .label {
+            font-size: 0.85rem;
+            text-transform: capitalize;
+        }
+        .type-item .count {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-tertiary);
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Performance Optimization</h1>
+        <nav>
+            <a href="{{ url_for('optimization.list_recommendations') }}">All Recommendations</a>
+            <a href="{{ url_for('monitoring.monitoring_dashboard') }}">Monitoring</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="value">{{ summary.total_recommendations }}</div>
+                <div class="label">Total Recommendations</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ summary.pending_count }}</div>
+                <div class="label">Pending</div>
+            </div>
+            <div class="stat-card critical">
+                <div class="value">{{ summary.critical_count }}</div>
+                <div class="label">Critical</div>
+            </div>
+            <div class="stat-card savings">
+                <div class="value">${{ "%.0f"|format(summary.potential_monthly_savings) }}</div>
+                <div class="label">Potential Monthly Savings</div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="section">
+                <div class="section-header">
+                    <h2>Top Recommendations</h2>
+                    <a href="{{ url_for('optimization.list_recommendations') }}" class="btn btn-secondary">View All</a>
+                </div>
+                <div class="section-content">
+                    {% if recommendations %}
+                        {% for rec in recommendations %}
+                        <div class="recommendation-card priority-{{ rec.priority }}">
+                            <h4>
+                                <span>{{ rec.title }}</span>
+                                <span class="badge priority-{{ rec.priority }}">{{ rec.priority }}</span>
+                            </h4>
+                            <p>{{ rec.description[:150] }}{% if rec.description|length > 150 %}...{% endif %}</p>
+                            <div class="recommendation-meta">
+                                <span class="badge badge-{{ rec.optimization_type }}">{{ rec.optimization_type }}</span>
+                                <span>{{ rec.resource_type.replace('_', ' ').title() }}</span>
+                                {% if rec.estimated_savings %}
+                                <span class="savings-tag">${{ "%.0f"|format(rec.estimated_savings) }}/mo</span>
+                                {% endif %}
+                                {% if rec.auto_fixable %}
+                                <span style="color: var(--accent-success);">Auto-fixable</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">
+                            <p>No pending recommendations</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <div class="section" style="margin-bottom: 1.5rem;">
+                    <div class="section-header">
+                        <h2>By Type</h2>
+                    </div>
+                    <div class="section-content">
+                        <div class="type-breakdown">
+                            {% for type, count in summary.by_type.items() %}
+                            <div class="type-item">
+                                <span class="label">
+                                    <span class="badge badge-{{ type }}">{{ type }}</span>
+                                </span>
+                                <span class="count">{{ count }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>By Priority</h2>
+                    </div>
+                    <div class="section-content">
+                        <div class="type-breakdown">
+                            {% for priority in ['critical', 'high', 'medium', 'low'] %}
+                            {% if summary.by_priority.get(priority, 0) > 0 %}
+                            <div class="type-item">
+                                <span class="label">
+                                    <span class="badge priority-{{ priority }}">{{ priority }}</span>
+                                </span>
+                                <span class="count">{{ summary.by_priority.get(priority, 0) }}</span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

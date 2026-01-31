@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drift Report #{{ report.id }} - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+        .summary-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border-subtle);
+        }
+        .summary-card h2 { font-size: 1.25rem; margin-bottom: 1rem; }
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+        }
+        .meta-item { text-align: center; }
+        .meta-item .value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--accent-primary);
+        }
+        .meta-item .label {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+        }
+        .meta-item.success .value { color: var(--accent-success); }
+        .meta-item.warning .value { color: var(--accent-warning); }
+        .meta-item.danger .value { color: var(--accent-danger); }
+
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            background: var(--bg-tertiary);
+        }
+        .section-header h3 { font-size: 1rem; }
+        .section-content { padding: 1.25rem; }
+
+        .drift-item {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid var(--accent-info);
+        }
+        .drift-item:last-child { margin-bottom: 0; }
+        .drift-item.critical { border-left-color: var(--accent-danger); }
+        .drift-item.high { border-left-color: var(--accent-warning); }
+        .drift-item.medium { border-left-color: var(--accent-info); }
+        .drift-item.low { border-left-color: var(--text-tertiary); }
+        .drift-item.security { border-left-color: var(--accent-danger); background: rgba(239, 68, 68, 0.1); }
+
+        .drift-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+        .drift-header h4 { font-size: 0.95rem; }
+        .drift-meta {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            margin-bottom: 0.5rem;
+        }
+        .drift-description {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+        }
+        .drift-values {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .drift-value {
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+        }
+        .drift-value .label {
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+        .drift-value .value {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+        .drift-remediation {
+            padding: 0.75rem;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: var(--accent-success);
+        }
+        .drift-remediation::before {
+            content: '💡 ';
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .badge-medium { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .badge-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .badge-info { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .badge-added { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .badge-removed { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-modified { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .badge-security { background: rgba(239, 68, 68, 0.3); color: #ef4444; }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-decoration: none;
+        }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .filter-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .filter-bar select {
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-tertiary);
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Drift Report #{{ report.id }}</h1>
+        <nav>
+            <a href="{{ url_for('drift.drift_dashboard') }}">All Reports</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="summary-card">
+            <h2>Scan Summary</h2>
+            <div class="meta-grid">
+                <div class="meta-item">
+                    <div class="value">{{ report.total_resources }}</div>
+                    <div class="label">Resources Scanned</div>
+                </div>
+                <div class="meta-item {% if report.drifted_resources > 0 %}warning{% else %}success{% endif %}">
+                    <div class="value">{{ report.drifted_resources }}</div>
+                    <div class="label">With Drift</div>
+                </div>
+                <div class="meta-item {% if report.summary.critical_count > 0 %}danger{% endif %}">
+                    <div class="value">{{ report.summary.critical_count }}</div>
+                    <div class="label">Critical</div>
+                </div>
+                <div class="meta-item">
+                    <div class="value">{{ report.summary.security_issues }}</div>
+                    <div class="label">Security Issues</div>
+                </div>
+                <div class="meta-item">
+                    <div class="value">{{ report.summary.total_drifts }}</div>
+                    <div class="label">Total Drifts</div>
+                </div>
+                <div class="meta-item">
+                    <div class="value">{{ (report.scan_completed - report.scan_started).total_seconds()|round(1) }}s</div>
+                    <div class="label">Scan Duration</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h3>Detected Drift ({{ report.drift_items|length }})</h3>
+            </div>
+            <div class="section-content">
+                {% if report.drift_items %}
+                <div class="filter-bar">
+                    <select id="severityFilter" onchange="filterDrifts()">
+                        <option value="">All Severities</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <select id="typeFilter" onchange="filterDrifts()">
+                        <option value="">All Types</option>
+                        <option value="modified">Modified</option>
+                        <option value="added">Added</option>
+                        <option value="removed">Removed</option>
+                        <option value="security">Security</option>
+                    </select>
+                </div>
+
+                <div id="driftItems">
+                    {% for drift in report.drift_items %}
+                    <div class="drift-item {{ drift.severity.value }} {% if drift.drift_type.value == 'security' %}security{% endif %}"
+                         data-severity="{{ drift.severity.value }}"
+                         data-type="{{ drift.drift_type.value }}">
+                        <div class="drift-header">
+                            <div>
+                                <h4>{{ drift.resource_name }}</h4>
+                                <div class="drift-meta">
+                                    {{ drift.resource_type.value }} • {{ drift.property_path }}
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <span class="badge badge-{{ drift.drift_type.value }}">{{ drift.drift_type.value }}</span>
+                                <span class="badge badge-{{ drift.severity.value }}">{{ drift.severity.value }}</span>
+                            </div>
+                        </div>
+
+                        <p class="drift-description">{{ drift.description }}</p>
+
+                        <div class="drift-values">
+                            <div class="drift-value">
+                                <div class="label">Expected</div>
+                                <div class="value">{{ drift.expected_value or 'N/A' }}</div>
+                            </div>
+                            <div class="drift-value">
+                                <div class="label">Actual</div>
+                                <div class="value">{{ drift.actual_value or 'N/A' }}</div>
+                            </div>
+                        </div>
+
+                        {% if drift.remediation_suggestion %}
+                        <div class="drift-remediation">
+                            {{ drift.remediation_suggestion }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No drift detected</p>
+                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">All resources match their expected configuration</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if report.summary.by_resource_type %}
+        <div class="section">
+            <div class="section-header">
+                <h3>Drift by Resource Type</h3>
+            </div>
+            <div class="section-content">
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+                    {% for type, count in report.summary.by_resource_type.items() %}
+                    <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 8px; text-align: center; min-width: 120px;">
+                        <div style="font-size: 1.5rem; font-weight: 600;">{{ count }}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-tertiary);">{{ type }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function filterDrifts() {
+            const severity = document.getElementById('severityFilter').value;
+            const type = document.getElementById('typeFilter').value;
+
+            document.querySelectorAll('.drift-item').forEach(item => {
+                const matchSeverity = !severity || item.dataset.severity === severity;
+                const matchType = !type || item.dataset.type === type;
+                item.style.display = matchSeverity && matchType ? '' : 'none';
+            });
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

@@ -489,3 +489,255 @@ def terraform_state_list(working_dir: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error listing Terraform state: {str(e)}")
         return {'success': False, 'error': str(e)}
+
+
+# ==================== TOOL REGISTRATION ====================
+
+
+def get_tools() -> List[Dict[str, Any]]:
+    """
+    Get list of Terraform tool definitions for the agent.
+
+    Returns:
+        List of tool definitions with name, description, input_schema, and handler
+    """
+    return [
+        {
+            'name': 'terraform_init',
+            'description': 'Initialize a Terraform working directory. Downloads providers and modules.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'backend_config': {
+                        'type': 'object',
+                        'description': 'Backend configuration options as key-value pairs'
+                    },
+                    'upgrade': {
+                        'type': 'boolean',
+                        'description': 'Upgrade modules and plugins to latest versions',
+                        'default': False
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_init
+        },
+        {
+            'name': 'terraform_plan',
+            'description': 'Generate a Terraform execution plan showing what changes will be made.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'var_file': {
+                        'type': 'string',
+                        'description': 'Path to a variable definitions file (.tfvars)'
+                    },
+                    'variables': {
+                        'type': 'object',
+                        'description': 'Variables to pass to Terraform as key-value pairs'
+                    },
+                    'out': {
+                        'type': 'string',
+                        'description': 'Path to save the plan file for later apply'
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_plan
+        },
+        {
+            'name': 'terraform_apply',
+            'description': 'Apply Terraform configuration to create/update infrastructure. WARNING: This makes real changes!',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'var_file': {
+                        'type': 'string',
+                        'description': 'Path to a variable definitions file (.tfvars)'
+                    },
+                    'variables': {
+                        'type': 'object',
+                        'description': 'Variables to pass to Terraform as key-value pairs'
+                    },
+                    'auto_approve': {
+                        'type': 'boolean',
+                        'description': 'Skip interactive approval (use with caution)',
+                        'default': False
+                    },
+                    'plan_file': {
+                        'type': 'string',
+                        'description': 'Path to a saved plan file to apply'
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_apply
+        },
+        {
+            'name': 'terraform_destroy',
+            'description': 'Destroy Terraform-managed infrastructure. WARNING: This is destructive!',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'var_file': {
+                        'type': 'string',
+                        'description': 'Path to a variable definitions file (.tfvars)'
+                    },
+                    'variables': {
+                        'type': 'object',
+                        'description': 'Variables to pass to Terraform as key-value pairs'
+                    },
+                    'auto_approve': {
+                        'type': 'boolean',
+                        'description': 'Skip interactive approval (use with caution)',
+                        'default': False
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_destroy
+        },
+        {
+            'name': 'terraform_show',
+            'description': 'Show the current Terraform state or a saved plan in JSON format.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'state_file': {
+                        'type': 'string',
+                        'description': 'Path to a specific state or plan file to show'
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_show
+        },
+        {
+            'name': 'terraform_output',
+            'description': 'Read output values from Terraform state.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'output_name': {
+                        'type': 'string',
+                        'description': 'Specific output name to retrieve (optional, returns all if not specified)'
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_output
+        },
+        {
+            'name': 'terraform_validate',
+            'description': 'Validate Terraform configuration files for syntax and consistency.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_validate
+        },
+        {
+            'name': 'terraform_fmt',
+            'description': 'Format Terraform configuration files to canonical style.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'check': {
+                        'type': 'boolean',
+                        'description': 'Check if files are formatted without modifying them',
+                        'default': False
+                    },
+                    'recursive': {
+                        'type': 'boolean',
+                        'description': 'Process subdirectories recursively',
+                        'default': False
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_fmt
+        },
+        {
+            'name': 'terraform_workspace_list',
+            'description': 'List all Terraform workspaces and show the current one.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_workspace_list
+        },
+        {
+            'name': 'terraform_workspace_select',
+            'description': 'Switch to a different Terraform workspace.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    },
+                    'workspace': {
+                        'type': 'string',
+                        'description': 'Name of the workspace to select'
+                    }
+                },
+                'required': ['working_dir', 'workspace']
+            },
+            'handler': terraform_workspace_select
+        },
+        {
+            'name': 'terraform_state_list',
+            'description': 'List all resources tracked in Terraform state.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {
+                        'type': 'string',
+                        'description': 'Directory containing Terraform configuration files'
+                    }
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_state_list
+        }
+    ]

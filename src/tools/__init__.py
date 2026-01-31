@@ -13,6 +13,8 @@ from . import terraform_tools
 from . import sonarqube_tools
 from . import monitoring_tools
 from . import pentest_tools
+from . import ansible_tools
+from . import alerting_tools
 
 __all__ = [
     'command_tools',
@@ -27,4 +29,6 @@ __all__ = [
     'sonarqube_tools',
     'monitoring_tools',
     'pentest_tools',
+    'ansible_tools',
+    'alerting_tools',
 ]

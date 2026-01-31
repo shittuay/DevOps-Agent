@@ -7,20 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
     <style>
-        :root {
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #111827;
-            --bg-elevated: #212d3f;
-            --glass-bg: rgba(26, 35, 50, 0.7);
-            --border-subtle: rgba(255, 255, 255, 0.08);
-            --accent-primary: #ff6b35;
-            --accent-electric: #00d4ff;
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-tertiary: #64748b;
-            --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
-        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Outfit', sans-serif;
@@ -299,5 +287,6 @@
             btn.innerHTML = '<span class="spinner"></span> Creating account...';
         });
     </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

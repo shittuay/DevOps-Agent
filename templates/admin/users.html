@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .toolbar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+            position: relative;
+        }
+        .search-box input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+        .filter-select {
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        th {
+            background: var(--bg-tertiary);
+            color: var(--text-tertiary);
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+        td { color: var(--text-secondary); }
+        tr:hover { background: rgba(255, 255, 255, 0.02); }
+        .role-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .role-admin { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .role-approver { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .role-user { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .role-viewer { background: rgba(100, 116, 139, 0.2); color: #64748b; }
+        .status-locked {
+            color: var(--accent-danger);
+            font-size: 0.75rem;
+        }
+        .btn {
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: opacity 0.2s;
+        }
+        .btn-view {
+            background: var(--accent-primary);
+            color: white;
+            text-decoration: none;
+        }
+        .btn:hover { opacity: 0.8; }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1.5rem;
+        }
+        .pagination a, .pagination span {
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+        .pagination a:hover { background: var(--accent-primary); color: white; }
+        .pagination .active { background: var(--accent-primary); color: white; }
+        .user-link {
+            color: var(--accent-primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .user-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>User Management</h1>
+        <nav>
+            <a href="{{ url_for('admin.admin_dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('admin.audit_log') }}">Audit Log</a>
+            <a href="{{ url_for('dashboard') }}">Back to App</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <form class="toolbar" method="GET">
+            <div class="search-box">
+                <input type="text" name="search" placeholder="Search users..." value="{{ search or '' }}">
+            </div>
+            <select name="role" class="filter-select" onchange="this.form.submit()">
+                <option value="">All Roles</option>
+                {% for role in roles %}
+                <option value="{{ role.name }}" {% if current_role_filter == role.name %}selected{% endif %}>
+                    {{ role.display_name }}
+                </option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-view">Search</button>
+        </form>
+
+        <div class="section">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Full Name</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Joined</th>
+                        <th>Last Login</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users.items %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>
+                            <a href="{{ url_for('admin.view_user', user_id=user.id) }}" class="user-link">
+                                {{ user.username }}
+                            </a>
+                        </td>
+                        <td>{{ user.email }}</td>
+                        <td>{{ user.full_name or '-' }}</td>
+                        <td>
+                            <span class="role-badge role-{{ user.role or 'user' }}">
+                                {{ user.role or 'user' }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if user.is_locked() %}
+                            <span class="status-locked">Locked</span>
+                            {% else %}
+                            <span style="color: var(--accent-success);">Active</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else 'N/A' }}</td>
+                        <td>{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</td>
+                        <td>
+                            <a href="{{ url_for('admin.view_user', user_id=user.id) }}" class="btn btn-view">View</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% if users.pages > 1 %}
+            <div class="pagination">
+                {% if users.has_prev %}
+                <a href="{{ url_for('admin.list_users', page=users.prev_num, role=current_role_filter, search=search) }}">Prev</a>
+                {% endif %}
+
+                {% for page_num in users.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                        {% if page_num == users.page %}
+                        <span class="active">{{ page_num }}</span>
+                        {% else %}
+                        <a href="{{ url_for('admin.list_users', page=page_num, role=current_role_filter, search=search) }}">{{ page_num }}</a>
+                        {% endif %}
+                    {% else %}
+                    <span>...</span>
+                    {% endif %}
+                {% endfor %}
+
+                {% if users.has_next %}
+                <a href="{{ url_for('admin.list_users', page=users.next_num, role=current_role_filter, search=search) }}">Next</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>
