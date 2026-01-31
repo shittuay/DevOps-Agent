@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
     <style>
         * {
             margin: 0;
@@ -12,9 +14,9 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #f7f7f8;
-            color: #2c2d30;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             font-size: 16px;
             font-weight: 500;
             min-height: 100vh;
@@ -22,8 +24,8 @@
 
         /* Header */
         .header {
-            background: white;
-            border-bottom: 1px solid #e5e5e5;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-subtle);
             position: sticky;
             top: 0;
             z-index: 100;
@@ -41,7 +43,7 @@
         .logo {
             font-size: 16px;
             font-weight: 600;
-            color: #2c2d30;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 8px;
@@ -70,19 +72,19 @@
         .header-button {
             padding: 8px 12px;
             background: transparent;
-            border: 1px solid #e5e5e5;
+            border: 1px solid var(--border-subtle);
             border-radius: 6px;
             cursor: pointer;
             font-size: 16px;
             font-weight: 600;
-            color: #2c2d30;
+            color: var(--text-primary);
             transition: all 0.15s;
             text-decoration: none;
         }
 
         .header-button:hover {
-            background: #f7f7f8;
-            border-color: #d0d0d0;
+            background: var(--bg-tertiary);
+            border-color: var(--border-medium);
         }
 
         .header-button.active {
@@ -108,7 +110,7 @@
         h1 {
             font-size: 28px;
             font-weight: 600;
-            color: #2c2d30;
+            color: var(--text-primary);
         }
 
         .sync-button {
@@ -142,22 +144,22 @@
         }
 
         .summary-card {
-            background: white;
-            border: 1px solid #e5e5e5;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
             border-radius: 8px;
             padding: 20px;
             transition: all 0.15s;
         }
 
         .summary-card:hover {
-            border-color: #cd7c48;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-color: var(--accent-primary);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
 
         .summary-card h3 {
             font-size: 14px;
             font-weight: 600;
-            color: #6e6e80;
+            color: var(--text-tertiary);
             margin-bottom: 8px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -166,7 +168,7 @@
         .summary-card .stat {
             font-size: 32px;
             font-weight: 700;
-            color: #2c2d30;
+            color: var(--text-primary);
         }
 
         .summary-card.cost-savings .stat {
@@ -175,8 +177,8 @@
 
         /* Section */
         .section {
-            background: white;
-            border: 1px solid #e5e5e5;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
             border-radius: 8px;
             padding: 24px;
             margin-bottom: 24px;
@@ -185,14 +187,15 @@
         .section h2 {
             font-size: 20px;
             font-weight: 600;
-            color: #2c2d30;
+            color: var(--text-primary);
             margin-bottom: 16px;
         }
 
         /* Recommendations */
         .recommendation-card {
-            background: #fff9f5;
-            border: 1px solid #ffd4a8;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-left: 3px solid var(--accent-primary);
             border-radius: 8px;
             padding: 16px;
             margin-bottom: 12px;
@@ -208,18 +211,18 @@
         .rec-header h4 {
             font-size: 16px;
             font-weight: 600;
-            color: #2c2d30;
+            color: var(--text-primary);
         }
 
         .savings {
             font-size: 18px;
             font-weight: 700;
-            color: #28a745;
+            color: var(--accent-success);
         }
 
         .recommendation-card p {
             font-size: 14px;
-            color: #6e6e80;
+            color: var(--text-secondary);
             margin-bottom: 12px;
         }
 
@@ -235,21 +238,21 @@
         }
 
         .btn-success {
-            background: #28a745;
+            background: var(--accent-success);
             color: white;
         }
 
         .btn-success:hover {
-            background: #218838;
+            opacity: 0.9;
         }
 
         .btn-secondary {
-            background: #f0f0f0;
-            color: #6e6e80;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
         }
 
         .btn-secondary:hover {
-            background: #e0e0e0;
+            background: var(--bg-elevated);
         }
 
         /* Resources Table */
@@ -260,23 +263,24 @@
         }
 
         .resources-table th {
-            background: #f7f7f8;
+            background: var(--bg-tertiary);
             padding: 12px;
             text-align: left;
             font-size: 14px;
             font-weight: 600;
-            color: #6e6e80;
-            border-bottom: 1px solid #e5e5e5;
+            color: var(--text-tertiary);
+            border-bottom: 1px solid var(--border-subtle);
         }
 
         .resources-table td {
             padding: 12px;
-            border-bottom: 1px solid #e5e5e5;
+            border-bottom: 1px solid var(--border-subtle);
             font-size: 14px;
+            color: var(--text-secondary);
         }
 
         .resources-table tr:hover {
-            background: #f7f7f8;
+            background: var(--bg-tertiary);
         }
 
         .status-badge {
@@ -288,13 +292,13 @@
         }
 
         .status-running {
-            background: #d4edda;
-            color: #155724;
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-success);
         }
 
         .status-stopped {
-            background: #fff3cd;
-            color: #856404;
+            background: rgba(251, 191, 36, 0.2);
+            color: var(--accent-warning);
         }
 
         .cloud-section {
@@ -304,30 +308,30 @@
         .cloud-section h3 {
             font-size: 18px;
             font-weight: 600;
-            color: #2c2d30;
+            color: var(--text-primary);
             margin-bottom: 12px;
         }
 
         .loading {
             text-align: center;
             padding: 40px;
-            color: #6e6e80;
+            color: var(--text-tertiary);
         }
 
         .empty-state {
             text-align: center;
             padding: 60px 20px;
-            color: #6e6e80;
+            color: var(--text-tertiary);
         }
 
         .empty-state h3 {
             font-size: 20px;
-            color: #2c2d30;
+            color: var(--text-primary);
             margin-bottom: 12px;
         }
     </style>
 </head>
-<body>
+<body class="animated-bg">
     <!-- Header -->
     <div class="header">
         <div class="header-content">
@@ -587,5 +591,6 @@
         // Load dashboard on page load
         document.addEventListener('DOMContentLoaded', loadDashboard);
     </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predictive Scaling - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-subtle);
+            text-align: center;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-primary);
+        }
+        .stat-card .label {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+        }
+        .stat-card.up .value { color: var(--accent-danger); }
+        .stat-card.down .value { color: var(--accent-success); }
+        .stat-card.savings .value { color: var(--accent-success); }
+
+        .hero {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-subtle);
+        }
+        .hero h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .hero p { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem; }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+        .section-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-tertiary);
+        }
+        .section-header h3 { font-size: 1rem; }
+        .section-content { padding: 1.25rem; }
+
+        .prediction-card {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid var(--accent-info);
+        }
+        .prediction-card:last-child { margin-bottom: 0; }
+        .prediction-card.scale_up { border-left-color: var(--accent-danger); }
+        .prediction-card.scale_down { border-left-color: var(--accent-success); }
+        .prediction-card.no_change { border-left-color: var(--text-tertiary); }
+
+        .prediction-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+        .prediction-header h4 { font-size: 1.1rem; margin-bottom: 0.25rem; }
+        .prediction-header .meta {
+            font-size: 0.85rem;
+            color: var(--text-tertiary);
+        }
+
+        .prediction-body {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .prediction-stat {
+            text-align: center;
+        }
+        .prediction-stat .value {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        .prediction-stat .label {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+        }
+
+        .prediction-reasoning {
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .prediction-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+        .prediction-risk {
+            font-size: 0.85rem;
+            color: var(--text-tertiary);
+        }
+        .prediction-risk.warning { color: var(--accent-warning); }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-scale_up { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-scale_down { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .badge-no_change { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .badge-high { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .badge-medium { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .badge-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+
+        .capacity-viz {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .capacity-box {
+            text-align: center;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+        }
+        .capacity-box .value {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        .capacity-box.current .value { color: var(--text-secondary); }
+        .capacity-box.recommended .value { color: var(--accent-primary); }
+        .capacity-arrow {
+            font-size: 1.5rem;
+            color: var(--text-tertiary);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-tertiary);
+        }
+
+        #message {
+            display: none;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-success); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-danger); }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Predictive Scaling</h1>
+        <nav>
+            <a href="{{ url_for('optimization.optimization_dashboard') }}">Optimization</a>
+            <a href="{{ url_for('monitoring.monitoring_dashboard') }}">Monitoring</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div id="message"></div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="value">{{ summary.resources_analyzed }}</div>
+                <div class="label">Resources Analyzed</div>
+            </div>
+            <div class="stat-card up">
+                <div class="value">{{ summary.scale_up_recommendations }}</div>
+                <div class="label">Scale Up</div>
+            </div>
+            <div class="stat-card down">
+                <div class="value">{{ summary.scale_down_recommendations }}</div>
+                <div class="label">Scale Down</div>
+            </div>
+            <div class="stat-card savings">
+                <div class="value">${{ "%.0f"|format(summary.potential_monthly_savings) }}</div>
+                <div class="label">Potential Savings/mo</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ summary.high_confidence_count }}</div>
+                <div class="label">High Confidence</div>
+            </div>
+        </div>
+
+        <div class="hero">
+            <h2>ML-Powered Scaling Recommendations</h2>
+            <p>Analyze historical metrics to predict future resource needs and generate proactive scaling recommendations. Avoid performance issues and reduce costs through intelligent capacity planning.</p>
+            <button class="btn btn-primary" onclick="runAnalysis()">Refresh Analysis</button>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h3>Scaling Recommendations</h3>
+                <span style="color: var(--text-tertiary); font-size: 0.85rem;">{{ predictions|length }} recommendations</span>
+            </div>
+            <div class="section-content">
+                {% if predictions %}
+                    {% for pred in predictions %}
+                    <div class="prediction-card {{ pred.direction.value }}">
+                        <div class="prediction-header">
+                            <div>
+                                <h4>{{ pred.resource_name }}</h4>
+                                <div class="meta">{{ pred.resource_type }} • {{ pred.category.value }}</div>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <span class="badge badge-{{ pred.direction.value }}">{{ pred.direction.value.replace('_', ' ') }}</span>
+                                <span class="badge badge-{{ pred.confidence.value }}">{{ pred.confidence.value }} confidence</span>
+                            </div>
+                        </div>
+
+                        <div class="prediction-body">
+                            <div class="capacity-viz">
+                                <div class="capacity-box current">
+                                    <div class="value">{{ pred.current_capacity }}</div>
+                                    <div style="font-size: 0.7rem; color: var(--text-tertiary);">CURRENT</div>
+                                </div>
+                                <div class="capacity-arrow">→</div>
+                                <div class="capacity-box recommended">
+                                    <div class="value">{{ pred.recommended_capacity }}</div>
+                                    <div style="font-size: 0.7rem; color: var(--text-tertiary);">RECOMMENDED</div>
+                                </div>
+                            </div>
+
+                            <div class="prediction-stat">
+                                <div class="value" style="color: {% if pred.predicted_peak > 80 %}var(--accent-danger){% else %}var(--text-primary){% endif %}">
+                                    {{ "%.1f"|format(pred.predicted_peak) }}%
+                                </div>
+                                <div class="label">Predicted Peak</div>
+                            </div>
+
+                            <div class="prediction-stat">
+                                <div class="value">{{ pred.predicted_time.strftime('%H:%M') }}</div>
+                                <div class="label">Peak Time</div>
+                            </div>
+
+                            {% if pred.potential_savings > 0 %}
+                            <div class="prediction-stat">
+                                <div class="value" style="color: var(--accent-success);">${{ "%.0f"|format(pred.potential_savings) }}/mo</div>
+                                <div class="label">Potential Savings</div>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="prediction-reasoning">
+                            <strong>Analysis:</strong> {{ pred.reasoning }}
+                        </div>
+
+                        <div class="prediction-footer">
+                            <div class="prediction-risk {% if pred.direction.value == 'scale_up' %}warning{% endif %}">
+                                <strong>Risk if ignored:</strong> {{ pred.risk_if_ignored }}
+                            </div>
+                            {% if pred.direction.value != 'no_change' %}
+                            <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;"
+                                    onclick="applyRecommendation('{{ pred.id }}')">
+                                Apply Recommendation
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">
+                        <p>No scaling recommendations at this time</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">All resources are appropriately sized</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h3>How It Works</h3>
+            </div>
+            <div class="section-content">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                        <h4 style="color: var(--accent-primary); margin-bottom: 0.5rem;">1. Pattern Detection</h4>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                            Analyzes historical metrics to identify daily, weekly, and seasonal usage patterns.
+                        </p>
+                    </div>
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                        <h4 style="color: var(--accent-primary); margin-bottom: 0.5rem;">2. Trend Analysis</h4>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                            Calculates growth rates and trends to predict future capacity needs.
+                        </p>
+                    </div>
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                        <h4 style="color: var(--accent-primary); margin-bottom: 0.5rem;">3. Peak Prediction</h4>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                            Forecasts upcoming peak usage times and recommends proactive scaling.
+                        </p>
+                    </div>
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                        <h4 style="color: var(--accent-primary); margin-bottom: 0.5rem;">4. Cost Optimization</h4>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                            Identifies over-provisioned resources and calculates potential savings.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.className = 'alert-' + type;
+            msg.textContent = text;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 5000);
+        }
+
+        async function runAnalysis() {
+            try {
+                const resp = await fetch('/scaling/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    showMessage(`Analysis complete! ${data.predictions_count} recommendations generated.`, 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showMessage(data.error || 'Analysis failed', 'error');
+                }
+            } catch (e) {
+                showMessage('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function applyRecommendation(predictionId) {
+            if (!confirm('Apply this scaling recommendation? This will trigger actual infrastructure changes.')) {
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/scaling/api/apply/${predictionId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    showMessage(`Scaling applied: ${data.action.message}`, 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showMessage(data.error || 'Failed to apply recommendation', 'error');
+                }
+            } catch (e) {
+                showMessage('Error: ' + e.message, 'error');
+            }
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

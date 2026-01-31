@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - DevOps Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+            transition: color 0.2s;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-subtle);
+        }
+        .stat-card h3 {
+            color: var(--text-tertiary);
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .stat-card.highlight .value { color: var(--accent-primary); }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border-subtle);
+        }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .section h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        .btn {
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        th {
+            color: var(--text-tertiary);
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+        td { color: var(--text-secondary); }
+        .role-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .role-admin { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .role-approver { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .role-user { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .role-viewer { background: rgba(100, 116, 139, 0.2); color: #64748b; }
+        .roles-chart {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .role-stat {
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+        }
+        .role-stat .count {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .role-stat .label {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Admin Dashboard</h1>
+        <nav>
+            <a href="{{ url_for('admin.list_users') }}">Users</a>
+            <a href="{{ url_for('admin.audit_log') }}">Audit Log</a>
+            <a href="{{ url_for('dashboard') }}">Back to App</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card highlight">
+                <h3>Total Users</h3>
+                <div class="value">{{ total_users }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Active (30 days)</h3>
+                <div class="value">{{ active_users }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Conversations</h3>
+                <div class="value">{{ total_conversations }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Messages</h3>
+                <div class="value">{{ total_messages }}</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>Users by Role</h2>
+            </div>
+            <div class="roles-chart">
+                <div class="role-stat">
+                    <div class="count" style="color: #ef4444;">{{ users_by_role.admin }}</div>
+                    <div class="label">Admins</div>
+                </div>
+                <div class="role-stat">
+                    <div class="count" style="color: #fbbf24;">{{ users_by_role.approver }}</div>
+                    <div class="label">Approvers</div>
+                </div>
+                <div class="role-stat">
+                    <div class="count" style="color: #10b981;">{{ users_by_role.user }}</div>
+                    <div class="label">Users</div>
+                </div>
+                <div class="role-stat">
+                    <div class="count" style="color: #64748b;">{{ users_by_role.viewer }}</div>
+                    <div class="label">Viewers</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>Recent Users</h2>
+                <a href="{{ url_for('admin.list_users') }}" class="btn btn-secondary">View All</a>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Joined</th>
+                        <th>Last Login</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in recent_users %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('admin.view_user', user_id=user.id) }}" style="color: var(--accent-primary); text-decoration: none;">
+                                {{ user.username }}
+                            </a>
+                        </td>
+                        <td>{{ user.email }}</td>
+                        <td>
+                            <span class="role-badge role-{{ user.role or 'user' }}">
+                                {{ user.role or 'user' }}
+                            </span>
+                        </td>
+                        <td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else 'N/A' }}</td>
+                        <td>{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playbook Builder - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .builder-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 1.5rem;
+        }
+        @media (max-width: 900px) {
+            .builder-layout { grid-template-columns: 1fr; }
+        }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-tertiary);
+        }
+        .section-header h3 { font-size: 1rem; }
+        .section-content { padding: 1.25rem; }
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        .form-control {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+        select.form-control {
+            cursor: pointer;
+        }
+        textarea.form-control {
+            min-height: 80px;
+            resize: vertical;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .btn {
+            padding: 0.6rem 1.25rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-success { background: var(--accent-success); color: white; }
+        .btn-danger { background: var(--accent-danger); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.75rem; }
+
+        /* Action Types Palette */
+        .action-palette {
+            display: grid;
+            gap: 0.5rem;
+        }
+        .action-type {
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border: 1px solid var(--border-subtle);
+            transition: all 0.2s;
+        }
+        .action-type:hover {
+            border-color: var(--accent-primary);
+            background: rgba(255, 107, 53, 0.1);
+        }
+        .action-type.dragging {
+            opacity: 0.5;
+        }
+        .action-icon {
+            font-size: 1.25rem;
+        }
+        .action-info h4 {
+            font-size: 0.85rem;
+            margin-bottom: 0.15rem;
+        }
+        .action-info p {
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+        }
+
+        /* Canvas for playbook actions */
+        .playbook-canvas {
+            min-height: 400px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            border: 2px dashed var(--border-subtle);
+            padding: 1rem;
+            position: relative;
+        }
+        .playbook-canvas.drag-over {
+            border-color: var(--accent-primary);
+            background: rgba(255, 107, 53, 0.05);
+        }
+        .playbook-canvas.empty::before {
+            content: 'Drag actions here to build your playbook';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--text-tertiary);
+            font-size: 0.9rem;
+        }
+
+        /* Action cards in canvas */
+        .playbook-action {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+            margin-bottom: 0.75rem;
+            overflow: hidden;
+        }
+        .playbook-action.selected {
+            border-color: var(--accent-primary);
+        }
+        .action-header {
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move;
+        }
+        .action-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .action-number {
+            width: 24px;
+            height: 24px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .action-body {
+            padding: 1rem;
+        }
+        .action-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .action-controls button {
+            background: none;
+            border: none;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            padding: 0.25rem;
+            font-size: 1rem;
+        }
+        .action-controls button:hover {
+            color: var(--text-primary);
+        }
+
+        /* Trigger conditions builder */
+        .condition-row {
+            display: grid;
+            grid-template-columns: 1fr 100px 1fr auto;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            align-items: center;
+        }
+        .condition-row .btn {
+            padding: 0.5rem;
+        }
+
+        /* Tags input */
+        .tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            min-height: 42px;
+        }
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            background: var(--accent-info);
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        .tag button {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8rem;
+            padding: 0;
+        }
+        .tags-input {
+            border: none;
+            background: none;
+            color: var(--text-primary);
+            outline: none;
+            flex: 1;
+            min-width: 100px;
+        }
+
+        /* Message display */
+        #message {
+            display: none;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-success); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-danger); }
+
+        /* Preview panel */
+        .preview-json {
+            background: var(--bg-primary);
+            border-radius: 6px;
+            padding: 1rem;
+            font-family: monospace;
+            font-size: 0.8rem;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>{% if playbook %}Edit Playbook{% else %}Create Playbook{% endif %}</h1>
+        <nav>
+            <a href="{{ url_for('incidents.list_playbooks') }}">All Playbooks</a>
+            <a href="{{ url_for('incidents.incidents_dashboard') }}">Incidents</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div id="message"></div>
+
+        <div class="builder-layout">
+            <!-- Left Panel: Action Palette -->
+            <div class="section">
+                <div class="section-header">
+                    <h3>Action Types</h3>
+                </div>
+                <div class="section-content">
+                    <div class="action-palette" id="actionPalette">
+                        <div class="action-type" draggable="true" data-type="notify">
+                            <span class="action-icon">🔔</span>
+                            <div class="action-info">
+                                <h4>Notify</h4>
+                                <p>Send notification</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="restart_service">
+                            <span class="action-icon">🔄</span>
+                            <div class="action-info">
+                                <h4>Restart Service</h4>
+                                <p>Restart a service</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="scale_up">
+                            <span class="action-icon">📈</span>
+                            <div class="action-info">
+                                <h4>Scale Up</h4>
+                                <p>Increase replicas</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="scale_down">
+                            <span class="action-icon">📉</span>
+                            <div class="action-info">
+                                <h4>Scale Down</h4>
+                                <p>Decrease replicas</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="kubernetes_action">
+                            <span class="action-icon">☸️</span>
+                            <div class="action-info">
+                                <h4>Kubernetes</h4>
+                                <p>K8s command</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="aws_action">
+                            <span class="action-icon">☁️</span>
+                            <div class="action-info">
+                                <h4>AWS Action</h4>
+                                <p>AWS operation</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="run_script">
+                            <span class="action-icon">📜</span>
+                            <div class="action-info">
+                                <h4>Run Script</h4>
+                                <p>Execute script</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="clear_cache">
+                            <span class="action-icon">🧹</span>
+                            <div class="action-info">
+                                <h4>Clear Cache</h4>
+                                <p>Flush cache</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="block_ip">
+                            <span class="action-icon">🚫</span>
+                            <div class="action-info">
+                                <h4>Block IP</h4>
+                                <p>Block IP address</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="rollback">
+                            <span class="action-icon">⏪</span>
+                            <div class="action-info">
+                                <h4>Rollback</h4>
+                                <p>Rollback deployment</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="failover">
+                            <span class="action-icon">🔀</span>
+                            <div class="action-info">
+                                <h4>Failover</h4>
+                                <p>Switch to backup</p>
+                            </div>
+                        </div>
+                        <div class="action-type" draggable="true" data-type="custom">
+                            <span class="action-icon">⚙️</span>
+                            <div class="action-info">
+                                <h4>Custom</h4>
+                                <p>Custom action</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Builder Form -->
+            <div>
+                <!-- Playbook Info -->
+                <div class="section" style="margin-bottom: 1.5rem;">
+                    <div class="section-header">
+                        <h3>Playbook Details</h3>
+                    </div>
+                    <div class="section-content">
+                        <div class="form-group">
+                            <label>Playbook Name *</label>
+                            <input type="text" class="form-control" id="playbookName"
+                                   placeholder="e.g., High CPU Response"
+                                   value="{{ playbook.name if playbook else '' }}">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <textarea class="form-control" id="playbookDescription"
+                                      placeholder="Describe what this playbook does...">{{ playbook.description if playbook else '' }}</textarea>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label>Severity</label>
+                                <select class="form-control" id="playbookSeverity">
+                                    <option value="critical" {% if playbook and playbook.severity.value == 'critical' %}selected{% endif %}>Critical</option>
+                                    <option value="high" {% if playbook and playbook.severity.value == 'high' %}selected{% endif %}>High</option>
+                                    <option value="medium" {% if playbook and playbook.severity.value == 'medium' or not playbook %}selected{% endif %}>Medium</option>
+                                    <option value="low" {% if playbook and playbook.severity.value == 'low' %}selected{% endif %}>Low</option>
+                                    <option value="info" {% if playbook and playbook.severity.value == 'info' %}selected{% endif %}>Info</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Tags</label>
+                                <div class="tags-container" id="tagsContainer">
+                                    {% if playbook and playbook.tags %}
+                                        {% for tag in playbook.tags %}
+                                        <span class="tag">{{ tag }}<button onclick="removeTag(this)">&times;</button></span>
+                                        {% endfor %}
+                                    {% endif %}
+                                    <input type="text" class="tags-input" id="tagInput" placeholder="Add tag...">
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 2rem;">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="playbookEnabled" {% if not playbook or playbook.enabled %}checked{% endif %}>
+                                <label for="playbookEnabled">Enabled</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="playbookAutoExecute" {% if playbook and playbook.auto_execute %}checked{% endif %}>
+                                <label for="playbookAutoExecute">Auto-execute (no approval)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trigger Conditions -->
+                <div class="section" style="margin-bottom: 1.5rem;">
+                    <div class="section-header">
+                        <h3>Trigger Conditions</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="addCondition()">+ Add Condition</button>
+                    </div>
+                    <div class="section-content">
+                        <p style="font-size: 0.85rem; color: var(--text-tertiary); margin-bottom: 1rem;">
+                            Define when this playbook should be matched to an incident.
+                        </p>
+                        <div id="conditionsContainer">
+                            <!-- Conditions will be added here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions Canvas -->
+                <div class="section" style="margin-bottom: 1.5rem;">
+                    <div class="section-header">
+                        <h3>Playbook Actions</h3>
+                        <span style="color: var(--text-tertiary); font-size: 0.8rem;">
+                            Drag actions from the left panel
+                        </span>
+                    </div>
+                    <div class="section-content">
+                        <div class="playbook-canvas empty" id="actionsCanvas">
+                            <!-- Actions will be added here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button class="btn btn-secondary" onclick="previewPlaybook()">Preview JSON</button>
+                    <button class="btn btn-secondary" onclick="window.location.href='{{ url_for('incidents.list_playbooks') }}'">Cancel</button>
+                    <button class="btn btn-primary" onclick="savePlaybook()">
+                        {% if playbook %}Update Playbook{% else %}Create Playbook{% endif %}
+                    </button>
+                </div>
+
+                <!-- Preview Modal -->
+                <div class="section" id="previewSection" style="margin-top: 1.5rem; display: none;">
+                    <div class="section-header">
+                        <h3>JSON Preview</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('previewSection').style.display='none'">Close</button>
+                    </div>
+                    <div class="section-content">
+                        <pre class="preview-json" id="previewJson"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let actions = [];
+        let conditions = [];
+        let tags = [];
+        let editingPlaybookId = {{ playbook.id|tojson if playbook else 'null' }};
+        let actionCounter = 0;
+
+        // Action type icons
+        const actionIcons = {
+            'notify': '🔔',
+            'restart_service': '🔄',
+            'scale_up': '📈',
+            'scale_down': '📉',
+            'kubernetes_action': '☸️',
+            'aws_action': '☁️',
+            'run_script': '📜',
+            'clear_cache': '🧹',
+            'block_ip': '🚫',
+            'rollback': '⏪',
+            'failover': '🔀',
+            'custom': '⚙️'
+        };
+
+        // Parameter templates for each action type
+        const actionParams = {
+            'notify': [
+                { name: 'channel', label: 'Channel', type: 'select', options: ['slack', 'teams', 'email', 'pagerduty'] },
+                { name: 'message', label: 'Message', type: 'textarea' }
+            ],
+            'restart_service': [
+                { name: 'service', label: 'Service Name', type: 'text' },
+                { name: 'namespace', label: 'Namespace', type: 'text' }
+            ],
+            'scale_up': [
+                { name: 'deployment', label: 'Deployment', type: 'text' },
+                { name: 'replicas', label: 'Target Replicas', type: 'number' },
+                { name: 'namespace', label: 'Namespace', type: 'text' }
+            ],
+            'scale_down': [
+                { name: 'deployment', label: 'Deployment', type: 'text' },
+                { name: 'replicas', label: 'Target Replicas', type: 'number' },
+                { name: 'namespace', label: 'Namespace', type: 'text' }
+            ],
+            'kubernetes_action': [
+                { name: 'command', label: 'kubectl Command', type: 'text' },
+                { name: 'namespace', label: 'Namespace', type: 'text' }
+            ],
+            'aws_action': [
+                { name: 'service', label: 'AWS Service', type: 'select', options: ['ec2', 'rds', 'lambda', 'ecs', 's3'] },
+                { name: 'action', label: 'Action', type: 'text' },
+                { name: 'target', label: 'Target Resource', type: 'text' }
+            ],
+            'run_script': [
+                { name: 'script', label: 'Script Path', type: 'text' },
+                { name: 'args', label: 'Arguments', type: 'text' }
+            ],
+            'clear_cache': [
+                { name: 'target', label: 'Cache Target', type: 'select', options: ['redis', 'memcached', 'cdn', 'application'] },
+                { name: 'pattern', label: 'Key Pattern', type: 'text' }
+            ],
+            'block_ip': [
+                { name: 'ip', label: 'IP Address/CIDR', type: 'text' },
+                { name: 'duration', label: 'Duration (minutes)', type: 'number' }
+            ],
+            'rollback': [
+                { name: 'deployment', label: 'Deployment', type: 'text' },
+                { name: 'revision', label: 'Revision (empty for previous)', type: 'text' },
+                { name: 'namespace', label: 'Namespace', type: 'text' }
+            ],
+            'failover': [
+                { name: 'service', label: 'Service', type: 'text' },
+                { name: 'target', label: 'Failover Target', type: 'text' }
+            ],
+            'custom': [
+                { name: 'command', label: 'Command', type: 'textarea' }
+            ]
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initDragDrop();
+            initTags();
+
+            // Load existing playbook data if editing
+            {% if playbook %}
+            loadPlaybookData();
+            {% else %}
+            addCondition(); // Add one condition by default
+            {% endif %}
+        });
+
+        function initDragDrop() {
+            const palette = document.querySelectorAll('.action-type');
+            const canvas = document.getElementById('actionsCanvas');
+
+            palette.forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', item.dataset.type);
+                    item.classList.add('dragging');
+                });
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                });
+            });
+
+            canvas.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                canvas.classList.add('drag-over');
+            });
+            canvas.addEventListener('dragleave', () => {
+                canvas.classList.remove('drag-over');
+            });
+            canvas.addEventListener('drop', (e) => {
+                e.preventDefault();
+                canvas.classList.remove('drag-over');
+                const type = e.dataTransfer.getData('text/plain');
+                addAction(type);
+            });
+        }
+
+        function initTags() {
+            const input = document.getElementById('tagInput');
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && input.value.trim()) {
+                    e.preventDefault();
+                    addTag(input.value.trim());
+                    input.value = '';
+                }
+            });
+
+            // Load existing tags
+            document.querySelectorAll('.tag').forEach(tag => {
+                tags.push(tag.textContent.replace('×', '').trim());
+            });
+        }
+
+        function addTag(text) {
+            if (tags.includes(text)) return;
+            tags.push(text);
+            const container = document.getElementById('tagsContainer');
+            const input = document.getElementById('tagInput');
+            const tag = document.createElement('span');
+            tag.className = 'tag';
+            tag.innerHTML = `${text}<button onclick="removeTag(this)">&times;</button>`;
+            container.insertBefore(tag, input);
+        }
+
+        function removeTag(btn) {
+            const tag = btn.parentElement;
+            const text = tag.textContent.replace('×', '').trim();
+            tags = tags.filter(t => t !== text);
+            tag.remove();
+        }
+
+        function addCondition() {
+            const container = document.getElementById('conditionsContainer');
+            const index = conditions.length;
+
+            const row = document.createElement('div');
+            row.className = 'condition-row';
+            row.dataset.index = index;
+            row.innerHTML = `
+                <select class="form-control" onchange="updateCondition(${index})">
+                    <option value="source">Source</option>
+                    <option value="title">Title Contains</option>
+                    <option value="description">Description Contains</option>
+                    <option value="severity">Severity</option>
+                    <option value="metadata">Metadata</option>
+                </select>
+                <select class="form-control" onchange="updateCondition(${index})">
+                    <option value="equals">equals</option>
+                    <option value="contains">contains</option>
+                    <option value="matches">matches</option>
+                </select>
+                <input type="text" class="form-control" placeholder="Value" onchange="updateCondition(${index})">
+                <button class="btn btn-danger btn-sm" onclick="removeCondition(${index})">×</button>
+            `;
+
+            container.appendChild(row);
+            conditions.push({ field: 'source', operator: 'equals', value: '' });
+        }
+
+        function updateCondition(index) {
+            const row = document.querySelector(`.condition-row[data-index="${index}"]`);
+            if (!row) return;
+
+            const selects = row.querySelectorAll('select');
+            const input = row.querySelector('input');
+
+            conditions[index] = {
+                field: selects[0].value,
+                operator: selects[1].value,
+                value: input.value
+            };
+        }
+
+        function removeCondition(index) {
+            const row = document.querySelector(`.condition-row[data-index="${index}"]`);
+            if (row) row.remove();
+            conditions[index] = null;
+        }
+
+        function addAction(type) {
+            const canvas = document.getElementById('actionsCanvas');
+            canvas.classList.remove('empty');
+
+            const actionId = ++actionCounter;
+            const icon = actionIcons[type] || '⚙️';
+            const typeName = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+            const actionEl = document.createElement('div');
+            actionEl.className = 'playbook-action';
+            actionEl.dataset.id = actionId;
+            actionEl.dataset.type = type;
+
+            let paramsHtml = '';
+            const params = actionParams[type] || [];
+            params.forEach(p => {
+                if (p.type === 'select') {
+                    paramsHtml += `
+                        <div class="form-group">
+                            <label>${p.label}</label>
+                            <select class="form-control" data-param="${p.name}">
+                                ${p.options.map(o => `<option value="${o}">${o}</option>`).join('')}
+                            </select>
+                        </div>
+                    `;
+                } else if (p.type === 'textarea') {
+                    paramsHtml += `
+                        <div class="form-group">
+                            <label>${p.label}</label>
+                            <textarea class="form-control" data-param="${p.name}" rows="2"></textarea>
+                        </div>
+                    `;
+                } else {
+                    paramsHtml += `
+                        <div class="form-group">
+                            <label>${p.label}</label>
+                            <input type="${p.type}" class="form-control" data-param="${p.name}">
+                        </div>
+                    `;
+                }
+            });
+
+            actionEl.innerHTML = `
+                <div class="action-header">
+                    <div class="action-header-left">
+                        <span class="action-number">${actions.length + 1}</span>
+                        <span>${icon} ${typeName}</span>
+                    </div>
+                    <div class="action-controls">
+                        <button onclick="moveAction(${actionId}, -1)" title="Move Up">↑</button>
+                        <button onclick="moveAction(${actionId}, 1)" title="Move Down">↓</button>
+                        <button onclick="removeAction(${actionId})" title="Remove">×</button>
+                    </div>
+                </div>
+                <div class="action-body">
+                    <div class="form-group">
+                        <label>Action Name</label>
+                        <input type="text" class="form-control" data-param="name" value="${typeName}" placeholder="Action name">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" class="form-control" data-param="description" placeholder="What this action does">
+                    </div>
+                    ${paramsHtml}
+                    <div style="display: flex; gap: 1rem;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="approval_${actionId}" data-param="requires_approval">
+                            <label for="approval_${actionId}">Requires Approval</label>
+                        </div>
+                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                            <label style="display: inline; margin-right: 0.5rem;">Timeout (sec)</label>
+                            <input type="number" class="form-control" style="width: 80px; display: inline-block;"
+                                   data-param="timeout" value="300">
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            canvas.appendChild(actionEl);
+            actions.push({ id: actionId, type: type });
+            updateActionNumbers();
+        }
+
+        function removeAction(actionId) {
+            const actionEl = document.querySelector(`.playbook-action[data-id="${actionId}"]`);
+            if (actionEl) actionEl.remove();
+            actions = actions.filter(a => a.id !== actionId);
+            updateActionNumbers();
+
+            if (actions.length === 0) {
+                document.getElementById('actionsCanvas').classList.add('empty');
+            }
+        }
+
+        function moveAction(actionId, direction) {
+            const index = actions.findIndex(a => a.id === actionId);
+            if (index === -1) return;
+
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= actions.length) return;
+
+            // Swap in array
+            [actions[index], actions[newIndex]] = [actions[newIndex], actions[index]];
+
+            // Swap in DOM
+            const canvas = document.getElementById('actionsCanvas');
+            const elements = canvas.querySelectorAll('.playbook-action');
+            const current = elements[index];
+            const target = elements[newIndex];
+
+            if (direction === -1) {
+                canvas.insertBefore(current, target);
+            } else {
+                canvas.insertBefore(target, current);
+            }
+
+            updateActionNumbers();
+        }
+
+        function updateActionNumbers() {
+            document.querySelectorAll('.playbook-action').forEach((el, i) => {
+                el.querySelector('.action-number').textContent = i + 1;
+            });
+        }
+
+        function getActionData(actionEl) {
+            const data = {
+                action_type: actionEl.dataset.type,
+                name: '',
+                description: '',
+                parameters: {},
+                requires_approval: false,
+                timeout_seconds: 300
+            };
+
+            actionEl.querySelectorAll('[data-param]').forEach(el => {
+                const param = el.dataset.param;
+                let value;
+
+                if (el.type === 'checkbox') {
+                    value = el.checked;
+                } else if (el.type === 'number') {
+                    value = parseInt(el.value) || 0;
+                } else {
+                    value = el.value;
+                }
+
+                if (param === 'name') data.name = value;
+                else if (param === 'description') data.description = value;
+                else if (param === 'requires_approval') data.requires_approval = value;
+                else if (param === 'timeout') data.timeout_seconds = value;
+                else data.parameters[param] = value;
+            });
+
+            return data;
+        }
+
+        function buildPlaybookData() {
+            // Build trigger conditions
+            const triggerConditions = {};
+            conditions.filter(c => c && c.value).forEach(c => {
+                triggerConditions[c.field] = {
+                    operator: c.operator,
+                    value: c.value
+                };
+            });
+
+            // Build actions
+            const actionsList = [];
+            document.querySelectorAll('.playbook-action').forEach(el => {
+                actionsList.push(getActionData(el));
+            });
+
+            return {
+                id: editingPlaybookId,
+                name: document.getElementById('playbookName').value,
+                description: document.getElementById('playbookDescription').value,
+                severity: document.getElementById('playbookSeverity').value,
+                trigger_conditions: triggerConditions,
+                actions: actionsList,
+                enabled: document.getElementById('playbookEnabled').checked,
+                auto_execute: document.getElementById('playbookAutoExecute').checked,
+                tags: tags,
+                notification_channels: [],
+                escalation_policy: null
+            };
+        }
+
+        function previewPlaybook() {
+            const data = buildPlaybookData();
+            document.getElementById('previewJson').textContent = JSON.stringify(data, null, 2);
+            document.getElementById('previewSection').style.display = 'block';
+        }
+
+        async function savePlaybook() {
+            const data = buildPlaybookData();
+
+            if (!data.name) {
+                showMessage('Playbook name is required', 'error');
+                return;
+            }
+
+            if (data.actions.length === 0) {
+                showMessage('At least one action is required', 'error');
+                return;
+            }
+
+            try {
+                const url = editingPlaybookId
+                    ? `/incidents/api/playbooks/${editingPlaybookId}`
+                    : '/incidents/api/playbooks';
+                const method = editingPlaybookId ? 'PUT' : 'POST';
+
+                const resp = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await resp.json();
+
+                if (result.success) {
+                    showMessage('Playbook saved successfully!', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/incidents/playbooks';
+                    }, 1000);
+                } else {
+                    showMessage(result.error || 'Failed to save playbook', 'error');
+                }
+            } catch (e) {
+                showMessage('Error saving playbook: ' + e.message, 'error');
+            }
+        }
+
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.className = 'alert-' + type;
+            msg.textContent = text;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 5000);
+        }
+
+        {% if playbook %}
+        function loadPlaybookData() {
+            // Load conditions
+            const triggerConditions = {{ playbook.trigger_conditions|tojson|safe }};
+            for (const [field, cond] of Object.entries(triggerConditions)) {
+                addCondition();
+                const index = conditions.length - 1;
+                const row = document.querySelector(`.condition-row[data-index="${index}"]`);
+                if (row) {
+                    const selects = row.querySelectorAll('select');
+                    const input = row.querySelector('input');
+                    selects[0].value = field;
+                    if (typeof cond === 'object') {
+                        selects[1].value = cond.operator || 'equals';
+                        input.value = cond.value || '';
+                    } else {
+                        input.value = cond;
+                    }
+                    updateCondition(index);
+                }
+            }
+
+            // Load actions
+            const playbookActions = {{ playbook.actions|tojson|safe if playbook.actions else '[]' }};
+            playbookActions.forEach(action => {
+                const type = action.action_type || action.type || 'custom';
+                addAction(type.toLowerCase());
+
+                const actionEl = document.querySelector(`.playbook-action:last-child`);
+                if (actionEl) {
+                    // Set name and description
+                    const nameInput = actionEl.querySelector('[data-param="name"]');
+                    if (nameInput) nameInput.value = action.name || '';
+
+                    const descInput = actionEl.querySelector('[data-param="description"]');
+                    if (descInput) descInput.value = action.description || '';
+
+                    // Set requires_approval
+                    const approvalCheck = actionEl.querySelector('[data-param="requires_approval"]');
+                    if (approvalCheck) approvalCheck.checked = action.requires_approval || false;
+
+                    // Set timeout
+                    const timeoutInput = actionEl.querySelector('[data-param="timeout"]');
+                    if (timeoutInput) timeoutInput.value = action.timeout_seconds || 300;
+
+                    // Set other parameters
+                    if (action.parameters) {
+                        for (const [key, value] of Object.entries(action.parameters)) {
+                            const input = actionEl.querySelector(`[data-param="${key}"]`);
+                            if (input) input.value = value;
+                        }
+                    }
+                }
+            });
+        }
+        {% endif %}
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

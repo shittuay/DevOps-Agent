@@ -1286,7 +1286,12 @@ def get_dashboard_summary(user_id: int) -> Dict:
     Returns:
         Dictionary with summary statistics
     """
-    resources = InfrastructureResource.query.filter_by(user_id=user_id).all()
+    # Exclude terminated/deleted resources
+    excluded_statuses = ['terminated', 'deleted', 'deleting', 'shutting-down']
+    resources = InfrastructureResource.query.filter(
+        InfrastructureResource.user_id == user_id,
+        ~InfrastructureResource.status.in_(excluded_statuses)
+    ).all()
     recommendations = CostOptimization.query.filter_by(
         user_id=user_id,
         status='pending'

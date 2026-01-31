@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Incident Response - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-subtle);
+            text-align: center;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .stat-card .label {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+        }
+        .stat-card.critical .value { color: var(--accent-danger); }
+        .stat-card.high .value { color: var(--accent-warning); }
+        .stat-card.resolved .value { color: var(--accent-success); }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header h2 { font-size: 1.125rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 0.875rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        th {
+            background: var(--bg-tertiary);
+            color: var(--text-tertiary);
+            font-weight: 500;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+        td { font-size: 0.875rem; }
+        tr:hover { background: rgba(255, 255, 255, 0.02); }
+        .severity-badge, .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .severity-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .severity-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .severity-medium { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .severity-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .severity-info { background: rgba(100, 116, 139, 0.15); color: #64748b; }
+        .status-detected { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .status-acknowledged { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .status-investigating { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .status-remediating { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+        .status-resolved { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .status-awaiting_approval { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: opacity 0.2s;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; }
+        .incident-link {
+            color: var(--accent-primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .incident-link:hover { text-decoration: underline; }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-tertiary);
+        }
+        .playbook-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .playbook-card h4 {
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
+        }
+        .playbook-card p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .playbook-meta {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+        .tag {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            font-size: 0.7rem;
+            margin-right: 0.25rem;
+        }
+        .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }
+        @media (max-width: 1024px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Incident Response</h1>
+        <nav>
+            <a href="{{ url_for('incidents.list_playbooks') }}">Playbooks</a>
+            <a href="{{ url_for('analysis.analysis_dashboard') }}">Root Cause Analysis</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card critical">
+                <div class="value">{{ stats.by_severity.get('critical', 0) }}</div>
+                <div class="label">Critical</div>
+            </div>
+            <div class="stat-card high">
+                <div class="value">{{ stats.by_severity.get('high', 0) }}</div>
+                <div class="label">High</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.by_status.get('detected', 0) + stats.by_status.get('acknowledged', 0) }}</div>
+                <div class="label">Active</div>
+            </div>
+            <div class="stat-card resolved">
+                <div class="value">{{ stats.by_status.get('resolved', 0) }}</div>
+                <div class="label">Resolved</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.playbooks_registered }}</div>
+                <div class="label">Playbooks</div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="section">
+                <div class="section-header">
+                    <h2>Active Incidents</h2>
+                </div>
+                {% if incidents %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Severity</th>
+                            <th>Status</th>
+                            <th>Source</th>
+                            <th>Time</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for incident in incidents %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('incidents.view_incident', incident_id=incident.id) }}" class="incident-link">
+                                    #{{ incident.id }}
+                                </a>
+                            </td>
+                            <td>{{ incident.title[:50] }}{% if incident.title|length > 50 %}...{% endif %}</td>
+                            <td>
+                                <span class="severity-badge severity-{{ incident.severity.value }}">
+                                    {{ incident.severity.value }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="status-badge status-{{ incident.status.value }}">
+                                    {{ incident.status.value.replace('_', ' ') }}
+                                </span>
+                            </td>
+                            <td>{{ incident.source }}</td>
+                            <td>{{ incident.triggered_at.strftime('%H:%M:%S') }}</td>
+                            <td>
+                                <a href="{{ url_for('incidents.view_incident', incident_id=incident.id) }}" class="btn btn-secondary">View</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="empty-state">
+                    <p>No active incidents</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <div>
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Active Playbooks</h2>
+                        <a href="{{ url_for('incidents.list_playbooks') }}" class="btn btn-secondary">View All</a>
+                    </div>
+                    <div style="padding: 1rem;">
+                        {% for playbook in playbooks[:5] %}
+                        <div class="playbook-card">
+                            <h4>{{ playbook.name }}</h4>
+                            <p>{{ playbook.description[:80] }}{% if playbook.description|length > 80 %}...{% endif %}</p>
+                            <div class="playbook-meta">
+                                <span class="severity-badge severity-{{ playbook.severity.value }}">
+                                    {{ playbook.severity.value }}
+                                </span>
+                                {% if playbook.auto_execute %}
+                                <span style="color: var(--accent-success);">Auto-execute</span>
+                                {% endif %}
+                                <span>{{ playbook.actions|length }} actions</span>
+                            </div>
+                            <div style="margin-top: 0.5rem;">
+                                {% for tag in playbook.tags[:3] %}
+                                <span class="tag">{{ tag }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh every 30 seconds
+        setTimeout(() => location.reload(), 30000);
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Details - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .user-header {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            align-items: flex-start;
+        }
+        .avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: white;
+            flex-shrink: 0;
+        }
+        .user-info h2 { font-size: 1.75rem; margin-bottom: 0.5rem; }
+        .user-info .email { color: var(--text-secondary); margin-bottom: 0.5rem; }
+        .role-badge {
+            display: inline-block;
+            padding: 0.35rem 1rem;
+            border-radius: 50px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .role-admin { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .role-approver { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .role-user { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .role-viewer { background: rgba(100, 116, 139, 0.2); color: #64748b; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 1.5rem; }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-subtle);
+        }
+        .section h3 {
+            font-size: 1.125rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-row .label { color: var(--text-tertiary); }
+        .info-row .value { color: var(--text-primary); font-weight: 500; }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-warning { background: var(--accent-warning); color: black; }
+        .btn-danger { background: var(--accent-danger); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }
+        select {
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        select:focus { outline: none; border-color: var(--accent-primary); }
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-success); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-danger); }
+        .status-locked { color: var(--accent-danger); font-weight: 600; }
+        .status-active { color: var(--accent-success); font-weight: 600; }
+        #message { display: none; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        th { color: var(--text-tertiary); font-weight: 500; font-size: 0.875rem; }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>User Details</h1>
+        <nav>
+            <a href="{{ url_for('admin.list_users') }}">All Users</a>
+            <a href="{{ url_for('admin.admin_dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('dashboard') }}">Back to App</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div id="message"></div>
+
+        <div class="user-header">
+            <div class="avatar" style="background: {{ user.avatar_color or '#cd7c48' }};">
+                {{ user.get_avatar_initials() }}
+            </div>
+            <div class="user-info">
+                <h2>{{ user.full_name or user.username }}</h2>
+                <div class="email">{{ user.email }}</div>
+                <span class="role-badge role-{{ user.role or 'user' }}">
+                    {{ user.role or 'user' }}
+                </span>
+                {% if user.is_locked() %}
+                <span class="status-locked" style="margin-left: 0.5rem;">LOCKED</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="section">
+                <h3>Account Information</h3>
+                <div class="info-row">
+                    <span class="label">User ID</span>
+                    <span class="value">{{ user.id }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Username</span>
+                    <span class="value">{{ user.username }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Email</span>
+                    <span class="value">{{ user.email }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Full Name</span>
+                    <span class="value">{{ user.full_name or '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Role</span>
+                    <span class="value">{{ user.role or 'user' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Status</span>
+                    <span class="value">
+                        {% if user.is_locked() %}
+                        <span class="status-locked">Locked until {{ user.locked_until.strftime('%Y-%m-%d %H:%M') }}</span>
+                        {% else %}
+                        <span class="status-active">Active</span>
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Activity</h3>
+                <div class="info-row">
+                    <span class="label">Created</span>
+                    <span class="value">{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Last Login</span>
+                    <span class="value">{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Last Login IP</span>
+                    <span class="value">{{ user.last_login_ip or '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Failed Login Attempts</span>
+                    <span class="value">{{ user.failed_login_attempts or 0 }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">2FA Enabled</span>
+                    <span class="value">{{ 'Yes' if user.two_factor_enabled else 'No' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Messages Sent</span>
+                    <span class="value">{{ message_count }}</span>
+                </div>
+            </div>
+
+            {% if can_manage %}
+            <div class="section">
+                <h3>Role Management</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                    Change this user's role to adjust their permissions.
+                </p>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <select id="roleSelect">
+                        {% for role in assignable_roles %}
+                        <option value="{{ role.name }}" {% if role.name == user.role %}selected{% endif %}>
+                            {{ role.display_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary" onclick="updateRole()">Update Role</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Account Actions</h3>
+                <div class="actions">
+                    {% if user.is_locked() %}
+                    <button class="btn btn-success" onclick="unlockUser()" style="background: var(--accent-success);">
+                        Unlock Account
+                    </button>
+                    {% else %}
+                    <button class="btn btn-warning" onclick="lockUser()">
+                        Lock Account (24h)
+                    </button>
+                    {% endif %}
+                    <button class="btn btn-danger" onclick="deleteUser()">
+                        Delete User
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="section" style="grid-column: 1 / -1;">
+                <h3>Recent Conversations</h3>
+                {% if recent_conversations %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Created</th>
+                            <th>Last Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for conv in recent_conversations %}
+                        <tr>
+                            <td>{{ conv.title or 'Untitled' }}</td>
+                            <td>{{ conv.created_at.strftime('%Y-%m-%d %H:%M') if conv.created_at else 'N/A' }}</td>
+                            <td>{{ conv.updated_at.strftime('%Y-%m-%d %H:%M') if conv.updated_at else 'N/A' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color: var(--text-tertiary);">No conversations yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.className = 'alert alert-' + type;
+            msg.textContent = text;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 5000);
+        }
+
+        async function updateRole() {
+            const role = document.getElementById('roleSelect').value;
+            try {
+                const resp = await fetch('{{ url_for("admin.update_user_role", user_id=user.id) }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role: role })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('Role updated to ' + role, 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to update role', 'error');
+            }
+        }
+
+        async function lockUser() {
+            if (!confirm('Lock this user account for 24 hours?')) return;
+            try {
+                const resp = await fetch('{{ url_for("admin.lock_user", user_id=user.id) }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ duration: 24 })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('User account locked', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to lock user', 'error');
+            }
+        }
+
+        async function unlockUser() {
+            try {
+                const resp = await fetch('{{ url_for("admin.unlock_user", user_id=user.id) }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('User account unlocked', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to unlock user', 'error');
+            }
+        }
+
+        async function deleteUser() {
+            if (!confirm('DELETE this user? This action cannot be undone!')) return;
+            if (!confirm('Are you absolutely sure?')) return;
+            try {
+                const resp = await fetch('{{ url_for("admin.delete_user", user_id=user.id) }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showMessage('User deleted', 'success');
+                    setTimeout(() => window.location.href = '{{ url_for("admin.list_users") }}', 1000);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Failed to delete user', 'error');
+            }
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

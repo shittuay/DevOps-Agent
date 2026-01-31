@@ -9,72 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
 
     <style>
-        :root {
-            /* Dark Theme (Default) */
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #111827;
-            --bg-tertiary: #1a2332;
-            --bg-elevated: #212d3f;
-
-            /* Glassmorphism */
-            --glass-bg: rgba(26, 35, 50, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-
-            /* Accent Colors */
-            --accent-primary: #ff6b35;
-            --accent-secondary: #f7931e;
-            --accent-electric: #00d4ff;
-            --accent-success: #10b981;
-            --accent-warning: #fbbf24;
-
-            /* Text Colors */
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-tertiary: #64748b;
-            --text-muted: #475569;
-
-            /* Borders */
-            --border-subtle: rgba(255, 255, 255, 0.08);
-            --border-medium: rgba(255, 255, 255, 0.12);
-
-            /* Gradients */
-            --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
-            --gradient-mesh: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
-                             radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
-        }
-
-        /* Light Theme */
-        [data-theme="light"] {
-            --bg-primary: #f8fafc;
-            --bg-secondary: #ffffff;
-            --bg-tertiary: #f1f5f9;
-            --bg-elevated: #ffffff;
-
-            --glass-bg: rgba(255, 255, 255, 0.85);
-            --glass-border: rgba(0, 0, 0, 0.08);
-            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
-
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --text-tertiary: #64748b;
-            --text-muted: #94a3b8;
-
-            --border-subtle: rgba(0, 0, 0, 0.08);
-            --border-medium: rgba(0, 0, 0, 0.12);
-
-            --gradient-mesh: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.08) 0%, transparent 50%),
-                             radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.08) 0%, transparent 50%);
-        }
-
-        /* Smooth theme transitions */
-        body, .sidebar, .header, .main-content,
-        .message, .input-box, .conversation-item,
-        .welcome, .example-card, .dropdown {
-            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-        }
 
         * {
             margin: 0;
@@ -1041,10 +978,26 @@
             border-radius: 12px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
             min-width: 220px;
+            max-height: 70vh;
+            overflow-y: auto;
             display: none;
             z-index: 1000;
-            overflow: hidden;
             animation: dropdownSlideIn 0.3s ease-out;
+        }
+
+        /* Scrollbar styling for dropdown */
+        .dropdown::-webkit-scrollbar {
+            width: 6px;
+        }
+        .dropdown::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .dropdown::-webkit-scrollbar-thumb {
+            background: var(--text-tertiary);
+            border-radius: 3px;
+        }
+        .dropdown::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
         }
 
         @keyframes dropdownSlideIn {
@@ -1299,6 +1252,22 @@
                         <span>📊</span>
                         <span>Dashboard</span>
                     </a>
+                    <a href="/monitoring" class="header-button">
+                        <span>📡</span>
+                        <span>Monitoring</span>
+                    </a>
+                    <a href="/incidents" class="header-button">
+                        <span>🚨</span>
+                        <span>Incidents</span>
+                    </a>
+                    <a href="/optimization" class="header-button">
+                        <span>⚡</span>
+                        <span>Optimize</span>
+                    </a>
+                    <a href="/analysis" class="header-button">
+                        <span>🔍</span>
+                        <span>Analysis</span>
+                    </a>
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
                         💰 <span id="credits-count">--</span> credits
                     </div>
@@ -1336,6 +1305,34 @@
                             </div>
                             <div class="dropdown-item" onclick="window.location.href='/teams'">
                                 👥 Teams
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" onclick="window.location.href='/monitoring'">
+                                📡 Monitoring
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/incidents'">
+                                🚨 Incidents
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/optimization'">
+                                ⚡ Optimization
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/analysis'">
+                                🔍 Root Cause Analysis
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/webhooks'">
+                                🔗 Webhooks
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/chatops'">
+                                💬 ChatOps
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/drift'">
+                                🔀 Drift Detection
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/scaling'">
+                                📈 Predictive Scaling
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/notifications'">
+                                🔔 Notifications
                             </div>
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" onclick="showAbout(); toggleMenu();">
@@ -1823,5 +1820,6 @@
 
         // Load on page ready - handled in toggleSidebarCollapse function above
     </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

@@ -8,28 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
 
     <style>
-        :root {
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #111827;
-            --bg-tertiary: #1a2332;
-            --bg-elevated: #212d3f;
-            --glass-bg: rgba(26, 35, 50, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --accent-primary: #ff6b35;
-            --accent-secondary: #f7931e;
-            --accent-electric: #00d4ff;
-            --accent-success: #10b981;
-            --accent-warning: #fbbf24;
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-tertiary: #64748b;
-            --text-muted: #475569;
-            --border-subtle: rgba(255, 255, 255, 0.08);
-            --border-medium: rgba(255, 255, 255, 0.12);
-            --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
-        }
 
         * {
             margin: 0;
@@ -465,7 +446,7 @@
         }
     </style>
 </head>
-<body>
+<body class="animated-bg">
     <!-- Header -->
     <div class="header">
         <div class="header-content">
@@ -487,6 +468,18 @@
                 <a href="/teams" class="header-button">
                     <span>👥</span>
                     <span>Teams</span>
+                </a>
+                <a href="/monitoring" class="header-button">
+                    <span>📡</span>
+                    <span>Monitoring</span>
+                </a>
+                <a href="/incidents" class="header-button">
+                    <span>🚨</span>
+                    <span>Incidents</span>
+                </a>
+                <a href="/optimization" class="header-button">
+                    <span>⚡</span>
+                    <span>Optimize</span>
                 </a>
                 <a href="/settings" class="header-button">
                     <span>⚙️</span>
@@ -542,5 +535,6 @@
             </a>
         </div>
     </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

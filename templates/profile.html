@@ -9,23 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
 
     <style>
-        :root {
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #111827;
-            --bg-elevated: #212d3f;
-            --glass-bg: rgba(26, 35, 50, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --accent-primary: #ff6b35;
-            --accent-electric: #00d4ff;
-            --accent-success: #10b981;
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-tertiary: #64748b;
-            --border-subtle: rgba(255, 255, 255, 0.08);
-            --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
-        }
 
         * {
             margin: 0;
@@ -543,8 +529,8 @@
         }
     </style>
 </head>
-<body>
-    <div class="page-container">
+<body class="animated-bg">
+    <div class="page-container page-content">
         <!-- Header -->
         <div class="header">
             <div class="logo-section">
@@ -704,5 +690,6 @@
             document.getElementById('colorPreview').style.background = e.target.value;
         });
     </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

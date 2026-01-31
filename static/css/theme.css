@@ -1,0 +1,223 @@
+/* DevOps Agent - Shared Theme System */
+
+:root {
+    /* Dark Theme (Default) */
+    --bg-primary: #0a0e1a;
+    --bg-secondary: #111827;
+    --bg-tertiary: #1a2332;
+    --bg-elevated: #212d3f;
+
+    /* Glassmorphism */
+    --glass-bg: rgba(26, 35, 50, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+
+    /* Accent Colors */
+    --accent-primary: #ff6b35;
+    --accent-secondary: #f7931e;
+    --accent-electric: #00d4ff;
+    --accent-success: #10b981;
+    --accent-warning: #fbbf24;
+    --accent-danger: #ef4444;
+    --accent-info: #3b82f6;
+    --accent-purple: #a855f7;
+
+    /* Text Colors */
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-tertiary: #64748b;
+    --text-muted: #475569;
+
+    /* Borders */
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-medium: rgba(255, 255, 255, 0.12);
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+    --gradient-mesh: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                     radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+    --bg-primary: #f8fafc;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f1f5f9;
+    --bg-elevated: #ffffff;
+
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #64748b;
+    --text-muted: #94a3b8;
+
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-medium: rgba(0, 0, 0, 0.12);
+
+    --gradient-mesh: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.08) 0%, transparent 50%),
+                     radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.08) 0%, transparent 50%);
+}
+
+/* Smooth theme transitions */
+body, .sidebar, .header, .main-content,
+.message, .input-box, .conversation-item,
+.welcome, .example-card, .dropdown, .section,
+.stat-card, .card, .modal, .container, .page-container,
+.settings-section, .hero, .feature-card, .alert-card,
+.rule-card, .prediction-card, .baseline-item, .report-item,
+input, select, textarea, button {
+    transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Theme Toggle */
+.theme-toggle {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 1000;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 50px;
+    padding: 8px;
+    display: flex;
+    gap: 4px;
+    box-shadow: var(--glass-shadow);
+}
+
+.theme-toggle-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    font-size: 18px;
+}
+
+.theme-toggle-btn.active {
+    background: var(--gradient-primary);
+    color: white;
+    box-shadow: 0 4px 16px rgba(255, 107, 53, 0.4);
+}
+
+.theme-toggle-btn:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile adjustments for theme toggle */
+@media (max-width: 768px) {
+    .theme-toggle {
+        top: auto;
+        bottom: 20px;
+        right: 20px;
+        padding: 6px;
+    }
+
+    .theme-toggle-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+}
+
+/* Common animated background grid */
+.animated-bg::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        linear-gradient(var(--border-subtle) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+    background-size: 50px 50px;
+    opacity: 0.3;
+    pointer-events: none;
+    animation: gridMove 20s linear infinite;
+    z-index: 0;
+}
+
+@keyframes gridMove {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(50px, 50px); }
+}
+
+/* Gradient mesh overlay */
+.animated-bg::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--gradient-mesh);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Page container to sit above the animated background */
+.page-content {
+    position: relative;
+    z-index: 1;
+}
+
+/* Light theme specific adjustments */
+[data-theme="light"] .stat-card,
+[data-theme="light"] .section,
+[data-theme="light"] .card,
+[data-theme="light"] .hero,
+[data-theme="light"] .settings-section {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+    background: var(--bg-tertiary);
+}
+
+[data-theme="light"] .header,
+[data-theme="light"] .section-header {
+    background: var(--bg-secondary);
+    border-color: var(--border-subtle);
+}
+
+[data-theme="light"] .btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
+}
+
+[data-theme="light"] .alert-card,
+[data-theme="light"] .rule-card,
+[data-theme="light"] .prediction-card {
+    background: var(--bg-tertiary);
+}
+
+/* Code blocks in light mode */
+[data-theme="light"] pre,
+[data-theme="light"] code {
+    background: var(--bg-tertiary);
+}
+
+[data-theme="light"] .message-text code {
+    background: rgba(255, 107, 53, 0.1);
+}
+
+/* Form elements in light mode */
+[data-theme="light"] input:focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus {
+    background: var(--bg-secondary);
+    border-color: var(--accent-primary);
+}

@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infrastructure Drift Detection - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-subtle);
+            text-align: center;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-primary);
+        }
+        .stat-card .label {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+        }
+        .stat-card.success .value { color: var(--accent-success); }
+        .stat-card.warning .value { color: var(--accent-warning); }
+        .stat-card.danger .value { color: var(--accent-danger); }
+
+        .hero {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .hero-content h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .hero-content p { color: var(--text-secondary); font-size: 0.9rem; }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-tertiary);
+        }
+        .section-header h3 { font-size: 1rem; }
+        .section-content { padding: 1.25rem; }
+
+        .report-item {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .report-item:last-child { border-bottom: none; }
+        .report-item:hover { background: rgba(255, 255, 255, 0.02); }
+        .report-info h4 { font-size: 0.9rem; margin-bottom: 0.25rem; }
+        .report-info p { font-size: 0.8rem; color: var(--text-tertiary); }
+        .report-stats {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .report-stats .stat {
+            text-align: center;
+        }
+        .report-stats .stat-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        .report-stats .stat-label {
+            font-size: 0.65rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+        }
+
+        .baseline-item {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .baseline-item:last-child { border-bottom: none; }
+        .baseline-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .baseline-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+        .baseline-details h4 { font-size: 0.85rem; }
+        .baseline-details p { font-size: 0.75rem; color: var(--text-tertiary); }
+
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 50px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .badge-medium { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .badge-low { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+        .badge-success { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-tertiary);
+        }
+
+        #message {
+            display: none;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success { background: rgba(16, 185, 129, 0.2); color: var(--accent-success); }
+        .alert-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-danger); }
+
+        .resource-icons {
+            ec2_instance: '🖥️',
+            security_group: '🛡️',
+            s3_bucket: '📦',
+            rds_instance: '🗄️',
+            iam_role: '👤',
+            lambda_function: 'λ',
+            eks_cluster: '☸️',
+            vpc: '🌐'
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Infrastructure Drift Detection</h1>
+        <nav>
+            <a href="{{ url_for('monitoring.monitoring_dashboard') }}">Monitoring</a>
+            <a href="{{ url_for('incidents.incidents_dashboard') }}">Incidents</a>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div id="message"></div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="value">{{ baseline_count }}</div>
+                <div class="label">Baselined Resources</div>
+            </div>
+            <div class="stat-card {% if latest_report and latest_report.drifted_resources > 0 %}warning{% else %}success{% endif %}">
+                <div class="value">{{ latest_report.drifted_resources if latest_report else 0 }}</div>
+                <div class="label">Drifted Resources</div>
+            </div>
+            <div class="stat-card {% if latest_report and latest_report.summary.critical_count > 0 %}danger{% endif %}">
+                <div class="value">{{ latest_report.summary.critical_count if latest_report else 0 }}</div>
+                <div class="label">Critical Issues</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ reports|length }}</div>
+                <div class="label">Total Scans</div>
+            </div>
+        </div>
+
+        <div class="hero">
+            <div class="hero-content">
+                <h2>Detect Configuration Drift</h2>
+                <p>Compare your actual infrastructure against expected baselines to identify unauthorized changes, security issues, and configuration drift.</p>
+            </div>
+            <div style="display: flex; gap: 0.75rem;">
+                <button class="btn btn-secondary" onclick="importSampleBaselines()">Import Sample Data</button>
+                <button class="btn btn-primary" onclick="runScan()" id="scanBtn">
+                    Run Drift Scan
+                </button>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="section">
+                <div class="section-header">
+                    <h3>Recent Scans</h3>
+                </div>
+                <div id="reportsContainer">
+                    {% if reports %}
+                        {% for report in reports %}
+                        <a href="{{ url_for('drift.view_report', report_id=report.id) }}" class="report-item" style="text-decoration: none; color: inherit;">
+                            <div class="report-info">
+                                <h4>Scan #{{ report.id }}</h4>
+                                <p>{{ report.scan_completed.strftime('%Y-%m-%d %H:%M') }}</p>
+                            </div>
+                            <div class="report-stats">
+                                <div class="stat">
+                                    <div class="stat-value">{{ report.total_resources }}</div>
+                                    <div class="stat-label">Scanned</div>
+                                </div>
+                                <div class="stat">
+                                    <div class="stat-value" style="color: {% if report.drifted_resources > 0 %}var(--accent-warning){% else %}var(--accent-success){% endif %}">
+                                        {{ report.drifted_resources }}
+                                    </div>
+                                    <div class="stat-label">Drifted</div>
+                                </div>
+                                {% if report.summary.critical_count > 0 %}
+                                <span class="badge badge-critical">{{ report.summary.critical_count }} Critical</span>
+                                {% else %}
+                                <span class="badge badge-success">Clean</span>
+                                {% endif %}
+                            </div>
+                        </a>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">
+                            <p>No scans yet</p>
+                            <p style="font-size: 0.85rem; margin-top: 0.5rem;">Run a drift scan to detect configuration changes</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h3>Baselined Resources</h3>
+                    <span style="color: var(--text-tertiary); font-size: 0.8rem;">{{ baseline_count }} resources</span>
+                </div>
+                <div id="baselinesContainer" style="max-height: 400px; overflow-y: auto;">
+                    {% if baselines %}
+                        {% for baseline in baselines %}
+                        <div class="baseline-item">
+                            <div class="baseline-info">
+                                <div class="baseline-icon">
+                                    {% if baseline.resource_type.value == 'ec2_instance' %}🖥️
+                                    {% elif baseline.resource_type.value == 'security_group' %}🛡️
+                                    {% elif baseline.resource_type.value == 's3_bucket' %}📦
+                                    {% elif baseline.resource_type.value == 'rds_instance' %}🗄️
+                                    {% elif baseline.resource_type.value == 'iam_role' %}👤
+                                    {% elif baseline.resource_type.value == 'lambda_function' %}λ
+                                    {% elif baseline.resource_type.value == 'eks_cluster' %}☸️
+                                    {% else %}📋{% endif %}
+                                </div>
+                                <div class="baseline-details">
+                                    <h4>{{ baseline.resource_name }}</h4>
+                                    <p>{{ baseline.resource_type.value }} • {{ baseline.resource_id[:20] }}...</p>
+                                </div>
+                            </div>
+                            <button onclick="deleteBaseline('{{ baseline.resource_type.value }}', '{{ baseline.resource_id }}')"
+                                    style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"
+                                    title="Remove baseline">✕</button>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">
+                            <p>No baselines configured</p>
+                            <p style="font-size: 0.85rem; margin-top: 0.5rem;">Import from Terraform or add manually</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if latest_report and latest_report.drift_items %}
+        <div class="section" style="margin-top: 1.5rem;">
+            <div class="section-header">
+                <h3>Latest Drift Items</h3>
+                <a href="{{ url_for('drift.view_report', report_id=latest_report.id) }}" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">View Full Report</a>
+            </div>
+            <div class="section-content">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="text-align: left; color: var(--text-tertiary); font-size: 0.75rem; text-transform: uppercase;">
+                            <th style="padding: 0.5rem;">Resource</th>
+                            <th style="padding: 0.5rem;">Property</th>
+                            <th style="padding: 0.5rem;">Severity</th>
+                            <th style="padding: 0.5rem;">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for drift in latest_report.drift_items[:5] %}
+                        <tr style="border-top: 1px solid var(--border-subtle);">
+                            <td style="padding: 0.75rem 0.5rem; font-size: 0.85rem;">
+                                {{ drift.resource_name }}
+                            </td>
+                            <td style="padding: 0.75rem 0.5rem; font-size: 0.8rem; color: var(--text-secondary);">
+                                {{ drift.property_path }}
+                            </td>
+                            <td style="padding: 0.75rem 0.5rem;">
+                                <span class="badge badge-{{ drift.severity.value }}">{{ drift.severity.value }}</span>
+                            </td>
+                            <td style="padding: 0.75rem 0.5rem; font-size: 0.8rem; color: var(--text-secondary);">
+                                {{ drift.description[:60] }}{% if drift.description|length > 60 %}...{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.className = 'alert-' + type;
+            msg.textContent = text;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 5000);
+        }
+
+        async function runScan() {
+            const btn = document.getElementById('scanBtn');
+            btn.disabled = true;
+            btn.textContent = 'Scanning...';
+
+            try {
+                const resp = await fetch('/drift/api/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    showMessage(`Scan complete! Found ${data.summary.total_drifts} drift(s)`, 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showMessage(data.error || 'Scan failed', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Run Drift Scan';
+                }
+            } catch (e) {
+                showMessage('Error: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Run Drift Scan';
+            }
+        }
+
+        async function importSampleBaselines() {
+            try {
+                const resp = await fetch('/drift/api/import/sample', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    showMessage(`Imported ${data.imported} sample baselines`, 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error || 'Import failed', 'error');
+                }
+            } catch (e) {
+                showMessage('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function deleteBaseline(resourceType, resourceId) {
+            if (!confirm('Remove this baseline?')) return;
+
+            try {
+                const resp = await fetch(`/drift/api/baselines/${resourceType}/${resourceId}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    showMessage('Baseline removed', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showMessage(data.error || 'Failed to remove', 'error');
+                }
+            } catch (e) {
+                showMessage('Error: ' + e.message, 'error');
+            }
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Log - DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin-left: 1.5rem;
+        }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        th {
+            background: var(--bg-tertiary);
+            color: var(--text-tertiary);
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+        td { color: var(--text-secondary); font-size: 0.875rem; }
+        .action-type {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            background: var(--bg-tertiary);
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1.5rem;
+        }
+        .pagination a, .pagination span {
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+        .pagination a:hover { background: var(--accent-primary); color: white; }
+        .pagination .active { background: var(--accent-primary); color: white; }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-tertiary);
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <header class="header">
+        <h1>Audit Log</h1>
+        <nav>
+            <a href="{{ url_for('admin.admin_dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('admin.list_users') }}">Users</a>
+            <a href="{{ url_for('dashboard') }}">Back to App</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="section">
+            {% if logs.items %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Details</th>
+                        <th>Credits Used</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs.items %}
+                    <tr>
+                        <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'N/A' }}</td>
+                        <td>{{ log.user_id }}</td>
+                        <td><span class="action-type">{{ log.action_type or 'unknown' }}</span></td>
+                        <td>{{ log.details or '-' }}</td>
+                        <td>{{ log.credits_used or 0 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% if logs.pages > 1 %}
+            <div class="pagination">
+                {% if logs.has_prev %}
+                <a href="{{ url_for('admin.audit_log', page=logs.prev_num) }}">Prev</a>
+                {% endif %}
+
+                {% for page_num in logs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                        {% if page_num == logs.page %}
+                        <span class="active">{{ page_num }}</span>
+                        {% else %}
+                        <a href="{{ url_for('admin.audit_log', page=page_num) }}">{{ page_num }}</a>
+                        {% endif %}
+                    {% else %}
+                    <span>...</span>
+                    {% endif %}
+                {% endfor %}
+
+                {% if logs.has_next %}
+                <a href="{{ url_for('admin.audit_log', page=logs.next_num) }}">Next</a>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="empty-state">
+                <p>No audit logs found.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

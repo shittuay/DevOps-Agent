@@ -592,3 +592,319 @@ def get_grafana_alerts(grafana_url: str, api_key: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting Grafana alerts: {str(e)}")
         return {'success': False, 'error': str(e)}
+
+
+# ==================== TOOL REGISTRATION ====================
+
+
+def get_tools() -> List[Dict[str, Any]]:
+    """
+    Get list of monitoring tool definitions for the agent.
+
+    Returns:
+        List of tool definitions with name, description, input_schema, and handler
+    """
+    return [
+        # Prometheus Tools
+        {
+            'name': 'query_prometheus',
+            'description': 'Execute a PromQL query against a Prometheus server for instant metrics.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'prometheus_url': {
+                        'type': 'string',
+                        'description': 'Prometheus server URL (e.g., http://prometheus:9090)'
+                    },
+                    'query': {
+                        'type': 'string',
+                        'description': 'PromQL query (e.g., up, node_cpu_seconds_total, rate(http_requests_total[5m]))'
+                    },
+                    'time': {
+                        'type': 'string',
+                        'description': 'Evaluation timestamp (RFC3339 or Unix timestamp, optional)'
+                    }
+                },
+                'required': ['prometheus_url', 'query']
+            },
+            'handler': query_prometheus
+        },
+        {
+            'name': 'query_prometheus_range',
+            'description': 'Execute a PromQL range query for time-series data over a period.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'prometheus_url': {
+                        'type': 'string',
+                        'description': 'Prometheus server URL (e.g., http://prometheus:9090)'
+                    },
+                    'query': {
+                        'type': 'string',
+                        'description': 'PromQL query'
+                    },
+                    'start': {
+                        'type': 'string',
+                        'description': 'Start timestamp (RFC3339 or Unix timestamp)'
+                    },
+                    'end': {
+                        'type': 'string',
+                        'description': 'End timestamp (RFC3339 or Unix timestamp)'
+                    },
+                    'step': {
+                        'type': 'string',
+                        'description': 'Query resolution step (e.g., 15s, 1m, 5m)',
+                        'default': '15s'
+                    }
+                },
+                'required': ['prometheus_url', 'query', 'start', 'end']
+            },
+            'handler': query_prometheus_range
+        },
+        {
+            'name': 'get_prometheus_targets',
+            'description': 'Get all scrape targets configured in Prometheus with their health status.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'prometheus_url': {
+                        'type': 'string',
+                        'description': 'Prometheus server URL (e.g., http://prometheus:9090)'
+                    }
+                },
+                'required': ['prometheus_url']
+            },
+            'handler': get_prometheus_targets
+        },
+        {
+            'name': 'get_prometheus_alerts',
+            'description': 'Get all active alerts from Prometheus alerting rules.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'prometheus_url': {
+                        'type': 'string',
+                        'description': 'Prometheus server URL (e.g., http://prometheus:9090)'
+                    }
+                },
+                'required': ['prometheus_url']
+            },
+            'handler': get_prometheus_alerts
+        },
+        # Datadog Tools
+        {
+            'name': 'query_datadog_metrics',
+            'description': 'Query metrics from Datadog for a given time range.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'query': {
+                        'type': 'string',
+                        'description': 'Datadog metric query (e.g., avg:system.cpu.user{*})'
+                    },
+                    'start': {
+                        'type': 'integer',
+                        'description': 'Start timestamp (Unix epoch seconds)'
+                    },
+                    'end': {
+                        'type': 'integer',
+                        'description': 'End timestamp (Unix epoch seconds)'
+                    },
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Datadog API key (optional, uses DATADOG_API_KEY env var if not provided)'
+                    },
+                    'app_key': {
+                        'type': 'string',
+                        'description': 'Datadog application key (optional, uses DATADOG_APP_KEY env var if not provided)'
+                    }
+                },
+                'required': ['query', 'start', 'end']
+            },
+            'handler': query_datadog_metrics
+        },
+        {
+            'name': 'get_datadog_monitors',
+            'description': 'Get all Datadog monitors with their current status.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                    },
+                    'app_key': {
+                        'type': 'string',
+                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                    },
+                    'tags': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'Filter monitors by tags'
+                    }
+                }
+            },
+            'handler': get_datadog_monitors
+        },
+        {
+            'name': 'get_datadog_hosts',
+            'description': 'Get all hosts reporting to Datadog.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                    },
+                    'app_key': {
+                        'type': 'string',
+                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                    },
+                    'filter': {
+                        'type': 'string',
+                        'description': 'Filter string for hosts'
+                    }
+                }
+            },
+            'handler': get_datadog_hosts
+        },
+        {
+            'name': 'get_datadog_events',
+            'description': 'Get events from Datadog for a given time range.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'start': {
+                        'type': 'integer',
+                        'description': 'Start timestamp (Unix epoch seconds)'
+                    },
+                    'end': {
+                        'type': 'integer',
+                        'description': 'End timestamp (Unix epoch seconds)'
+                    },
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                    },
+                    'app_key': {
+                        'type': 'string',
+                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                    },
+                    'priority': {
+                        'type': 'string',
+                        'description': 'Filter by priority (normal, low)',
+                        'enum': ['normal', 'low']
+                    },
+                    'tags': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'Filter events by tags'
+                    }
+                },
+                'required': ['start', 'end']
+            },
+            'handler': get_datadog_events
+        },
+        {
+            'name': 'create_datadog_event',
+            'description': 'Create a new event in Datadog.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'title': {
+                        'type': 'string',
+                        'description': 'Event title'
+                    },
+                    'text': {
+                        'type': 'string',
+                        'description': 'Event body text (supports Markdown)'
+                    },
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                    },
+                    'app_key': {
+                        'type': 'string',
+                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                    },
+                    'alert_type': {
+                        'type': 'string',
+                        'description': 'Alert type',
+                        'enum': ['info', 'warning', 'error', 'success'],
+                        'default': 'info'
+                    },
+                    'priority': {
+                        'type': 'string',
+                        'description': 'Event priority',
+                        'enum': ['normal', 'low'],
+                        'default': 'normal'
+                    },
+                    'tags': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'Event tags'
+                    }
+                },
+                'required': ['title', 'text']
+            },
+            'handler': create_datadog_event
+        },
+        # Grafana Tools
+        {
+            'name': 'get_grafana_datasources',
+            'description': 'Get all configured datasources in Grafana.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'grafana_url': {
+                        'type': 'string',
+                        'description': 'Grafana server URL (e.g., http://grafana:3000)'
+                    },
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Grafana API key or service account token'
+                    }
+                },
+                'required': ['grafana_url', 'api_key']
+            },
+            'handler': get_grafana_datasources
+        },
+        {
+            'name': 'get_grafana_dashboards',
+            'description': 'Get all dashboards in Grafana.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'grafana_url': {
+                        'type': 'string',
+                        'description': 'Grafana server URL (e.g., http://grafana:3000)'
+                    },
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Grafana API key or service account token'
+                    }
+                },
+                'required': ['grafana_url', 'api_key']
+            },
+            'handler': get_grafana_dashboards
+        },
+        {
+            'name': 'get_grafana_alerts',
+            'description': 'Get all alerts configured in Grafana.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'grafana_url': {
+                        'type': 'string',
+                        'description': 'Grafana server URL (e.g., http://grafana:3000)'
+                    },
+                    'api_key': {
+                        'type': 'string',
+                        'description': 'Grafana API key or service account token'
+                    }
+                },
+                'required': ['grafana_url', 'api_key']
+            },
+            'handler': get_grafana_alerts
+        }
+    ]

@@ -24,7 +24,11 @@ from src.tools import (
     kubernetes_tools,
     git_tools,
     cicd_tools,
-    pentest_tools
+    pentest_tools,
+    terraform_tools,
+    monitoring_tools,
+    ansible_tools,
+    alerting_tools
 )
 
 
@@ -112,6 +116,26 @@ def initialize_agent(config_path=None, env_path=None):
             agent.register_tools_from_module(pentest_tools)
             console.print("[green][OK][/green] Penetration testing tools loaded")
             console.print("[yellow][!][/yellow]  Ensure you have authorization before scanning targets")
+
+        # Register Terraform tools if enabled
+        if config.get('terraform.enabled', True):
+            agent.register_tools_from_module(terraform_tools)
+            console.print("[green][OK][/green] Terraform tools loaded")
+
+        # Register Monitoring tools (Prometheus, Grafana, Datadog)
+        if config.get('monitoring.enabled', True):
+            agent.register_tools_from_module(monitoring_tools)
+            console.print("[green][OK][/green] Monitoring tools loaded (Prometheus, Grafana, Datadog)")
+
+        # Register Ansible tools if enabled
+        if config.get('ansible.enabled', True):
+            agent.register_tools_from_module(ansible_tools)
+            console.print("[green][OK][/green] Ansible tools loaded")
+
+        # Register Alerting tools (PagerDuty, OpsGenie) if enabled
+        if config.get('alerting.enabled', True):
+            agent.register_tools_from_module(alerting_tools)
+            console.print("[green][OK][/green] Alerting tools loaded (PagerDuty, OpsGenie)")
 
         logger.info(f"Agent initialized with {len(agent.list_available_tools())} tools")
 
