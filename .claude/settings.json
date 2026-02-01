@@ -1,26 +1,15 @@
 {
   "hooks": {
-    "preToolExecution": [
+    "PreToolUse": [
       {
-        "name": "security-check",
-        "description": "Validate dangerous commands before execution",
-        "pattern": "Bash(*)",
-        "script": "python scripts/hooks/security_check.py"
+        "matcher": "Bash",
+        "hooks": ["python scripts/hooks/security_check.py"]
       }
     ],
-    "postToolExecution": [
+    "PostToolUse": [
       {
-        "name": "audit-log",
-        "description": "Log all tool executions for audit",
-        "pattern": "*",
-        "script": "python scripts/hooks/audit_log.py"
-      }
-    ],
-    "preCommit": [
-      {
-        "name": "lint-check",
-        "description": "Run linting before commits",
-        "script": "python -m black --check . && python -m pylint src --fail-under=7"
+        "matcher": "*",
+        "hooks": ["python scripts/hooks/audit_log.py"]
       }
     ]
   },
