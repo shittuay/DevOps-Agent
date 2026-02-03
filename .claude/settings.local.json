@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python app.py:*)"
+      "Bash(python app.py:*)",
+      "Bash(python -c:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []
