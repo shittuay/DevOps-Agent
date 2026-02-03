@@ -1237,6 +1237,336 @@
                 padding: 16px;
             }
         }
+
+        /* Contact Us Widget */
+        .contact-widget {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1000;
+        }
+
+        .contact-button {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--gradient-primary);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            box-shadow: 0 6px 24px rgba(255, 107, 53, 0.4);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .contact-button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%);
+            transition: width 0.4s, height 0.4s;
+        }
+
+        .contact-button:hover {
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: 0 8px 32px rgba(255, 107, 53, 0.6);
+        }
+
+        .contact-button:hover::before {
+            width: 100px;
+            height: 100px;
+        }
+
+        .contact-button-label {
+            position: absolute;
+            right: 70px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-subtle);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+            white-space: nowrap;
+            opacity: 0;
+            transform: translateX(10px);
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+
+        .contact-widget:hover .contact-button-label {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        /* Contact Modal */
+        .contact-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .contact-modal-overlay.active {
+            display: flex;
+        }
+
+        .contact-modal {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            width: 100%;
+            max-width: 480px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+            animation: modalSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .contact-modal-header {
+            padding: 24px 24px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .contact-modal-title {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .contact-modal-title-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
+        }
+
+        .contact-modal-title h3 {
+            font-family: 'Syne', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .contact-modal-title p {
+            font-size: 13px;
+            color: var(--text-tertiary);
+            margin: 4px 0 0 0;
+        }
+
+        .contact-modal-close {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.3s ease;
+        }
+
+        .contact-modal-close:hover {
+            background: rgba(255, 68, 68, 0.2);
+            border-color: #ff4444;
+            color: #ff4444;
+        }
+
+        .contact-modal-body {
+            padding: 24px;
+        }
+
+        .contact-form-group {
+            margin-bottom: 20px;
+        }
+
+        .contact-form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .contact-form-input,
+        .contact-form-select,
+        .contact-form-textarea {
+            width: 100%;
+            padding: 14px 16px;
+            background: var(--bg-elevated);
+            border: 2px solid var(--border-subtle);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .contact-form-input:focus,
+        .contact-form-select:focus,
+        .contact-form-textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.15);
+        }
+
+        .contact-form-input::placeholder,
+        .contact-form-textarea::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        .contact-form-textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .contact-form-select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+        }
+
+        .contact-form-select option {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .contact-submit-btn {
+            width: 100%;
+            padding: 16px 24px;
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+        }
+
+        .contact-submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(255, 107, 53, 0.5);
+        }
+
+        .contact-submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .contact-success {
+            text-align: center;
+            padding: 40px 24px;
+        }
+
+        .contact-success-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            margin: 0 auto 20px;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+        }
+
+        .contact-success h4 {
+            font-family: 'Syne', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 12px;
+        }
+
+        .contact-success p {
+            font-size: 15px;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        @media (max-width: 768px) {
+            .contact-widget {
+                bottom: 16px;
+                right: 16px;
+            }
+
+            .contact-button {
+                width: 54px;
+                height: 54px;
+                font-size: 22px;
+            }
+
+            .contact-button-label {
+                display: none;
+            }
+
+            .contact-modal {
+                border-radius: 16px;
+            }
+
+            .contact-modal-header {
+                padding: 20px 20px 0;
+            }
+
+            .contact-modal-body {
+                padding: 20px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1983,8 +2313,140 @@
             }
         }
 
+        // Contact Widget Functions
+        function openContactModal() {
+            document.getElementById('contactModalOverlay').classList.add('active');
+            document.getElementById('contactForm').reset();
+            document.getElementById('contactFormContent').style.display = 'block';
+            document.getElementById('contactSuccessContent').style.display = 'none';
+        }
+
+        function closeContactModal() {
+            document.getElementById('contactModalOverlay').classList.remove('active');
+        }
+
+        async function submitContactForm(event) {
+            event.preventDefault();
+
+            const submitBtn = document.getElementById('contactSubmitBtn');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span>Sending...</span>';
+
+            const formData = {
+                name: document.getElementById('contactName').value,
+                email: document.getElementById('contactEmail').value,
+                category: document.getElementById('contactCategory').value,
+                message: document.getElementById('contactMessage').value
+            };
+
+            try {
+                const response = await fetch('/api/contact', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('contactFormContent').style.display = 'none';
+                    document.getElementById('contactSuccessContent').style.display = 'block';
+
+                    setTimeout(() => {
+                        closeContactModal();
+                    }, 3000);
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to send message'));
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                }
+            } catch (error) {
+                alert('Error sending message. Please try again.');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', (e) => {
+            const overlay = document.getElementById('contactModalOverlay');
+            if (e.target === overlay) {
+                closeContactModal();
+            }
+        });
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeContactModal();
+            }
+        });
+
         // Load on page ready - handled in toggleSidebarCollapse function above
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+
+    <!-- Contact Us Widget -->
+    <div class="contact-widget">
+        <span class="contact-button-label">Need help? Contact us</span>
+        <button class="contact-button" onclick="openContactModal()" title="Contact Us">
+            💬
+        </button>
+    </div>
+
+    <!-- Contact Modal -->
+    <div class="contact-modal-overlay" id="contactModalOverlay">
+        <div class="contact-modal">
+            <div class="contact-modal-header">
+                <div class="contact-modal-title">
+                    <div class="contact-modal-title-icon">💬</div>
+                    <div>
+                        <h3>Contact Us</h3>
+                        <p>We'd love to hear from you</p>
+                    </div>
+                </div>
+                <button class="contact-modal-close" onclick="closeContactModal()">×</button>
+            </div>
+            <div class="contact-modal-body">
+                <div id="contactFormContent">
+                    <form id="contactForm" onsubmit="submitContactForm(event)">
+                        <div class="contact-form-group">
+                            <label class="contact-form-label" for="contactName">Your Name</label>
+                            <input type="text" id="contactName" class="contact-form-input" placeholder="John Doe" required>
+                        </div>
+                        <div class="contact-form-group">
+                            <label class="contact-form-label" for="contactEmail">Email Address</label>
+                            <input type="email" id="contactEmail" class="contact-form-input" placeholder="john@example.com" required>
+                        </div>
+                        <div class="contact-form-group">
+                            <label class="contact-form-label" for="contactCategory">Category</label>
+                            <select id="contactCategory" class="contact-form-select" required>
+                                <option value="">Select a category...</option>
+                                <option value="bug">Bug Report</option>
+                                <option value="feature">Feature Request</option>
+                                <option value="question">General Question</option>
+                                <option value="billing">Billing Issue</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="contact-form-group">
+                            <label class="contact-form-label" for="contactMessage">Message</label>
+                            <textarea id="contactMessage" class="contact-form-textarea" placeholder="Tell us what's on your mind..." required></textarea>
+                        </div>
+                        <button type="submit" id="contactSubmitBtn" class="contact-submit-btn">
+                            <span>Send Message</span>
+                            <span>→</span>
+                        </button>
+                    </form>
+                </div>
+                <div id="contactSuccessContent" class="contact-success" style="display: none;">
+                    <div class="contact-success-icon">✓</div>
+                    <h4>Message Sent!</h4>
+                    <p>Thank you for reaching out. We'll get back to you soon.</p>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

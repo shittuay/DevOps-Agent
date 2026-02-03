@@ -1850,6 +1850,52 @@ def clear_conversation():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/contact', methods=['POST'])
+def submit_contact():
+    """Submit a contact form message."""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip()
+        category = data.get('category', '').strip()
+        message = data.get('message', '').strip()
+
+        if not all([name, email, category, message]):
+            return jsonify({'error': 'All fields are required'}), 400
+
+        # Import ContactMessage model
+        from models import ContactMessage
+
+        # Create new contact message
+        contact_msg = ContactMessage(
+            name=name,
+            email=email,
+            category=category,
+            message=message,
+            user_id=current_user.id if current_user.is_authenticated else None
+        )
+
+        db.session.add(contact_msg)
+        db.session.commit()
+
+        logger = get_logger(__name__)
+        logger.info(f"New contact message from {email}: {category}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Your message has been sent successfully'
+        })
+
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"Error submitting contact form: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Failed to send message'}), 500
+
+
 @app.route('/api/stats', methods=['GET'])
 @login_required
 def get_stats():

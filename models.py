@@ -1829,3 +1829,49 @@ class AnalyticsWidget(db.Model):
 
     def __repr__(self):
         return f'<AnalyticsWidget {self.name}>'
+
+
+# ============================================
+# Contact/Support Models
+# ============================================
+
+class ContactMessage(db.Model):
+    """Contact form submissions from users"""
+    __tablename__ = 'contact_messages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(120), nullable=False)
+    category = db.Column(db.String(50), nullable=False)  # bug, feature, question, billing, other
+    message = db.Column(db.Text, nullable=False)
+
+    # Status tracking
+    status = db.Column(db.String(20), default='new')  # new, in_progress, resolved, closed
+    assigned_to = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    response = db.Column(db.Text, nullable=True)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('contact_messages', lazy='dynamic'))
+    assignee = db.relationship('User', foreign_keys=[assigned_to])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'email': self.email,
+            'category': self.category,
+            'message': self.message,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None
+        }
+
+    def __repr__(self):
+        return f'<ContactMessage {self.id} - {self.category}>'
