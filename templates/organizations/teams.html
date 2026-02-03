@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Teams - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Teams</h1>
+        <div>
+            <a href="{{ url_for('organizations.create_team', org_id=organization.id) }}" class="btn btn-primary">Create Team</a>
+            <a href="{{ url_for('organizations.view_organization', org_id=organization.id) }}" class="btn btn-secondary">Back</a>
+        </div>
+    </div>
+    <div class="teams-grid">
+        {% for team in teams %}
+        <div class="team-card">
+            <h3>{{ team.name }}</h3>
+            <p>{{ team.description or 'No description' }}</p>
+            <p><strong>Members:</strong> {{ team.members|length }}</p>
+            <a href="{{ url_for('organizations.view_team', org_id=organization.id, team_id=team.id) }}" class="btn btn-secondary">View Team</a>
+        </div>
+        {% else %}
+        <p class="text-muted">No teams created yet</p>
+        {% endfor %}
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.teams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+.team-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
+.team-card h3 { margin: 0 0 10px 0; }
+.team-card p { margin-bottom: 15px; color: var(--text-muted); }
+</style>
+{% endblock %}

@@ -503,23 +503,40 @@ pytest tests/test_agent.py
 
 ## Roadmap
 
-### Phase 2 (Planned)
+### Phase 2 (Complete)
 
-- [ ] Azure and GCP integration
-- [ ] Terraform and CloudFormation support
-- [ ] Ansible playbook execution
-- [ ] Prometheus and Grafana integration
-- [ ] PagerDuty/OpsGenie alerting
-- [ ] Cost optimization recommendations
+- [x] Azure and GCP integration
+- [x] Terraform and CloudFormation support
+- [x] Ansible playbook execution
+- [x] Prometheus and Grafana integration
+- [x] Datadog integration
+- [x] PagerDuty/OpsGenie alerting
+- [x] Cost optimization recommendations
 
-### Phase 3 (Future)
+### Phase 3 (Complete)
 
-- [ ] Web-based UI
-- [ ] Multi-user support with RBAC
-- [ ] Automated incident response
-- [ ] Proactive monitoring and alerts
-- [ ] Performance optimization suggestions
-- [ ] Slack/Teams bot integration
+- [x] Web-based UI
+- [x] Multi-user support with RBAC
+- [x] Automated incident response (6 built-in playbooks)
+- [x] Proactive monitoring and alerts (8 default rules)
+- [x] Performance optimization suggestions
+- [x] Slack/Teams bot integration
+
+### Phase 4 (In Progress)
+
+- [x] AI-powered root cause analysis
+- [x] Predictive scaling recommendations
+- [x] Custom playbook builder UI
+- [x] Webhook integrations (GitHub, GitLab, Bitbucket)
+- [x] ChatOps commands for Slack/Teams
+- [x] Infrastructure drift detection
+
+### Phase 5 (Planned)
+
+- [ ] Multi-tenant organization support
+- [ ] API rate limiting and quotas
+- [ ] Audit log export and compliance reports
+- [ ] Mobile app notifications
 
 ## Contributing
 

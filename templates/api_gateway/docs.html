@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}API Documentation - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>API Documentation</h1>
+        <a href="{{ url_for('api_gateway.dashboard') }}" class="btn btn-secondary">Back</a>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Authentication</h3></div>
+        <div class="card-body">
+            <p>All API requests require an API key passed in the Authorization header:</p>
+            <pre class="code-block">Authorization: Bearer YOUR_API_KEY</pre>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header"><h3>Endpoints</h3></div>
+        <div class="card-body">
+            <div class="endpoint">
+                <h4><span class="method get">GET</span> /api-gateway/v1/resources</h4>
+                <p>List all infrastructure resources</p>
+                <h5>Response:</h5>
+                <pre class="code-block">{"resources": [{"id": 1, "name": "...", "type": "ec2", "status": "running"}]}</pre>
+            </div>
+
+            <div class="endpoint">
+                <h4><span class="method get">GET</span> /api-gateway/v1/resources/:id</h4>
+                <p>Get a specific resource by ID</p>
+            </div>
+
+            <div class="endpoint">
+                <h4><span class="method get">GET</span> /api-gateway/v1/analytics/costs</h4>
+                <p>Get cost analytics data</p>
+            </div>
+
+            <div class="endpoint">
+                <h4><span class="method get">GET</span> /api-gateway/v1/incidents</h4>
+                <p>List all incidents</p>
+            </div>
+
+            <div class="endpoint">
+                <h4><span class="method post">POST</span> /api-gateway/v1/incidents</h4>
+                <p>Create a new incident</p>
+                <h5>Request Body:</h5>
+                <pre class="code-block">{"title": "...", "severity": "high", "description": "..."}</pre>
+            </div>
+
+            <div class="endpoint">
+                <h4><span class="method get">GET</span> /api-gateway/v1/health</h4>
+                <p>Health check endpoint (no authentication required)</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header"><h3>Rate Limiting</h3></div>
+        <div class="card-body">
+            <p>API requests are rate limited to 1000 requests per hour per API key.</p>
+            <p>Rate limit headers are included in responses:</p>
+            <ul>
+                <li><code>X-RateLimit-Limit</code>: Maximum requests per hour</li>
+                <li><code>X-RateLimit-Remaining</code>: Remaining requests</li>
+                <li><code>X-RateLimit-Reset</code>: Unix timestamp when limit resets</li>
+            </ul>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 900px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-header { padding: 15px 20px; border-bottom: 1px solid var(--border-color); }
+.card-body { padding: 20px; }
+.code-block { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; overflow-x: auto; }
+.endpoint { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color); }
+.endpoint:last-child { border-bottom: none; }
+.endpoint h4 { margin-bottom: 10px; }
+.method { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-right: 10px; }
+.method.get { background: #28a745; color: white; }
+.method.post { background: #007bff; color: white; }
+.method.put { background: #ffc107; color: black; }
+.method.delete { background: #dc3545; color: white; }
+</style>
+{% endblock %}

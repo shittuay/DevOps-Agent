@@ -1235,3 +1235,597 @@ class AuditLog(db.Model):
 
     def __repr__(self):
         return f'<AuditLog {self.action} by user {self.user_id}>'
+
+
+# ============================================
+# Organization & Multi-tenancy Models
+# ============================================
+
+class Organization(db.Model):
+    """Organization/workspace for multi-tenancy"""
+    __tablename__ = 'organizations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    slug = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    description = db.Column(db.Text)
+    logo_url = db.Column(db.String(500))
+
+    # Owner
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    # Settings
+    settings = db.Column(db.JSON, default=dict)
+
+    # SSO Configuration
+    sso_enabled = db.Column(db.Boolean, default=False)
+    sso_provider = db.Column(db.String(50))  # okta, azure_ad, google, github
+    sso_config = db.Column(db.JSON)
+
+    # Billing
+    billing_email = db.Column(db.String(120))
+    stripe_customer_id = db.Column(db.String(100))
+
+    # Status
+    is_active = db.Column(db.Boolean, default=True)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    owner = db.relationship('User', foreign_keys=[owner_id], backref='owned_organizations')
+    members = db.relationship('OrganizationMember', back_populates='organization', cascade='all, delete-orphan')
+    teams = db.relationship('Team', back_populates='organization', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'slug': self.slug,
+            'description': self.description,
+            'logo_url': self.logo_url,
+            'owner_id': self.owner_id,
+            'sso_enabled': self.sso_enabled,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<Organization {self.name}>'
+
+
+class OrganizationMember(db.Model):
+    """Organization membership"""
+    __tablename__ = 'organization_members'
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    # Role: owner, admin, member, billing, viewer
+    role = db.Column(db.String(20), default='member')
+
+    # Invitation
+    invited_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    invited_at = db.Column(db.DateTime)
+    accepted_at = db.Column(db.DateTime)
+    invitation_token = db.Column(db.String(100), unique=True)
+
+    # Status
+    is_active = db.Column(db.Boolean, default=True)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    organization = db.relationship('Organization', back_populates='members')
+    user = db.relationship('User', foreign_keys=[user_id], backref='organization_memberships')
+    inviter = db.relationship('User', foreign_keys=[invited_by])
+
+    __table_args__ = (
+        db.UniqueConstraint('organization_id', 'user_id', name='unique_org_member'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'organization_id': self.organization_id,
+            'user_id': self.user_id,
+            'role': self.role,
+            'is_active': self.is_active,
+            'accepted_at': self.accepted_at.isoformat() if self.accepted_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<OrganizationMember org={self.organization_id} user={self.user_id}>'
+
+
+class Team(db.Model):
+    """Team within an organization"""
+    __tablename__ = 'teams'
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    organization = db.relationship('Organization', back_populates='teams')
+    members = db.relationship('TeamMember', back_populates='team', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'organization_id': self.organization_id,
+            'name': self.name,
+            'description': self.description,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<Team {self.name}>'
+
+
+class TeamMember(db.Model):
+    """Team membership"""
+    __tablename__ = 'team_members'
+
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    role = db.Column(db.String(20), default='member')  # lead, member
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    team = db.relationship('Team', back_populates='members')
+    user = db.relationship('User', backref='team_memberships')
+
+    __table_args__ = (
+        db.UniqueConstraint('team_id', 'user_id', name='unique_team_member'),
+    )
+
+    def __repr__(self):
+        return f'<TeamMember team={self.team_id} user={self.user_id}>'
+
+
+# ============================================
+# Webhook Models
+# ============================================
+
+class WebhookEndpoint(db.Model):
+    """Webhook endpoints for event notifications"""
+    __tablename__ = 'webhook_endpoints'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    name = db.Column(db.String(100), nullable=False)
+    url = db.Column(db.String(500), nullable=False)
+    secret = db.Column(db.String(64))  # For HMAC signature verification
+
+    # Events to subscribe to
+    events = db.Column(db.JSON, default=list)  # ['resource.created', 'alert.triggered', etc.]
+
+    # Configuration
+    is_active = db.Column(db.Boolean, default=True)
+    retry_count = db.Column(db.Integer, default=3)
+    timeout_seconds = db.Column(db.Integer, default=30)
+
+    # Statistics
+    total_deliveries = db.Column(db.Integer, default=0)
+    successful_deliveries = db.Column(db.Integer, default=0)
+    failed_deliveries = db.Column(db.Integer, default=0)
+    last_delivery_at = db.Column(db.DateTime)
+    last_delivery_status = db.Column(db.String(20))
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('webhook_endpoints', lazy='dynamic'))
+    deliveries = db.relationship('WebhookDelivery', back_populates='endpoint', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'url': self.url,
+            'events': self.events or [],
+            'is_active': self.is_active,
+            'total_deliveries': self.total_deliveries,
+            'successful_deliveries': self.successful_deliveries,
+            'failed_deliveries': self.failed_deliveries,
+            'last_delivery_at': self.last_delivery_at.isoformat() if self.last_delivery_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<WebhookEndpoint {self.name}>'
+
+
+class WebhookDelivery(db.Model):
+    """Record of webhook delivery attempts"""
+    __tablename__ = 'webhook_deliveries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    endpoint_id = db.Column(db.Integer, db.ForeignKey('webhook_endpoints.id'), nullable=False, index=True)
+
+    # Event info
+    event_type = db.Column(db.String(100), nullable=False)
+    payload = db.Column(db.JSON)
+
+    # Delivery status
+    status = db.Column(db.String(20), default='pending')  # pending, success, failed
+    response_status_code = db.Column(db.Integer)
+    response_body = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+
+    # Retry tracking
+    attempt_count = db.Column(db.Integer, default=0)
+    next_retry_at = db.Column(db.DateTime)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    delivered_at = db.Column(db.DateTime)
+
+    # Relationships
+    endpoint = db.relationship('WebhookEndpoint', back_populates='deliveries')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'event_type': self.event_type,
+            'status': self.status,
+            'response_status_code': self.response_status_code,
+            'attempt_count': self.attempt_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'delivered_at': self.delivered_at.isoformat() if self.delivered_at else None
+        }
+
+    def __repr__(self):
+        return f'<WebhookDelivery {self.event_type} - {self.status}>'
+
+
+# ============================================
+# Compliance Models
+# ============================================
+
+class ComplianceFrameworkModel(db.Model):
+    """Compliance frameworks configuration"""
+    __tablename__ = 'compliance_frameworks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    name = db.Column(db.String(50), nullable=False)  # soc2, hipaa, pci_dss, gdpr
+    display_name = db.Column(db.String(100))
+    description = db.Column(db.Text)
+
+    # Configuration
+    is_enabled = db.Column(db.Boolean, default=False)
+    settings = db.Column(db.JSON, default=dict)
+
+    # Status
+    last_assessment_at = db.Column(db.DateTime)
+    compliance_score = db.Column(db.Integer)  # 0-100
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('compliance_frameworks', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'name', name='unique_user_framework'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'display_name': self.display_name,
+            'is_enabled': self.is_enabled,
+            'compliance_score': self.compliance_score,
+            'last_assessment_at': self.last_assessment_at.isoformat() if self.last_assessment_at else None
+        }
+
+    def __repr__(self):
+        return f'<ComplianceFramework {self.name}>'
+
+
+class CompliancePolicy(db.Model):
+    """User-defined compliance policies"""
+    __tablename__ = 'compliance_policies'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    policy_type = db.Column(db.String(50))  # security, access, data, network
+
+    # Policy definition
+    rules = db.Column(db.JSON)  # Policy rules/conditions
+    enforcement_action = db.Column(db.String(50))  # alert, block, auto_remediate
+
+    # Status
+    is_active = db.Column(db.Boolean, default=True)
+
+    # Statistics
+    violations_count = db.Column(db.Integer, default=0)
+    last_violation_at = db.Column(db.DateTime)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('compliance_policies', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'policy_type': self.policy_type,
+            'enforcement_action': self.enforcement_action,
+            'is_active': self.is_active,
+            'violations_count': self.violations_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<CompliancePolicy {self.name}>'
+
+
+class ComplianceReport(db.Model):
+    """Generated compliance reports"""
+    __tablename__ = 'compliance_reports'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    name = db.Column(db.String(200), nullable=False)
+    report_type = db.Column(db.String(50))  # assessment, audit, summary
+    framework = db.Column(db.String(50))  # soc2, hipaa, etc.
+
+    # Report content
+    summary = db.Column(db.JSON)
+    findings = db.Column(db.JSON)
+    recommendations = db.Column(db.JSON)
+
+    # Scores
+    overall_score = db.Column(db.Integer)  # 0-100
+    controls_passed = db.Column(db.Integer)
+    controls_failed = db.Column(db.Integer)
+
+    # File
+    file_path = db.Column(db.String(500))
+    file_format = db.Column(db.String(10))  # pdf, csv, json
+
+    # Timestamps
+    generated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    period_start = db.Column(db.DateTime)
+    period_end = db.Column(db.DateTime)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('compliance_reports', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'report_type': self.report_type,
+            'framework': self.framework,
+            'overall_score': self.overall_score,
+            'controls_passed': self.controls_passed,
+            'controls_failed': self.controls_failed,
+            'file_format': self.file_format,
+            'generated_at': self.generated_at.isoformat() if self.generated_at else None
+        }
+
+    def __repr__(self):
+        return f'<ComplianceReport {self.name}>'
+
+
+# ============================================
+# AI Infrastructure Models
+# ============================================
+
+class InfrastructureTemplate(db.Model):
+    """Saved infrastructure templates"""
+    __tablename__ = 'infrastructure_templates'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    category = db.Column(db.String(50))  # web, database, kubernetes, networking
+
+    # Template content
+    cloud_provider = db.Column(db.String(20))  # aws, azure, gcp
+    template_type = db.Column(db.String(20))  # terraform, cloudformation, pulumi
+    template_content = db.Column(db.Text)
+    variables = db.Column(db.JSON)
+
+    # Estimated cost
+    estimated_monthly_cost = db.Column(db.Float)
+
+    # Sharing
+    is_public = db.Column(db.Boolean, default=False)
+    use_count = db.Column(db.Integer, default=0)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('infrastructure_templates', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'category': self.category,
+            'cloud_provider': self.cloud_provider,
+            'template_type': self.template_type,
+            'estimated_monthly_cost': self.estimated_monthly_cost,
+            'is_public': self.is_public,
+            'use_count': self.use_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<InfrastructureTemplate {self.name}>'
+
+
+class ProvisioningRequestModel(db.Model):
+    """Infrastructure provisioning requests"""
+    __tablename__ = 'provisioning_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    # Request details
+    request_id = db.Column(db.String(50), unique=True, nullable=False)
+    natural_language_input = db.Column(db.Text)
+    parsed_spec = db.Column(db.JSON)
+
+    # Generated code
+    cloud_provider = db.Column(db.String(20))
+    terraform_code = db.Column(db.Text)
+    cloudformation_code = db.Column(db.Text)
+
+    # Cost estimation
+    estimated_monthly_cost = db.Column(db.Float)
+
+    # Status
+    status = db.Column(db.String(20), default='pending')  # pending, planning, approved, provisioning, completed, failed
+
+    # Approval workflow
+    requires_approval = db.Column(db.Boolean, default=False)
+    approved_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    approved_at = db.Column(db.DateTime)
+
+    # Execution
+    executed_at = db.Column(db.DateTime)
+    execution_result = db.Column(db.JSON)
+    error_message = db.Column(db.Text)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('provisioning_requests', lazy='dynamic'))
+    approver = db.relationship('User', foreign_keys=[approved_by])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'request_id': self.request_id,
+            'natural_language_input': self.natural_language_input,
+            'cloud_provider': self.cloud_provider,
+            'estimated_monthly_cost': self.estimated_monthly_cost,
+            'status': self.status,
+            'requires_approval': self.requires_approval,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<ProvisioningRequest {self.request_id} - {self.status}>'
+
+
+# ============================================
+# Analytics Models
+# ============================================
+
+class AnalyticsDashboard(db.Model):
+    """Custom analytics dashboards"""
+    __tablename__ = 'analytics_dashboards'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+
+    # Layout configuration
+    layout = db.Column(db.JSON)  # Widget positions and sizes
+
+    # Sharing
+    is_default = db.Column(db.Boolean, default=False)
+    is_shared = db.Column(db.Boolean, default=False)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('analytics_dashboards', lazy='dynamic'))
+    widgets = db.relationship('AnalyticsWidget', back_populates='dashboard', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'is_default': self.is_default,
+            'is_shared': self.is_shared,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<AnalyticsDashboard {self.name}>'
+
+
+class AnalyticsWidget(db.Model):
+    """Individual analytics widgets"""
+    __tablename__ = 'analytics_widgets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    dashboard_id = db.Column(db.Integer, db.ForeignKey('analytics_dashboards.id'), nullable=False)
+
+    name = db.Column(db.String(200), nullable=False)
+    widget_type = db.Column(db.String(50))  # chart, metric, table, map
+
+    # Configuration
+    data_source = db.Column(db.String(100))  # costs, resources, incidents, etc.
+    config = db.Column(db.JSON)  # Chart type, colors, filters, etc.
+
+    # Position
+    position_x = db.Column(db.Integer, default=0)
+    position_y = db.Column(db.Integer, default=0)
+    width = db.Column(db.Integer, default=4)
+    height = db.Column(db.Integer, default=3)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    dashboard = db.relationship('AnalyticsDashboard', back_populates='widgets')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'widget_type': self.widget_type,
+            'data_source': self.data_source,
+            'config': self.config,
+            'position': {'x': self.position_x, 'y': self.position_y},
+            'size': {'width': self.width, 'height': self.height}
+        }
+
+    def __repr__(self):
+        return f'<AnalyticsWidget {self.name}>'

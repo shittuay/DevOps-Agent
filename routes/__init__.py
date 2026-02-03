@@ -12,5 +12,15 @@ from .webhooks import webhooks_bp
 from .chatops import chatops_bp
 from .drift import drift_bp
 from .scaling import scaling_bp
+from .ai_infrastructure import ai_infrastructure_bp
+from .analytics import analytics_bp
+from .api_gateway import api_gateway_bp
+from .compliance import compliance_bp
+from .organizations import organizations_bp
 
-__all__ = ['admin_bp', 'incidents_bp', 'monitoring_bp', 'notifications_bp', 'optimization_bp', 'analysis_bp', 'webhooks_bp', 'chatops_bp', 'drift_bp', 'scaling_bp']
+__all__ = [
+    'admin_bp', 'incidents_bp', 'monitoring_bp', 'notifications_bp',
+    'optimization_bp', 'analysis_bp', 'webhooks_bp', 'chatops_bp',
+    'drift_bp', 'scaling_bp', 'ai_infrastructure_bp', 'analytics_bp',
+    'api_gateway_bp', 'compliance_bp', 'organizations_bp'
+]

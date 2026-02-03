@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Create Webhook - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Create Webhook</h1>
+        <a href="{{ url_for('api_gateway.list_webhooks') }}" class="btn btn-secondary">Back</a>
+    </div>
+    <div class="card">
+        <div class="card-body">
+            <form method="POST">
+                <div class="form-group">
+                    <label>Webhook Name:</label>
+                    <input type="text" name="name" class="form-control" required placeholder="My Webhook">
+                </div>
+                <div class="form-group">
+                    <label>Endpoint URL:</label>
+                    <input type="url" name="url" class="form-control" required placeholder="https://example.com/webhook">
+                </div>
+                <div class="form-group">
+                    <label>Events:</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" name="events" value="resource.created"> Resource Created</label>
+                        <label><input type="checkbox" name="events" value="resource.updated"> Resource Updated</label>
+                        <label><input type="checkbox" name="events" value="resource.deleted"> Resource Deleted</label>
+                        <label><input type="checkbox" name="events" value="alert.triggered"> Alert Triggered</label>
+                        <label><input type="checkbox" name="events" value="incident.created"> Incident Created</label>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Create Webhook</button>
+            </form>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 600px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-body { padding: 20px; }
+.form-group { margin-bottom: 15px; }
+.form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
+.checkbox-group { display: flex; flex-direction: column; gap: 10px; }
+.checkbox-group label { display: flex; align-items: center; gap: 8px; }
+</style>
+{% endblock %}

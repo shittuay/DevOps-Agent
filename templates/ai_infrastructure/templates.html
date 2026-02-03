@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Infrastructure Templates - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Infrastructure Templates</h1>
+        <a href="{{ url_for('ai_infrastructure.dashboard') }}" class="btn btn-secondary">Back</a>
+    </div>
+    <div class="templates-grid" id="templatesGrid">
+        <p class="text-muted">Loading templates...</p>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+.template-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
+.template-card h4 { margin: 0 0 10px 0; }
+.template-card p { color: var(--text-muted); margin-bottom: 15px; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        const response = await fetch('/ai/api/templates');
+        if (response.ok) {
+            const data = await response.json();
+            renderTemplates(data.templates || []);
+        }
+    } catch (error) {
+        document.getElementById('templatesGrid').innerHTML = '<p>Error loading templates</p>';
+    }
+});
+
+function renderTemplates(templates) {
+    const grid = document.getElementById('templatesGrid');
+    if (templates.length === 0) {
+        grid.innerHTML = '<p class="text-muted">No templates available</p>';
+        return;
+    }
+    grid.innerHTML = templates.map(t => `
+        <div class="template-card">
+            <h4>${t.name}</h4>
+            <p>${t.description || 'No description'}</p>
+            <div><strong>Provider:</strong> ${t.cloud_provider}</div>
+            <div><strong>Est. Cost:</strong> $${t.estimated_cost || 0}/mo</div>
+            <button class="btn btn-primary mt-3" onclick="useTemplate('${t.id}')">Use Template</button>
+        </div>
+    `).join('');
+}
+</script>
+{% endblock %}

@@ -256,7 +256,7 @@ def create_subscription_checkout(user, tier_name):
     if not price_id:
         return {'success': False, 'error': f'Invalid tier: {tier_name}'}
 
-    base_url = os.getenv('BASE_URL', 'http://localhost:5000')
+    base_url = os.getenv('BASE_URL', 'https://devopsagent.io')
     success_url = f'{base_url}/billing/success'
     cancel_url = f'{base_url}/billing'
 
@@ -285,7 +285,7 @@ def create_credit_pack_checkout(user, pack_size):
     if not price_id:
         return {'success': False, 'error': f'Invalid pack size: {pack_size}'}
 
-    base_url = os.getenv('BASE_URL', 'http://localhost:5000')
+    base_url = os.getenv('BASE_URL', 'https://devopsagent.io')
     success_url = f'{base_url}/billing/success'
     cancel_url = f'{base_url}/billing'
 
