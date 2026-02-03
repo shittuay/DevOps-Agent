@@ -1101,17 +1101,21 @@
                 grid-template-columns: 1fr;
             }
 
-            /* Move theme toggle below header on mobile to avoid overlap with profile button */
+            /* Move theme toggle to bottom-left on mobile for easy thumb access */
             .theme-toggle {
-                top: 70px;
-                right: 12px;
-                padding: 6px;
+                top: auto;
+                bottom: 100px;
+                left: 16px;
+                right: auto;
+                padding: 8px;
+                flex-direction: column;
+                border-radius: 30px;
             }
 
             .theme-toggle-btn {
-                width: 32px;
-                height: 32px;
-                font-size: 14px;
+                width: 44px;
+                height: 44px;
+                font-size: 18px;
             }
         }
 
@@ -1671,14 +1675,53 @@
         }
 
         function showAbout() {
-            const about = `
-                <strong>DevOps Agent</strong><br><br>
-                <strong>Version:</strong> 2.0.0<br>
-                <strong>Powered by:</strong> Claude AI<br>
-                <strong>Tools:</strong> 36+ DevOps integrations<br><br>
-                AI-powered automation for AWS, Azure, GCP, Kubernetes, Docker, and more.
+            const container = document.getElementById('chatContainer');
+            const welcome = document.querySelector('.welcome');
+            if (welcome) welcome.remove();
+
+            const aboutDiv = document.createElement('div');
+            aboutDiv.className = 'message agent';
+            aboutDiv.innerHTML = `
+                <div class="message-avatar">D</div>
+                <div class="message-content">
+                    <div class="message-text">
+                        <div style="background: var(--glass-bg); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 28px; max-width: 480px;">
+                            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border-subtle);">
+                                <div style="width: 56px; height: 56px; background: var(--gradient-primary); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 28px; color: white; box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);">D</div>
+                                <div>
+                                    <div style="font-family: 'Syne', sans-serif; font-size: 24px; font-weight: 800; background: linear-gradient(135deg, var(--accent-primary), var(--accent-electric)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">DevOps Agent</div>
+                                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-tertiary); letter-spacing: 1px;">AI-POWERED AUTOMATION</div>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+                                <div style="background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid var(--border-subtle);">
+                                    <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Version</div>
+                                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; color: var(--text-primary);">2.0.0</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid var(--border-subtle);">
+                                    <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">AI Engine</div>
+                                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; color: var(--text-primary);">Claude</div>
+                                </div>
+                            </div>
+                            <div style="background: rgba(255, 107, 53, 0.1); padding: 14px; border-radius: 10px; border: 1px solid rgba(255, 107, 53, 0.2); margin-bottom: 20px;">
+                                <div style="font-size: 11px; color: var(--accent-primary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Integrations</div>
+                                <div style="font-size: 15px; font-weight: 600; color: var(--text-primary);">36+ DevOps Tools</div>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;">
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">AWS</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Azure</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">GCP</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Kubernetes</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Docker</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">CI/CD</span>
+                            </div>
+                            <p style="font-size: 13px; color: var(--text-tertiary); line-height: 1.6; margin: 0;">Enterprise-grade infrastructure automation with intelligent orchestration, real-time monitoring, and predictive insights.</p>
+                        </div>
+                    </div>
+                </div>
             `;
-            addMessage('agent', about);
+            container.appendChild(aboutDiv);
+            scrollToBottom();
         }
 
         async function exportChat() {
