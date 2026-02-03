@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}API Usage - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>API Usage Statistics</h1>
+        <a href="{{ url_for('api_gateway.dashboard') }}" class="btn btn-secondary">Back</a>
+    </div>
+    <div class="metrics-grid">
+        <div class="metric-card"><div class="metric-label">Total Requests</div><div class="metric-value" id="totalRequests">0</div></div>
+        <div class="metric-card"><div class="metric-label">Today</div><div class="metric-value" id="todayRequests">0</div></div>
+        <div class="metric-card"><div class="metric-label">Success Rate</div><div class="metric-value" id="successRate">100%</div></div>
+        <div class="metric-card"><div class="metric-label">Avg Response Time</div><div class="metric-value" id="avgResponse">0ms</div></div>
+    </div>
+    <div class="card mt-4">
+        <div class="card-header"><h3>Usage by Endpoint</h3></div>
+        <div class="card-body">
+            <table class="table">
+                <thead><tr><th>Endpoint</th><th>Method</th><th>Requests</th><th>Avg Time</th><th>Errors</th></tr></thead>
+                <tbody id="usageTable"><tr><td colspan="5" class="text-center">Loading...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.metric-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; text-align: center; }
+.metric-label { font-size: 12px; color: var(--text-muted); }
+.metric-value { font-size: 28px; font-weight: bold; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-header { padding: 15px 20px; border-bottom: 1px solid var(--border-color); }
+.card-body { padding: 20px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
+</style>
+{% endblock %}

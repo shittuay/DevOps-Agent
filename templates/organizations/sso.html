@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}SSO Settings - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Single Sign-On (SSO)</h1>
+        <a href="{{ url_for('organizations.view_organization', org_id=organization.id) }}" class="btn btn-secondary">Back</a>
+    </div>
+    <div class="card">
+        <div class="card-header">
+            <h3>SSO Configuration</h3>
+            <span class="badge badge-{{ 'success' if organization.sso_enabled else 'secondary' }}">
+                {{ 'Enabled' if organization.sso_enabled else 'Disabled' }}
+            </span>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+                <div class="form-group">
+                    <label>SSO Provider:</label>
+                    <select name="sso_provider" class="form-control">
+                        <option value="">Select Provider</option>
+                        <option value="okta" {{ 'selected' if organization.sso_provider == 'okta' else '' }}>Okta</option>
+                        <option value="azure_ad" {{ 'selected' if organization.sso_provider == 'azure_ad' else '' }}>Azure AD</option>
+                        <option value="google" {{ 'selected' if organization.sso_provider == 'google' else '' }}>Google Workspace</option>
+                        <option value="github" {{ 'selected' if organization.sso_provider == 'github' else '' }}>GitHub</option>
+                        <option value="saml" {{ 'selected' if organization.sso_provider == 'saml' else '' }}>SAML 2.0</option>
+                        <option value="oidc" {{ 'selected' if organization.sso_provider == 'oidc' else '' }}>OpenID Connect</option>
+                    </select>
+                </div>
+
+                <div id="samlConfig" class="provider-config" style="display:none;">
+                    <h4>SAML Configuration</h4>
+                    <div class="form-group">
+                        <label>Identity Provider SSO URL:</label>
+                        <input type="url" name="saml_sso_url" class="form-control" placeholder="https://idp.example.com/sso">
+                    </div>
+                    <div class="form-group">
+                        <label>Identity Provider Certificate:</label>
+                        <textarea name="saml_certificate" class="form-control" rows="4" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+                    </div>
+                </div>
+
+                <div id="oidcConfig" class="provider-config" style="display:none;">
+                    <h4>OpenID Connect Configuration</h4>
+                    <div class="form-group">
+                        <label>Issuer URL:</label>
+                        <input type="url" name="oidc_issuer" class="form-control" placeholder="https://accounts.google.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Client ID:</label>
+                        <input type="text" name="oidc_client_id" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Client Secret:</label>
+                        <input type="password" name="oidc_client_secret" class="form-control">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="sso_enabled" {{ 'checked' if organization.sso_enabled else '' }}>
+                        Enable SSO for this organization
+                    </label>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Save SSO Settings</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header"><h3>Service Provider Details</h3></div>
+        <div class="card-body">
+            <p>Use these details when configuring your Identity Provider:</p>
+            <div class="form-group">
+                <label>ACS URL (Assertion Consumer Service):</label>
+                <input type="text" class="form-control" readonly value="{{ request.url_root }}auth/sso/callback">
+            </div>
+            <div class="form-group">
+                <label>Entity ID:</label>
+                <input type="text" class="form-control" readonly value="{{ request.url_root }}">
+            </div>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 800px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-header { padding: 15px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+.card-body { padding: 20px; }
+.form-group { margin-bottom: 15px; }
+.form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
+.checkbox-label { display: flex; align-items: center; gap: 8px; }
+.badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+.badge-success { background: #28a745; color: white; }
+.badge-secondary { background: #6c757d; color: white; }
+.provider-config { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color); }
+</style>
+<script>
+document.querySelector('select[name="sso_provider"]').addEventListener('change', function() {
+    document.querySelectorAll('.provider-config').forEach(el => el.style.display = 'none');
+    if (this.value === 'saml') document.getElementById('samlConfig').style.display = 'block';
+    if (this.value === 'oidc') document.getElementById('oidcConfig').style.display = 'block';
+});
+</script>
+{% endblock %}

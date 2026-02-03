@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Compliance Controls - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Compliance Controls</h1>
+        <a href="{{ url_for('compliance.dashboard') }}" class="btn btn-secondary">Back</a>
+    </div>
+    <div class="filters">
+        <select id="frameworkFilter" class="form-control" onchange="filterControls()">
+            <option value="">All Frameworks</option>
+            <option value="soc2">SOC 2</option>
+            <option value="hipaa">HIPAA</option>
+            <option value="pci_dss">PCI-DSS</option>
+            <option value="gdpr">GDPR</option>
+        </select>
+        <select id="statusFilter" class="form-control" onchange="filterControls()">
+            <option value="">All Statuses</option>
+            <option value="compliant">Compliant</option>
+            <option value="non_compliant">Non-Compliant</option>
+            <option value="partial">Partial</option>
+        </select>
+    </div>
+    <div class="card mt-4">
+        <div class="card-body">
+            <table class="table">
+                <thead><tr><th>ID</th><th>Framework</th><th>Control</th><th>Category</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody id="controlsTable"><tr><td colspan="6" class="text-center">Loading...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.filters { display: flex; gap: 15px; }
+.form-control { padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; min-width: 150px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-body { padding: 20px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
+.status-compliant { color: #28a745; }
+.status-non_compliant { color: #dc3545; }
+.status-partial { color: #ffc107; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', loadControls);
+async function loadControls() {
+    const response = await fetch('/compliance/api/controls');
+    if (response.ok) {
+        const data = await response.json();
+        renderControls(data.controls || []);
+    }
+}
+function renderControls(controls) {
+    const tbody = document.getElementById('controlsTable');
+    if (controls.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">No controls found</td></tr>';
+        return;
+    }
+    tbody.innerHTML = controls.map(c => `
+        <tr>
+            <td>${c.id}</td>
+            <td>${c.framework}</td>
+            <td>${c.title}</td>
+            <td>${c.category || '-'}</td>
+            <td class="status-${c.status}">${c.status}</td>
+            <td><a href="/compliance/controls/${c.id}" class="btn btn-sm btn-secondary">Details</a></td>
+        </tr>
+    `).join('');
+}
+</script>
+{% endblock %}

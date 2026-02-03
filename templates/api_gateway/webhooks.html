@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Webhooks - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Webhooks</h1>
+        <a href="{{ url_for('api_gateway.create_webhook') }}" class="btn btn-primary">Create Webhook</a>
+    </div>
+    <div class="card">
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr><th>Name</th><th>URL</th><th>Events</th><th>Status</th><th>Deliveries</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="webhooksTable">
+                    <tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-body { padding: 20px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
+.badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+.badge-success { background: #28a745; color: white; }
+.badge-secondary { background: #6c757d; color: white; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', loadWebhooks);
+async function loadWebhooks() {
+    const response = await fetch('/api-gateway/api/webhooks');
+    if (response.ok) {
+        const data = await response.json();
+        renderWebhooks(data.webhooks || []);
+    }
+}
+function renderWebhooks(webhooks) {
+    const tbody = document.getElementById('webhooksTable');
+    if (webhooks.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">No webhooks</td></tr>';
+        return;
+    }
+    tbody.innerHTML = webhooks.map(w => `
+        <tr>
+            <td>${w.name}</td>
+            <td><code>${w.url.substring(0, 40)}...</code></td>
+            <td>${(w.events || []).length} events</td>
+            <td><span class="badge badge-${w.is_active ? 'success' : 'secondary'}">${w.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td>${w.total_deliveries || 0} (${w.successful_deliveries || 0} ok)</td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="toggleWebhook(${w.id})">Toggle</button>
+                <button class="btn btn-sm btn-primary" onclick="testWebhook(${w.id})">Test</button>
+            </td>
+        </tr>
+    `).join('');
+}
+async function toggleWebhook(id) {
+    await fetch('/api-gateway/webhooks/' + id + '/toggle', {method: 'POST'});
+    loadWebhooks();
+}
+async function testWebhook(id) {
+    const response = await fetch('/api-gateway/webhooks/' + id + '/test', {method: 'POST'});
+    const data = await response.json();
+    alert(data.success ? 'Test successful!' : 'Test failed: ' + data.error);
+}
+</script>
+{% endblock %}

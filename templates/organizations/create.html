@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}Create Organization - DevOps Agent{% endblock %}
+
+{% block content %}
+<div class="create-org-container">
+    <div class="page-header">
+        <a href="{{ url_for('organizations.list_organizations') }}" class="back-link">
+            <i class="fas fa-arrow-left"></i> Back to Organizations
+        </a>
+        <h1>Create Organization</h1>
+    </div>
+
+    <div class="form-card">
+        <form method="POST" action="{{ url_for('organizations.create_organization') }}">
+            <div class="form-group">
+                <label for="name">Organization Name</label>
+                <input type="text" id="name" name="name" required placeholder="My Company">
+                <span class="form-hint">The name of your organization or team</span>
+            </div>
+
+            <div class="form-group">
+                <label for="slug">URL Slug</label>
+                <div class="input-prefix">
+                    <span>devops-agent.com/org/</span>
+                    <input type="text" id="slug" name="slug" required pattern="[a-z0-9-]+" placeholder="my-company">
+                </div>
+                <span class="form-hint">Lowercase letters, numbers, and hyphens only</span>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" rows="3" placeholder="What does your organization do?"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="plan">Plan</label>
+                <div class="plan-options">
+                    <label class="plan-option">
+                        <input type="radio" name="plan" value="free" checked>
+                        <div class="plan-content">
+                            <h4>Free</h4>
+                            <p>Up to 5 members</p>
+                            <span class="plan-price">$0/month</span>
+                        </div>
+                    </label>
+                    <label class="plan-option">
+                        <input type="radio" name="plan" value="team">
+                        <div class="plan-content">
+                            <h4>Team</h4>
+                            <p>Up to 20 members</p>
+                            <span class="plan-price">$29/month</span>
+                        </div>
+                    </label>
+                    <label class="plan-option">
+                        <input type="radio" name="plan" value="enterprise">
+                        <div class="plan-content">
+                            <h4>Enterprise</h4>
+                            <p>Unlimited members</p>
+                            <span class="plan-price">Contact us</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Create Organization</button>
+                <a href="{{ url_for('organizations.list_organizations') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.create-org-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.page-header {
+    margin-bottom: 30px;
+}
+
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-bottom: 15px;
+}
+
+.back-link:hover {
+    color: var(--text-primary);
+}
+
+.page-header h1 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.form-card {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    padding: 30px;
+}
+
+.form-group {
+    margin-bottom: 24px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.input-prefix {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    overflow: hidden;
+}
+
+.input-prefix span {
+    padding: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.input-prefix input {
+    border: none !important;
+    border-radius: 0 !important;
+}
+
+.plan-options {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+}
+
+.plan-option {
+    cursor: pointer;
+}
+
+.plan-option input {
+    display: none;
+}
+
+.plan-content {
+    padding: 20px;
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.plan-option input:checked + .plan-content {
+    border-color: #667eea;
+    background: rgba(102, 126, 234, 0.05);
+}
+
+.plan-content h4 {
+    margin: 0 0 5px;
+    color: var(--text-primary);
+}
+
+.plan-content p {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.plan-price {
+    font-weight: 600;
+    color: #667eea;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    margin-top: 30px;
+}
+
+.btn {
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    font-size: 14px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+</style>
+
+<script>
+document.getElementById('name').addEventListener('input', function() {
+    const slug = this.value.toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+    document.getElementById('slug').value = slug;
+});
+</script>
+{% endblock %}

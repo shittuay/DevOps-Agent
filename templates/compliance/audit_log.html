@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Audit Log - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Audit Log</h1>
+        <div>
+            <button class="btn btn-secondary" onclick="exportAuditLog()"><i class="fas fa-download"></i> Export</button>
+            <a href="{{ url_for('compliance.dashboard') }}" class="btn btn-secondary">Back</a>
+        </div>
+    </div>
+    <div class="filters">
+        <input type="date" id="dateFrom" class="form-control" onchange="loadAuditLog()">
+        <input type="date" id="dateTo" class="form-control" onchange="loadAuditLog()">
+        <select id="actionFilter" class="form-control" onchange="loadAuditLog()">
+            <option value="">All Actions</option>
+            <option value="login">Login</option>
+            <option value="logout">Logout</option>
+            <option value="resource_created">Resource Created</option>
+            <option value="resource_modified">Resource Modified</option>
+            <option value="resource_deleted">Resource Deleted</option>
+            <option value="settings_changed">Settings Changed</option>
+        </select>
+    </div>
+    <div class="card mt-4">
+        <div class="card-body">
+            <table class="table">
+                <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Resource</th><th>IP Address</th><th>Status</th></tr></thead>
+                <tbody id="auditTable"><tr><td colspan="6" class="text-center">Loading...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.filters { display: flex; gap: 15px; }
+.form-control { padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-body { padding: 20px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
+.badge-success { background: #28a745; color: white; padding: 4px 8px; border-radius: 4px; }
+.badge-danger { background: #dc3545; color: white; padding: 4px 8px; border-radius: 4px; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', loadAuditLog);
+async function loadAuditLog() {
+    const params = new URLSearchParams();
+    if (document.getElementById('dateFrom').value) params.append('from', document.getElementById('dateFrom').value);
+    if (document.getElementById('dateTo').value) params.append('to', document.getElementById('dateTo').value);
+    if (document.getElementById('actionFilter').value) params.append('action', document.getElementById('actionFilter').value);
+
+    const response = await fetch('/compliance/api/audit-log?' + params);
+    if (response.ok) {
+        const data = await response.json();
+        renderAuditLog(data.logs || []);
+    }
+}
+function renderAuditLog(logs) {
+    const tbody = document.getElementById('auditTable');
+    if (logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">No audit events found</td></tr>';
+        return;
+    }
+    tbody.innerHTML = logs.map(l => `
+        <tr>
+            <td>${new Date(l.timestamp).toLocaleString()}</td>
+            <td>${l.user || 'System'}</td>
+            <td>${l.action}</td>
+            <td>${l.resource_type || '-'}</td>
+            <td>${l.ip_address || '-'}</td>
+            <td><span class="badge-${l.status === 'success' ? 'success' : 'danger'}">${l.status}</span></td>
+        </tr>
+    `).join('');
+}
+async function exportAuditLog() {
+    window.location.href = '/compliance/api/export/audit-log?format=csv';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Provision Infrastructure - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Provision Infrastructure</h1>
+        <a href="{{ url_for('ai_infrastructure.dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Natural Language Provisioning</h3></div>
+        <div class="card-body">
+            <form id="provisionForm">
+                <div class="form-group">
+                    <label>Describe your infrastructure needs:</label>
+                    <textarea id="nlInput" class="form-control" rows="4" placeholder="e.g., Create a production-ready web application with load balancer, 3 web servers, and a PostgreSQL database in AWS us-east-1"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Cloud Provider:</label>
+                    <select id="cloudProvider" class="form-control">
+                        <option value="aws">AWS</option>
+                        <option value="azure">Azure</option>
+                        <option value="gcp">Google Cloud</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Generate Infrastructure Code</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="resultSection" style="display:none;" class="mt-4">
+        <div class="card">
+            <div class="card-header">
+                <h3>Generated Infrastructure</h3>
+                <div>
+                    <button class="btn btn-sm btn-secondary" onclick="copyCode()">Copy</button>
+                    <button class="btn btn-sm btn-primary" onclick="deployInfra()">Deploy</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>Estimated Monthly Cost:</strong> <span id="estimatedCost">$0</span>
+                </div>
+                <ul class="nav nav-tabs">
+                    <li class="nav-item"><a class="nav-link active" data-tab="terraform">Terraform</a></li>
+                    <li class="nav-item"><a class="nav-link" data-tab="cloudformation">CloudFormation</a></li>
+                </ul>
+                <pre id="terraformCode" class="code-block mt-3"></pre>
+                <pre id="cloudformationCode" class="code-block mt-3" style="display:none;"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
+.card-header { padding: 15px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+.card-body { padding: 20px; }
+.form-group { margin-bottom: 15px; }
+.form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
+.code-block { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; overflow-x: auto; }
+.nav-tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--border-color); }
+.nav-link { padding: 10px 15px; cursor: pointer; }
+.nav-link.active { border-bottom: 2px solid var(--primary-color); }
+</style>
+<script>
+document.getElementById('provisionForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const query = document.getElementById('nlInput').value;
+    const provider = document.getElementById('cloudProvider').value;
+
+    const response = await fetch('/ai/api/parse', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query, cloud_provider: provider})
+    });
+
+    if (response.ok) {
+        const data = await response.json();
+        document.getElementById('terraformCode').textContent = data.terraform || 'No Terraform code generated';
+        document.getElementById('cloudformationCode').textContent = data.cloudformation || 'No CloudFormation code generated';
+        document.getElementById('estimatedCost').textContent = '$' + (data.estimated_cost || 0).toFixed(2);
+        document.getElementById('resultSection').style.display = 'block';
+    }
+});
+
+document.querySelectorAll('.nav-link').forEach(link => {
+    link.addEventListener('click', function() {
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        this.classList.add('active');
+        const tab = this.dataset.tab;
+        document.getElementById('terraformCode').style.display = tab === 'terraform' ? 'block' : 'none';
+        document.getElementById('cloudformationCode').style.display = tab === 'cloudformation' ? 'block' : 'none';
+    });
+});
+
+function copyCode() {
+    const activeTab = document.querySelector('.nav-link.active').dataset.tab;
+    const code = document.getElementById(activeTab + 'Code').textContent;
+    navigator.clipboard.writeText(code);
+    alert('Code copied to clipboard!');
+}
+</script>
+{% endblock %}

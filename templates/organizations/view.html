@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block title %}{{ org.name }} - DevOps Agent{% endblock %}
+
+{% block content %}
+<div class="org-view-container">
+    <div class="org-header">
+        <div class="org-header-left">
+            <div class="org-avatar-large">{{ org.name[0]|upper }}</div>
+            <div class="org-title">
+                <h1>{{ org.name }}</h1>
+                <span class="org-slug">@{{ org.slug }}</span>
+                {% if org.description %}
+                <p class="org-description">{{ org.description }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% if membership.role in ['owner', 'admin'] %}
+        <a href="{{ url_for('organizations.organization_settings', org_id=org.id) }}" class="btn btn-secondary">
+            <i class="fas fa-cog"></i> Settings
+        </a>
+        {% endif %}
+    </div>
+
+    <div class="org-nav">
+        <a href="{{ url_for('organizations.view_organization', org_id=org.id) }}" class="nav-item active">Overview</a>
+        <a href="{{ url_for('organizations.list_members', org_id=org.id) }}" class="nav-item">Members</a>
+        <a href="{{ url_for('organizations.list_teams', org_id=org.id) }}" class="nav-item">Teams</a>
+        {% if membership.role in ['owner', 'admin'] %}
+        <a href="{{ url_for('organizations.sso_settings', org_id=org.id) }}" class="nav-item">SSO</a>
+        {% endif %}
+    </div>
+
+    <div class="org-content">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <i class="fas fa-users"></i>
+                <div class="stat-info">
+                    <span class="stat-value">{{ members|length }}</span>
+                    <span class="stat-label">Members</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-user-friends"></i>
+                <div class="stat-info">
+                    <span class="stat-value">{{ teams|length }}</span>
+                    <span class="stat-label">Teams</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-server"></i>
+                <div class="stat-info">
+                    <span class="stat-value">{{ org.resources|length if org.resources else 0 }}</span>
+                    <span class="stat-label">Resources</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-calendar"></i>
+                <div class="stat-info">
+                    <span class="stat-value">{{ org.created_at.strftime('%b %Y') if org.created_at else 'N/A' }}</span>
+                    <span class="stat-label">Created</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="content-section">
+                <div class="section-header">
+                    <h3>Recent Members</h3>
+                    <a href="{{ url_for('organizations.list_members', org_id=org.id) }}">View all</a>
+                </div>
+                <div class="member-list">
+                    {% for member in members[:5] %}
+                    <div class="member-item">
+                        <div class="member-avatar">{{ member.user.email[0]|upper }}</div>
+                        <div class="member-info">
+                            <span class="member-name">{{ member.user.email }}</span>
+                            <span class="member-role role-{{ member.role }}">{{ member.role|title }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="content-section">
+                <div class="section-header">
+                    <h3>Teams</h3>
+                    <a href="{{ url_for('organizations.list_teams', org_id=org.id) }}">View all</a>
+                </div>
+                <div class="team-list">
+                    {% for team in teams[:5] %}
+                    <a href="{{ url_for('organizations.view_team', org_id=org.id, team_id=team.id) }}" class="team-item">
+                        <div class="team-icon"><i class="fas fa-users"></i></div>
+                        <div class="team-info">
+                            <span class="team-name">{{ team.name }}</span>
+                            <span class="team-members">{{ team.members|length if team.members else 0 }} members</span>
+                        </div>
+                    </a>
+                    {% else %}
+                    <p class="empty-message">No teams created yet</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.org-view-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.org-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 30px;
+}
+
+.org-header-left {
+    display: flex;
+    gap: 20px;
+}
+
+.org-avatar-large {
+    width: 80px;
+    height: 80px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: bold;
+    color: white;
+}
+
+.org-title h1 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.org-slug {
+    color: var(--text-secondary);
+}
+
+.org-description {
+    margin-top: 10px;
+    color: var(--text-secondary);
+}
+
+.org-nav {
+    display: flex;
+    gap: 5px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 30px;
+}
+
+.nav-item {
+    padding: 12px 20px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.nav-item:hover {
+    color: var(--text-primary);
+}
+
+.nav-item.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.stat-card i {
+    font-size: 24px;
+    color: #667eea;
+}
+
+.stat-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.stat-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.content-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+.content-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.section-header h3 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.section-header a {
+    color: #667eea;
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.member-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.member-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.member-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.member-name {
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.member-role {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+    width: fit-content;
+}
+
+.team-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.team-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: background 0.2s;
+}
+
+.team-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.team-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: rgba(102, 126, 234, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #667eea;
+}
+
+.team-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.team-name {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.team-members {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.empty-message {
+    color: var(--text-tertiary);
+    text-align: center;
+    padding: 20px;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .content-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}

@@ -219,6 +219,26 @@ app.register_blueprint(drift_bp)
 from routes.scaling import scaling_bp
 app.register_blueprint(scaling_bp)
 
+# Register AI Infrastructure blueprint
+from routes.ai_infrastructure import ai_infrastructure_bp
+app.register_blueprint(ai_infrastructure_bp)
+
+# Register Analytics blueprint
+from routes.analytics import analytics_bp
+app.register_blueprint(analytics_bp)
+
+# Register API Gateway blueprint
+from routes.api_gateway import api_gateway_bp
+app.register_blueprint(api_gateway_bp)
+
+# Register Compliance blueprint
+from routes.compliance import compliance_bp
+app.register_blueprint(compliance_bp)
+
+# Register Organizations blueprint
+from routes.organizations import organizations_bp
+app.register_blueprint(organizations_bp)
+
 # Initialize proactive monitoring service with incident integration
 from services.proactive_monitoring import get_monitoring_service
 from services.incident_response import get_incident_engine
