@@ -6,32 +6,91 @@ from ..utils import get_logger
 logger = get_logger(__name__)
 
 
+def _get_current_user_id() -> Optional[int]:
+    """Get current user ID from Flask context if available."""
+    try:
+        from flask import g, has_request_context
+        if has_request_context() and hasattr(g, 'current_user_id'):
+            return g.current_user_id
+    except ImportError:
+        pass
+    return None
+
+
+def _get_user_gcp_credentials():
+    """
+    Get per-user GCP credentials from the database.
+    Returns (credentials, project_id) or (None, None).
+    """
+    user_id = _get_current_user_id()
+    if not user_id:
+        return None, None
+
+    try:
+        from services.credential_service import get_user_gcp_credentials_file
+        import json
+        from google.oauth2 import service_account
+
+        creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
+        credentials = service_account.Credentials.from_service_account_file(creds_path)
+
+        # Clean up temp file
+        try:
+            os.remove(creds_path)
+        except OSError:
+            pass
+
+        return credentials, project_id
+    except Exception:
+        return None, None
+
+
+def _resolve_project_id(project_id: Optional[str] = None) -> str:
+    """Resolve GCP project ID: explicit > per-user credentials > env var."""
+    if project_id:
+        return project_id
+    _, user_project = _get_user_gcp_credentials()
+    if user_project:
+        return user_project
+    env_project = os.environ.get('GCP_PROJECT_ID')
+    if env_project:
+        return env_project
+    raise Exception("GCP credentials not configured. Please configure your GCP credentials in Settings.")
+
+
 def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
     """
-    Get GCP client for specified service.
+    Get GCP client for specified service using per-user credentials when available.
 
     Args:
         service_type: Type of GCP service
         project_id: GCP project ID
 
     Returns:
-        GCP client instance
+        Tuple of (GCP client instance, project_id)
     """
     try:
-        import os
         from google.cloud import compute_v1, storage, container_v1, sql_v1, monitoring_v3
 
+        # Try per-user credentials first
+        user_credentials, user_project = _get_user_gcp_credentials()
+
         if project_id is None:
-            project_id = os.environ.get('GCP_PROJECT_ID')
+            project_id = user_project or os.environ.get('GCP_PROJECT_ID')
             if not project_id:
-                raise Exception("GCP_PROJECT_ID not found in environment variables")
+                raise Exception(
+                    "GCP credentials not configured. Please configure your GCP credentials in Settings."
+                )
+
+        # Build clients with per-user credentials if available
+        creds_kwargs = {'credentials': user_credentials} if user_credentials else {}
 
         clients = {
-            'compute': compute_v1.InstancesClient(),
-            'storage': storage.Client(project=project_id),
-            'container': container_v1.ClusterManagerClient(),
-            'sql': sql_v1.SqlInstancesServiceClient(),
-            'monitoring': monitoring_v3.MetricServiceClient()
+            'compute': compute_v1.InstancesClient(**creds_kwargs),
+            'storage': storage.Client(project=project_id, **creds_kwargs),
+            'container': container_v1.ClusterManagerClient(**creds_kwargs),
+            'sql': sql_v1.SqlInstancesServiceClient(**creds_kwargs),
+            'monitoring': monitoring_v3.MetricServiceClient(**creds_kwargs)
         }
 
         return clients.get(service_type), project_id
@@ -450,10 +509,7 @@ def create_compute_instance(
         from google.cloud import compute_v1
 
         instances_client = compute_v1.InstancesClient()
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
         # Get the latest image
         images_client = compute_v1.ImagesClient()
@@ -575,11 +631,11 @@ def create_cloud_sql_instance(
         from google.oauth2 import service_account
         import google.auth
 
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
-        credentials, _ = google.auth.default()
+        # Try per-user credentials, fall back to default
+        user_creds, _ = _get_user_gcp_credentials()
+        credentials = user_creds if user_creds else google.auth.default()[0]
         sqladmin = discovery.build('sqladmin', 'v1beta4', credentials=credentials)
 
         instance_body = {
@@ -641,10 +697,7 @@ def delete_compute_instance(
         from google.cloud import compute_v1
 
         instances_client = compute_v1.InstancesClient()
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
         operation = instances_client.delete(
             project=proj_id,
@@ -725,10 +778,7 @@ def list_cloud_run_services(
         from google.cloud import run_v2
 
         client = run_v2.ServicesClient()
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
         parent = f"projects/{proj_id}/locations/{region}"
         request = run_v2.ListServicesRequest(parent=parent)
@@ -773,10 +823,7 @@ def list_pubsub_topics(project_id: Optional[str] = None) -> Dict[str, Any]:
         from google.cloud import pubsub_v1
 
         publisher = pubsub_v1.PublisherClient()
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
         project_path = f"projects/{proj_id}"
 
@@ -821,10 +868,7 @@ def publish_pubsub_message(
         from google.cloud import pubsub_v1
 
         publisher = pubsub_v1.PublisherClient()
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
         topic_path = publisher.topic_path(proj_id, topic_name)
 
@@ -864,7 +908,7 @@ def list_bigquery_datasets(project_id: Optional[str] = None) -> Dict[str, Any]:
     try:
         from google.cloud import bigquery
 
-        client = bigquery.Client(project=project_id or os.environ.get('GCP_PROJECT_ID'))
+        client = bigquery.Client(project=_resolve_project_id(project_id))
 
         datasets = []
         for dataset in client.list_datasets():
@@ -906,7 +950,7 @@ def query_bigquery(
     try:
         from google.cloud import bigquery
 
-        client = bigquery.Client(project=project_id or os.environ.get('GCP_PROJECT_ID'))
+        client = bigquery.Client(project=_resolve_project_id(project_id))
 
         query_job = client.query(query)
         results = query_job.result(max_results=max_results)
@@ -943,10 +987,7 @@ def list_secrets(project_id: Optional[str] = None) -> Dict[str, Any]:
         from google.cloud import secretmanager
 
         client = secretmanager.SecretManagerServiceClient()
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
         parent = f"projects/{proj_id}"
 
@@ -990,10 +1031,7 @@ def get_secret_value(
         from google.cloud import secretmanager
 
         client = secretmanager.SecretManagerServiceClient()
-        proj_id = project_id or os.environ.get('GCP_PROJECT_ID')
-
-        if not proj_id:
-            raise Exception("GCP_PROJECT_ID not found")
+        proj_id = _resolve_project_id(project_id)
 
         name = f"projects/{proj_id}/secrets/{secret_name}/versions/{version}"
         response = client.access_secret_version(request={"name": name})
@@ -1031,7 +1069,7 @@ def list_cloud_logs(
     try:
         from google.cloud import logging
 
-        client = logging.Client(project=project_id or os.environ.get('GCP_PROJECT_ID'))
+        client = logging.Client(project=_resolve_project_id(project_id))
 
         if filter_query:
             iterator = client.list_entries(filter_=filter_query, max_results=max_entries)

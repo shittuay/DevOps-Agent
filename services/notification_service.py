@@ -516,6 +516,87 @@ class NotificationService:
 
         return self.send(notification, channels)
 
+    def send_change_notification(self, change_data: dict,
+                                    event: str = "created",
+                                    channels: list[str] = None) -> dict[str, bool]:
+        """Send a change governance notification."""
+        event_config = {
+            "created": ("Change Request Created", NotificationPriority.NORMAL),
+            "approved": ("Change Request Approved", NotificationPriority.NORMAL),
+            "rejected": ("Change Request Rejected", NotificationPriority.HIGH),
+            "executed": ("Change Executed", NotificationPriority.NORMAL),
+            "failed": ("Change Execution Failed", NotificationPriority.CRITICAL),
+            "rollback": ("Change Rolled Back", NotificationPriority.HIGH),
+        }
+
+        title, priority = event_config.get(event, ("Change Update", NotificationPriority.NORMAL))
+        risk = change_data.get("risk_level", "unknown")
+        if risk == "high":
+            priority = NotificationPriority.HIGH
+
+        notification = Notification(
+            title=f"{title}: #{change_data.get('id', 'N/A')}",
+            message=change_data.get("title", "Infrastructure change"),
+            priority=priority,
+            fields={
+                "Action": change_data.get("action_type", "N/A"),
+                "Resource": f"{change_data.get('resource_type', '')} {change_data.get('resource_name', '')}".strip(),
+                "Risk": risk.upper(),
+                "Status": event.upper(),
+            }
+        )
+
+        if change_data.get("approval_comment"):
+            notification.fields["Comment"] = change_data["approval_comment"]
+
+        return self.send(notification, channels)
+
+    def send_security_notification(self, findings_data: dict,
+                                    channels: list[str] = None) -> dict[str, bool]:
+        """Send security scan results notification."""
+        critical = findings_data.get("critical", 0)
+        high = findings_data.get("high", 0)
+        total = findings_data.get("total", 0)
+
+        if critical > 0:
+            priority = NotificationPriority.CRITICAL
+        elif high > 0:
+            priority = NotificationPriority.HIGH
+        else:
+            priority = NotificationPriority.NORMAL
+
+        notification = Notification(
+            title=f"Security Scan: {total} findings",
+            message=f"Security scan completed with {critical} critical, {high} high severity findings",
+            priority=priority,
+            fields={
+                "Critical": str(critical),
+                "High": str(high),
+                "Medium": str(findings_data.get("medium", 0)),
+                "Low": str(findings_data.get("low", 0)),
+                "Total": str(total),
+            }
+        )
+
+        return self.send(notification, channels)
+
+    def send_cost_alert(self, cost_data: dict,
+                        channels: list[str] = None) -> dict[str, bool]:
+        """Send cost threshold alert."""
+        notification = Notification(
+            title=f"Cost Alert: ${cost_data.get('amount', 0):.2f}",
+            message=cost_data.get("message", "Cost threshold exceeded"),
+            priority=NotificationPriority.HIGH,
+            fields={
+                "Current Spend": f"${cost_data.get('amount', 0):.2f}",
+                "Threshold": f"${cost_data.get('threshold', 0):.2f}",
+                "Period": cost_data.get("period", "Monthly"),
+                "Top Service": cost_data.get("top_service", "N/A"),
+            }
+        )
+
+        return self.send(notification, channels)
+
     def get_status(self) -> dict:
         """Get the status of all notification channels."""
         return {

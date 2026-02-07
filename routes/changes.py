@@ -12,6 +12,28 @@ from flask_login import login_required, current_user
 from models import db, InfrastructureChange
 from services.rbac import require_permission, Permission, approver_required
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _notify_change(change, event):
+    """Send notification for change events (best-effort, never fails the request)."""
+    try:
+        from services.notification_service import get_notification_service
+        svc = get_notification_service()
+        details = change.change_details or {}
+        svc.send_change_notification({
+            'id': change.id,
+            'title': change.title,
+            'action_type': change.action_type,
+            'resource_type': change.resource_type,
+            'resource_name': change.resource_name,
+            'risk_level': details.get('risk_level', 'unknown'),
+            'approval_comment': change.approval_comment,
+        }, event=event)
+    except Exception as e:
+        logger.debug(f"Change notification skipped: {e}")
 
 changes_bp = Blueprint('changes', __name__, url_prefix='/api/changes')
 
@@ -120,6 +142,8 @@ def create_change_request():
     result['risk_level'] = risk_level
     result['auto_approved'] = risk_level == 'low'
 
+    _notify_change(change, 'created')
+
     return jsonify({'success': True, 'change': result}), 201
 
 
@@ -206,6 +230,8 @@ def approve_change(change_id):
 
     db.session.commit()
 
+    _notify_change(change, 'approved')
+
     return jsonify({
         'success': True,
         'change': change.to_dict(),
@@ -234,6 +260,8 @@ def reject_change(change_id):
     change.approved_at = datetime.utcnow()
 
     db.session.commit()
+
+    _notify_change(change, 'rejected')
 
     return jsonify({
         'success': True,
@@ -274,6 +302,8 @@ def execute_change(change_id):
 
         db.session.commit()
 
+        _notify_change(change, 'executed')
+
         return jsonify({
             'success': True,
             'change': change.to_dict(),
@@ -286,6 +316,8 @@ def execute_change(change_id):
         change.executed_at = datetime.utcnow()
         change.execution_result = {'error': str(e)}
         db.session.commit()
+
+        _notify_change(change, 'failed')
 
         return jsonify({
             'success': False,
@@ -330,6 +362,8 @@ def rollback_change(change_id):
         )
         db.session.add(rollback_change)
         db.session.commit()
+
+        _notify_change(rollback_change, 'rollback')
 
         return jsonify({
             'success': True,

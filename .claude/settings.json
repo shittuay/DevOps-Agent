@@ -2,14 +2,14 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": ["python scripts/hooks/security_check.py"]
+        "matcher": {"tools": "Bash"},
+        "hooks": [{"type": "command", "command": "python scripts/hooks/security_check.py"}]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "*",
-        "hooks": ["python scripts/hooks/audit_log.py"]
+        "matcher": {},
+        "hooks": [{"type": "command", "command": "python scripts/hooks/audit_log.py"}]
       }
     ]
   },
