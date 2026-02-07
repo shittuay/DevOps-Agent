@@ -3,27 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - DevOps Agent</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>Infrastructure Dashboard - DevOps Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Outfit', sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
-            font-size: 16px;
-            font-weight: 500;
             min-height: 100vh;
+            overflow-x: hidden;
         }
 
-        /* Header */
-        .header {
+        /* ── Header ── */
+        .dash-header {
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-subtle);
             position: sticky;
@@ -31,565 +28,1307 @@
             z-index: 100;
         }
 
-        .header-content {
-            max-width: 1200px;
+        .dash-header-inner {
+            max-width: 1360px;
             margin: 0 auto;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 24px;
+            padding: 0 28px;
+            height: 56px;
         }
 
-        .logo {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-primary);
+        .dash-logo {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             text-decoration: none;
+            color: var(--text-primary);
         }
 
-        .logo-icon {
-            width: 24px;
-            height: 24px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
-            border-radius: 6px;
+        .dash-logo-mark {
+            width: 28px;
+            height: 28px;
+            background: var(--gradient-primary);
+            border-radius: 7px;
+            display: grid;
+            place-items: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 15px;
+            color: #fff;
+        }
+
+        .dash-logo-text {
+            font-weight: 600;
+            font-size: 15px;
+            letter-spacing: -0.3px;
+        }
+
+        .dash-nav {
             display: flex;
             align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 700;
-            font-size: 14px;
+            gap: 4px;
         }
 
-        .header-right {
+        .dash-nav a {
+            padding: 7px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+
+        .dash-nav a:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .dash-nav a.active { color: var(--accent-primary); background: rgba(255, 107, 53, 0.1); }
+
+        /* ── Main ── */
+        .dash-main {
+            max-width: 1360px;
+            margin: 0 auto;
+            padding: 24px 28px 60px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ── Page Title Row ── */
+        .dash-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .dash-title {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            color: var(--text-primary);
+        }
+
+        .dash-title-sub {
+            font-size: 13px;
+            color: var(--text-tertiary);
+            margin-top: 2px;
+            font-weight: 400;
+        }
+
+        /* ── Stat Cards ── */
+        .stat-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
+            animation: cardIn 0.4s ease both;
+        }
+
+        .stat-card:nth-child(1) { animation-delay: 0.05s; }
+        .stat-card:nth-child(2) { animation-delay: 0.1s; }
+        .stat-card:nth-child(3) { animation-delay: 0.15s; }
+        .stat-card:nth-child(4) { animation-delay: 0.2s; }
+
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 2px;
+        }
+
+        .stat-card:nth-child(1)::before { background: var(--accent-info); }
+        .stat-card:nth-child(2)::before { background: var(--accent-primary); }
+        .stat-card:nth-child(3)::before { background: var(--accent-success); }
+        .stat-card:nth-child(4)::before { background: var(--accent-electric); }
+
+        .stat-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-tertiary);
+            margin-bottom: 6px;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.1;
+        }
+
+        .stat-value.green { color: var(--accent-success); }
+
+        .stat-sub {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 6px;
+            font-weight: 400;
+        }
+
+        .stat-sub strong { color: var(--text-secondary); font-weight: 600; }
+
+        .sync-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-medium);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 8px;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .sync-btn:hover:not(:disabled) {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: #fff;
+        }
+
+        .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .sync-icon {
+            display: inline-block;
+            width: 14px; height: 14px;
+            border: 2px solid currentColor;
+            border-top-color: transparent;
+            border-radius: 50%;
+        }
+
+        .sync-btn.syncing .sync-icon { animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Two-Column Cost Section ── */
+        .cost-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 20px;
+            animation: cardIn 0.4s ease 0.25s both;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .panel-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-tertiary);
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title-hint {
+            font-size: 11px;
+            text-transform: none;
+            letter-spacing: 0;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        /* ── Cost Bars ── */
+        .cost-bar-row {
             display: flex;
             align-items: center;
             gap: 12px;
+            margin-bottom: 10px;
         }
 
-        .header-button {
-            padding: 8px 12px;
-            background: transparent;
-            border: 1px solid var(--border-subtle);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-primary);
-            transition: all 0.15s;
-            text-decoration: none;
+        .cost-bar-label {
+            width: 160px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 0;
         }
 
-        .header-button:hover {
+        .cost-bar-track {
+            flex: 1;
+            height: 18px;
             background: var(--bg-tertiary);
-            border-color: var(--border-medium);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
         }
 
-        .header-button.active {
-            background: #fff9f5;
-            border-color: #cd7c48;
-            color: #cd7c48;
+        .cost-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: var(--accent-primary);
+            transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+            min-width: 2px;
         }
 
-        /* Main Content */
-        .dashboard-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 24px;
-        }
+        .cost-bar-row:nth-child(2) .cost-bar-fill { background: var(--accent-secondary); }
+        .cost-bar-row:nth-child(3) .cost-bar-fill { background: var(--accent-electric); }
+        .cost-bar-row:nth-child(4) .cost-bar-fill { background: var(--accent-info); }
+        .cost-bar-row:nth-child(5) .cost-bar-fill { background: var(--accent-purple); }
+        .cost-bar-row:nth-child(n+6) .cost-bar-fill { background: var(--text-muted); }
 
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-
-        h1 {
-            font-size: 28px;
+        .cost-bar-amount {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
             font-weight: 600;
-            color: var(--text-primary);
+            color: var(--text-secondary);
+            width: 72px;
+            text-align: right;
+            flex-shrink: 0;
         }
 
-        .sync-button {
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
-            color: white;
-            border: none;
+        /* ── Trend Chart ── */
+        .trend-chart {
+            width: 100%;
+            height: 180px;
+        }
+
+        .trend-chart svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .trend-line {
+            fill: none;
+            stroke: var(--accent-primary);
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .trend-area {
+            fill: url(#trendGradient);
+            opacity: 0.3;
+        }
+
+        .trend-grid-line {
+            stroke: var(--border-subtle);
+            stroke-width: 1;
+        }
+
+        .trend-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            fill: var(--text-muted);
+        }
+
+        .trend-tooltip {
+            position: absolute;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-medium);
             border-radius: 6px;
-            font-size: 14px;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: var(--text-primary);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 10;
+            font-family: 'JetBrains Mono', monospace;
+            white-space: nowrap;
+        }
+
+        .trend-dot {
+            fill: var(--accent-primary);
+            r: 0;
+            transition: r 0.15s;
+        }
+
+        /* ── Recommendations ── */
+        .recs-section {
+            margin-bottom: 20px;
+            animation: cardIn 0.4s ease 0.3s both;
+        }
+
+        .section-header {
+            font-size: 12px;
             font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-tertiary);
+            margin-bottom: 12px;
         }
 
-        .sync-button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(205, 124, 72, 0.3);
-        }
-
-        .sync-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* Summary Cards */
-        .summary-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 16px;
-            margin-bottom: 32px;
-        }
-
-        .summary-card {
+        .rec-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border-subtle);
+            border-left: 3px solid var(--accent-success);
             border-radius: 8px;
-            padding: 20px;
-            transition: all 0.15s;
+            padding: 16px 18px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            transition: border-color 0.15s, background 0.15s;
         }
 
-        .summary-card:hover {
-            border-color: var(--accent-primary);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        .rec-card:hover {
+            border-color: var(--border-medium);
+            background: var(--bg-tertiary);
         }
 
-        .summary-card h3 {
+        .rec-savings {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent-success);
+            white-space: nowrap;
+            min-width: 100px;
+            line-height: 1.2;
+        }
+
+        .rec-savings small {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-tertiary);
+        }
+
+        .rec-body { flex: 1; min-width: 0; }
+
+        .rec-title-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .rec-title {
             font-size: 14px;
             font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .rec-badge {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 2px 7px;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        .rec-badge.idle_resource { background: rgba(239, 68, 68, 0.15); color: var(--accent-danger); }
+        .rec-badge.rightsizing { background: rgba(251, 191, 36, 0.15); color: var(--accent-warning); }
+        .rec-badge.spot_instance { background: rgba(59, 130, 246, 0.15); color: var(--accent-info); }
+        .rec-badge.reserved_instance { background: rgba(168, 85, 247, 0.15); color: var(--accent-purple); }
+        .rec-badge.s3_lifecycle, .rec-badge.s3_intelligent_tiering { background: rgba(0, 212, 255, 0.15); color: var(--accent-electric); }
+        .rec-badge.unused_resource { background: rgba(239, 68, 68, 0.15); color: var(--accent-danger); }
+        .rec-badge.unattached_volume { background: rgba(100, 116, 139, 0.15); color: var(--text-tertiary); }
+
+        .rec-desc {
+            font-size: 13px;
             color: var(--text-tertiary);
-            margin-bottom: 8px;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+
+        .rec-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .btn-sm {
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-apply {
+            background: var(--accent-success);
+            color: #fff;
+        }
+
+        .btn-apply:hover { opacity: 0.85; }
+
+        .btn-dismiss {
+            background: var(--bg-tertiary);
+            color: var(--text-tertiary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-dismiss:hover { color: var(--text-secondary); border-color: var(--border-medium); }
+
+        /* ── Resources Table ── */
+        .resources-section {
+            animation: cardIn 0.4s ease 0.35s both;
+        }
+
+        .cloud-group {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 14px;
+        }
+
+        .cloud-group-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 18px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .cloud-group-header .provider-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
-        .summary-card .stat {
-            font-size: 32px;
-            font-weight: 700;
-            color: var(--text-primary);
+        .provider-badge.aws { background: rgba(255, 153, 0, 0.15); color: #ff9900; }
+        .provider-badge.gcp { background: rgba(66, 133, 244, 0.15); color: #4285f4; }
+        .provider-badge.azure { background: rgba(0, 120, 212, 0.15); color: #0078d4; }
+
+        .cloud-group-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: auto;
         }
 
-        .summary-card.cost-savings .stat {
-            color: #28a745;
-        }
-
-        /* Section */
-        .section {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 8px;
-            padding: 24px;
-            margin-bottom: 24px;
-        }
-
-        .section h2 {
-            font-size: 20px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-        }
-
-        /* Recommendations */
-        .recommendation-card {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-subtle);
-            border-left: 3px solid var(--accent-primary);
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 12px;
-        }
-
-        .rec-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-
-        .rec-header h4 {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .savings {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--accent-success);
-        }
-
-        .recommendation-card p {
-            font-size: 14px;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-        }
-
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.15s;
-            margin-right: 8px;
-        }
-
-        .btn-success {
-            background: var(--accent-success);
-            color: white;
-        }
-
-        .btn-success:hover {
-            opacity: 0.9;
-        }
-
-        .btn-secondary {
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-        }
-
-        .btn-secondary:hover {
-            background: var(--bg-elevated);
-        }
-
-        /* Resources Table */
-        .resources-table {
+        .res-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 16px;
         }
 
-        .resources-table th {
-            background: var(--bg-tertiary);
-            padding: 12px;
+        .res-table th {
+            padding: 10px 18px;
             text-align: left;
-            font-size: 14px;
+            font-size: 11px;
             font-weight: 600;
-            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-muted);
             border-bottom: 1px solid var(--border-subtle);
+            background: transparent;
         }
 
-        .resources-table td {
-            padding: 12px;
-            border-bottom: 1px solid var(--border-subtle);
-            font-size: 14px;
+        .res-table th:last-child { text-align: right; }
+
+        .res-table td {
+            padding: 10px 18px;
+            font-size: 13px;
             color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-subtle);
         }
 
-        .resources-table tr:hover {
+        .res-table td:last-child {
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+
+        .res-table tbody tr {
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+
+        .res-table tbody tr:hover { background: var(--bg-tertiary); }
+        .res-table tbody tr:last-child td { border-bottom: none; }
+
+        .res-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .res-type-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 2px 6px;
+            border-radius: 3px;
             background: var(--bg-tertiary);
+            color: var(--text-tertiary);
         }
 
-        .status-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
+        .status-dot {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
             font-size: 12px;
             font-weight: 600;
         }
 
-        .status-running {
-            background: rgba(16, 185, 129, 0.2);
-            color: var(--accent-success);
+        .status-dot::before {
+            content: '';
+            width: 7px; height: 7px;
+            border-radius: 50%;
         }
 
-        .status-stopped {
-            background: rgba(251, 191, 36, 0.2);
-            color: var(--accent-warning);
+        .status-dot.running::before { background: var(--accent-success); box-shadow: 0 0 6px var(--accent-success); }
+        .status-dot.stopped::before { background: var(--accent-warning); }
+        .status-dot.available::before { background: var(--accent-info); }
+        .status-dot.terminated::before { background: var(--accent-danger); }
+
+        .status-dot.running { color: var(--accent-success); }
+        .status-dot.stopped { color: var(--accent-warning); }
+        .status-dot.available { color: var(--accent-info); }
+
+        /* ── Utilization Expand ── */
+        .res-expand {
+            display: none;
+            padding: 14px 18px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-subtle);
         }
 
-        .cloud-section {
-            margin-bottom: 24px;
+        .res-expand.open { display: block; }
+
+        .util-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
         }
 
-        .cloud-section h3 {
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 12px;
-        }
-
-        .loading {
+        .util-item {
             text-align: center;
-            padding: 40px;
+        }
+
+        .util-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .util-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .util-val.warn { color: var(--accent-warning); }
+        .util-val.danger { color: var(--accent-danger); }
+        .util-val.ok { color: var(--accent-success); }
+
+        .util-unit {
+            font-size: 12px;
+            font-weight: 400;
             color: var(--text-tertiary);
         }
 
+        .util-loading {
+            text-align: center;
+            padding: 12px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        /* ── Empty State ── */
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 80px 20px;
+            animation: cardIn 0.4s ease both;
+        }
+
+        .empty-icon {
+            width: 64px; height: 64px;
+            border-radius: 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            display: grid;
+            place-items: center;
+            margin: 0 auto 20px;
+        }
+
+        .empty-icon svg { width: 28px; height: 28px; stroke: var(--text-muted); fill: none; stroke-width: 1.5; }
+
+        .empty-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .empty-desc {
+            font-size: 14px;
+            color: var(--text-tertiary);
+            line-height: 1.6;
+            max-width: 420px;
+            margin: 0 auto 24px;
+        }
+
+        .empty-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .btn-primary-md {
+            padding: 10px 22px;
+            background: var(--gradient-primary);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-primary-md:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3); }
+
+        .btn-ghost-md {
+            padding: 10px 22px;
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-medium);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-ghost-md:hover { background: var(--bg-tertiary); }
+
+        /* ── Loading ── */
+        .dash-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 100px 20px;
+            gap: 16px;
+        }
+
+        .loading-spinner {
+            width: 32px; height: 32px;
+            border: 3px solid var(--border-subtle);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        .loading-text {
+            font-size: 14px;
             color: var(--text-tertiary);
         }
 
-        .empty-state h3 {
-            font-size: 20px;
-            color: var(--text-primary);
-            margin-bottom: 12px;
+        /* ── Toast ── */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 12px 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            transform: translateX(120%);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+            max-width: 380px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toast.show { transform: translateX(0); opacity: 1; }
+        .toast.success { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--accent-success); }
+        .toast.error { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--accent-danger); }
+        .toast.info { background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: var(--accent-info); }
+
+        /* ── Responsive ── */
+        @media (max-width: 1024px) {
+            .stat-row { grid-template-columns: repeat(2, 1fr); }
+            .cost-row { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 640px) {
+            .stat-row { grid-template-columns: 1fr; }
+            .dash-header-inner { padding: 0 16px; }
+            .dash-main { padding: 16px; }
+            .dash-logo-text { display: none; }
+            .util-grid { grid-template-columns: repeat(2, 1fr); }
+            .rec-card { flex-direction: column; }
+            .rec-savings { min-width: 0; }
         }
     </style>
 </head>
-<body class="animated-bg">
-    <!-- Header -->
-    <div class="header">
-        <div class="header-content">
-            <a href="/chat" class="logo">
-                <div class="logo-icon">D</div>
-                <span>DevOps Agent</span>
+<body>
+    <div class="dash-header">
+        <div class="dash-header-inner">
+            <a href="/chat" class="dash-logo">
+                <div class="dash-logo-mark">D</div>
+                <span class="dash-logo-text">DevOps Agent</span>
             </a>
-            <div class="header-right">
-                <a href="/chat" class="header-button">💬 Chat</a>
-                <a href="/dashboard" class="header-button active">📊 Dashboard</a>
-            </div>
+            <nav class="dash-nav">
+                <a href="/chat">Chat</a>
+                <a href="/dashboard" class="active">Dashboard</a>
+                <a href="/changes">Changes</a>
+                <a href="/compliance/">Compliance</a>
+                <a href="/settings">Settings</a>
+            </nav>
         </div>
     </div>
 
-    <!-- Dashboard Content -->
-    <div class="dashboard-container">
-        <div class="page-header">
-            <h1>Infrastructure Dashboard</h1>
-            <button class="sync-button" onclick="syncInfrastructure()" id="syncButton">
-                🔄 Sync Now
-            </button>
+    <div class="dash-main" id="dashMain">
+        <!-- Loading -->
+        <div class="dash-loading" id="loadingState">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading infrastructure data...</div>
         </div>
 
-        <div id="loadingState" class="loading">
-            <p>Loading dashboard data...</p>
-        </div>
+        <!-- Dashboard Content (hidden until loaded) -->
+        <div id="dashContent" style="display:none;">
+            <div class="dash-title-row">
+                <div>
+                    <div class="dash-title">Infrastructure</div>
+                    <div class="dash-title-sub" id="lastSyncedText">Syncing data...</div>
+                </div>
+            </div>
 
-        <div id="dashboardContent" style="display: none;">
-            <!-- Summary Cards -->
-            <div class="summary-cards">
-                <div class="summary-card">
-                    <h3>Total Resources</h3>
-                    <div class="stat" id="totalResources">0</div>
+            <!-- Stats -->
+            <div class="stat-row">
+                <div class="stat-card">
+                    <div class="stat-label">Total Resources</div>
+                    <div class="stat-value" id="statResources">0</div>
+                    <div class="stat-sub" id="statResourceBreakdown"></div>
                 </div>
-                <div class="summary-card">
-                    <h3>Monthly Cost</h3>
-                    <div class="stat" id="monthlyCost">$0.00</div>
+                <div class="stat-card">
+                    <div class="stat-label">Monthly Spend</div>
+                    <div class="stat-value" id="statSpend">$0</div>
+                    <div class="stat-sub" id="statForecast"></div>
                 </div>
-                <div class="summary-card cost-savings">
-                    <h3>Potential Savings</h3>
-                    <div class="stat" id="potentialSavings">$0.00</div>
+                <div class="stat-card">
+                    <div class="stat-label">Potential Savings</div>
+                    <div class="stat-value green" id="statSavings">$0</div>
+                    <div class="stat-sub" id="statRecCount"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Infrastructure Sync</div>
+                    <div class="stat-value" id="statSyncTime" style="font-size:18px;">--</div>
+                    <button class="sync-btn" id="syncBtn" onclick="syncInfrastructure()">
+                        <span class="sync-icon"></span> Sync Now
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cost Row -->
+            <div class="cost-row" id="costRow" style="display:none;">
+                <div class="panel">
+                    <div class="panel-title">
+                        Cost by Service
+                        <span class="panel-title-hint">Last 30 days</span>
+                    </div>
+                    <div id="costBars"></div>
+                </div>
+                <div class="panel" style="position:relative;">
+                    <div class="panel-title">
+                        Daily Spend Trend
+                        <span class="panel-title-hint" id="trendRange"></span>
+                    </div>
+                    <div class="trend-chart" id="trendChart"></div>
+                    <div class="trend-tooltip" id="trendTooltip"></div>
                 </div>
             </div>
 
             <!-- Recommendations -->
-            <div id="recommendationsSection"></div>
+            <div class="recs-section" id="recsSection" style="display:none;">
+                <div class="section-header" id="recsHeader">Cost Optimization</div>
+                <div id="recsList"></div>
+            </div>
 
             <!-- Resources -->
-            <div id="resourcesSection"></div>
+            <div class="resources-section" id="resourcesSection" style="display:none;">
+                <div class="section-header">Infrastructure Resources</div>
+                <div id="resourceGroups"></div>
+            </div>
         </div>
 
-        <div id="emptyState" class="empty-state" style="display: none;">
-            <h3>No Infrastructure Found</h3>
-            <p>We couldn't find any cloud resources yet.</p>
-            <p>Make sure your AWS credentials are configured, then click "Sync Now" to scan your infrastructure.</p>
+        <!-- Empty State -->
+        <div id="emptyState" style="display:none;">
+            <div class="empty-state">
+                <div class="empty-icon">
+                    <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke-linecap="round" stroke-linejoin="round"/><polyline points="3.27 6.96 12 12.01 20.73 6.96" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="22.08" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div class="empty-title">No infrastructure synced</div>
+                <div class="empty-desc">Configure your AWS credentials in Settings, then sync to see your resources, costs, and optimization opportunities here.</div>
+                <div class="empty-actions">
+                    <button class="btn-primary-md" onclick="syncInfrastructure()">Sync Infrastructure</button>
+                    <a href="/settings" class="btn-ghost-md">Configure Credentials</a>
+                </div>
+            </div>
         </div>
     </div>
 
+    <div class="toast-container" id="toastContainer"></div>
+
     <script>
-        let isSyncing = false;
+    (function() {
+        var summaryData = null;
+        var costData = null;
+        var utilCache = {};
+        var syncing = false;
+
+        function $(id) { return document.getElementById(id); }
+
+        function fmt(n) {
+            if (n >= 1000) return '$' + n.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            if (n >= 100) return '$' + n.toFixed(0);
+            return '$' + n.toFixed(2);
+        }
+
+        function timeAgo(iso) {
+            if (!iso) return 'Never';
+            var diff = (Date.now() - new Date(iso).getTime()) / 1000;
+            if (diff < 60) return Math.floor(diff) + 's ago';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        }
+
+        function showToast(msg, type) {
+            var t = document.createElement('div');
+            t.className = 'toast ' + (type || 'info');
+            t.textContent = msg;
+            $('toastContainer').appendChild(t);
+            requestAnimationFrame(function() { t.classList.add('show'); });
+            setTimeout(function() {
+                t.classList.remove('show');
+                setTimeout(function() { t.remove(); }, 300);
+            }, 4000);
+        }
 
         async function loadDashboard() {
             try {
-                const response = await fetch('/api/dashboard/summary');
-                const data = await response.json();
+                var res = await fetch('/api/dashboard/summary');
+                summaryData = await res.json();
 
-                if (data.error) {
-                    showEmptyState();
+                if (summaryData.error || summaryData.total_resources === 0) {
+                    $('loadingState').style.display = 'none';
+                    $('emptyState').style.display = 'block';
                     return;
                 }
 
-                if (data.total_resources === 0) {
-                    showEmptyState();
-                    return;
+                renderStats(summaryData);
+                renderRecommendations(summaryData.recommendations || []);
+                renderResources(summaryData.resources_by_cloud || {});
+
+                $('loadingState').style.display = 'none';
+                $('dashContent').style.display = 'block';
+
+                loadCosts();
+            } catch (e) {
+                console.error('Dashboard load error:', e);
+                $('loadingState').style.display = 'none';
+                $('emptyState').style.display = 'block';
+            }
+        }
+
+        async function loadCosts() {
+            try {
+                var res = await fetch('/api/dashboard/costs');
+                costData = await res.json();
+
+                if (!costData.error && costData.services && costData.services.length > 0) {
+                    renderCostBars(costData.services);
+                    renderTrend(costData.daily_trend || []);
+                    $('costRow').style.display = 'grid';
+
+                    if (costData.forecast && costData.forecast.forecast_total) {
+                        $('statForecast').innerHTML = 'Projected: <strong>' + fmt(costData.forecast.forecast_total) + '</strong> next month';
+                    }
+
+                    if (costData.total_cost) {
+                        $('statSpend').textContent = fmt(costData.total_cost);
+                    }
                 }
-
-                updateSummaryCards(data);
-                renderRecommendations(data.recommendations || []);
-                renderResources(data.resources_by_cloud || {});
-
-                document.getElementById('loadingState').style.display = 'none';
-                document.getElementById('dashboardContent').style.display = 'block';
-                document.getElementById('emptyState').style.display = 'none';
-
-            } catch (error) {
-                console.error('Error loading dashboard:', error);
-                showEmptyState();
+            } catch (e) {
+                // Cost Explorer may not be enabled
             }
         }
 
-        function updateSummaryCards(data) {
-            document.getElementById('totalResources').textContent = data.total_resources;
-            document.getElementById('monthlyCost').textContent = `$${data.total_monthly_cost.toFixed(2)}`;
-            document.getElementById('potentialSavings').textContent = `$${data.total_potential_savings.toFixed(2)}`;
+        function renderStats(data) {
+            $('statResources').textContent = data.total_resources;
+            $('statSpend').textContent = fmt(data.total_monthly_cost);
+            $('statSavings').textContent = fmt(data.total_potential_savings);
+            $('statSyncTime').textContent = timeAgo(data.last_synced);
+            $('lastSyncedText').textContent = data.last_synced
+                ? 'Last synced ' + timeAgo(data.last_synced)
+                : 'Not yet synced';
+
+            var recs = data.recommendations || [];
+            $('statRecCount').innerHTML = '<strong>' + recs.length + '</strong> recommendation' + (recs.length !== 1 ? 's' : '');
+
+            // Resource type breakdown
+            var types = {};
+            var clouds = data.resources_by_cloud || {};
+            for (var cloud in clouds) {
+                clouds[cloud].forEach(function(r) {
+                    var t = r.resource_type.toUpperCase();
+                    types[t] = (types[t] || 0) + 1;
+                });
+            }
+            var parts = Object.entries(types).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 4);
+            $('statResourceBreakdown').innerHTML = parts.map(function(p) { return '<strong>' + p[1] + '</strong> ' + p[0]; }).join(' &middot; ');
         }
 
-        function renderRecommendations(recommendations) {
-            const section = document.getElementById('recommendationsSection');
+        function renderCostBars(services) {
+            var top = services.slice(0, 8);
+            var maxCost = top.length > 0 ? top[0].cost : 1;
+            var html = '';
 
-            if (recommendations.length === 0) {
-                section.innerHTML = '';
-                return;
-            }
-
-            let html = '<div class="section"><h2>💡 Cost Optimization Recommendations</h2>';
-
-            recommendations.forEach(rec => {
-                html += `
-                    <div class="recommendation-card">
-                        <div class="rec-header">
-                            <h4>${rec.title}</h4>
-                            <span class="savings">$${rec.potential_monthly_savings.toFixed(2)}/mo</span>
-                        </div>
-                        <p>${rec.description}</p>
-                        <button class="btn btn-success" onclick="applyRecommendation(${rec.id})">
-                            Apply Optimization
-                        </button>
-                        <button class="btn btn-secondary" onclick="dismissRecommendation(${rec.id})">
-                            Dismiss
-                        </button>
-                    </div>
-                `;
+            top.forEach(function(s) {
+                var pct = Math.max((s.cost / maxCost) * 100, 1);
+                var label = s.service.replace('Amazon ', '').replace('AWS ', '').replace('Elastic Compute Cloud', 'EC2');
+                html += '<div class="cost-bar-row">' +
+                    '<div class="cost-bar-label" title="' + s.service + '">' + label + '</div>' +
+                    '<div class="cost-bar-track"><div class="cost-bar-fill" style="width:' + pct + '%"></div></div>' +
+                    '<div class="cost-bar-amount">' + fmt(s.cost) + '</div>' +
+                    '</div>';
             });
 
-            html += '</div>';
-            section.innerHTML = html;
+            $('costBars').innerHTML = html;
         }
 
-        function renderResources(resourcesByCloud) {
-            const section = document.getElementById('resourcesSection');
-
-            if (Object.keys(resourcesByCloud).length === 0) {
-                section.innerHTML = '';
+        function renderTrend(trend) {
+            if (trend.length < 2) {
+                $('trendChart').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:60px 0;font-size:13px;">Not enough data for trend</div>';
                 return;
             }
 
-            let html = '<div class="section"><h2>Your Infrastructure</h2>';
+            var W = 560, H = 160, PAD_L = 48, PAD_R = 12, PAD_T = 8, PAD_B = 24;
+            var chartW = W - PAD_L - PAD_R;
+            var chartH = H - PAD_T - PAD_B;
+            var costs = trend.map(function(d) { return d.cost; });
+            var maxC = Math.max.apply(null, costs) * 1.1 || 1;
+            var minC = 0;
 
-            for (const [cloud, resources] of Object.entries(resourcesByCloud)) {
-                const cloudName = cloud.toUpperCase();
-                const cloudIcon = cloud === 'aws' ? '☁️' : cloud === 'gcp' ? '🌐' : '🔷';
+            function x(i) { return PAD_L + (i / (trend.length - 1)) * chartW; }
+            function y(v) { return PAD_T + chartH - ((v - minC) / (maxC - minC)) * chartH; }
 
-                html += `
-                    <div class="cloud-section">
-                        <h3>${cloudIcon} ${cloudName} (${resources.length} resources)</h3>
-                        <table class="resources-table">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Type</th>
-                                    <th>Region</th>
-                                    <th>Status</th>
-                                    <th>Monthly Cost</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
+            var linePts = trend.map(function(d, i) { return x(i) + ',' + y(d.cost); }).join(' ');
+            var areaPath = 'M' + x(0) + ',' + y(trend[0].cost);
+            for (var i = 1; i < trend.length; i++) areaPath += ' L' + x(i) + ',' + y(trend[i].cost);
+            areaPath += ' L' + x(trend.length - 1) + ',' + (PAD_T + chartH);
+            areaPath += ' L' + x(0) + ',' + (PAD_T + chartH) + ' Z';
 
-                resources.forEach(resource => {
-                    const statusClass = resource.status === 'running' ? 'status-running' : 'status-stopped';
-                    html += `
-                        <tr>
-                            <td>${resource.resource_name || resource.resource_id}</td>
-                            <td>${resource.resource_type.toUpperCase()}</td>
-                            <td>${resource.region || 'N/A'}</td>
-                            <td><span class="status-badge ${statusClass}">${resource.status}</span></td>
-                            <td>$${(resource.monthly_cost || 0).toFixed(2)}</td>
-                        </tr>
-                    `;
-                });
-
-                html += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
+            // Grid lines
+            var gridLines = '';
+            var gridCount = 4;
+            for (var g = 0; g <= gridCount; g++) {
+                var gy = PAD_T + (g / gridCount) * chartH;
+                var gv = maxC - (g / gridCount) * maxC;
+                gridLines += '<line x1="' + PAD_L + '" y1="' + gy + '" x2="' + (W - PAD_R) + '" y2="' + gy + '" class="trend-grid-line"/>';
+                gridLines += '<text x="' + (PAD_L - 6) + '" y="' + (gy + 3) + '" class="trend-label" text-anchor="end">$' + Math.round(gv) + '</text>';
             }
 
-            html += '</div>';
-            section.innerHTML = html;
+            // Date labels
+            var dateLabels = '';
+            var step = Math.max(1, Math.floor(trend.length / 5));
+            for (var d = 0; d < trend.length; d += step) {
+                var dateStr = trend[d].date.slice(5); // MM-DD
+                dateLabels += '<text x="' + x(d) + '" y="' + (H - 4) + '" class="trend-label" text-anchor="middle">' + dateStr + '</text>';
+            }
+
+            // Dots for hover
+            var dots = trend.map(function(d, i) {
+                return '<circle cx="' + x(i) + '" cy="' + y(d.cost) + '" class="trend-dot" data-idx="' + i + '"/>';
+            }).join('');
+
+            var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
+                '<defs><linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">' +
+                '<stop offset="0%" stop-color="var(--accent-primary)" stop-opacity="0.4"/>' +
+                '<stop offset="100%" stop-color="var(--accent-primary)" stop-opacity="0"/>' +
+                '</linearGradient></defs>' +
+                gridLines + dateLabels +
+                '<path d="' + areaPath + '" class="trend-area"/>' +
+                '<polyline points="' + linePts + '" class="trend-line"/>' +
+                dots + '</svg>';
+
+            $('trendChart').innerHTML = svg;
+            $('trendRange').textContent = trend[0].date + ' to ' + trend[trend.length - 1].date;
+
+            // Hover interactions
+            var chartEl = $('trendChart');
+            var tooltip = $('trendTooltip');
+            chartEl.addEventListener('mousemove', function(e) {
+                var rect = chartEl.getBoundingClientRect();
+                var mx = e.clientX - rect.left;
+                var relX = (mx - (PAD_L / W * rect.width)) / ((chartW / W) * rect.width);
+                var idx = Math.round(relX * (trend.length - 1));
+                idx = Math.max(0, Math.min(trend.length - 1, idx));
+
+                var dotEls = chartEl.querySelectorAll('.trend-dot');
+                dotEls.forEach(function(d) { d.setAttribute('r', '0'); });
+                if (dotEls[idx]) dotEls[idx].setAttribute('r', '4');
+
+                tooltip.textContent = trend[idx].date + ': ' + fmt(trend[idx].cost);
+                tooltip.style.opacity = '1';
+                tooltip.style.left = (mx - 40) + 'px';
+                tooltip.style.top = '-28px';
+            });
+
+            chartEl.addEventListener('mouseleave', function() {
+                tooltip.style.opacity = '0';
+                chartEl.querySelectorAll('.trend-dot').forEach(function(d) { d.setAttribute('r', '0'); });
+            });
         }
 
-        function showEmptyState() {
-            document.getElementById('loadingState').style.display = 'none';
-            document.getElementById('dashboardContent').style.display = 'none';
-            document.getElementById('emptyState').style.display = 'block';
+        function renderRecommendations(recs) {
+            if (recs.length === 0) {
+                $('recsSection').style.display = 'none';
+                return;
+            }
+
+            recs.sort(function(a, b) { return b.potential_monthly_savings - a.potential_monthly_savings; });
+
+            $('recsHeader').textContent = 'Cost Optimization \u2014 ' + fmt(recs.reduce(function(s, r) { return s + r.potential_monthly_savings; }, 0)) + '/mo recoverable';
+
+            var html = '';
+            recs.forEach(function(r) {
+                var type = r.recommendation_type || 'unknown';
+                html += '<div class="rec-card">' +
+                    '<div class="rec-savings">' + fmt(r.potential_monthly_savings) + '<br><small>/month</small></div>' +
+                    '<div class="rec-body">' +
+                        '<div class="rec-title-row">' +
+                            '<div class="rec-title">' + escHtml(r.title) + '</div>' +
+                            '<span class="rec-badge ' + type + '">' + type.replace(/_/g, ' ') + '</span>' +
+                        '</div>' +
+                        '<div class="rec-desc">' + escHtml(r.description) + '</div>' +
+                        '<div class="rec-actions">' +
+                            '<button class="btn-sm btn-apply" onclick="window._applyRec(' + r.id + ')">Apply</button>' +
+                            '<button class="btn-sm btn-dismiss" onclick="window._dismissRec(' + r.id + ')">Dismiss</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '</div>';
+            });
+
+            $('recsList').innerHTML = html;
+            $('recsSection').style.display = 'block';
         }
 
-        async function syncInfrastructure() {
-            if (isSyncing) return;
+        function renderResources(byCloud) {
+            var keys = Object.keys(byCloud);
+            if (keys.length === 0) {
+                $('resourcesSection').style.display = 'none';
+                return;
+            }
 
-            isSyncing = true;
-            const button = document.getElementById('syncButton');
-            button.disabled = true;
-            button.textContent = '⏳ Syncing...';
+            var html = '';
+            keys.forEach(function(cloud) {
+                var resources = byCloud[cloud];
+                html += '<div class="cloud-group">' +
+                    '<div class="cloud-group-header">' +
+                        '<span class="provider-badge ' + cloud + '">' + cloud + '</span>' +
+                        '<span>' + cloud.toUpperCase() + ' Resources</span>' +
+                        '<span class="cloud-group-count">' + resources.length + ' total</span>' +
+                    '</div>' +
+                    '<table class="res-table"><thead><tr>' +
+                        '<th>Name</th><th>Type</th><th>Instance</th><th>Region</th><th>Status</th><th>Cost/mo</th>' +
+                    '</tr></thead><tbody>';
 
-            try {
-                const response = await fetch('/api/dashboard/sync', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                resources.forEach(function(r) {
+                    var statusClass = r.status || 'unknown';
+                    var instType = (r.metadata && r.metadata.instance_type) || (r.metadata && r.metadata.instance_class) || '--';
+                    html += '<tr onclick="window._toggleUtil(this, ' + r.id + ')">' +
+                        '<td class="res-name">' + escHtml(r.resource_name || r.resource_id) + '</td>' +
+                        '<td><span class="res-type-tag">' + r.resource_type.toUpperCase() + '</span></td>' +
+                        '<td style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:var(--text-tertiary)">' + instType + '</td>' +
+                        '<td>' + (r.region || '--') + '</td>' +
+                        '<td><span class="status-dot ' + statusClass + '">' + statusClass + '</span></td>' +
+                        '<td>' + fmt(r.monthly_cost || 0) + '</td>' +
+                        '</tr>' +
+                        '<tr class="res-expand-row"><td colspan="6"><div class="res-expand" id="util-' + r.id + '">' +
+                            '<div class="util-loading">Loading utilization...</div>' +
+                        '</div></td></tr>';
                 });
 
-                const data = await response.json();
+                html += '</tbody></table></div>';
+            });
+
+            $('resourceGroups').innerHTML = html;
+            $('resourcesSection').style.display = 'block';
+        }
+
+        window._toggleUtil = async function(row, resId) {
+            var expandEl = $('util-' + resId);
+            if (!expandEl) return;
+
+            var isOpen = expandEl.classList.contains('open');
+            // Close all
+            document.querySelectorAll('.res-expand.open').forEach(function(el) { el.classList.remove('open'); });
+
+            if (isOpen) return;
+            expandEl.classList.add('open');
+
+            if (utilCache[resId]) {
+                renderUtil(resId, utilCache[resId]);
+                return;
+            }
+
+            try {
+                var res = await fetch('/api/dashboard/utilization/' + resId);
+                var data = await res.json();
+                if (data.error) {
+                    expandEl.innerHTML = '<div class="util-loading">' + escHtml(data.error) + '</div>';
+                    return;
+                }
+                utilCache[resId] = data;
+                renderUtil(resId, data);
+            } catch (e) {
+                expandEl.innerHTML = '<div class="util-loading">Could not load utilization data</div>';
+            }
+        };
+
+        function renderUtil(resId, data) {
+            var el = $('util-' + resId);
+            if (!el) return;
+
+            var cpuAvg = data.cpu && data.cpu.average != null ? data.cpu.average : null;
+            var cpuMax = data.cpu && data.cpu.max != null ? data.cpu.max : null;
+            var netIn = data.network ? data.network.total_in_gb : null;
+            var netOut = data.network ? data.network.total_out_gb : null;
+
+            function cpuClass(v) {
+                if (v === null) return '';
+                if (v < 10) return 'ok';
+                if (v < 50) return '';
+                if (v < 80) return 'warn';
+                return 'danger';
+            }
+
+            el.innerHTML = '<div class="util-grid">' +
+                '<div class="util-item"><div class="util-label">CPU Avg</div><div class="util-val ' + cpuClass(cpuAvg) + '">' +
+                    (cpuAvg !== null ? cpuAvg.toFixed(1) + '<span class="util-unit">%</span>' : '--') + '</div></div>' +
+                '<div class="util-item"><div class="util-label">CPU Max</div><div class="util-val ' + cpuClass(cpuMax) + '">' +
+                    (cpuMax !== null ? cpuMax.toFixed(1) + '<span class="util-unit">%</span>' : '--') + '</div></div>' +
+                '<div class="util-item"><div class="util-label">Net In</div><div class="util-val">' +
+                    (netIn !== null ? netIn.toFixed(2) + '<span class="util-unit"> GB</span>' : '--') + '</div></div>' +
+                '<div class="util-item"><div class="util-label">Net Out</div><div class="util-val">' +
+                    (netOut !== null ? netOut.toFixed(2) + '<span class="util-unit"> GB</span>' : '--') + '</div></div>' +
+                '</div>';
+        }
+
+        window._applyRec = async function(recId) {
+            if (!confirm('Apply this optimization?')) return;
+            try {
+                var res = await fetch('/api/dashboard/recommendations/' + recId + '/apply', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }
+                });
+                var data = await res.json();
+                if (data.success) {
+                    showToast('Optimization applied - saving ' + fmt(data.savings) + '/mo', 'success');
+                    loadDashboard();
+                } else {
+                    showToast(data.error || 'Failed to apply', 'error');
+                }
+            } catch (e) {
+                showToast('Network error', 'error');
+            }
+        };
+
+        window._dismissRec = async function(recId) {
+            try {
+                var res = await fetch('/api/dashboard/recommendations/' + recId + '/dismiss', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }
+                });
+                if (res.ok) loadDashboard();
+            } catch (e) {}
+        };
+
+        window.syncInfrastructure = async function() {
+            if (syncing) return;
+            syncing = true;
+            var btn = $('syncBtn');
+            btn.disabled = true;
+            btn.classList.add('syncing');
+            btn.innerHTML = '<span class="sync-icon"></span> Syncing...';
+
+            try {
+                var res = await fetch('/api/dashboard/sync', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }
+                });
+                var data = await res.json();
 
                 if (data.success) {
-                    alert('Infrastructure sync completed! Refreshing dashboard...');
+                    showToast('Infrastructure sync complete', 'success');
+                    // Reload
+                    $('dashContent').style.display = 'none';
+                    $('emptyState').style.display = 'none';
+                    $('loadingState').style.display = 'flex';
+                    utilCache = {};
                     await loadDashboard();
                 } else {
-                    alert('Error syncing: ' + (data.error || 'Unknown error'));
+                    showToast('Sync failed: ' + (data.error || 'Unknown error'), 'error');
                 }
-            } catch (error) {
-                alert('Error syncing infrastructure: ' + error.message);
+            } catch (e) {
+                showToast('Sync error: ' + e.message, 'error');
             } finally {
-                isSyncing = false;
-                button.disabled = false;
-                button.textContent = '🔄 Sync Now';
+                syncing = false;
+                btn.disabled = false;
+                btn.classList.remove('syncing');
+                btn.innerHTML = '<span class="sync-icon"></span> Sync Now';
             }
+        };
+
+        function escHtml(s) {
+            if (!s) return '';
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
         }
 
-        async function applyRecommendation(recId) {
-            if (!confirm('Are you sure you want to apply this optimization?')) return;
-
-            try {
-                const response = await fetch(`/api/dashboard/recommendations/${recId}/apply`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert(`Success! You'll save $${data.savings.toFixed(2)}/month`);
-                    await loadDashboard();
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('Error applying recommendation: ' + error.message);
-            }
-        }
-
-        async function dismissRecommendation(recId) {
-            try {
-                const response = await fetch(`/api/dashboard/recommendations/${recId}/dismiss`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-
-                if (response.ok) {
-                    await loadDashboard();
-                }
-            } catch (error) {
-                console.error('Error dismissing recommendation:', error);
-            }
-        }
-
-        // Load dashboard on page load
         document.addEventListener('DOMContentLoaded', loadDashboard);
+    })();
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>

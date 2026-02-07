@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Change Governance - DevOps Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .dash-header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-subtle);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .dash-header-inner {
+            max-width: 1360px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 28px;
+            height: 56px;
+        }
+
+        .dash-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .dash-logo-mark {
+            width: 28px;
+            height: 28px;
+            background: var(--gradient-primary);
+            border-radius: 7px;
+            display: grid;
+            place-items: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 15px;
+            color: #fff;
+        }
+
+        .dash-logo-text {
+            font-weight: 600;
+            font-size: 15px;
+            letter-spacing: -0.3px;
+        }
+
+        .dash-nav {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .dash-nav a {
+            padding: 7px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+
+        .dash-nav a:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .dash-nav a.active { color: var(--accent-primary); background: rgba(255, 107, 53, 0.1); }
+
+        .page-main {
+            max-width: 1360px;
+            margin: 0 auto;
+            padding: 28px;
+        }
+
+        /* ── Page Header ── */
+        .page-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .page-title {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .page-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: #fff;
+        }
+
+        .btn-primary:hover { filter: brightness(1.1); }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-secondary:hover { background: var(--border-subtle); }
+
+        .btn-success {
+            background: var(--accent-success);
+            color: #fff;
+        }
+
+        .btn-success:hover { filter: brightness(1.1); }
+
+        .btn-danger {
+            background: var(--accent-danger);
+            color: #fff;
+        }
+
+        .btn-danger:hover { filter: brightness(1.1); }
+
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* ── Stats Row ── */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 18px 20px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-tertiary);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-value.pending { color: var(--accent-warning); }
+        .stat-value.executed { color: var(--accent-success); }
+        .stat-value.rejected { color: var(--accent-danger); }
+
+        .stat-detail {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 6px;
+        }
+
+        /* ── Filter Bar ── */
+        .filter-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-chip {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            border: 1px solid var(--border-subtle);
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .filter-chip:hover { border-color: var(--text-tertiary); color: var(--text-primary); }
+
+        .filter-chip.active {
+            background: var(--accent-primary);
+            color: #fff;
+            border-color: var(--accent-primary);
+        }
+
+        /* ── Changes Table ── */
+        .changes-table-wrap {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .changes-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .changes-table th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-tertiary);
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .changes-table td {
+            padding: 14px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border-subtle);
+            vertical-align: middle;
+        }
+
+        .changes-table tr:last-child td { border-bottom: none; }
+
+        .changes-table tbody tr {
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+
+        .changes-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+        .change-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-tertiary);
+        }
+
+        .change-title-cell {
+            max-width: 320px;
+        }
+
+        .change-title-text {
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+        }
+
+        .change-resource {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            margin-top: 2px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ── Badges ── */
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .badge-pending {
+            background: rgba(251, 191, 36, 0.15);
+            color: var(--accent-warning);
+        }
+
+        .badge-approved {
+            background: rgba(59, 130, 246, 0.15);
+            color: #3b82f6;
+        }
+
+        .badge-executed {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-success);
+        }
+
+        .badge-rejected {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-danger);
+        }
+
+        .badge-failed {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-danger);
+        }
+
+        .badge-risk-low {
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--accent-success);
+        }
+
+        .badge-risk-medium {
+            background: rgba(251, 191, 36, 0.12);
+            color: var(--accent-warning);
+        }
+
+        .badge-risk-high {
+            background: rgba(239, 68, 68, 0.12);
+            color: var(--accent-danger);
+        }
+
+        .badge-action {
+            background: rgba(255,255,255,0.06);
+            color: var(--text-secondary);
+        }
+
+        /* ── Expanded Change Detail ── */
+        .change-detail-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .change-detail-row.hidden { display: none; }
+
+        .change-detail {
+            padding: 20px 24px;
+            background: rgba(255,255,255,0.015);
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .detail-section h4 {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-tertiary);
+            margin-bottom: 10px;
+        }
+
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .detail-item:last-child { border-bottom: none; }
+
+        .detail-label { color: var(--text-tertiary); }
+
+        .detail-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-primary);
+        }
+
+        .detail-description {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .detail-comment {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-top: 8px;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 6px;
+            border-left: 3px solid var(--border-subtle);
+        }
+
+        /* ── Timeline / Audit ── */
+        .audit-timeline {
+            margin-top: 12px;
+        }
+
+        .timeline-item {
+            display: flex;
+            gap: 12px;
+            padding: 8px 0;
+            font-size: 12px;
+            position: relative;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: 5px;
+            top: 24px;
+            bottom: -8px;
+            width: 1px;
+            background: var(--border-subtle);
+        }
+
+        .timeline-item:last-child::before { display: none; }
+
+        .timeline-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .timeline-dot.created { background: var(--text-tertiary); }
+        .timeline-dot.approved { background: #3b82f6; }
+        .timeline-dot.executed { background: var(--accent-success); }
+        .timeline-dot.rejected { background: var(--accent-danger); }
+        .timeline-dot.failed { background: var(--accent-danger); }
+
+        .timeline-text { color: var(--text-secondary); }
+        .timeline-time { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+        /* ── Create Change Modal ── */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            display: grid;
+            place-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            width: 520px;
+            max-width: 92vw;
+            max-height: 85vh;
+            overflow-y: auto;
+            transform: translateY(20px);
+            transition: transform 0.2s;
+        }
+
+        .modal-overlay.open .modal { transform: translateY(0); }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-tertiary);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+        }
+
+        .modal-close:hover { color: var(--text-primary); }
+
+        .modal-body { padding: 24px; }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-tertiary);
+            margin-bottom: 6px;
+        }
+
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            transition: border-color 0.15s;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .form-select {
+            appearance: none;
+            cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23999' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 32px;
+        }
+
+        .form-select option { background: var(--bg-secondary); }
+
+        .form-textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .risk-preview {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 6px;
+            margin-top: 12px;
+            font-size: 13px;
+        }
+
+        .risk-preview-label { color: var(--text-tertiary); font-size: 12px; }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        /* ── Confirm Dialog ── */
+        .confirm-body {
+            text-align: center;
+            padding: 32px 24px;
+        }
+
+        .confirm-body p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .confirm-body .confirm-actions {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .confirm-body textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            min-height: 60px;
+            resize: vertical;
+            margin-bottom: 16px;
+        }
+
+        .confirm-body textarea:focus { outline: none; border-color: var(--accent-primary); }
+
+        /* ── Empty State ── */
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+        }
+
+        .empty-icon {
+            width: 64px;
+            height: 64px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 16px;
+            display: inline-grid;
+            place-items: center;
+            margin-bottom: 20px;
+        }
+
+        .empty-icon svg {
+            width: 28px;
+            height: 28px;
+            stroke: var(--text-tertiary);
+            fill: none;
+            stroke-width: 1.5;
+        }
+
+        .empty-state h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .empty-state p {
+            font-size: 13px;
+            color: var(--text-tertiary);
+            max-width: 380px;
+            margin: 0 auto 20px;
+            line-height: 1.6;
+        }
+
+        /* ── Toast ── */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 300;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 12px 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: toastIn 0.3s ease;
+            min-width: 280px;
+            max-width: 420px;
+        }
+
+        .toast-success { background: #065f46; color: #a7f3d0; border: 1px solid rgba(16,185,129,0.3); }
+        .toast-error { background: #7f1d1d; color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+        .toast-info { background: #1e3a5f; color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── Pagination ── */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            border-top: 1px solid var(--border-subtle);
+            font-size: 12px;
+            color: var(--text-tertiary);
+        }
+
+        .pagination-btns {
+            display: flex;
+            gap: 6px;
+        }
+
+        .page-btn {
+            padding: 5px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .page-btn:hover { border-color: var(--text-tertiary); }
+        .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ── Loading ── */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-state {
+            padding: 60px;
+            text-align: center;
+            color: var(--text-tertiary);
+            font-size: 13px;
+        }
+
+        .loading-state .spinner {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 12px;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 900px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .detail-grid { grid-template-columns: 1fr; }
+            .page-main { padding: 16px; }
+        }
+
+        @media (max-width: 640px) {
+            .stats-row { grid-template-columns: 1fr; }
+            .dash-logo-text { display: none; }
+            .dash-header-inner { padding: 0 16px; }
+            .changes-table th:nth-child(4),
+            .changes-table td:nth-child(4) { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dash-header">
+        <div class="dash-header-inner">
+            <a href="/chat" class="dash-logo">
+                <div class="dash-logo-mark">D</div>
+                <span class="dash-logo-text">DevOps Agent</span>
+            </a>
+            <nav class="dash-nav">
+                <a href="/chat">Chat</a>
+                <a href="/dashboard">Dashboard</a>
+                <a href="/changes" class="active">Changes</a>
+                <a href="/settings">Settings</a>
+            </nav>
+        </div>
+    </div>
+
+    <div class="page-main">
+        <div class="page-title-row">
+            <div>
+                <h1 class="page-title">Change Governance</h1>
+                <p class="page-subtitle">Infrastructure changes with risk-based approval routing</p>
+            </div>
+            <button class="btn btn-primary" onclick="openCreateModal()">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="2" x2="7" y2="12"/><line x1="2" y1="7" x2="12" y2="7"/></svg>
+                New Change Request
+            </button>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row" id="statsRow">
+            <div class="stat-card">
+                <div class="stat-label">Total Changes</div>
+                <div class="stat-value" id="statTotal">--</div>
+                <div class="stat-detail" id="statTotalDetail"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pending Approval</div>
+                <div class="stat-value pending" id="statPending">--</div>
+                <div class="stat-detail">Awaiting review</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Executed</div>
+                <div class="stat-value executed" id="statExecuted">--</div>
+                <div class="stat-detail">Successfully applied</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Rejected / Failed</div>
+                <div class="stat-value rejected" id="statRejected">--</div>
+                <div class="stat-detail">Declined or errored</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-bar">
+            <button class="filter-chip active" data-filter="">All</button>
+            <button class="filter-chip" data-filter="pending">Pending</button>
+            <button class="filter-chip" data-filter="approved">Approved</button>
+            <button class="filter-chip" data-filter="executed">Executed</button>
+            <button class="filter-chip" data-filter="rejected">Rejected</button>
+            <button class="filter-chip" data-filter="failed">Failed</button>
+        </div>
+
+        <!-- Changes Table -->
+        <div id="changesContent">
+            <div class="loading-state">
+                <div class="spinner"></div>
+                <div>Loading changes...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Change Modal -->
+    <div class="modal-overlay" id="createModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>New Change Request</h3>
+                <button class="modal-close" onclick="closeCreateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" class="form-input" id="changeTitle" placeholder="e.g. Stop idle dev instance">
+                </div>
+                <div class="form-group">
+                    <label>Action Type</label>
+                    <select class="form-select" id="changeAction" onchange="updateRiskPreview()">
+                        <option value="">Select action...</option>
+                        <option value="stop">Stop</option>
+                        <option value="start">Start</option>
+                        <option value="resize">Resize</option>
+                        <option value="terminate">Terminate</option>
+                        <option value="delete">Delete</option>
+                        <option value="create">Create</option>
+                        <option value="update">Update</option>
+                        <option value="tag">Tag</option>
+                        <option value="modify_security_group">Modify Security Group</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Resource Type</label>
+                    <select class="form-select" id="changeResourceType" onchange="updateRiskPreview()">
+                        <option value="">Select type...</option>
+                        <option value="ec2">EC2 Instance</option>
+                        <option value="rds">RDS Database</option>
+                        <option value="s3">S3 Bucket</option>
+                        <option value="security_group">Security Group</option>
+                        <option value="iam">IAM</option>
+                        <option value="vpc">VPC</option>
+                        <option value="load_balancer">Load Balancer</option>
+                        <option value="lambda">Lambda</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Resource ID (optional)</label>
+                    <input type="text" class="form-input" id="changeResourceId" placeholder="e.g. i-0abc123def456">
+                </div>
+                <div class="form-group">
+                    <label>Resource Name (optional)</label>
+                    <input type="text" class="form-input" id="changeResourceName" placeholder="e.g. dev-api-server">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea class="form-textarea" id="changeDescription" placeholder="Why is this change needed?"></textarea>
+                </div>
+                <div class="risk-preview" id="riskPreview" style="display:none;">
+                    <span class="risk-preview-label">Estimated risk:</span>
+                    <span class="badge" id="riskBadge">--</span>
+                    <span id="riskNote" style="font-size:12px; color:var(--text-tertiary);"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitChange()" id="submitBtn">Create Request</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Dialog -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal" style="width:420px;">
+            <div class="modal-header">
+                <h3 id="confirmTitle">Confirm Action</h3>
+                <button class="modal-close" onclick="closeConfirm()">&times;</button>
+            </div>
+            <div class="confirm-body" id="confirmBody"></div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script>
+        let allChanges = [];
+        let currentFilter = '';
+        let currentPage = 1;
+        let totalPages = 1;
+        let expandedId = null;
+
+        // ── Risk classification (mirrors backend) ──
+        const RISK_MAP = {
+            start: 'low', stop: 'low', tag: 'low',
+            update: 'medium', resize: 'medium', create: 'medium',
+            modify_security_group: 'high', delete: 'high', terminate: 'high'
+        };
+
+        const PROD_ESCALATE = ['rds','ec2','security_group','iam','vpc','load_balancer'];
+
+        function classifyRiskClient(action, resourceType, resourceName) {
+            let risk = RISK_MAP[action] || 'medium';
+            const name = (resourceName || '').toLowerCase();
+            const isProd = name.includes('prod') || name.includes('production');
+            if (isProd && PROD_ESCALATE.includes(resourceType)) {
+                if (risk === 'low') risk = 'medium';
+                else if (risk === 'medium') risk = 'high';
+            }
+            if (resourceType === 'iam') risk = 'high';
+            if ((action === 'delete' || action === 'terminate') && ['rds','vpc'].includes(resourceType)) risk = 'high';
+            return risk;
+        }
+
+        function updateRiskPreview() {
+            const action = document.getElementById('changeAction').value;
+            const rType = document.getElementById('changeResourceType').value;
+            const rName = document.getElementById('changeResourceName').value;
+            const preview = document.getElementById('riskPreview');
+            const badge = document.getElementById('riskBadge');
+            const note = document.getElementById('riskNote');
+
+            if (!action || !rType) { preview.style.display = 'none'; return; }
+            preview.style.display = 'flex';
+
+            const risk = classifyRiskClient(action, rType, rName);
+            badge.textContent = risk.toUpperCase();
+            badge.className = 'badge badge-risk-' + risk;
+
+            if (risk === 'low') note.textContent = 'Auto-approved';
+            else if (risk === 'medium') note.textContent = 'Requires single approval';
+            else note.textContent = 'Requires approval, no self-approve';
+        }
+
+        // ── Fetch data ──
+        async function fetchChanges(status, page) {
+            currentFilter = status || '';
+            currentPage = page || 1;
+            let url = '/api/changes?page=' + currentPage + '&per_page=15';
+            if (currentFilter) url += '&status=' + currentFilter;
+
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Failed to load changes');
+                const data = await res.json();
+                allChanges = data.changes || [];
+                totalPages = data.pages || 1;
+                renderTable();
+                updateStats(data);
+            } catch (e) {
+                document.getElementById('changesContent').innerHTML =
+                    '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01M5.07 19h13.86c1.5 0 2.47-1.6 1.73-2.87L13.73 4.26c-.74-1.27-2.72-1.27-3.46 0L3.34 16.13C2.6 17.4 3.57 19 5.07 19z" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3>Error loading changes</h3><p>' + e.message + '</p></div>';
+            }
+        }
+
+        function updateStats(data) {
+            const all = data.total || 0;
+            document.getElementById('statTotal').textContent = all;
+
+            // Count by status from current visible data (approximation since we paginate)
+            // For accurate counts, we rely on the total from different status queries
+            // We'll fire a few quick fetches for stats
+            fetchStatCount('pending', 'statPending');
+            fetchStatCount('executed', 'statExecuted');
+            fetchStatCounts(['rejected', 'failed'], 'statRejected');
+        }
+
+        async function fetchStatCount(status, elementId) {
+            try {
+                const res = await fetch('/api/changes?status=' + status + '&per_page=1');
+                const data = await res.json();
+                document.getElementById(elementId).textContent = data.total || 0;
+            } catch (e) {
+                document.getElementById(elementId).textContent = '0';
+            }
+        }
+
+        async function fetchStatCounts(statuses, elementId) {
+            let total = 0;
+            for (const s of statuses) {
+                try {
+                    const res = await fetch('/api/changes?status=' + s + '&per_page=1');
+                    const data = await res.json();
+                    total += (data.total || 0);
+                } catch (e) {}
+            }
+            document.getElementById(elementId).textContent = total;
+        }
+
+        // ── Render Table ──
+        function renderTable() {
+            if (allChanges.length === 0) {
+                document.getElementById('changesContent').innerHTML =
+                    '<div class="empty-state">' +
+                    '<div class="empty-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+                    '<h3>No changes found</h3>' +
+                    '<p>' + (currentFilter ? 'No changes with status "' + currentFilter + '". Try a different filter.' : 'Create your first infrastructure change request to get started with governed deployments.') + '</p>' +
+                    (currentFilter ? '' : '<button class="btn btn-primary" onclick="openCreateModal()">New Change Request</button>') +
+                    '</div>';
+                return;
+            }
+
+            let html = '<div class="changes-table-wrap"><table class="changes-table">' +
+                '<thead><tr><th style="width:50px">ID</th><th>Change</th><th>Action</th><th>Risk</th><th>Status</th><th style="width:140px">Created</th></tr></thead><tbody>';
+
+            allChanges.forEach(c => {
+                const risk = (c.change_details || {}).risk_level || 'medium';
+                const isExpanded = expandedId === c.id;
+                html += '<tr onclick="toggleDetail(' + c.id + ')" class="' + (isExpanded ? 'expanded' : '') + '">' +
+                    '<td><span class="change-id">#' + c.id + '</span></td>' +
+                    '<td class="change-title-cell"><span class="change-title-text">' + escHtml(c.title) + '</span>' +
+                    (c.resource_name ? '<div class="change-resource">' + escHtml(c.resource_type) + ': ' + escHtml(c.resource_name || c.resource_id || '') + '</div>' : '') + '</td>' +
+                    '<td><span class="badge badge-action">' + escHtml(c.action_type) + '</span></td>' +
+                    '<td><span class="badge badge-risk-' + risk + '">' + risk + '</span></td>' +
+                    '<td><span class="badge badge-' + c.status + '">' + c.status + '</span></td>' +
+                    '<td style="font-size:12px; color:var(--text-tertiary);">' + formatTime(c.created_at) + '</td>' +
+                    '</tr>';
+
+                // Detail row
+                html += '<tr class="change-detail-row ' + (isExpanded ? '' : 'hidden') + '" id="detail-' + c.id + '"><td colspan="6">' +
+                    renderDetail(c) + '</td></tr>';
+            });
+
+            html += '</tbody></table>';
+
+            // Pagination
+            html += '<div class="pagination"><span>Page ' + currentPage + ' of ' + totalPages + '</span>' +
+                '<div class="pagination-btns">' +
+                '<button class="page-btn" onclick="fetchChanges(currentFilter,' + (currentPage - 1) + ')" ' + (currentPage <= 1 ? 'disabled' : '') + '>Previous</button>' +
+                '<button class="page-btn" onclick="fetchChanges(currentFilter,' + (currentPage + 1) + ')" ' + (currentPage >= totalPages ? 'disabled' : '') + '>Next</button>' +
+                '</div></div>';
+
+            html += '</div>';
+            document.getElementById('changesContent').innerHTML = html;
+        }
+
+        function renderDetail(c) {
+            const risk = (c.change_details || {}).risk_level || 'medium';
+            let html = '<div class="change-detail"><div class="detail-grid"><div class="detail-section">';
+
+            // Info section
+            html += '<h4>Details</h4>';
+            if (c.description) html += '<div class="detail-description">' + escHtml(c.description) + '</div>';
+
+            html += '<div class="detail-item"><span class="detail-label">Cloud Provider</span><span class="detail-value">' + (c.cloud_provider || 'aws').toUpperCase() + '</span></div>';
+            html += '<div class="detail-item"><span class="detail-label">Resource ID</span><span class="detail-value">' + escHtml(c.resource_id || 'N/A') + '</span></div>';
+            html += '<div class="detail-item"><span class="detail-label">Risk Level</span><span class="badge badge-risk-' + risk + '">' + risk + '</span></div>';
+
+            if (c.approval_comment) {
+                html += '<div class="detail-comment">' + escHtml(c.approval_comment) + '</div>';
+            }
+
+            html += '</div><div class="detail-section">';
+
+            // Timeline
+            html += '<h4>Audit Trail</h4><div class="audit-timeline">';
+            html += '<div class="timeline-item"><div class="timeline-dot created"></div><div><div class="timeline-text">Change requested</div><div class="timeline-time">' + formatTime(c.created_at) + '</div></div></div>';
+
+            if (c.approved_at) {
+                const isReject = c.status === 'rejected';
+                html += '<div class="timeline-item"><div class="timeline-dot ' + (isReject ? 'rejected' : 'approved') + '"></div><div><div class="timeline-text">' + (isReject ? 'Rejected' : 'Approved') + '</div><div class="timeline-time">' + formatTime(c.approved_at) + '</div></div></div>';
+            }
+
+            if (c.executed_at) {
+                const isFail = c.status === 'failed';
+                html += '<div class="timeline-item"><div class="timeline-dot ' + (isFail ? 'failed' : 'executed') + '"></div><div><div class="timeline-text">' + (isFail ? 'Execution failed' : 'Executed successfully') + '</div><div class="timeline-time">' + formatTime(c.executed_at) + '</div></div></div>';
+            }
+
+            html += '</div></div></div>';
+
+            // Action buttons
+            html += '<div class="detail-actions">';
+            if (c.status === 'pending') {
+                html += '<button class="btn btn-success btn-sm" onclick="event.stopPropagation(); confirmApprove(' + c.id + ')">Approve</button>';
+                html += '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); confirmReject(' + c.id + ')">Reject</button>';
+            }
+            if (c.status === 'approved') {
+                html += '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); confirmExecute(' + c.id + ')">Execute Change</button>';
+            }
+            if (c.status === 'executed') {
+                html += '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); confirmRollback(' + c.id + ')">Rollback</button>';
+            }
+            html += '</div></div>';
+            return html;
+        }
+
+        function toggleDetail(id) {
+            if (expandedId === id) {
+                expandedId = null;
+            } else {
+                expandedId = id;
+            }
+            renderTable();
+        }
+
+        // ── Actions ──
+        function confirmApprove(id) {
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmTitle').textContent = 'Approve Change #' + id;
+            document.getElementById('confirmBody').innerHTML =
+                '<p>Approve this infrastructure change? It will become eligible for execution.</p>' +
+                '<div class="confirm-actions">' +
+                '<button class="btn btn-secondary" onclick="closeConfirm()">Cancel</button>' +
+                '<button class="btn btn-success" onclick="doApprove(' + id + ')">Approve</button></div>';
+            modal.classList.add('open');
+        }
+
+        function confirmReject(id) {
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmTitle').textContent = 'Reject Change #' + id;
+            document.getElementById('confirmBody').innerHTML =
+                '<p>Provide a reason for rejecting this change:</p>' +
+                '<textarea id="rejectReason" placeholder="Rejection reason (required)"></textarea>' +
+                '<div class="confirm-actions">' +
+                '<button class="btn btn-secondary" onclick="closeConfirm()">Cancel</button>' +
+                '<button class="btn btn-danger" onclick="doReject(' + id + ')">Reject</button></div>';
+            modal.classList.add('open');
+        }
+
+        function confirmExecute(id) {
+            const change = allChanges.find(c => c.id === id);
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmTitle').textContent = 'Execute Change #' + id;
+            document.getElementById('confirmBody').innerHTML =
+                '<p>Execute this change on live infrastructure?<br><strong>' + escHtml(change ? change.title : '') + '</strong><br><br>This will make real changes to your cloud resources. Rollback data will be captured before execution.</p>' +
+                '<div class="confirm-actions">' +
+                '<button class="btn btn-secondary" onclick="closeConfirm()">Cancel</button>' +
+                '<button class="btn btn-primary" onclick="doExecute(' + id + ')">Execute</button></div>';
+            modal.classList.add('open');
+        }
+
+        function confirmRollback(id) {
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmTitle').textContent = 'Rollback Change #' + id;
+            document.getElementById('confirmBody').innerHTML =
+                '<p>Roll back this change to its previous state? This will attempt to reverse the infrastructure modification.</p>' +
+                '<div class="confirm-actions">' +
+                '<button class="btn btn-secondary" onclick="closeConfirm()">Cancel</button>' +
+                '<button class="btn btn-danger" onclick="doRollback(' + id + ')">Rollback</button></div>';
+            modal.classList.add('open');
+        }
+
+        async function doApprove(id) {
+            closeConfirm();
+            try {
+                const res = await fetch('/api/changes/' + id + '/approve', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Approval failed');
+                showToast('Change #' + id + ' approved', 'success');
+                fetchChanges(currentFilter, currentPage);
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+
+        async function doReject(id) {
+            const reason = document.getElementById('rejectReason').value.trim();
+            if (!reason) { showToast('Rejection reason is required', 'error'); return; }
+            closeConfirm();
+            try {
+                const res = await fetch('/api/changes/' + id + '/reject', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ reason }) });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Rejection failed');
+                showToast('Change #' + id + ' rejected', 'info');
+                fetchChanges(currentFilter, currentPage);
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+
+        async function doExecute(id) {
+            closeConfirm();
+            try {
+                const res = await fetch('/api/changes/' + id + '/execute', { method: 'POST', headers: {'Content-Type': 'application/json'} });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Execution failed');
+                showToast('Change #' + id + ' executed successfully', 'success');
+                fetchChanges(currentFilter, currentPage);
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+
+        async function doRollback(id) {
+            closeConfirm();
+            try {
+                const res = await fetch('/api/changes/' + id + '/rollback', { method: 'POST', headers: {'Content-Type': 'application/json'} });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Rollback failed');
+                showToast('Change #' + id + ' rolled back', 'success');
+                fetchChanges(currentFilter, currentPage);
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+
+        // ── Create Change ──
+        function openCreateModal() {
+            document.getElementById('createModal').classList.add('open');
+            document.getElementById('changeTitle').value = '';
+            document.getElementById('changeAction').value = '';
+            document.getElementById('changeResourceType').value = '';
+            document.getElementById('changeResourceId').value = '';
+            document.getElementById('changeResourceName').value = '';
+            document.getElementById('changeDescription').value = '';
+            document.getElementById('riskPreview').style.display = 'none';
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.remove('open');
+        }
+
+        function closeConfirm() {
+            document.getElementById('confirmModal').classList.remove('open');
+        }
+
+        async function submitChange() {
+            const title = document.getElementById('changeTitle').value.trim();
+            const action = document.getElementById('changeAction').value;
+            const resourceType = document.getElementById('changeResourceType').value;
+            const resourceId = document.getElementById('changeResourceId').value.trim();
+            const resourceName = document.getElementById('changeResourceName').value.trim();
+            const description = document.getElementById('changeDescription').value.trim();
+
+            if (!title) { showToast('Title is required', 'error'); return; }
+            if (!action) { showToast('Action type is required', 'error'); return; }
+            if (!resourceType) { showToast('Resource type is required', 'error'); return; }
+
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Creating...';
+
+            try {
+                const res = await fetch('/api/changes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title,
+                        action_type: action,
+                        resource_type: resourceType,
+                        resource_id: resourceId || null,
+                        resource_name: resourceName || null,
+                        description: description || null,
+                        change_details: { resource_name: resourceName }
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to create change');
+
+                closeCreateModal();
+                const autoApproved = data.change && data.change.auto_approved;
+                showToast('Change #' + data.change.id + ' created' + (autoApproved ? ' (auto-approved)' : ''), 'success');
+                fetchChanges(currentFilter, currentPage);
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Create Request';
+            }
+        }
+
+        // ── Filter Chips ──
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                fetchChanges(chip.dataset.filter, 1);
+            });
+        });
+
+        // ── Helpers ──
+        function escHtml(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        function formatTime(iso) {
+            if (!iso) return '--';
+            const d = new Date(iso);
+            const now = new Date();
+            const diff = (now - d) / 1000;
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+        }
+
+        function showToast(message, type) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-' + type;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 4000);
+        }
+
+        // Close modals on overlay click
+        document.getElementById('createModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeCreateModal(); });
+        document.getElementById('confirmModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeConfirm(); });
+
+        // Close on Escape
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') { closeCreateModal(); closeConfirm(); }
+        });
+
+        // ── Init ──
+        fetchChanges();
+    </script>
+</body>
+</html>

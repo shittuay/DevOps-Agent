@@ -112,6 +112,13 @@ class DevOpsAgent:
         except Exception as e:
             self.logger.warning(f"Failed to set AWS user context: {str(e)}")
 
+        try:
+            # Set DevOps operations user context
+            from ..tools.devops_operations_tools import set_user_context as set_devops_context
+            set_devops_context(user_id)
+        except (ImportError, Exception):
+            pass
+
     def _clear_cloud_user_context(self):
         """Clear user context for cloud operations."""
         try:

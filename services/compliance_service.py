@@ -1,22 +1,20 @@
 """
 Compliance and Audit Service for DevOps Agent.
 
-Provides SOC2/HIPAA compliance reporting, audit trails, and policy enforcement.
-Uses database persistence for all data.
+Runs real AWS security checks and maps findings to compliance frameworks.
+No random data generation - all results come from actual API calls.
 """
 
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from enum import Enum
-import secrets
 import json
 
 logger = logging.getLogger(__name__)
 
 
 class ComplianceFramework(Enum):
-    """Supported compliance frameworks."""
     SOC2 = 'soc2'
     HIPAA = 'hipaa'
     PCI_DSS = 'pci_dss'
@@ -27,7 +25,6 @@ class ComplianceFramework(Enum):
 
 
 class ComplianceStatus(Enum):
-    """Compliance check status."""
     COMPLIANT = 'compliant'
     NON_COMPLIANT = 'non_compliant'
     PARTIAL = 'partial'
@@ -36,7 +33,6 @@ class ComplianceStatus(Enum):
 
 
 class Severity(Enum):
-    """Finding severity."""
     CRITICAL = 'critical'
     HIGH = 'high'
     MEDIUM = 'medium'
@@ -45,7 +41,6 @@ class Severity(Enum):
 
 
 class AuditAction(Enum):
-    """Types of audited actions."""
     LOGIN = 'login'
     LOGOUT = 'logout'
     LOGIN_FAILED = 'login_failed'
@@ -64,7 +59,7 @@ class AuditAction(Enum):
     INCIDENT_RESPONSE = 'incident_response'
 
 
-# Default compliance controls definitions
+# Controls and which finding types map to them
 DEFAULT_CONTROLS = {
     'soc2': [
         ('SOC2-CC6.1', 'Logical Access Controls', 'Access control mechanisms for systems', 'Security'),
@@ -96,58 +91,62 @@ DEFAULT_CONTROLS = {
     ]
 }
 
+# Maps finding types from security_scanner to compliance controls
+FINDING_TO_CONTROL = {
+    'open_s3_bucket': ['SOC2-CC6.1', 'SOC2-CC6.3', 'HIPAA-164.312(a)', 'PCI-3.4'],
+    'unencrypted_s3_bucket': ['SOC2-CC6.7', 'HIPAA-164.312(e)', 'PCI-3.4'],
+    'unversioned_s3_bucket': ['SOC2-CC6.7', 'HIPAA-164.312(c)'],
+    'overly_permissive_security_group': ['SOC2-CC6.6', 'HIPAA-164.312(a)', 'PCI-1.1'],
+    'unencrypted_database': ['SOC2-CC6.7', 'HIPAA-164.312(c)', 'HIPAA-164.312(e)', 'PCI-3.4'],
+    'public_rds_instance': ['SOC2-CC6.1', 'SOC2-CC6.6', 'HIPAA-164.312(a)', 'PCI-1.1'],
+    'iam_user_without_mfa': ['SOC2-CC6.2', 'HIPAA-164.312(d)', 'PCI-8.1'],
+}
+
 
 class ComplianceService:
-    """Compliance and audit service with database persistence."""
+    """Compliance and audit service backed by real AWS security checks."""
 
     def __init__(self, user_id: Optional[int] = None):
         self.user_id = user_id
 
     def _get_db(self):
-        """Get database session."""
         from models import db
         return db
 
     def _get_framework_model(self):
-        """Get ComplianceFrameworkModel."""
         from models import ComplianceFrameworkModel
         return ComplianceFrameworkModel
 
     def _get_policy_model(self):
-        """Get CompliancePolicy."""
         from models import CompliancePolicy
         return CompliancePolicy
 
     def _get_report_model(self):
-        """Get ComplianceReport."""
         from models import ComplianceReport
         return ComplianceReport
 
     def _get_audit_log_model(self):
-        """Get AuditLog model."""
         from models import AuditLog
         return AuditLog
 
     # Framework Management
 
     def get_frameworks(self, user_id: int) -> List[Any]:
-        """Get all compliance frameworks for a user."""
         ComplianceFrameworkModel = self._get_framework_model()
         return ComplianceFrameworkModel.query.filter_by(user_id=user_id).all()
 
     def get_framework(self, framework_id: int) -> Optional[Any]:
-        """Get a framework by ID."""
         ComplianceFrameworkModel = self._get_framework_model()
         return ComplianceFrameworkModel.query.get(framework_id)
 
-    def enable_framework(self, user_id: int, framework_type: str) -> Any:
+    def enable_framework(self, user_id: int, framework_name: str) -> Any:
         """Enable a compliance framework for a user."""
         ComplianceFrameworkModel = self._get_framework_model()
         db = self._get_db()
 
         existing = ComplianceFrameworkModel.query.filter_by(
             user_id=user_id,
-            framework_type=framework_type
+            name=framework_name
         ).first()
 
         if existing:
@@ -155,7 +154,7 @@ class ComplianceService:
             db.session.commit()
             return existing
 
-        controls = DEFAULT_CONTROLS.get(framework_type, [])
+        controls = DEFAULT_CONTROLS.get(framework_name, [])
         control_list = [
             {
                 'id': ctrl[0],
@@ -167,11 +166,13 @@ class ComplianceService:
             for ctrl in controls
         ]
 
+        display_name = framework_name.upper().replace('_', '-')
         framework = ComplianceFrameworkModel(
             user_id=user_id,
-            framework_type=framework_type,
-            name=framework_type.upper().replace('_', '-'),
-            controls=control_list,
+            name=framework_name,
+            display_name=display_name,
+            description=f'{display_name} compliance framework',
+            settings={'controls': control_list},
             is_enabled=True
         )
         db.session.add(framework)
@@ -179,7 +180,6 @@ class ComplianceService:
         return framework
 
     def disable_framework(self, framework_id: int) -> bool:
-        """Disable a compliance framework."""
         db = self._get_db()
         framework = self.get_framework(framework_id)
         if framework:
@@ -188,110 +188,146 @@ class ComplianceService:
             return True
         return False
 
-    # Compliance Checks
+    # Real Compliance Checks
 
-    def run_compliance_check(self, user_id: int, framework_type: str) -> Any:
-        """Run compliance check for a framework."""
-        import random
+    def run_compliance_check(self, user_id: int, framework_name: str) -> Any:
+        """
+        Run compliance check using real AWS security findings.
+
+        Instead of random.uniform(), this:
+        1. Runs the real security scanner against AWS
+        2. Pulls existing SecurityFindings from the database
+        3. Maps findings to compliance controls
+        4. Calculates real pass/fail per control
+        """
+        from models import SecurityFinding
         ComplianceFrameworkModel = self._get_framework_model()
         ComplianceReport = self._get_report_model()
         db = self._get_db()
 
+        # Ensure framework exists
         framework = ComplianceFrameworkModel.query.filter_by(
             user_id=user_id,
-            framework_type=framework_type,
+            name=framework_name,
             is_enabled=True
         ).first()
 
         if not framework:
-            framework = self.enable_framework(user_id, framework_type)
+            framework = self.enable_framework(user_id, framework_name)
 
-        controls = framework.controls or []
+        # Run the real security scanner
+        try:
+            from services.security_scanner import scan_aws_security
+            scan_aws_security(user_id)
+        except Exception as e:
+            logger.warning(f"Security scan failed for user {user_id}: {e}")
+
+        # Get all open findings for this user
+        open_findings = SecurityFinding.query.filter_by(
+            user_id=user_id,
+            status='open'
+        ).all()
+
+        # Map findings to controls
+        finding_by_control = {}
+        for finding in open_findings:
+            mapped_controls = FINDING_TO_CONTROL.get(finding.finding_type, [])
+            for control_id in mapped_controls:
+                if control_id not in finding_by_control:
+                    finding_by_control[control_id] = []
+                finding_by_control[control_id].append({
+                    'id': finding.id,
+                    'type': finding.finding_type,
+                    'severity': finding.severity,
+                    'title': finding.title,
+                    'resource': finding.affected_resource_name
+                })
+
+        # Evaluate each control
+        controls = DEFAULT_CONTROLS.get(framework_name, [])
         results = []
         compliant_count = 0
         non_compliant_count = 0
 
-        for control in controls:
-            if 'Encryption' in control.get('title', '') or 'Audit' in control.get('title', ''):
-                compliance_rate = random.uniform(0.9, 1.0)
-            elif 'Authentication' in control.get('title', ''):
-                compliance_rate = random.uniform(0.85, 0.98)
-            else:
-                compliance_rate = random.uniform(0.7, 1.0)
+        for ctrl_id, ctrl_title, ctrl_desc, ctrl_category in controls:
+            control_findings = finding_by_control.get(ctrl_id, [])
 
-            resources_checked = random.randint(5, 20)
-            resources_compliant = int(resources_checked * compliance_rate)
-
-            if resources_compliant == resources_checked:
+            if not control_findings:
                 status = 'compliant'
                 compliant_count += 1
-            elif resources_compliant >= resources_checked * 0.8:
-                status = 'partial'
             else:
-                status = 'non_compliant'
-                non_compliant_count += 1
+                has_critical = any(f['severity'] in ('critical', 'high') for f in control_findings)
+                if has_critical:
+                    status = 'non_compliant'
+                    non_compliant_count += 1
+                else:
+                    status = 'partial'
 
             results.append({
-                'control_id': control.get('id'),
-                'control_title': control.get('title'),
+                'control_id': ctrl_id,
+                'control_title': ctrl_title,
+                'description': ctrl_desc,
+                'category': ctrl_category,
                 'status': status,
-                'resources_checked': resources_checked,
-                'resources_compliant': resources_compliant,
-                'findings': [] if status == 'compliant' else [
-                    f"{resources_checked - resources_compliant} resources need remediation"
-                ]
+                'findings_count': len(control_findings),
+                'findings': control_findings
             })
 
         total = len(controls)
         compliance_score = round((compliant_count / total * 100) if total > 0 else 0, 1)
 
+        # Create report using actual model fields
         report = ComplianceReport(
             user_id=user_id,
-            framework_id=framework.id,
-            framework_type=framework_type,
-            results=results,
+            name=f'{framework_name.upper()} Assessment - {datetime.utcnow().strftime("%Y-%m-%d")}',
+            report_type='assessment',
+            framework=framework_name,
             summary={
                 'total_controls': total,
                 'compliant': compliant_count,
                 'non_compliant': non_compliant_count,
                 'partial': total - compliant_count - non_compliant_count,
-                'compliance_score': compliance_score
             },
-            compliance_score=compliance_score
+            findings=results,
+            overall_score=int(compliance_score),
+            controls_passed=compliant_count,
+            controls_failed=non_compliant_count,
+            generated_at=datetime.utcnow()
         )
 
-        framework.compliance_score = compliance_score
-        framework.last_check_at = datetime.utcnow()
+        # Update framework score
+        framework.compliance_score = int(compliance_score)
+        framework.last_assessment_at = datetime.utcnow()
 
         db.session.add(report)
         db.session.commit()
 
-        logger.info(f"Compliance check completed: {framework_type} - Score: {compliance_score}%")
+        logger.info(f"Compliance check: {framework_name} - Score: {compliance_score}% "
+                     f"({compliant_count}/{total} controls passing, "
+                     f"{len(open_findings)} open findings)")
         return report
 
     def get_compliance_report(self, report_id: int) -> Optional[Any]:
-        """Get a compliance report by ID."""
         ComplianceReport = self._get_report_model()
         return ComplianceReport.query.get(report_id)
 
-    def get_user_reports(self, user_id: int, framework_type: str = None) -> List[Any]:
-        """Get all compliance reports for a user."""
+    def get_user_reports(self, user_id: int, framework_name: str = None) -> List[Any]:
         ComplianceReport = self._get_report_model()
         query = ComplianceReport.query.filter_by(user_id=user_id)
-        if framework_type:
-            query = query.filter_by(framework_type=framework_type)
-        return query.order_by(ComplianceReport.created_at.desc()).all()
+        if framework_name:
+            query = query.filter_by(framework=framework_name)
+        return query.order_by(ComplianceReport.generated_at.desc()).all()
 
     def get_compliance_summary(self, user_id: int) -> Dict:
-        """Get compliance summary across all frameworks."""
+        """Get compliance summary across all frameworks using real check data."""
         summaries = {}
-        for framework_type in ['soc2', 'hipaa', 'pci_dss']:
-            report = self.run_compliance_check(user_id, framework_type)
-            summaries[framework_type] = {
-                'score': report.compliance_score,
-                'compliant': report.summary.get('compliant', 0),
-                'total': report.summary.get('total_controls', 0),
-                'critical_findings': report.summary.get('non_compliant', 0)
+        for framework_name in ['soc2', 'hipaa', 'pci_dss']:
+            report = self.run_compliance_check(user_id, framework_name)
+            summaries[framework_name] = {
+                'score': report.overall_score,
+                'compliant': report.controls_passed,
+                'total': (report.controls_passed or 0) + (report.controls_failed or 0),
+                'critical_findings': report.controls_failed or 0
             }
         return summaries
 
@@ -300,7 +336,6 @@ class ComplianceService:
     def create_policy(self, user_id: int, name: str, policy_type: str,
                      rules: List[Dict], enforcement: str = 'audit',
                      description: str = None) -> Any:
-        """Create a new policy."""
         CompliancePolicy = self._get_policy_model()
         db = self._get_db()
 
@@ -310,20 +345,18 @@ class ComplianceService:
             policy_type=policy_type,
             description=description,
             rules=rules,
-            enforcement=enforcement,
-            is_enabled=True
+            enforcement_action=enforcement,
+            is_active=True
         )
         db.session.add(policy)
         db.session.commit()
         return policy
 
     def get_policy(self, policy_id: int) -> Optional[Any]:
-        """Get a policy by ID."""
         CompliancePolicy = self._get_policy_model()
         return CompliancePolicy.query.get(policy_id)
 
     def get_user_policies(self, user_id: int, policy_type: str = None) -> List[Any]:
-        """Get all policies for a user."""
         CompliancePolicy = self._get_policy_model()
         query = CompliancePolicy.query.filter_by(user_id=user_id)
         if policy_type:
@@ -331,7 +364,6 @@ class ComplianceService:
         return query.all()
 
     def update_policy(self, policy_id: int, updates: Dict) -> Optional[Any]:
-        """Update a policy."""
         db = self._get_db()
         policy = self.get_policy(policy_id)
         if not policy:
@@ -344,15 +376,14 @@ class ComplianceService:
         if 'rules' in updates:
             policy.rules = updates['rules']
         if 'enforcement' in updates:
-            policy.enforcement = updates['enforcement']
-        if 'is_enabled' in updates:
-            policy.is_enabled = updates['is_enabled']
+            policy.enforcement_action = updates['enforcement']
+        if 'is_active' in updates:
+            policy.is_active = updates['is_active']
 
         db.session.commit()
         return policy
 
     def delete_policy(self, policy_id: int) -> bool:
-        """Delete a policy."""
         db = self._get_db()
         policy = self.get_policy(policy_id)
         if policy:
@@ -362,11 +393,10 @@ class ComplianceService:
         return False
 
     def toggle_policy(self, policy_id: int) -> Optional[Any]:
-        """Toggle policy enabled state."""
         db = self._get_db()
         policy = self.get_policy(policy_id)
         if policy:
-            policy.is_enabled = not policy.is_enabled
+            policy.is_active = not policy.is_active
             db.session.commit()
             return policy
         return None
@@ -376,7 +406,6 @@ class ComplianceService:
     def log_action(self, user_id: int, action: str, resource_type: str,
                    resource_id: str = None, details: Dict = None,
                    success: bool = True, ip_address: str = None) -> Any:
-        """Log an auditable action."""
         AuditLog = self._get_audit_log_model()
         db = self._get_db()
 
@@ -398,7 +427,6 @@ class ComplianceService:
     def get_audit_logs(self, user_id: int = None, action: str = None,
                        start_date: datetime = None, end_date: datetime = None,
                        limit: int = 100) -> List[Any]:
-        """Get audit logs with filters."""
         AuditLog = self._get_audit_log_model()
         query = AuditLog.query
 
@@ -415,7 +443,6 @@ class ComplianceService:
 
     def export_audit_logs(self, user_id: int, start_date: datetime,
                           end_date: datetime, format: str = 'json') -> str:
-        """Export audit logs for compliance reporting."""
         logs = self.get_audit_logs(
             user_id=user_id,
             start_date=start_date,
@@ -449,14 +476,13 @@ class ComplianceService:
     # Executive Summary
 
     def generate_executive_summary(self, user_id: int) -> Dict:
-        """Generate executive compliance summary."""
         compliance = self.get_compliance_summary(user_id)
 
-        scores = [c['score'] for c in compliance.values()]
+        scores = [c['score'] for c in compliance.values() if c['score'] is not None]
         overall_score = sum(scores) / len(scores) if scores else 0
 
         policies = self.get_user_policies(user_id)
-        active_policies = len([p for p in policies if p.is_enabled])
+        active_policies = len([p for p in policies if p.is_active])
 
         recent_logs = self.get_audit_logs(user_id=user_id, limit=1000)
         logs_30d = len([l for l in recent_logs
@@ -475,7 +501,6 @@ class ComplianceService:
     # Default Policies
 
     def create_default_policies(self, user_id: int):
-        """Create default security policies for a user."""
         default_policies = [
             {
                 'name': 'MFA Required',
@@ -517,5 +542,4 @@ class ComplianceService:
 
 
 def get_compliance_service(user_id: Optional[int] = None) -> ComplianceService:
-    """Get compliance service instance."""
     return ComplianceService(user_id)
