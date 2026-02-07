@@ -126,6 +126,22 @@ def sync_user_infrastructure(user_id: int) -> Dict:
     results['aws'] = aws_result
     results['total_resources'] += aws_result['synced']
 
+    # Sync Azure resources (if credentials configured)
+    try:
+        azure_result = sync_azure_resources(user_id)
+        results['azure'] = azure_result
+        results['total_resources'] += azure_result['synced']
+    except Exception as e:
+        results['azure']['errors'].append(str(e))
+
+    # Sync GCP resources (if credentials configured)
+    try:
+        gcp_result = sync_gcp_resources(user_id)
+        results['gcp'] = gcp_result
+        results['total_resources'] += gcp_result['synced']
+    except Exception as e:
+        results['gcp']['errors'].append(str(e))
+
     # Calculate total cost
     resources = InfrastructureResource.query.filter_by(user_id=user_id).all()
     results['total_cost'] = sum(r.monthly_cost or 0.0 for r in resources)
@@ -1332,3 +1348,398 @@ def get_dashboard_summary(user_id: int) -> Dict:
         'recommendations': [r.to_dict() for r in recommendations[:10]],  # Top 10
         'last_synced': max([r.last_synced for r in resources]) if resources else None
     }
+
+
+# ==================== AZURE SYNC ====================
+
+AZURE_VM_PRICING = {
+    'Standard_B1s': 7.59,
+    'Standard_B1ms': 15.18,
+    'Standard_B2s': 30.37,
+    'Standard_B2ms': 60.74,
+    'Standard_D2s_v3': 70.08,
+    'Standard_D4s_v3': 140.16,
+    'Standard_D2as_v4': 70.08,
+    'Standard_E2s_v3': 91.98,
+    'Standard_F2s_v2': 61.32,
+}
+
+
+def sync_azure_resources(user_id: int) -> Dict:
+    """Sync Azure resources for a user."""
+    result = {'synced': 0, 'errors': []}
+
+    try:
+        from services.credential_service import get_user_azure_credentials
+        creds = get_user_azure_credentials(user_id)
+        if not creds:
+            return result  # No Azure credentials configured, skip silently
+    except Exception:
+        return result
+
+    try:
+        vm_count = sync_azure_vms(user_id)
+        result['synced'] += vm_count
+    except Exception as e:
+        result['errors'].append(f'VMs: {str(e)}')
+
+    try:
+        sql_count = sync_azure_sql(user_id)
+        result['synced'] += sql_count
+    except Exception as e:
+        result['errors'].append(f'SQL: {str(e)}')
+
+    return result
+
+
+def sync_azure_vms(user_id: int) -> int:
+    """Sync Azure Virtual Machines for a user."""
+    try:
+        from services.credential_service import get_user_azure_credential
+        credential, subscription_id, location = get_user_azure_credential(user_id)
+
+        from azure.mgmt.compute import ComputeManagementClient
+        compute_client = ComputeManagementClient(credential, subscription_id)
+
+        count = 0
+        for vm in compute_client.virtual_machines.list_all():
+            vm_size = vm.hardware_profile.vm_size if vm.hardware_profile else 'unknown'
+            location = vm.location or 'unknown'
+
+            # Get power state
+            status = 'unknown'
+            if vm.instance_view and vm.instance_view.statuses:
+                for s in vm.instance_view.statuses:
+                    if s.code and s.code.startswith('PowerState/'):
+                        status = s.code.replace('PowerState/', '')
+
+            monthly_cost = AZURE_VM_PRICING.get(vm_size, 50.0)
+            if status != 'running':
+                monthly_cost = 0.0
+
+            resource = InfrastructureResource.query.filter_by(
+                user_id=user_id,
+                resource_id=vm.vm_id or vm.name,
+                cloud_provider='azure'
+            ).first()
+
+            if not resource:
+                resource = InfrastructureResource(
+                    user_id=user_id,
+                    resource_id=vm.vm_id or vm.name,
+                    cloud_provider='azure'
+                )
+                db.session.add(resource)
+
+            resource.resource_name = vm.name
+            resource.resource_type = 'vm'
+            resource.region = location
+            resource.status = status
+            resource.monthly_cost = monthly_cost
+            resource.metadata = {
+                'vm_size': vm_size,
+                'os_type': vm.storage_profile.os_disk.os_type if vm.storage_profile and vm.storage_profile.os_disk else 'unknown',
+                'resource_group': vm.id.split('/')[4] if vm.id and len(vm.id.split('/')) > 4 else 'unknown',
+            }
+            resource.last_synced = datetime.utcnow()
+            count += 1
+
+        db.session.commit()
+        return count
+    except ImportError:
+        return 0
+    except Exception as e:
+        db.session.rollback()
+        raise
+
+
+def sync_azure_sql(user_id: int) -> int:
+    """Sync Azure SQL Databases for a user."""
+    try:
+        from services.credential_service import get_user_azure_credential
+        credential, subscription_id, location = get_user_azure_credential(user_id)
+
+        from azure.mgmt.sql import SqlManagementClient
+        sql_client = SqlManagementClient(credential, subscription_id)
+
+        count = 0
+        for server in sql_client.servers.list():
+            rg = server.id.split('/')[4] if server.id and len(server.id.split('/')) > 4 else ''
+            for db_instance in sql_client.databases.list_by_server(rg, server.name):
+                if db_instance.name == 'master':
+                    continue
+
+                resource = InfrastructureResource.query.filter_by(
+                    user_id=user_id,
+                    resource_id=db_instance.database_id or db_instance.name,
+                    cloud_provider='azure'
+                ).first()
+
+                if not resource:
+                    resource = InfrastructureResource(
+                        user_id=user_id,
+                        resource_id=db_instance.database_id or db_instance.name,
+                        cloud_provider='azure'
+                    )
+                    db.session.add(resource)
+
+                resource.resource_name = f'{server.name}/{db_instance.name}'
+                resource.resource_type = 'sql_database'
+                resource.region = server.location or 'unknown'
+                resource.status = db_instance.status or 'unknown'
+                resource.monthly_cost = 15.0  # Base estimate
+                resource.metadata = {
+                    'server_name': server.name,
+                    'sku': db_instance.sku.name if db_instance.sku else 'unknown',
+                    'edition': db_instance.edition if hasattr(db_instance, 'edition') else 'unknown',
+                }
+                resource.last_synced = datetime.utcnow()
+                count += 1
+
+        db.session.commit()
+        return count
+    except ImportError:
+        return 0
+    except Exception as e:
+        db.session.rollback()
+        raise
+
+
+# ==================== GCP SYNC ====================
+
+GCE_PRICING = {
+    'e2-micro': 6.11,
+    'e2-small': 12.23,
+    'e2-medium': 24.46,
+    'e2-standard-2': 48.92,
+    'e2-standard-4': 97.83,
+    'n1-standard-1': 24.27,
+    'n1-standard-2': 48.55,
+    'n1-standard-4': 97.09,
+    'n2-standard-2': 48.92,
+    'n2-standard-4': 97.83,
+    'f1-micro': 3.88,
+    'g1-small': 13.80,
+}
+
+
+def sync_gcp_resources(user_id: int) -> Dict:
+    """Sync GCP resources for a user."""
+    result = {'synced': 0, 'errors': []}
+
+    try:
+        from services.credential_service import get_user_gcp_credentials
+        creds = get_user_gcp_credentials(user_id)
+        if not creds:
+            return result  # No GCP credentials configured, skip silently
+    except Exception:
+        return result
+
+    try:
+        vm_count = sync_gcp_compute_instances(user_id)
+        result['synced'] += vm_count
+    except Exception as e:
+        result['errors'].append(f'Compute: {str(e)}')
+
+    try:
+        bucket_count = sync_gcp_storage_buckets(user_id)
+        result['synced'] += bucket_count
+    except Exception as e:
+        result['errors'].append(f'Storage: {str(e)}')
+
+    try:
+        sql_count = sync_gcp_sql_instances(user_id)
+        result['synced'] += sql_count
+    except Exception as e:
+        result['errors'].append(f'Cloud SQL: {str(e)}')
+
+    return result
+
+
+def sync_gcp_compute_instances(user_id: int) -> int:
+    """Sync GCP Compute Engine instances for a user."""
+    try:
+        from services.credential_service import get_user_gcp_credentials_file
+        from google.oauth2 import service_account
+        from google.cloud import compute_v1
+        import json
+
+        creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
+        credentials = service_account.Credentials.from_service_account_file(creds_path)
+
+        # Clean up temp file
+        try:
+            os.remove(creds_path)
+        except OSError:
+            pass
+
+        client = compute_v1.InstancesClient(credentials=credentials)
+        agg_list = client.aggregated_list(project=project_id)
+
+        count = 0
+        for zone_name, response in agg_list:
+            if not response.instances:
+                continue
+            for instance in response.instances:
+                machine_type = instance.machine_type.split('/')[-1] if instance.machine_type else 'unknown'
+                status_map = {'RUNNING': 'running', 'TERMINATED': 'stopped', 'STOPPED': 'stopped', 'SUSPENDED': 'stopped'}
+                status = status_map.get(instance.status, instance.status.lower() if instance.status else 'unknown')
+
+                monthly_cost = GCE_PRICING.get(machine_type, 25.0)
+                if status != 'running':
+                    monthly_cost = 0.0
+
+                resource = InfrastructureResource.query.filter_by(
+                    user_id=user_id,
+                    resource_id=str(instance.id),
+                    cloud_provider='gcp'
+                ).first()
+
+                if not resource:
+                    resource = InfrastructureResource(
+                        user_id=user_id,
+                        resource_id=str(instance.id),
+                        cloud_provider='gcp'
+                    )
+                    db.session.add(resource)
+
+                resource.resource_name = instance.name
+                resource.resource_type = 'compute_instance'
+                resource.region = zone_name.replace('zones/', '') if zone_name.startswith('zones/') else zone_name
+                resource.status = status
+                resource.monthly_cost = monthly_cost
+                resource.metadata = {
+                    'machine_type': machine_type,
+                    'instance_type': machine_type,
+                    'network_interfaces': len(instance.network_interfaces) if instance.network_interfaces else 0,
+                }
+                resource.last_synced = datetime.utcnow()
+                count += 1
+
+        db.session.commit()
+        return count
+    except ImportError:
+        return 0
+    except Exception as e:
+        db.session.rollback()
+        raise
+
+
+def sync_gcp_storage_buckets(user_id: int) -> int:
+    """Sync GCP Cloud Storage buckets for a user."""
+    try:
+        from services.credential_service import get_user_gcp_credentials_file
+        from google.oauth2 import service_account
+        from google.cloud import storage
+        import json
+
+        creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
+        credentials = service_account.Credentials.from_service_account_file(creds_path)
+
+        try:
+            os.remove(creds_path)
+        except OSError:
+            pass
+
+        client = storage.Client(project=project_id, credentials=credentials)
+
+        count = 0
+        for bucket in client.list_buckets():
+            resource = InfrastructureResource.query.filter_by(
+                user_id=user_id,
+                resource_id=bucket.name,
+                cloud_provider='gcp'
+            ).first()
+
+            if not resource:
+                resource = InfrastructureResource(
+                    user_id=user_id,
+                    resource_id=bucket.name,
+                    cloud_provider='gcp'
+                )
+                db.session.add(resource)
+
+            resource.resource_name = bucket.name
+            resource.resource_type = 'storage_bucket'
+            resource.region = bucket.location or 'US'
+            resource.status = 'available'
+            resource.monthly_cost = S3_BASE_COST  # Approximate
+            resource.metadata = {
+                'storage_class': bucket.storage_class,
+                'location_type': bucket.location_type if hasattr(bucket, 'location_type') else 'unknown',
+            }
+            resource.last_synced = datetime.utcnow()
+            count += 1
+
+        db.session.commit()
+        return count
+    except ImportError:
+        return 0
+    except Exception as e:
+        db.session.rollback()
+        raise
+
+
+def sync_gcp_sql_instances(user_id: int) -> int:
+    """Sync GCP Cloud SQL instances for a user."""
+    try:
+        from services.credential_service import get_user_gcp_credentials_file
+        from google.oauth2 import service_account
+        from googleapiclient import discovery
+        import json
+
+        creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
+        credentials = service_account.Credentials.from_service_account_file(
+            creds_path,
+            scopes=['https://www.googleapis.com/auth/sqlservice.admin']
+        )
+
+        try:
+            os.remove(creds_path)
+        except OSError:
+            pass
+
+        sqladmin = discovery.build('sqladmin', 'v1beta4', credentials=credentials)
+        response = sqladmin.instances().list(project=project_id).execute()
+        instances = response.get('items', [])
+
+        count = 0
+        for inst in instances:
+            resource = InfrastructureResource.query.filter_by(
+                user_id=user_id,
+                resource_id=inst['name'],
+                cloud_provider='gcp'
+            ).first()
+
+            if not resource:
+                resource = InfrastructureResource(
+                    user_id=user_id,
+                    resource_id=inst['name'],
+                    cloud_provider='gcp'
+                )
+                db.session.add(resource)
+
+            tier = inst.get('settings', {}).get('tier', 'unknown')
+            status_map = {'RUNNABLE': 'running', 'SUSPENDED': 'stopped', 'PENDING_CREATE': 'pending'}
+            status = status_map.get(inst.get('state', ''), inst.get('state', 'unknown').lower())
+
+            resource.resource_name = inst['name']
+            resource.resource_type = 'cloud_sql'
+            resource.region = inst.get('region', 'unknown')
+            resource.status = status
+            resource.monthly_cost = 25.0  # Base estimate
+            resource.metadata = {
+                'database_version': inst.get('databaseVersion', 'unknown'),
+                'tier': tier,
+                'instance_type': tier,
+            }
+            resource.last_synced = datetime.utcnow()
+            count += 1
+
+        db.session.commit()
+        return count
+    except ImportError:
+        return 0
+    except Exception as e:
+        db.session.rollback()
+        raise

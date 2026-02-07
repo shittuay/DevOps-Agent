@@ -21,6 +21,7 @@ from src.utils import setup_logging, get_logger
 from src.tools import (
     command_tools,
     aws_tools,
+    azure_tools,
     gcp_tools,
     kubernetes_tools,
     git_tools,
@@ -710,8 +711,9 @@ def initialize_agent():
         agent.register_tools_from_module(command_tools)
         if config_manager.aws_enabled:
             agent.register_tools_from_module(aws_tools)
-        # Always enable GCP tools
+        # Always enable GCP and Azure tools
         agent.register_tools_from_module(gcp_tools)
+        agent.register_tools_from_module(azure_tools)
         if config_manager.k8s_enabled:
             agent.register_tools_from_module(kubernetes_tools)
         agent.register_tools_from_module(git_tools)
@@ -1206,6 +1208,7 @@ def remove_team_member(user_id):
 
 
 @app.route('/api/aws-config', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/aws/config', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def aws_config():
     """Handle AWS configuration - per-user credential storage."""
@@ -1248,9 +1251,9 @@ def aws_config():
     # POST - Save AWS credentials for this user
     try:
         data = request.get_json()
-        access_key = data.get('access_key', '').strip()
-        secret_key = data.get('secret_key', '').strip()
-        region = data.get('region', 'us-east-1').strip()
+        access_key = (data.get('access_key') or data.get('access_key_id') or '').strip()
+        secret_key = (data.get('secret_key') or data.get('secret_access_key') or '').strip()
+        region = (data.get('region') or 'us-east-1').strip()
 
         success, message = save_user_aws_credentials(
             user_id=current_user.id,
@@ -1267,7 +1270,26 @@ def aws_config():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/aws/test', methods=['GET'])
+@login_required
+def test_aws_connection():
+    """Test AWS connection using saved credentials."""
+    try:
+        from services.credential_service import get_user_boto_client
+        sts = get_user_boto_client(current_user.id, 'sts')
+        identity = sts.get_caller_identity()
+        return jsonify({
+            'success': True,
+            'message': f"Connected as {identity.get('Arn', 'unknown')}",
+            'account': identity.get('Account'),
+            'arn': identity.get('Arn')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 200
+
+
 @app.route('/api/azure-config', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/azure/config', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def azure_config():
     """Handle Azure configuration - per-user credential storage."""
@@ -1329,6 +1351,7 @@ def azure_config():
 
 
 @app.route('/api/gcp-config', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/gcp/config', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def gcp_config():
     """Handle GCP configuration - per-user credential storage."""
@@ -1754,13 +1777,35 @@ def sync_infrastructure():
         result = sync_user_infrastructure(current_user.id)
 
         # Generate real cost recommendations using CloudWatch metrics
+        total_savings = 0
         try:
             from services.cost_explorer import generate_real_cost_recommendations, update_resource_costs_from_explorer
             update_resource_costs_from_explorer(current_user.id)
             generate_real_cost_recommendations(current_user.id)
             db.session.commit()
+
+            # Calculate total potential savings for notification
+            active_recs = CostOptimization.query.filter_by(
+                user_id=current_user.id, status='active'
+            ).all()
+            total_savings = sum(r.potential_monthly_savings or 0 for r in active_recs)
         except Exception:
             pass  # Cost Explorer may not be enabled for all accounts
+
+        # Notify if significant savings found (> $50/month)
+        if total_savings > 50:
+            try:
+                from services.notification_service import get_notification_service
+                svc = get_notification_service()
+                svc.send_cost_alert({
+                    'amount': total_savings,
+                    'threshold': 50,
+                    'message': f'Infrastructure sync found ${total_savings:.2f}/month in potential savings',
+                    'period': 'Monthly',
+                    'top_service': 'AWS'
+                })
+            except Exception:
+                pass
 
         return jsonify({
             'success': True,
@@ -1941,14 +1986,29 @@ def run_all_compliance_scans():
         service = ComplianceService(current_user.id)
 
         results = {}
+        total_findings = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'total': 0}
         for fw in ['soc2', 'hipaa', 'pci_dss']:
             report = service.run_compliance_check(current_user.id, fw)
+            findings = report.findings or []
             results[fw] = {
                 'score': report.overall_score,
                 'controls_passed': report.controls_passed,
                 'controls_failed': report.controls_failed,
-                'findings_count': len(report.findings or [])
+                'findings_count': len(findings)
             }
+            for f in findings:
+                sev = f.get('severity', 'medium').lower()
+                total_findings[sev] = total_findings.get(sev, 0) + 1
+                total_findings['total'] += 1
+
+        # Notify if critical or high findings detected
+        if total_findings['critical'] > 0 or total_findings['high'] > 0:
+            try:
+                from services.notification_service import get_notification_service
+                svc = get_notification_service()
+                svc.send_security_notification(total_findings)
+            except Exception:
+                pass
 
         return jsonify({'success': True, 'results': results})
     except Exception as e:
