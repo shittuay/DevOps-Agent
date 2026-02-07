@@ -1121,21 +1121,9 @@
                 grid-template-columns: 1fr;
             }
 
-            /* Move theme toggle to bottom-left on mobile for easy thumb access */
+            /* Hide theme toggle on mobile - it overlaps the chat interface */
             .theme-toggle {
-                top: auto;
-                bottom: 100px;
-                left: 16px;
-                right: auto;
-                padding: 8px;
-                flex-direction: column;
-                border-radius: 30px;
-            }
-
-            .theme-toggle-btn {
-                width: 44px;
-                height: 44px;
-                font-size: 18px;
+                display: none;
             }
         }
 
@@ -2012,6 +2000,11 @@
                 const response = await fetch('/api/tools');
                 const data = await response.json();
 
+                if (!response.ok || !data.categories) {
+                    addMessage('agent', data.error || 'Tools are not available right now. The AI agent may not be initialized.');
+                    return;
+                }
+
                 const container = document.getElementById('chatContainer');
                 const welcome = document.querySelector('.welcome');
                 if (welcome) welcome.remove();
@@ -2082,6 +2075,11 @@
             try {
                 const response = await fetch('/api/stats');
                 const data = await response.json();
+
+                if (!response.ok || data.error) {
+                    addMessage('agent', data.error || 'Stats are not available right now.');
+                    return;
+                }
 
                 const container = document.getElementById('chatContainer');
                 const welcome = document.querySelector('.welcome');

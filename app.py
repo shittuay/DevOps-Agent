@@ -29,7 +29,8 @@ from src.tools import (
     terraform_tools,
     monitoring_tools,
     ansible_tools,
-    alerting_tools
+    alerting_tools,
+    devops_operations_tools
 )
 
 # Import database models
@@ -238,6 +239,10 @@ app.register_blueprint(compliance_bp)
 # Register Organizations blueprint
 from routes.organizations import organizations_bp
 app.register_blueprint(organizations_bp)
+
+# Register Change Governance blueprint
+from routes.changes import changes_bp
+app.register_blueprint(changes_bp)
 
 # Initialize proactive monitoring service with incident integration
 from services.proactive_monitoring import get_monitoring_service
@@ -738,6 +743,10 @@ def initialize_agent():
             agent.register_tools_from_module(pentest_tools)
             logger.info("Penetration testing tools enabled - ensure authorized usage")
 
+        # Register DevOps operations tools (cost analysis, change governance, compliance)
+        agent.register_tools_from_module(devops_operations_tools)
+        logger.info("DevOps operations tools enabled (cost, changes, compliance)")
+
         logger.info(f"Agent initialized with {len(agent.list_available_tools())} tools")
 
         return True, None
@@ -927,6 +936,13 @@ def dashboard():
     return render_template('dashboard_live.html', user=current_user)
 
 
+@app.route('/changes')
+@login_required
+def changes_page():
+    """Change governance and approval workflows."""
+    return render_template('changes.html', user=current_user)
+
+
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
@@ -998,7 +1014,11 @@ def templates_page():
 @login_required
 def billing():
     """Billing and credits management page."""
-    return render_template('billing.html', user=current_user)
+    subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
+    if subscription and subscription.should_reset_credits():
+        subscription.reset_monthly_credits()
+    tiers = SubscriptionTier.query.filter_by(is_active=True).order_by(SubscriptionTier.monthly_price).all()
+    return render_template('billing.html', user=current_user, subscription=subscription, tiers=tiers)
 
 
 @app.route('/usage-policy')
@@ -1684,6 +1704,47 @@ def get_dashboard_summary():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/dashboard/costs', methods=['GET'])
+@login_required
+def get_cost_data():
+    """Get real cost data from AWS Cost Explorer."""
+    try:
+        from services.cost_explorer import get_actual_costs, get_cost_forecast
+        days = request.args.get('days', 30, type=int)
+        costs = get_actual_costs(current_user.id, days=days)
+        forecast = get_cost_forecast(current_user.id)
+        costs['forecast'] = forecast
+        return jsonify(costs)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/utilization/<int:resource_db_id>', methods=['GET'])
+@login_required
+def get_resource_utilization(resource_db_id):
+    """Get real CloudWatch utilization metrics for a resource."""
+    try:
+        from services.cost_explorer import get_instance_utilization, get_rds_utilization
+
+        resource = InfrastructureResource.query.get_or_404(resource_db_id)
+        if resource.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        days = request.args.get('days', 14, type=int)
+
+        if resource.resource_type == 'ec2':
+            data = get_instance_utilization(current_user.id, resource.resource_id, days=days)
+        elif resource.resource_type == 'rds':
+            db_id = resource.resource_metadata.get('db_instance_identifier', resource.resource_id)
+            data = get_rds_utilization(current_user.id, db_id, days=days)
+        else:
+            return jsonify({'error': 'Utilization metrics not available for this resource type'}), 400
+
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/dashboard/sync', methods=['POST'])
 @login_required
 def sync_infrastructure():
@@ -1691,6 +1752,16 @@ def sync_infrastructure():
     try:
         from services.infrastructure_sync import sync_user_infrastructure
         result = sync_user_infrastructure(current_user.id)
+
+        # Generate real cost recommendations using CloudWatch metrics
+        try:
+            from services.cost_explorer import generate_real_cost_recommendations, update_resource_costs_from_explorer
+            update_resource_costs_from_explorer(current_user.id)
+            generate_real_cost_recommendations(current_user.id)
+            db.session.commit()
+        except Exception:
+            pass  # Cost Explorer may not be enabled for all accounts
+
         return jsonify({
             'success': True,
             'message': 'Infrastructure sync completed',
@@ -1750,6 +1821,156 @@ def dismiss_recommendation(rec_id):
 
         recommendation.status = 'dismissed'
         recommendation.dismissed_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/compliance/summary', methods=['GET'])
+@login_required
+def get_compliance_summary():
+    """Get compliance summary with framework scores and findings."""
+    try:
+        from services.compliance_service import ComplianceService
+        from models import SecurityFinding, ComplianceFrameworkModel
+
+        service = ComplianceService(current_user.id)
+
+        # Get frameworks and their latest scores (without re-running full scan)
+        frameworks = ComplianceFrameworkModel.query.filter_by(
+            user_id=current_user.id
+        ).all()
+
+        framework_data = []
+        for fw in frameworks:
+            controls = (fw.settings or {}).get('controls', [])
+            framework_data.append({
+                'id': fw.id,
+                'name': fw.name,
+                'display_name': fw.display_name or fw.name.upper(),
+                'score': fw.compliance_score,
+                'is_enabled': fw.is_enabled,
+                'last_assessed': fw.last_assessment_at.isoformat() if fw.last_assessment_at else None,
+                'controls_count': len(controls)
+            })
+
+        # Get open security findings
+        findings = SecurityFinding.query.filter_by(
+            user_id=current_user.id,
+            status='open'
+        ).order_by(SecurityFinding.risk_score.desc()).all()
+
+        findings_data = [{
+            'id': f.id,
+            'type': f.finding_type,
+            'severity': f.severity,
+            'title': f.title,
+            'description': f.description,
+            'resource_type': f.affected_resource_type,
+            'resource_name': f.affected_resource_name,
+            'resource_id': f.affected_resource_id,
+            'risk_score': f.risk_score,
+            'remediation': f.remediation_steps,
+            'auto_fix': f.auto_remediation_available,
+            'frameworks': f.compliance_frameworks or [],
+            'first_detected': f.first_detected.isoformat() if f.first_detected else None
+        } for f in findings]
+
+        severity_counts = {
+            'critical': len([f for f in findings if f.severity == 'critical']),
+            'high': len([f for f in findings if f.severity == 'high']),
+            'medium': len([f for f in findings if f.severity == 'medium']),
+            'low': len([f for f in findings if f.severity == 'low'])
+        }
+
+        # Get active policies count
+        from models import CompliancePolicy
+        policies = CompliancePolicy.query.filter_by(
+            user_id=current_user.id,
+            is_active=True
+        ).all()
+
+        return jsonify({
+            'frameworks': framework_data,
+            'findings': findings_data,
+            'severity_counts': severity_counts,
+            'total_findings': len(findings),
+            'policies_active': len(policies)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/compliance/scan', methods=['POST'])
+@login_required
+def run_compliance_scan():
+    """Run compliance scan for a specific framework."""
+    try:
+        from services.compliance_service import ComplianceService
+
+        data = request.get_json() or {}
+        framework = data.get('framework', 'soc2')
+        service = ComplianceService(current_user.id)
+        report = service.run_compliance_check(current_user.id, framework)
+
+        return jsonify({
+            'success': True,
+            'report': {
+                'id': report.id,
+                'framework': report.framework,
+                'score': report.overall_score,
+                'controls_passed': report.controls_passed,
+                'controls_failed': report.controls_failed,
+                'findings': report.findings,
+                'summary': report.summary,
+                'generated_at': report.generated_at.isoformat() if report.generated_at else None
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/compliance/scan-all', methods=['POST'])
+@login_required
+def run_all_compliance_scans():
+    """Run compliance scans for all supported frameworks."""
+    try:
+        from services.compliance_service import ComplianceService
+        service = ComplianceService(current_user.id)
+
+        results = {}
+        for fw in ['soc2', 'hipaa', 'pci_dss']:
+            report = service.run_compliance_check(current_user.id, fw)
+            results[fw] = {
+                'score': report.overall_score,
+                'controls_passed': report.controls_passed,
+                'controls_failed': report.controls_failed,
+                'findings_count': len(report.findings or [])
+            }
+
+        return jsonify({'success': True, 'results': results})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/compliance/findings/<int:finding_id>/resolve', methods=['POST'])
+@login_required
+def resolve_finding(finding_id):
+    """Resolve a security finding."""
+    try:
+        from models import SecurityFinding
+
+        finding = SecurityFinding.query.get_or_404(finding_id)
+        if finding.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        data = request.get_json() or {}
+        finding.status = 'resolved'
+        finding.resolved_at = datetime.utcnow()
+        finding.resolved_by = current_user.id
+        finding.resolution_notes = data.get('notes', '')
         db.session.commit()
 
         return jsonify({'success': True})

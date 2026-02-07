@@ -1155,12 +1155,20 @@ def generate_cost_recommendations(user_id: int):
 def should_recommend_stopping(resource: InfrastructureResource) -> bool:
     """
     Determine if we should recommend stopping a resource.
-    In production, this would query CloudWatch metrics.
-    For now, we use simple heuristics.
+    Delegates to real CloudWatch metrics via cost_explorer module.
+    Falls back to name-based heuristic if metrics unavailable.
     """
-    # Mock logic - in production, check actual CloudWatch CPU metrics
-    # For demo purposes, recommend stopping 1 out of every 3 resources
-    return resource.id % 3 == 0
+    try:
+        from services.cost_explorer import get_instance_utilization
+        utilization = get_instance_utilization(resource.user_id, resource.resource_id, days=7)
+        cpu_avg = utilization['cpu']['average']
+        if cpu_avg is not None and cpu_avg < 5.0:
+            return True
+        return False
+    except Exception:
+        # Fallback: recommend stopping dev/test/staging instances
+        name = (resource.resource_name or '').lower()
+        return any(kw in name for kw in ['dev', 'test', 'staging', 'sandbox'])
 
 
 def create_or_update_recommendation(
@@ -1193,13 +1201,20 @@ def create_or_update_recommendation(
 
 
 def check_rightsizing_opportunity(resource: InfrastructureResource) -> float:
-    """Check if instance can be downsized to save costs"""
+    """Check if instance can be downsized using real CloudWatch CPU metrics."""
     instance_type = resource.resource_metadata.get('instance_type', '')
 
-    # Simulate rightsizing logic - in production, check actual CloudWatch metrics
-    # If instance family supports smaller size, suggest 30% savings
-    if any(size in instance_type for size in ['xlarge', '2xlarge', 'large']):
-        return resource.monthly_cost * 0.3
+    try:
+        from services.cost_explorer import get_instance_utilization
+        utilization = get_instance_utilization(resource.user_id, resource.resource_id, days=14)
+        cpu_avg = utilization['cpu']['average']
+        cpu_max = utilization['cpu']['max']
+
+        if cpu_avg is not None and cpu_avg < 20.0 and cpu_max is not None and cpu_max < 50.0:
+            if any(size in instance_type for size in ['xlarge', '2xlarge', 'large']):
+                return resource.monthly_cost * 0.35
+    except Exception:
+        pass
 
     return 0.0
 

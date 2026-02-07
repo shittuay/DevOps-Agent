@@ -2,7 +2,15 @@
 from datetime import datetime
 from typing import List, Dict
 from models import db, SecurityFinding, InfrastructureResource
-from src.tools.aws_tools import _get_boto_client
+
+
+def _get_boto_client(service: str, user_id: int = None, region: str = None):
+    """Get boto3 client using per-user credentials."""
+    if user_id:
+        from services.credential_service import get_user_boto_client
+        return get_user_boto_client(user_id, service, region)
+    from src.tools.aws_tools import _get_boto_client as _aws_get_client
+    return _aws_get_client(service, region)
 
 
 def scan_aws_security(user_id: int) -> Dict:
@@ -74,7 +82,7 @@ def scan_s3_buckets(user_id: int) -> List[Dict]:
     findings = []
 
     try:
-        s3 = _get_boto_client('s3')
+        s3 = _get_boto_client('s3', user_id=user_id)
         buckets = s3.list_buckets()
 
         for bucket in buckets.get('Buckets', []):
@@ -127,6 +135,29 @@ def scan_s3_buckets(user_id: int) -> List[Dict]:
                     'exploitability': 'medium'
                 })
 
+            # Check versioning
+            try:
+                versioning = s3.get_bucket_versioning(Bucket=bucket_name)
+                if versioning.get('Status') != 'Enabled':
+                    findings.append({
+                        'finding_type': 'unversioned_s3_bucket',
+                        'severity': 'medium',
+                        'title': f'S3 bucket without versioning: {bucket_name}',
+                        'description': f'S3 bucket "{bucket_name}" does not have versioning enabled. Data loss from accidental deletion or overwrites cannot be recovered.',
+                        'compliance_frameworks': ['CIS', 'SOC2'],
+                        'cis_benchmark_id': 'CIS-2.1.3',
+                        'cloud_provider': 'aws',
+                        'affected_resource_type': 's3_bucket',
+                        'affected_resource_id': bucket_name,
+                        'affected_resource_name': bucket_name,
+                        'remediation_steps': f'aws s3api put-bucket-versioning --bucket {bucket_name} --versioning-configuration Status=Enabled',
+                        'auto_remediation_available': True,
+                        'risk_score': 55,
+                        'exploitability': 'low'
+                    })
+            except Exception:
+                pass
+
     except Exception as e:
         print(f'Error scanning S3 buckets: {e}')
 
@@ -138,7 +169,7 @@ def scan_security_groups(user_id: int) -> List[Dict]:
     findings = []
 
     try:
-        ec2 = _get_boto_client('ec2')
+        ec2 = _get_boto_client('ec2', user_id=user_id)
         response = ec2.describe_security_groups()
 
         for sg in response.get('SecurityGroups', []):
@@ -180,12 +211,34 @@ def scan_unencrypted_resources(user_id: int) -> List[Dict]:
 
     try:
         # Check RDS instances
-        rds = _get_boto_client('rds')
+        rds = _get_boto_client('rds', user_id=user_id)
         response = rds.describe_db_instances()
 
         for db_instance in response.get('DBInstances', []):
+            db_id = db_instance['DBInstanceIdentifier']
+
+            # Check public access
+            if db_instance.get('PubliclyAccessible', False):
+                findings.append({
+                    'finding_type': 'public_rds_instance',
+                    'severity': 'critical',
+                    'title': f'Publicly accessible RDS: {db_id}',
+                    'description': f'RDS database "{db_id}" is publicly accessible. Databases should not be exposed to the internet.',
+                    'compliance_frameworks': ['CIS', 'SOC2', 'HIPAA', 'PCI-DSS'],
+                    'cis_benchmark_id': 'CIS-3.2',
+                    'cloud_provider': 'aws',
+                    'affected_resource_type': 'rds',
+                    'affected_resource_id': db_id,
+                    'affected_resource_name': db_id,
+                    'finding_data': {'engine': db_instance.get('Engine')},
+                    'remediation_steps': f'Modify RDS instance {db_id} to disable public access',
+                    'auto_remediation_available': False,
+                    'risk_score': 90,
+                    'exploitability': 'high'
+                })
+
+            # Check encryption
             if not db_instance.get('StorageEncrypted', False):
-                db_id = db_instance['DBInstanceIdentifier']
                 findings.append({
                     'finding_type': 'unencrypted_database',
                     'severity': 'high',
@@ -215,7 +268,7 @@ def scan_iam_issues(user_id: int) -> List[Dict]:
     findings = []
 
     try:
-        iam = _get_boto_client('iam')
+        iam = _get_boto_client('iam', user_id=user_id)
 
         # Check for root account usage
         credential_report = iam.generate_credential_report()

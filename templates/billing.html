@@ -310,7 +310,7 @@
         /* Tiers Grid */
         .tiers-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 24px;
             margin-bottom: 60px;
         }
@@ -330,6 +330,7 @@
         .tier-card:nth-child(1) { animation-delay: 0.4s; animation-fill-mode: both; }
         .tier-card:nth-child(2) { animation-delay: 0.5s; animation-fill-mode: both; }
         .tier-card:nth-child(3) { animation-delay: 0.6s; animation-fill-mode: both; }
+        .tier-card:nth-child(4) { animation-delay: 0.7s; animation-fill-mode: both; }
 
         .tier-card:hover {
             transform: translateY(-8px);
@@ -409,7 +410,7 @@
         }
 
         .tier-features li::before {
-            content: "✓";
+            content: "\2713";
             color: var(--accent-success);
             font-weight: 700;
             font-size: 16px;
@@ -475,6 +476,11 @@
             opacity: 0.5;
             cursor: not-allowed;
             transform: none !important;
+        }
+
+        .btn.loading {
+            pointer-events: none;
+            opacity: 0.7;
         }
 
         /* Credit Packs */
@@ -551,6 +557,40 @@
             margin-bottom: 20px;
         }
 
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 1000;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.4s ease;
+            max-width: 400px;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: rgba(0, 200, 83, 0.15);
+            border: 1px solid rgba(0, 200, 83, 0.4);
+            color: #00c853;
+        }
+
+        .toast.error {
+            background: rgba(255, 82, 82, 0.15);
+            border: 1px solid rgba(255, 82, 82, 0.4);
+            color: #ff5252;
+        }
+
         /* Mobile Responsive */
         @media (max-width: 768px) {
             .header {
@@ -623,7 +663,7 @@
                 <div class="logo-icon">D</div>
                 <span class="logo-text">DevOps Agent</span>
             </div>
-            <a href="/chat" class="back-button">← Back to Chat</a>
+            <a href="/chat" class="back-button">&larr; Back to Chat</a>
         </div>
 
         <!-- Main Content -->
@@ -635,76 +675,48 @@
             <div class="credits-card">
                 <div class="credits-header">
                     <div class="credits-display">
-                        <div class="credits-number">{{ user.credits or 100 }}</div>
+                        <div class="credits-number" id="credits-remaining">{{ subscription.credits_remaining if subscription else 0 }}</div>
                         <div class="credits-label">Credits</div>
                     </div>
-                    <div class="tier-badge">{{ user.tier or 'Free' }} Tier</div>
+                    <div class="tier-badge">{{ subscription.tier.display_name if subscription and subscription.tier else 'No Plan' }}</div>
                 </div>
+                {% set monthly_limit = subscription.tier.monthly_credits if subscription and subscription.tier else 0 %}
+                {% set used = subscription.credits_used_this_month if subscription else 0 %}
+                {% set pct = (used / monthly_limit * 100) if monthly_limit > 0 else 0 %}
                 <div class="usage-bar">
-                    <div class="usage-fill" style="width: {{ (user.credits_used / user.credits_limit * 100) if user.credits_limit else 0 }}%"></div>
+                    <div class="usage-fill" style="width: {{ pct | round(1) }}%"></div>
                 </div>
                 <div class="usage-stats">
-                    <span>{{ user.credits_used or 0 }} used this month</span>
-                    <span>{{ user.credits_limit or 'Unlimited' }} limit</span>
+                    <span>{{ used }} used this month</span>
+                    <span>{{ '{:,}'.format(monthly_limit) }} monthly limit</span>
                 </div>
             </div>
 
             <!-- Pricing Tiers -->
             <h2 class="section-title">Pricing Plans</h2>
             <div class="tiers-grid">
-                <!-- Free Tier -->
-                <div class="tier-card {% if user.tier == 'Free' %}current{% endif %}">
-                    <div class="tier-name">Free</div>
-                    <div class="tier-price">$0<small>/month</small></div>
-                    <div class="tier-credits">100 credits/month</div>
+                {% for tier in tiers %}
+                {% set is_current = subscription and subscription.tier_id == tier.id %}
+                <div class="tier-card {% if is_current %}current{% endif %}">
+                    <div class="tier-name">{{ tier.display_name }}</div>
+                    <div class="tier-price">${{ tier.monthly_price | int }}<small>/month</small></div>
+                    <div class="tier-credits">{{ '{:,}'.format(tier.monthly_credits) }} credits/month</div>
                     <ul class="tier-features">
-                        <li>Basic cloud operations</li>
-                        <li>1 cloud provider</li>
-                        <li>Community support</li>
-                        <li>Basic monitoring</li>
+                        {% for feature in (tier.features or []) %}
+                        <li>{{ feature }}</li>
+                        {% endfor %}
                     </ul>
-                    <button class="btn {% if user.tier == 'Free' %}btn-secondary{% else %}btn-primary{% endif %}"
-                            {% if user.tier == 'Free' %}disabled{% endif %}>
-                        {% if user.tier == 'Free' %}Current Plan{% else %}Downgrade{% endif %}
+                    {% if is_current %}
+                    <button class="btn btn-secondary" disabled>Current Plan</button>
+                    {% elif subscription and tier.monthly_price < subscription.tier.monthly_price %}
+                    <button class="btn btn-secondary" onclick="upgradeTier({{ tier.id }})">Downgrade</button>
+                    {% else %}
+                    <button class="btn btn-primary" onclick="upgradeTier({{ tier.id }})">
+                        {% if subscription %}Upgrade{% else %}Select Plan{% endif %}
                     </button>
+                    {% endif %}
                 </div>
-
-                <!-- Pro Tier -->
-                <div class="tier-card {% if user.tier == 'Pro' %}current{% endif %}">
-                    <div class="tier-name">Pro</div>
-                    <div class="tier-price">$29<small>/month</small></div>
-                    <div class="tier-credits">1,000 credits/month</div>
-                    <ul class="tier-features">
-                        <li>Advanced automation</li>
-                        <li>All cloud providers</li>
-                        <li>Priority support</li>
-                        <li>Advanced monitoring</li>
-                        <li>Team collaboration (5 members)</li>
-                    </ul>
-                    <button class="btn btn-primary"
-                            {% if user.tier == 'Pro' %}disabled{% endif %}>
-                        {% if user.tier == 'Pro' %}Current Plan{% else %}Upgrade to Pro{% endif %}
-                    </button>
-                </div>
-
-                <!-- Enterprise Tier -->
-                <div class="tier-card {% if user.tier == 'Enterprise' %}current{% endif %}">
-                    <div class="tier-name">Enterprise</div>
-                    <div class="tier-price">$99<small>/month</small></div>
-                    <div class="tier-credits">Unlimited credits</div>
-                    <ul class="tier-features">
-                        <li>Everything in Pro</li>
-                        <li>Unlimited automation</li>
-                        <li>24/7 dedicated support</li>
-                        <li>Custom integrations</li>
-                        <li>Unlimited team members</li>
-                        <li>SLA guarantee</li>
-                    </ul>
-                    <button class="btn btn-primary"
-                            {% if user.tier == 'Enterprise' %}disabled{% endif %}>
-                        {% if user.tier == 'Enterprise' %}Current Plan{% else %}Upgrade to Enterprise{% endif %}
-                    </button>
-                </div>
+                {% endfor %}
             </div>
 
             <!-- Credit Packs -->
@@ -713,38 +725,110 @@
                 <div class="pack-card">
                     <div class="pack-amount">100</div>
                     <div class="pack-label">Credits</div>
-                    <div class="pack-price">$9</div>
-                    <button class="btn btn-primary">Purchase</button>
+                    <div class="pack-price">$10</div>
+                    <button class="btn btn-primary" onclick="purchaseCredits(100)">Purchase</button>
                 </div>
 
                 <div class="pack-card popular">
                     <div class="popular-badge">Popular</div>
+                    <div class="pack-amount">250</div>
+                    <div class="pack-label">Credits</div>
+                    <div class="pack-price">$20</div>
+                    <button class="btn btn-primary" onclick="purchaseCredits(250)">Purchase</button>
+                </div>
+
+                <div class="pack-card">
                     <div class="pack-amount">500</div>
                     <div class="pack-label">Credits</div>
-                    <div class="pack-price">$39</div>
-                    <button class="btn btn-primary">Purchase</button>
+                    <div class="pack-price">$35</div>
+                    <button class="btn btn-primary" onclick="purchaseCredits(500)">Purchase</button>
                 </div>
 
                 <div class="pack-card">
                     <div class="pack-amount">1,000</div>
                     <div class="pack-label">Credits</div>
-                    <div class="pack-price">$69</div>
-                    <button class="btn btn-primary">Purchase</button>
-                </div>
-
-                <div class="pack-card">
-                    <div class="pack-amount">5,000</div>
-                    <div class="pack-label">Credits</div>
-                    <div class="pack-price">$299</div>
-                    <button class="btn btn-primary">Purchase</button>
+                    <div class="pack-price">$60</div>
+                    <button class="btn btn-primary" onclick="purchaseCredits(1000)">Purchase</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <div class="toast" id="toast"></div>
+
     <script>
-        // Add any interactive functionality here
-        console.log('Billing page loaded');
+        function showToast(message, type) {
+            var toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast ' + type + ' show';
+            setTimeout(function() {
+                toast.classList.remove('show');
+            }, 4000);
+        }
+
+        function setButtonLoading(btn, loading) {
+            if (loading) {
+                btn.dataset.originalText = btn.textContent;
+                btn.textContent = 'Processing...';
+                btn.classList.add('loading');
+                btn.disabled = true;
+            } else {
+                btn.textContent = btn.dataset.originalText || btn.textContent;
+                btn.classList.remove('loading');
+                btn.disabled = false;
+            }
+        }
+
+        function upgradeTier(tierId) {
+            var btn = event.currentTarget;
+            setButtonLoading(btn, true);
+
+            fetch('/api/subscription/upgrade', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({tier_id: tierId})
+            })
+            .then(function(res) { return res.json().then(function(data) { return {ok: res.ok, data: data}; }); })
+            .then(function(result) {
+                if (result.ok && result.data.success) {
+                    showToast(result.data.message, 'success');
+                    setTimeout(function() { location.reload(); }, 1200);
+                } else {
+                    showToast(result.data.error || 'Failed to change plan', 'error');
+                    setButtonLoading(btn, false);
+                }
+            })
+            .catch(function() {
+                showToast('Network error. Please try again.', 'error');
+                setButtonLoading(btn, false);
+            });
+        }
+
+        function purchaseCredits(packSize) {
+            var btn = event.currentTarget;
+            setButtonLoading(btn, true);
+
+            fetch('/api/credits/purchase', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({pack_size: packSize})
+            })
+            .then(function(res) { return res.json().then(function(data) { return {ok: res.ok, data: data}; }); })
+            .then(function(result) {
+                if (result.ok && result.data.success) {
+                    showToast(result.data.message, 'success');
+                    document.getElementById('credits-remaining').textContent = result.data.credits_remaining;
+                    setButtonLoading(btn, false);
+                } else {
+                    showToast(result.data.error || 'Purchase failed', 'error');
+                    setButtonLoading(btn, false);
+                }
+            })
+            .catch(function() {
+                showToast('Network error. Please try again.', 'error');
+                setButtonLoading(btn, false);
+            });
+        }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
