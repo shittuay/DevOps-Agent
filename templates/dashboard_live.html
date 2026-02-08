@@ -831,7 +831,7 @@
             <div class="dash-title-row">
                 <div>
                     <div class="dash-title">Infrastructure</div>
-                    <div class="dash-title-sub" id="lastSyncedText">Syncing data...</div>
+                    <div class="dash-title-sub" id="lastSyncedText">Syncing data... <span id="refreshBadge" style="margin-left:12px;font-size:0.7rem;color:var(--accent-primary);opacity:0.7;"></span></div>
                 </div>
             </div>
 
@@ -1328,6 +1328,45 @@
         }
 
         document.addEventListener('DOMContentLoaded', loadDashboard);
+
+        // Auto-refresh every 60 seconds
+        var refreshInterval = 60;
+        var refreshTimer = null;
+        var countdown = refreshInterval;
+
+        function startAutoRefresh() {
+            refreshTimer = setInterval(function() {
+                countdown--;
+                var badge = document.getElementById('refreshBadge');
+                if (badge) badge.textContent = 'Auto-refresh in ' + countdown + 's';
+                if (countdown <= 0) {
+                    countdown = refreshInterval;
+                    refreshDashboardQuiet();
+                }
+            }, 1000);
+        }
+
+        async function refreshDashboardQuiet() {
+            try {
+                var res = await fetch('/api/dashboard/summary');
+                var data = await res.json();
+                if (!data.error && data.total_resources > 0) {
+                    summaryData = data;
+                    renderStats(data);
+                    renderRecommendations(data.recommendations || []);
+                    renderResources(data.resources_by_cloud || {});
+                    loadCosts();
+                    var badge = document.getElementById('refreshBadge');
+                    if (badge) {
+                        badge.textContent = 'Updated just now';
+                        setTimeout(function() { badge.textContent = 'Auto-refresh in ' + refreshInterval + 's'; }, 2000);
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // Start auto-refresh after initial load
+        setTimeout(startAutoRefresh, 5000);
     })();
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>

@@ -205,6 +205,8 @@
         .settings-section:nth-child(3) { animation-delay: 0.2s; animation-fill-mode: both; }
         .settings-section:nth-child(4) { animation-delay: 0.3s; animation-fill-mode: both; }
         .settings-section:nth-child(5) { animation-delay: 0.4s; animation-fill-mode: both; }
+        .settings-section:nth-child(6) { animation-delay: 0.5s; animation-fill-mode: both; }
+        .settings-section:nth-child(7) { animation-delay: 0.6s; animation-fill-mode: both; }
 
         .section-header {
             display: flex;
@@ -865,15 +867,114 @@
                     <div id="gcpTestResult" class="test-result"></div>
                 </form>
             </div>
+
+            <!-- Notification Channels -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div>
+                        <h2>Notification Channels</h2>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Configure Slack or Teams webhooks for alerts</p>
+                    </div>
+                    <span id="notifStatusBadge" class="status-badge" style="background: var(--accent-warning); color: #000;">Not Configured</span>
+                </div>
+
+                <div id="notifChannelsList" style="margin-bottom: 20px;"></div>
+
+                <form id="notifForm" onsubmit="addNotifChannel(event)">
+                    <div class="form-group">
+                        <label for="notifType">Channel Type</label>
+                        <select id="notifType" class="form-control" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; width: 100%;">
+                            <option value="slack">Slack</option>
+                            <option value="teams">Microsoft Teams</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="notifName">Channel Name</label>
+                        <input type="text" id="notifName" class="form-control" placeholder="e.g. #devops-alerts" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="notifWebhook">Webhook URL</label>
+                        <input type="password" id="notifWebhook" class="form-control" placeholder="https://hooks.slack.com/services/..." required>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary);">
+                            <input type="checkbox" id="notifChanges" checked style="accent-color: var(--accent-primary);"> Change events
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary);">
+                            <input type="checkbox" id="notifSecurity" checked style="accent-color: var(--accent-primary);"> Security alerts
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary);">
+                            <input type="checkbox" id="notifCost" checked style="accent-color: var(--accent-primary);"> Cost alerts
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary);">
+                            <input type="checkbox" id="notifIncidents" checked style="accent-color: var(--accent-primary);"> Incidents
+                        </label>
+                    </div>
+
+                    <div id="notifSuccessMessage" class="success-message" style="display:none;"></div>
+                    <div id="notifErrorMessage" class="error-message" style="display:none;"></div>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn-primary">Add Channel</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Budget Alerts -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div>
+                        <h2>Budget Alerts</h2>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Get notified when spend exceeds thresholds</p>
+                    </div>
+                    <span id="budgetStatusBadge" class="status-badge" style="background: var(--accent-warning); color: #000;">No Alerts</span>
+                </div>
+
+                <div id="budgetAlertsList" style="margin-bottom: 20px;"></div>
+
+                <form id="budgetForm" onsubmit="addBudgetAlert(event)">
+                    <div class="form-group">
+                        <label for="budgetName">Alert Name</label>
+                        <input type="text" id="budgetName" class="form-control" placeholder="e.g. Monthly AWS Budget" required>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="form-group">
+                            <label for="budgetThreshold">Threshold ($)</label>
+                            <input type="number" id="budgetThreshold" class="form-control" placeholder="500" min="1" step="0.01" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="budgetPeriod">Period</label>
+                            <select id="budgetPeriod" class="form-control" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; width: 100%;">
+                                <option value="monthly">Monthly</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="daily">Daily</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="budgetSuccessMessage" class="success-message" style="display:none;"></div>
+                    <div id="budgetErrorMessage" class="error-message" style="display:none;"></div>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn-primary">Add Alert</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
     <script>
-        // Load current AWS configuration on page load
+        // Load current configuration on page load
         window.addEventListener('DOMContentLoaded', function() {
             loadCurrentConfig();
             loadCurrentAzureConfig();
             loadCurrentGcpConfig();
+            loadNotifChannels();
+            loadBudgetAlerts();
         });
 
         // AWS Functions
@@ -1126,6 +1227,171 @@
             setTimeout(() => {
                 element.style.display = 'none';
             }, 5000);
+        }
+
+        // Notification Channels
+        function loadNotifChannels() {
+            fetch('/api/notification-channels')
+                .then(r => r.json())
+                .then(data => {
+                    const list = document.getElementById('notifChannelsList');
+                    const badge = document.getElementById('notifStatusBadge');
+                    const channels = data.channels || [];
+
+                    if (channels.length === 0) {
+                        list.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem; padding: 10px 0;">No notification channels configured.</p>';
+                        badge.textContent = 'Not Configured';
+                        badge.style.background = 'var(--accent-warning)';
+                        return;
+                    }
+
+                    badge.textContent = channels.length + ' Channel' + (channels.length > 1 ? 's' : '');
+                    badge.style.background = 'var(--accent-success)';
+
+                    list.innerHTML = channels.map(ch => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 8px;">
+                            <div>
+                                <span style="font-weight: 500; color: var(--text-primary);">${ch.name}</span>
+                                <span style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; margin-left: 8px; background: ${ch.channel_type === 'slack' ? 'rgba(74,21,75,0.3)' : 'rgba(69,90,172,0.3)'}; color: var(--text-secondary);">${ch.channel_type}</span>
+                                ${ch.is_active ? '' : '<span style="font-size:0.75rem; color:var(--accent-warning); margin-left:8px;">paused</span>'}
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button onclick="testNotifChannel(${ch.id})" style="padding: 4px 10px; font-size: 0.75rem; border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary); border-radius: 4px; cursor: pointer;">Test</button>
+                                <button onclick="toggleNotifChannel(${ch.id}, ${!ch.is_active})" style="padding: 4px 10px; font-size: 0.75rem; border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary); border-radius: 4px; cursor: pointer;">${ch.is_active ? 'Pause' : 'Enable'}</button>
+                                <button onclick="deleteNotifChannel(${ch.id})" style="padding: 4px 10px; font-size: 0.75rem; border: 1px solid var(--accent-danger); background: transparent; color: var(--accent-danger); border-radius: 4px; cursor: pointer;">Remove</button>
+                            </div>
+                        </div>
+                    `).join('');
+                })
+                .catch(() => {});
+        }
+
+        function addNotifChannel(e) {
+            e.preventDefault();
+            fetch('/api/notification-channels', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    channel_type: document.getElementById('notifType').value,
+                    name: document.getElementById('notifName').value,
+                    webhook_url: document.getElementById('notifWebhook').value,
+                    notify_changes: document.getElementById('notifChanges').checked,
+                    notify_security: document.getElementById('notifSecurity').checked,
+                    notify_cost: document.getElementById('notifCost').checked,
+                    notify_incidents: document.getElementById('notifIncidents').checked,
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage('notifSuccessMessage', 'Channel added successfully');
+                    document.getElementById('notifForm').reset();
+                    loadNotifChannels();
+                } else {
+                    showMessage('notifErrorMessage', data.error || 'Failed to add channel');
+                }
+            })
+            .catch(err => showMessage('notifErrorMessage', 'Error: ' + err.message));
+        }
+
+        function testNotifChannel(id) {
+            fetch(`/api/notification-channels/${id}/test`, {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) showMessage('notifSuccessMessage', 'Test notification sent');
+                    else showMessage('notifErrorMessage', data.error || 'Test failed');
+                })
+                .catch(err => showMessage('notifErrorMessage', err.message));
+        }
+
+        function toggleNotifChannel(id, active) {
+            fetch(`/api/notification-channels/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({is_active: active})
+            }).then(() => loadNotifChannels());
+        }
+
+        function deleteNotifChannel(id) {
+            if (!confirm('Remove this notification channel?')) return;
+            fetch(`/api/notification-channels/${id}`, {method: 'DELETE'})
+                .then(() => loadNotifChannels());
+        }
+
+        // Budget Alerts
+        function loadBudgetAlerts() {
+            fetch('/api/budget-alerts')
+                .then(r => r.json())
+                .then(data => {
+                    const list = document.getElementById('budgetAlertsList');
+                    const badge = document.getElementById('budgetStatusBadge');
+                    const alerts = data.alerts || [];
+
+                    if (alerts.length === 0) {
+                        list.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem; padding: 10px 0;">No budget alerts configured.</p>';
+                        badge.textContent = 'No Alerts';
+                        badge.style.background = 'var(--accent-warning)';
+                        return;
+                    }
+
+                    badge.textContent = alerts.length + ' Alert' + (alerts.length > 1 ? 's' : '');
+                    badge.style.background = 'var(--accent-success)';
+
+                    list.innerHTML = alerts.map(a => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 8px;">
+                            <div>
+                                <span style="font-weight: 500; color: var(--text-primary);">${a.name}</span>
+                                <span style="font-size: 0.85rem; color: var(--accent-primary); margin-left: 10px; font-weight: 600;">$${a.threshold_amount.toFixed(2)}</span>
+                                <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 6px;">/ ${a.period}</span>
+                                ${a.is_active ? '' : '<span style="font-size:0.75rem; color:var(--accent-warning); margin-left:8px;">paused</span>'}
+                                ${a.last_checked_amount != null ? `<span style="font-size:0.75rem; color:var(--text-secondary); margin-left:10px;">Last: $${a.last_checked_amount.toFixed(2)}</span>` : ''}
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button onclick="toggleBudgetAlert(${a.id}, ${!a.is_active})" style="padding: 4px 10px; font-size: 0.75rem; border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary); border-radius: 4px; cursor: pointer;">${a.is_active ? 'Pause' : 'Enable'}</button>
+                                <button onclick="deleteBudgetAlert(${a.id})" style="padding: 4px 10px; font-size: 0.75rem; border: 1px solid var(--accent-danger); background: transparent; color: var(--accent-danger); border-radius: 4px; cursor: pointer;">Remove</button>
+                            </div>
+                        </div>
+                    `).join('');
+                })
+                .catch(() => {});
+        }
+
+        function addBudgetAlert(e) {
+            e.preventDefault();
+            fetch('/api/budget-alerts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: document.getElementById('budgetName').value,
+                    threshold_amount: parseFloat(document.getElementById('budgetThreshold').value),
+                    period: document.getElementById('budgetPeriod').value,
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage('budgetSuccessMessage', 'Budget alert created');
+                    document.getElementById('budgetForm').reset();
+                    loadBudgetAlerts();
+                } else {
+                    showMessage('budgetErrorMessage', data.error || 'Failed to create alert');
+                }
+            })
+            .catch(err => showMessage('budgetErrorMessage', 'Error: ' + err.message));
+        }
+
+        function toggleBudgetAlert(id, active) {
+            fetch(`/api/budget-alerts/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({is_active: active})
+            }).then(() => loadBudgetAlerts());
+        }
+
+        function deleteBudgetAlert(id) {
+            if (!confirm('Remove this budget alert?')) return;
+            fetch(`/api/budget-alerts/${id}`, {method: 'DELETE'})
+                .then(() => loadBudgetAlerts());
         }
 
         // Toggle password visibility on double-click
