@@ -1446,6 +1446,169 @@ def get_cloud_credentials_status():
     return jsonify(result)
 
 
+@app.route('/api/notification-channels', methods=['GET', 'POST'])
+@login_required
+def notification_channels():
+    """Manage user notification channels."""
+    from models import UserNotificationChannel
+
+    if request.method == 'GET':
+        channels = UserNotificationChannel.query.filter_by(user_id=current_user.id).all()
+        return jsonify({'channels': [c.to_dict() for c in channels]})
+
+    data = request.get_json()
+    channel_type = data.get('channel_type', 'slack')
+    name = data.get('name', '').strip()
+    webhook_url = data.get('webhook_url', '').strip()
+
+    if not name or not webhook_url:
+        return jsonify({'error': 'Name and webhook URL are required'}), 400
+
+    channel = UserNotificationChannel(
+        user_id=current_user.id,
+        channel_type=channel_type,
+        name=name,
+        webhook_url=webhook_url,
+        notify_changes=data.get('notify_changes', True),
+        notify_security=data.get('notify_security', True),
+        notify_cost=data.get('notify_cost', True),
+        notify_incidents=data.get('notify_incidents', True),
+    )
+    db.session.add(channel)
+    db.session.commit()
+
+    # Wire into the notification service
+    try:
+        from services.notification_service import get_notification_service
+        svc = get_notification_service()
+        if channel_type == 'slack':
+            svc.configure_slack(webhook_url=webhook_url)
+        elif channel_type == 'teams':
+            svc.configure_teams(webhook_url=webhook_url)
+    except Exception:
+        pass
+
+    return jsonify({'success': True, 'channel': channel.to_dict()}), 201
+
+
+@app.route('/api/notification-channels/<int:channel_id>', methods=['PUT', 'DELETE'])
+@login_required
+def manage_notification_channel(channel_id):
+    """Update or delete a notification channel."""
+    from models import UserNotificationChannel
+    channel = UserNotificationChannel.query.get_or_404(channel_id)
+    if channel.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if request.method == 'DELETE':
+        db.session.delete(channel)
+        db.session.commit()
+        return jsonify({'success': True})
+
+    data = request.get_json()
+    if 'is_active' in data:
+        channel.is_active = data['is_active']
+    if 'notify_changes' in data:
+        channel.notify_changes = data['notify_changes']
+    if 'notify_security' in data:
+        channel.notify_security = data['notify_security']
+    if 'notify_cost' in data:
+        channel.notify_cost = data['notify_cost']
+    if 'notify_incidents' in data:
+        channel.notify_incidents = data['notify_incidents']
+    if 'webhook_url' in data:
+        channel.webhook_url = data['webhook_url']
+
+    db.session.commit()
+    return jsonify({'success': True, 'channel': channel.to_dict()})
+
+
+@app.route('/api/notification-channels/<int:channel_id>/test', methods=['POST'])
+@login_required
+def test_notification_channel(channel_id):
+    """Send a test notification to a channel."""
+    from models import UserNotificationChannel
+    from services.notification_service import NotificationService, Notification, NotificationPriority
+
+    channel = UserNotificationChannel.query.get_or_404(channel_id)
+    if channel.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    try:
+        svc = NotificationService()
+        if channel.channel_type == 'slack':
+            svc.configure_slack(webhook_url=channel.webhook_url)
+        elif channel.channel_type == 'teams':
+            svc.configure_teams(webhook_url=channel.webhook_url)
+
+        notification = Notification(
+            title='Test Notification',
+            message='This is a test from DevOps Agent. If you see this, notifications are working.',
+            priority=NotificationPriority.NORMAL,
+            fields={'Source': 'DevOps Agent', 'Type': 'Test'}
+        )
+        results = svc.send(notification)
+        success = any(results.values())
+        return jsonify({'success': success, 'message': 'Test notification sent' if success else 'Failed to send'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/budget-alerts', methods=['GET', 'POST'])
+@login_required
+def budget_alerts():
+    """Manage budget alert thresholds."""
+    from models import BudgetAlert
+
+    if request.method == 'GET':
+        alerts = BudgetAlert.query.filter_by(user_id=current_user.id).all()
+        return jsonify({'alerts': [a.to_dict() for a in alerts]})
+
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    threshold = data.get('threshold_amount', 0)
+
+    if not name or threshold <= 0:
+        return jsonify({'error': 'Name and positive threshold amount are required'}), 400
+
+    alert = BudgetAlert(
+        user_id=current_user.id,
+        name=name,
+        threshold_amount=threshold,
+        period=data.get('period', 'monthly'),
+    )
+    db.session.add(alert)
+    db.session.commit()
+
+    return jsonify({'success': True, 'alert': alert.to_dict()}), 201
+
+
+@app.route('/api/budget-alerts/<int:alert_id>', methods=['PUT', 'DELETE'])
+@login_required
+def manage_budget_alert(alert_id):
+    """Update or delete a budget alert."""
+    from models import BudgetAlert
+    alert = BudgetAlert.query.get_or_404(alert_id)
+    if alert.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if request.method == 'DELETE':
+        db.session.delete(alert)
+        db.session.commit()
+        return jsonify({'success': True})
+
+    data = request.get_json()
+    if 'is_active' in data:
+        alert.is_active = data['is_active']
+    if 'threshold_amount' in data:
+        alert.threshold_amount = data['threshold_amount']
+    if 'name' in data:
+        alert.name = data['name']
+
+    db.session.commit()
+    return jsonify({'success': True, 'alert': alert.to_dict()})
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def api_chat():
@@ -1730,7 +1893,7 @@ def get_dashboard_summary():
 @app.route('/api/dashboard/costs', methods=['GET'])
 @login_required
 def get_cost_data():
-    """Get real cost data from AWS Cost Explorer."""
+    """Get cost data from AWS Cost Explorer, with DB fallback."""
     try:
         from services.cost_explorer import get_actual_costs, get_cost_forecast
         days = request.args.get('days', 30, type=int)
@@ -1738,8 +1901,21 @@ def get_cost_data():
         forecast = get_cost_forecast(current_user.id)
         costs['forecast'] = forecast
         return jsonify(costs)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        # Fallback: build cost data from synced resources
+        resources = InfrastructureResource.query.filter_by(user_id=current_user.id).all()
+        service_costs = {}
+        for r in resources:
+            svc = r.resource_type or 'other'
+            service_costs[svc] = service_costs.get(svc, 0) + (r.monthly_cost or 0)
+        total = sum(service_costs.values())
+        return jsonify({
+            'total_cost': round(total, 2),
+            'services': [{'service': k, 'cost': round(v, 2)} for k, v in sorted(service_costs.items(), key=lambda x: -x[1])],
+            'daily_trend': [],
+            'forecast': {'forecast_total': round(total * 1.05, 2)},
+            'source': 'database'
+        })
 
 
 @app.route('/api/dashboard/utilization/<int:resource_db_id>', methods=['GET'])

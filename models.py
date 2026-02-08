@@ -1875,3 +1875,71 @@ class ContactMessage(db.Model):
 
     def __repr__(self):
         return f'<ContactMessage {self.id} - {self.category}>'
+
+
+class UserNotificationChannel(db.Model):
+    """User-configured notification channels (Slack, Teams webhooks)"""
+    __tablename__ = 'user_notification_channels'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    channel_type = db.Column(db.String(20), nullable=False)  # slack, teams
+    name = db.Column(db.String(100), nullable=False)
+    webhook_url = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+
+    # What events to notify on
+    notify_changes = db.Column(db.Boolean, default=True)
+    notify_security = db.Column(db.Boolean, default=True)
+    notify_cost = db.Column(db.Boolean, default=True)
+    notify_incidents = db.Column(db.Boolean, default=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('notification_channels', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'channel_type': self.channel_type,
+            'name': self.name,
+            'webhook_url': self.webhook_url[:20] + '***' if self.webhook_url else None,
+            'is_active': self.is_active,
+            'notify_changes': self.notify_changes,
+            'notify_security': self.notify_security,
+            'notify_cost': self.notify_cost,
+            'notify_incidents': self.notify_incidents,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class BudgetAlert(db.Model):
+    """User-configured budget/cost alerts"""
+    __tablename__ = 'budget_alerts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    threshold_amount = db.Column(db.Float, nullable=False)
+    period = db.Column(db.String(20), default='monthly')  # monthly, weekly, daily
+    is_active = db.Column(db.Boolean, default=True)
+    last_triggered = db.Column(db.DateTime)
+    last_checked_amount = db.Column(db.Float)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('budget_alerts', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'threshold_amount': self.threshold_amount,
+            'period': self.period,
+            'is_active': self.is_active,
+            'last_triggered': self.last_triggered.isoformat() if self.last_triggered else None,
+            'last_checked_amount': self.last_checked_amount,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
