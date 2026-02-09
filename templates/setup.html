@@ -3,125 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setup - DevOps Automation Agent</title>
+    <title>Setup - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
+
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: var(--gradient-mesh);
+            pointer-events: none;
         }
 
         .setup-container {
-            background: white;
+            position: relative;
+            z-index: 1;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
             border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             padding: 50px;
-            max-width: 600px;
+            max-width: 560px;
             width: 100%;
+            box-shadow: var(--glass-shadow);
         }
 
         .logo {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 36px;
         }
 
         .logo h1 {
-            color: #667eea;
-            font-size: 32px;
-            margin-bottom: 10px;
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
         }
 
         .logo p {
-            color: #666;
-            font-size: 16px;
-        }
-
-        .setup-content {
-            margin-bottom: 30px;
+            color: var(--text-tertiary);
+            font-size: 14px;
         }
 
         .setup-content h2 {
-            color: #333;
-            font-size: 24px;
-            margin-bottom: 15px;
+            font-family: 'Syne', sans-serif;
+            color: var(--text-primary);
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 12px;
         }
 
         .setup-content p {
-            color: #666;
+            color: var(--text-secondary);
             line-height: 1.6;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
+            font-size: 14px;
         }
 
         .info-box {
-            background: #f0f4ff;
-            border-left: 4px solid #667eea;
-            padding: 15px;
+            background: rgba(255, 107, 53, 0.08);
+            border-left: 3px solid var(--accent-primary);
+            padding: 16px;
             margin: 20px 0;
-            border-radius: 4px;
+            border-radius: 0 8px 8px 0;
         }
 
         .info-box h3 {
-            color: #667eea;
-            font-size: 16px;
-            margin-bottom: 10px;
-        }
-
-        .info-box ol {
-            margin-left: 20px;
-            color: #666;
-        }
-
-        .info-box li {
-            margin: 5px 0;
-        }
-
-        .info-box a {
-            color: #667eea;
-            text-decoration: none;
-        }
-
-        .info-box a:hover {
-            text-decoration: underline;
-        }
-
-        .form-group {
-            margin-bottom: 25px;
-        }
-
-        .form-group label {
-            display: block;
-            color: #333;
+            color: var(--accent-primary);
+            font-size: 14px;
             font-weight: 600;
             margin-bottom: 10px;
         }
 
+        .info-box ol {
+            margin-left: 18px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .info-box li { margin: 4px 0; }
+
+        .info-box a {
+            color: var(--accent-primary);
+            text-decoration: none;
+        }
+
+        .info-box a:hover { text-decoration: underline; }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-group label {
+            display: block;
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
         .form-group input {
             width: 100%;
-            padding: 15px;
-            border: 2px solid #e0e0e0;
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-medium);
             border-radius: 10px;
-            font-size: 15px;
-            font-family: monospace;
+            font-size: 14px;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--text-primary);
             transition: border-color 0.2s;
         }
 
         .form-group input:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: var(--accent-primary);
         }
 
         .form-group input::placeholder {
-            color: #999;
+            color: var(--text-muted);
+        }
+
+        .key-format {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 6px;
         }
 
         .button-group {
@@ -131,23 +179,24 @@
 
         button {
             flex: 1;
-            padding: 15px 30px;
+            padding: 14px 28px;
             border: none;
             border-radius: 10px;
-            font-size: 16px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--gradient-primary);
             color: white;
         }
 
         .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(255, 107, 53, 0.4);
         }
 
         .btn-primary:disabled {
@@ -156,22 +205,24 @@
         }
 
         .error-message {
-            background: #fee;
-            color: #c33;
-            padding: 15px;
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--accent-danger);
+            padding: 12px 16px;
             border-radius: 8px;
-            margin: 15px 0;
-            border-left: 4px solid #c33;
+            margin: 12px 0;
+            border-left: 3px solid var(--accent-danger);
+            font-size: 13px;
             display: none;
         }
 
         .success-message {
-            background: #efe;
-            color: #3a3;
-            padding: 15px;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent-success);
+            padding: 12px 16px;
             border-radius: 8px;
-            margin: 15px 0;
-            border-left: 4px solid #3a3;
+            margin: 12px 0;
+            border-left: 3px solid var(--accent-success);
+            font-size: 13px;
             display: none;
         }
 
@@ -185,21 +236,26 @@
             animation: spin 0.8s linear infinite;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .footer-hint {
+            margin-top: 28px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-subtle);
+            text-align: center;
         }
 
-        .key-format {
-            font-size: 13px;
-            color: #999;
-            margin-top: 5px;
+        .footer-hint p {
+            color: var(--text-tertiary);
+            font-size: 12px;
+            line-height: 1.6;
         }
     </style>
 </head>
 <body>
     <div class="setup-container">
         <div class="logo">
-            <h1>DevOps Automation Agent</h1>
+            <h1>DevOps Agent</h1>
             <p>Powered by Claude AI</p>
         </div>
 
@@ -243,14 +299,16 @@
             </div>
         </form>
 
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-            <p style="color: #999; font-size: 13px; text-align: center;">
+        <div class="footer-hint">
+            <p>
                 Your API key is stored securely in config/.env and never shared.<br>
                 You can change it anytime by editing the file directly.
             </p>
         </div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
     <script>
         async function submitApiKey(event) {
             event.preventDefault();
@@ -260,26 +318,21 @@
             const errorMsg = document.getElementById('errorMessage');
             const successMsg = document.getElementById('successMessage');
 
-            // Hide previous messages
             errorMsg.style.display = 'none';
             successMsg.style.display = 'none';
 
-            // Basic validation
             if (!apiKey.startsWith('sk-ant-')) {
                 showError('Invalid API key format. Anthropic keys start with "sk-ant-"');
                 return;
             }
 
-            // Disable button and show loading
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="spinner"></span> Configuring...';
 
             try {
                 const response = await fetch('/setup', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ api_key: apiKey })
                 });
 
@@ -287,9 +340,8 @@
 
                 if (response.ok) {
                     showSuccess('API key configured successfully! Redirecting...');
-                    setTimeout(() => {
-                        window.location.href = '/';
-                    }, 1500);
+                    showToast('API key configured successfully!', 'success');
+                    setTimeout(() => { window.location.href = '/'; }, 1500);
                 } else {
                     showError(data.error || 'Failed to configure API key');
                     submitBtn.disabled = false;
@@ -314,7 +366,6 @@
             successMsg.style.display = 'block';
         }
 
-        // Toggle password visibility
         document.getElementById('apiKey').addEventListener('dblclick', function() {
             this.type = this.type === 'password' ? 'text' : 'password';
         });

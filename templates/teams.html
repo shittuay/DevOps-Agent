@@ -567,6 +567,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
 <body class="animated-bg">
     <div class="page-container page-content">
@@ -677,12 +678,12 @@
     <script>
         function showAddMemberModal() {
             // Add member modal implementation
-            alert('Add Member feature - Coming soon!');
+            showToast('Add Member feature coming soon!', 'info');
         }
 
         function changeRole(memberId) {
             // Change role implementation
-            alert('Change role for member: ' + memberId);
+            showToast('Role change feature coming soon!', 'info');
         }
 
         function removeMember(memberId, memberName) {
@@ -693,5 +694,6 @@
         }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
 </body>
 </html>

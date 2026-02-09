@@ -399,6 +399,117 @@ def get_eks_clusters(region: Optional[str] = None) -> Dict[str, Any]:
         }
 
 
+def create_eks_cluster(
+    cluster_name: str,
+    role_arn: str,
+    subnet_ids: List[str],
+    security_group_ids: Optional[List[str]] = None,
+    kubernetes_version: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an EKS (Kubernetes) cluster."""
+    try:
+        eks = _get_boto_client('eks', region)
+        vpc_config = {'subnetIds': subnet_ids}
+        if security_group_ids:
+            vpc_config['securityGroupIds'] = security_group_ids
+
+        params = {
+            'name': cluster_name,
+            'roleArn': role_arn,
+            'resourcesVpcConfig': vpc_config,
+        }
+        if kubernetes_version:
+            params['version'] = kubernetes_version
+        if tags:
+            params['tags'] = tags
+
+        response = eks.create_cluster(**params)
+        cluster = response['cluster']
+        return {
+            'success': True, 'cluster_name': cluster['name'],
+            'arn': cluster['arn'], 'status': cluster['status'],
+            'kubernetes_version': cluster.get('version'),
+            'endpoint': cluster.get('endpoint', 'Provisioning...'),
+            'message': f'Successfully initiated EKS cluster creation: {cluster_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating EKS cluster: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_eks_cluster(cluster_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an EKS cluster. Node groups must be deleted first."""
+    try:
+        eks = _get_boto_client('eks', region)
+        eks.delete_cluster(name=cluster_name)
+        return {
+            'success': True, 'cluster_name': cluster_name,
+            'message': f'Successfully initiated deletion of EKS cluster {cluster_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting EKS cluster: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_eks_node_group(
+    cluster_name: str,
+    node_group_name: str,
+    node_role_arn: str,
+    subnet_ids: List[str],
+    instance_types: Optional[List[str]] = None,
+    scaling_config_min: int = 1,
+    scaling_config_max: int = 3,
+    scaling_config_desired: int = 2,
+    disk_size: int = 20,
+    ami_type: str = 'AL2_x86_64',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an EKS managed node group."""
+    try:
+        eks = _get_boto_client('eks', region)
+        params = {
+            'clusterName': cluster_name,
+            'nodegroupName': node_group_name,
+            'nodeRole': node_role_arn,
+            'subnets': subnet_ids,
+            'scalingConfig': {
+                'minSize': scaling_config_min,
+                'maxSize': scaling_config_max,
+                'desiredSize': scaling_config_desired,
+            },
+            'diskSize': disk_size,
+            'amiType': ami_type,
+        }
+        if instance_types:
+            params['instanceTypes'] = instance_types
+
+        response = eks.create_nodegroup(**params)
+        ng = response['nodegroup']
+        return {
+            'success': True, 'node_group_name': ng['nodegroupName'],
+            'cluster_name': ng['clusterName'], 'status': ng['status'],
+            'scaling': ng.get('scalingConfig'),
+            'message': f'Successfully initiated node group creation: {node_group_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating EKS node group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def get_cloudwatch_logs(
     log_group: str,
     log_stream: Optional[str] = None,
@@ -486,6 +597,56 @@ def get_cloudwatch_logs(
         }
 
 
+def create_cloudwatch_alarm(
+    alarm_name: str,
+    metric_name: str,
+    namespace: str,
+    statistic: str = 'Average',
+    period: int = 300,
+    evaluation_periods: int = 1,
+    threshold: float = 80.0,
+    comparison_operator: str = 'GreaterThanThreshold',
+    dimensions: Optional[List[Dict[str, str]]] = None,
+    alarm_actions: Optional[List[str]] = None,
+    description: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a CloudWatch metric alarm."""
+    try:
+        cw = _get_boto_client('cloudwatch', region)
+        params = {
+            'AlarmName': alarm_name,
+            'MetricName': metric_name,
+            'Namespace': namespace,
+            'Statistic': statistic,
+            'Period': period,
+            'EvaluationPeriods': evaluation_periods,
+            'Threshold': threshold,
+            'ComparisonOperator': comparison_operator,
+        }
+        if dimensions:
+            params['Dimensions'] = [{'Name': d['name'], 'Value': d['value']} for d in dimensions]
+        if alarm_actions:
+            params['AlarmActions'] = alarm_actions
+        if description:
+            params['AlarmDescription'] = description
+
+        cw.put_metric_alarm(**params)
+        return {
+            'success': True, 'alarm_name': alarm_name, 'metric_name': metric_name,
+            'namespace': namespace, 'threshold': threshold,
+            'comparison_operator': comparison_operator,
+            'message': f'Successfully created CloudWatch alarm {alarm_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating CloudWatch alarm: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def list_iam_users() -> Dict[str, Any]:
     """
     List IAM users.
@@ -567,6 +728,118 @@ def list_iam_roles() -> Dict[str, Any]:
             'success': False,
             'error': str(e)
         }
+
+
+def create_iam_role(
+    role_name: str,
+    assume_role_policy: str,
+    description: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Create an IAM role with a trust policy."""
+    try:
+        iam = _get_boto_client('iam')
+        params = {'RoleName': role_name, 'AssumeRolePolicyDocument': assume_role_policy}
+        if description:
+            params['Description'] = description
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = iam.create_role(**params)
+        role = response['Role']
+        return {
+            'success': True, 'role_name': role['RoleName'], 'arn': role['Arn'],
+            'role_id': role['RoleId'], 'create_date': role['CreateDate'].isoformat(),
+            'message': f'Successfully created IAM role {role_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating IAM role: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_iam_policy(
+    policy_name: str,
+    policy_document: str,
+    description: Optional[str] = None,
+    path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an IAM policy."""
+    try:
+        iam = _get_boto_client('iam')
+        params = {'PolicyName': policy_name, 'PolicyDocument': policy_document}
+        if description:
+            params['Description'] = description
+        if path:
+            params['Path'] = path
+
+        response = iam.create_policy(**params)
+        policy = response['Policy']
+        return {
+            'success': True, 'policy_name': policy['PolicyName'], 'arn': policy['Arn'],
+            'policy_id': policy['PolicyId'], 'create_date': policy['CreateDate'].isoformat(),
+            'message': f'Successfully created IAM policy {policy_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating IAM policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def attach_iam_role_policy(role_name: str, policy_arn: str) -> Dict[str, Any]:
+    """Attach a managed policy to an IAM role."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.attach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+        return {
+            'success': True, 'role_name': role_name, 'policy_arn': policy_arn,
+            'message': f'Successfully attached policy {policy_arn} to role {role_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error attaching policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_iam_role(role_name: str) -> Dict[str, Any]:
+    """Delete an IAM role. Detaches all managed policies and deletes inline policies first."""
+    try:
+        iam = _get_boto_client('iam')
+
+        # Detach all managed policies
+        attached = iam.list_attached_role_policies(RoleName=role_name)
+        for policy in attached.get('AttachedPolicies', []):
+            iam.detach_role_policy(RoleName=role_name, PolicyArn=policy['PolicyArn'])
+
+        # Delete all inline policies
+        inline = iam.list_role_policies(RoleName=role_name)
+        for policy_name in inline.get('PolicyNames', []):
+            iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+
+        # Remove role from instance profiles
+        profiles = iam.list_instance_profiles_for_role(RoleName=role_name)
+        for profile in profiles.get('InstanceProfiles', []):
+            iam.remove_role_from_instance_profile(
+                InstanceProfileName=profile['InstanceProfileName'], RoleName=role_name
+            )
+
+        iam.delete_role(RoleName=role_name)
+        return {
+            'success': True, 'role_name': role_name,
+            'message': f'Successfully deleted IAM role: {role_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting IAM role: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
 
 
 # ============================================================================
@@ -876,6 +1149,115 @@ def create_ec2_instance(
         }
 
 
+def create_spot_instance(
+    ami_id: str,
+    instance_type: str,
+    spot_price: Optional[str] = None,
+    spot_type: str = 'one-time',
+    key_name: Optional[str] = None,
+    security_group_ids: Optional[List[str]] = None,
+    subnet_id: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
+    user_data: Optional[str] = None,
+    region: Optional[str] = None,
+    count: int = 1
+) -> Dict[str, Any]:
+    """
+    Create EC2 spot instance(s) for cost-effective compute.
+
+    Args:
+        ami_id: AMI ID to use
+        instance_type: Instance type (e.g., t3.medium, m5.large)
+        spot_price: Maximum hourly price in USD (e.g., '0.05'). If not set, uses on-demand price as max.
+        spot_type: Spot request type - 'one-time' or 'persistent'
+        key_name: SSH key pair name
+        security_group_ids: List of security group IDs
+        subnet_id: Subnet ID for VPC placement
+        tags: Dictionary of tags to apply
+        user_data: User data script to run on launch
+        region: AWS region
+        count: Number of instances (1-10)
+
+    Returns:
+        Dictionary with created spot instance information
+    """
+    try:
+        if count < 1 or count > 10:
+            return {'success': False, 'error': 'Count must be between 1 and 10'}
+
+        logger.info(f"Creating {count} spot instance(s) of type {instance_type}")
+        ec2 = _get_boto_client('ec2', region)
+
+        launch_params = {
+            'ImageId': ami_id,
+            'InstanceType': instance_type,
+            'MinCount': count,
+            'MaxCount': count,
+            'InstanceMarketOptions': {
+                'MarketType': 'spot',
+                'SpotOptions': {
+                    'SpotInstanceType': spot_type,
+                    'InstanceInterruptionBehavior': 'terminate'
+                }
+            }
+        }
+
+        if spot_price:
+            launch_params['InstanceMarketOptions']['SpotOptions']['MaxPrice'] = spot_price
+
+        if key_name:
+            launch_params['KeyName'] = key_name
+        if security_group_ids:
+            launch_params['SecurityGroupIds'] = security_group_ids
+        if subnet_id:
+            launch_params['SubnetId'] = subnet_id
+        if user_data:
+            launch_params['UserData'] = user_data
+
+        response = ec2.run_instances(**launch_params)
+        instances = response['Instances']
+        instance_ids = [inst['InstanceId'] for inst in instances]
+
+        if tags and instance_ids:
+            tag_specs = [{'Key': k, 'Value': v} for k, v in tags.items()]
+            ec2.create_tags(Resources=instance_ids, Tags=tag_specs)
+
+        import time
+        time.sleep(2)
+
+        detailed = ec2.describe_instances(InstanceIds=instance_ids)
+        details = []
+        for res in detailed['Reservations']:
+            for inst in res['Instances']:
+                details.append({
+                    'instance_id': inst['InstanceId'],
+                    'instance_type': inst['InstanceType'],
+                    'state': inst['State']['Name'],
+                    'spot_instance_request_id': inst.get('SpotInstanceRequestId', 'N/A'),
+                    'availability_zone': inst['Placement']['AvailabilityZone'],
+                    'private_ip': inst.get('PrivateIpAddress', 'Pending'),
+                    'public_ip': inst.get('PublicIpAddress', 'None'),
+                    'launch_time': inst['LaunchTime'].isoformat(),
+                    'instance_lifecycle': inst.get('InstanceLifecycle', 'spot'),
+                })
+
+        return {
+            'success': True,
+            'count': len(instances),
+            'instance_ids': instance_ids,
+            'instances': details,
+            'message': f'Successfully created {len(instances)} spot instance(s): {", ".join(instance_ids)}',
+            'region': region or ec2.meta.region_name
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating spot instance: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def create_s3_bucket(
     bucket_name: str,
     region: Optional[str] = None,
@@ -1056,6 +1438,38 @@ def create_rds_instance(
         }
 
 
+def delete_rds_instance(
+    db_instance_identifier: str,
+    skip_final_snapshot: bool = False,
+    final_snapshot_identifier: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete an RDS database instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        params = {
+            'DBInstanceIdentifier': db_instance_identifier,
+            'SkipFinalSnapshot': skip_final_snapshot,
+        }
+        if not skip_final_snapshot:
+            params['FinalDBSnapshotIdentifier'] = final_snapshot_identifier or f'{db_instance_identifier}-final-snapshot'
+
+        response = rds.delete_db_instance(**params)
+        db = response['DBInstance']
+        return {
+            'success': True, 'db_instance_identifier': db['DBInstanceIdentifier'],
+            'status': db['DBInstanceStatus'],
+            'message': f'Successfully initiated deletion of RDS instance {db_instance_identifier}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting RDS instance: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def create_security_group(
     group_name: str,
     description: str,
@@ -1126,6 +1540,144 @@ def create_security_group(
             'success': False,
             'error': str(e)
         }
+
+
+def authorize_security_group_ingress(
+    group_id: str,
+    protocol: str = 'tcp',
+    from_port: int = 80,
+    to_port: Optional[int] = None,
+    cidr: Optional[str] = None,
+    source_security_group_id: Optional[str] = None,
+    description: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Add an ingress rule to an existing security group.
+    Supports CIDR-based rules OR source-security-group-based rules.
+
+    Args:
+        group_id: Security group ID to add the rule to
+        protocol: Protocol (tcp, udp, icmp, -1 for all)
+        from_port: Start of port range
+        to_port: End of port range (defaults to from_port for single port)
+        cidr: CIDR block (e.g., '10.0.0.0/16'). Mutually exclusive with source_security_group_id.
+        source_security_group_id: Source security group ID to allow traffic from. Use this instead of CIDR for SG-to-SG rules.
+        description: Rule description
+        region: AWS region
+
+    Returns:
+        Dictionary with rule details
+    """
+    try:
+        if not cidr and not source_security_group_id:
+            return {
+                'success': False,
+                'error': 'Must specify either cidr or source_security_group_id'
+            }
+
+        ec2 = _get_boto_client('ec2', region)
+        if to_port is None:
+            to_port = from_port
+
+        ip_permission = {
+            'IpProtocol': protocol,
+            'FromPort': from_port,
+            'ToPort': to_port,
+        }
+
+        if source_security_group_id:
+            sg_ref = {'GroupId': source_security_group_id}
+            if description:
+                sg_ref['Description'] = description
+            ip_permission['UserIdGroupPairs'] = [sg_ref]
+        else:
+            ip_range = {'CidrIp': cidr}
+            if description:
+                ip_range['Description'] = description
+            ip_permission['IpRanges'] = [ip_range]
+
+        ec2.authorize_security_group_ingress(
+            GroupId=group_id,
+            IpPermissions=[ip_permission]
+        )
+
+        source = source_security_group_id if source_security_group_id else cidr
+        return {
+            'success': True,
+            'group_id': group_id,
+            'protocol': protocol,
+            'from_port': from_port,
+            'to_port': to_port,
+            'source': source,
+            'source_type': 'security_group' if source_security_group_id else 'cidr',
+            'message': f'Successfully added ingress rule to {group_id}: {protocol} {from_port}-{to_port} from {source}',
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error authorizing security group ingress: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def revoke_security_group_ingress(
+    group_id: str,
+    protocol: str = 'tcp',
+    from_port: int = 80,
+    to_port: Optional[int] = None,
+    cidr: Optional[str] = None,
+    source_security_group_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Remove an ingress rule from a security group."""
+    try:
+        if not cidr and not source_security_group_id:
+            return {'success': False, 'error': 'Must specify either cidr or source_security_group_id'}
+
+        ec2 = _get_boto_client('ec2', region)
+        if to_port is None:
+            to_port = from_port
+
+        ip_permission = {'IpProtocol': protocol, 'FromPort': from_port, 'ToPort': to_port}
+        if source_security_group_id:
+            ip_permission['UserIdGroupPairs'] = [{'GroupId': source_security_group_id}]
+        else:
+            ip_permission['IpRanges'] = [{'CidrIp': cidr}]
+
+        ec2.revoke_security_group_ingress(GroupId=group_id, IpPermissions=[ip_permission])
+        source = source_security_group_id or cidr
+        return {
+            'success': True, 'group_id': group_id,
+            'message': f'Successfully revoked ingress rule from {group_id}: {protocol} {from_port}-{to_port} from {source}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error revoking SG ingress: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_security_group(group_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a security group."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_security_group(GroupId=group_id)
+        return {
+            'success': True, 'group_id': group_id,
+            'message': f'Successfully deleted security group {group_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting security group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
 
 
 def create_lambda_function(
@@ -1211,6 +1763,67 @@ def create_lambda_function(
             'success': False,
             'error': str(e)
         }
+
+
+def delete_lambda_function(function_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a Lambda function."""
+    try:
+        lam = _get_boto_client('lambda', region)
+        lam.delete_function(FunctionName=function_name)
+        return {
+            'success': True, 'function_name': function_name,
+            'message': f'Successfully deleted Lambda function {function_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting Lambda function: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def update_lambda_function_config(
+    function_name: str,
+    timeout: Optional[int] = None,
+    memory_size: Optional[int] = None,
+    environment_variables: Optional[Dict[str, str]] = None,
+    description: Optional[str] = None,
+    runtime: Optional[str] = None,
+    handler: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update a Lambda function's configuration (timeout, memory, env vars, etc.)."""
+    try:
+        lam = _get_boto_client('lambda', region)
+        params = {'FunctionName': function_name}
+        if timeout is not None:
+            params['Timeout'] = timeout
+        if memory_size is not None:
+            params['MemorySize'] = memory_size
+        if environment_variables is not None:
+            params['Environment'] = {'Variables': environment_variables}
+        if description is not None:
+            params['Description'] = description
+        if runtime is not None:
+            params['Runtime'] = runtime
+        if handler is not None:
+            params['Handler'] = handler
+
+        response = lam.update_function_configuration(**params)
+        return {
+            'success': True, 'function_name': response['FunctionName'],
+            'runtime': response.get('Runtime'), 'timeout': response.get('Timeout'),
+            'memory_size': response.get('MemorySize'), 'state': response.get('State'),
+            'message': f'Successfully updated Lambda function config for {function_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error updating Lambda config: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
 
 
 def delete_ec2_instance(
@@ -1392,6 +2005,247 @@ def list_subnets(vpc_id: Optional[str] = None, region: Optional[str] = None) -> 
         return {'success': False, 'error': str(e)}
 
 
+def create_vpc(
+    cidr_block: str,
+    name: Optional[str] = None,
+    enable_dns_support: bool = True,
+    enable_dns_hostnames: bool = True,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a VPC with DNS support enabled."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.create_vpc(CidrBlock=cidr_block)
+        vpc_id = response['Vpc']['VpcId']
+
+        if enable_dns_support:
+            ec2.modify_vpc_attribute(VpcId=vpc_id, EnableDnsSupport={'Value': True})
+        if enable_dns_hostnames:
+            ec2.modify_vpc_attribute(VpcId=vpc_id, EnableDnsHostnames={'Value': True})
+        if name:
+            ec2.create_tags(Resources=[vpc_id], Tags=[{'Key': 'Name', 'Value': name}])
+
+        return {
+            'success': True, 'vpc_id': vpc_id, 'cidr_block': cidr_block,
+            'name': name or 'N/A', 'dns_support': enable_dns_support,
+            'dns_hostnames': enable_dns_hostnames,
+            'message': f'Successfully created VPC {vpc_id} ({cidr_block})',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating VPC: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_vpc(vpc_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a VPC. All dependent resources must be deleted first."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_vpc(VpcId=vpc_id)
+        return {
+            'success': True, 'vpc_id': vpc_id,
+            'message': f'Successfully deleted VPC {vpc_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting VPC: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_subnet(
+    vpc_id: str,
+    cidr_block: str,
+    availability_zone: Optional[str] = None,
+    name: Optional[str] = None,
+    map_public_ip: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a subnet in a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params = {'VpcId': vpc_id, 'CidrBlock': cidr_block}
+        if availability_zone:
+            params['AvailabilityZone'] = availability_zone
+
+        response = ec2.create_subnet(**params)
+        subnet_id = response['Subnet']['SubnetId']
+
+        if map_public_ip:
+            ec2.modify_subnet_attribute(SubnetId=subnet_id, MapPublicIpOnLaunch={'Value': True})
+        if name:
+            ec2.create_tags(Resources=[subnet_id], Tags=[{'Key': 'Name', 'Value': name}])
+
+        return {
+            'success': True, 'subnet_id': subnet_id, 'vpc_id': vpc_id,
+            'cidr_block': cidr_block,
+            'availability_zone': response['Subnet'].get('AvailabilityZone'),
+            'map_public_ip': map_public_ip,
+            'message': f'Successfully created subnet {subnet_id} in {vpc_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating subnet: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_subnet(subnet_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a subnet."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_subnet(SubnetId=subnet_id)
+        return {
+            'success': True, 'subnet_id': subnet_id,
+            'message': f'Successfully deleted subnet: {subnet_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting subnet: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_internet_gateway(
+    vpc_id: str,
+    name: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an internet gateway and attach it to a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.create_internet_gateway()
+        igw_id = response['InternetGateway']['InternetGatewayId']
+
+        ec2.attach_internet_gateway(InternetGatewayId=igw_id, VpcId=vpc_id)
+
+        if name:
+            ec2.create_tags(Resources=[igw_id], Tags=[{'Key': 'Name', 'Value': name}])
+
+        return {
+            'success': True, 'internet_gateway_id': igw_id, 'vpc_id': vpc_id,
+            'message': f'Successfully created and attached internet gateway {igw_id} to {vpc_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating internet gateway: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_route_table(
+    vpc_id: str,
+    name: Optional[str] = None,
+    routes: Optional[List[Dict[str, str]]] = None,
+    subnet_ids: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a route table, add routes, and associate with subnets."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.create_route_table(VpcId=vpc_id)
+        rtb_id = response['RouteTable']['RouteTableId']
+
+        if name:
+            ec2.create_tags(Resources=[rtb_id], Tags=[{'Key': 'Name', 'Value': name}])
+
+        routes_added = 0
+        if routes:
+            for route in routes:
+                route_params = {'RouteTableId': rtb_id, 'DestinationCidrBlock': route['cidr']}
+                if 'gateway_id' in route:
+                    route_params['GatewayId'] = route['gateway_id']
+                elif 'nat_gateway_id' in route:
+                    route_params['NatGatewayId'] = route['nat_gateway_id']
+                elif 'instance_id' in route:
+                    route_params['InstanceId'] = route['instance_id']
+                ec2.create_route(**route_params)
+                routes_added += 1
+
+        associations = []
+        if subnet_ids:
+            for subnet_id in subnet_ids:
+                assoc = ec2.associate_route_table(RouteTableId=rtb_id, SubnetId=subnet_id)
+                associations.append(assoc['AssociationId'])
+
+        return {
+            'success': True, 'route_table_id': rtb_id, 'vpc_id': vpc_id,
+            'routes_added': routes_added, 'subnet_associations': associations,
+            'message': f'Successfully created route table {rtb_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating route table: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def allocate_elastic_ip(
+    instance_id: Optional[str] = None,
+    name: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Allocate an Elastic IP and optionally associate with an instance."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.allocate_address(Domain='vpc')
+        allocation_id = response['AllocationId']
+        public_ip = response['PublicIp']
+
+        if name:
+            ec2.create_tags(Resources=[allocation_id], Tags=[{'Key': 'Name', 'Value': name}])
+
+        association_id = None
+        if instance_id:
+            assoc = ec2.associate_address(AllocationId=allocation_id, InstanceId=instance_id)
+            association_id = assoc['AssociationId']
+
+        return {
+            'success': True, 'allocation_id': allocation_id, 'public_ip': public_ip,
+            'association_id': association_id, 'instance_id': instance_id,
+            'message': f'Successfully allocated Elastic IP {public_ip}' +
+                       (f' and associated with {instance_id}' if instance_id else ''),
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error allocating Elastic IP: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def release_elastic_ip(allocation_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Release an Elastic IP address."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.release_address(AllocationId=allocation_id)
+        return {
+            'success': True, 'allocation_id': allocation_id,
+            'message': f'Successfully released Elastic IP {allocation_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error releasing Elastic IP: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def list_security_groups(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
     """
     List security groups, optionally filtered by VPC.
@@ -1493,6 +2347,77 @@ def list_dynamodb_tables(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_dynamodb_table(
+    table_name: str,
+    partition_key: str,
+    partition_key_type: str = 'S',
+    sort_key: Optional[str] = None,
+    sort_key_type: str = 'S',
+    billing_mode: str = 'PAY_PER_REQUEST',
+    read_capacity: int = 5,
+    write_capacity: int = 5,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a DynamoDB table."""
+    try:
+        dynamodb = _get_boto_client('dynamodb', region)
+
+        key_schema = [{'AttributeName': partition_key, 'KeyType': 'HASH'}]
+        attr_defs = [{'AttributeName': partition_key, 'AttributeType': partition_key_type}]
+        if sort_key:
+            key_schema.append({'AttributeName': sort_key, 'KeyType': 'RANGE'})
+            attr_defs.append({'AttributeName': sort_key, 'AttributeType': sort_key_type})
+
+        params = {
+            'TableName': table_name,
+            'KeySchema': key_schema,
+            'AttributeDefinitions': attr_defs,
+            'BillingMode': billing_mode,
+        }
+        if billing_mode == 'PROVISIONED':
+            params['ProvisionedThroughput'] = {
+                'ReadCapacityUnits': read_capacity,
+                'WriteCapacityUnits': write_capacity
+            }
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = dynamodb.create_table(**params)
+        table = response['TableDescription']
+        return {
+            'success': True, 'table_name': table['TableName'],
+            'table_arn': table['TableArn'], 'status': table['TableStatus'],
+            'billing_mode': billing_mode,
+            'message': f'Successfully created DynamoDB table {table_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating DynamoDB table: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_dynamodb_table(table_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a DynamoDB table."""
+    try:
+        dynamodb = _get_boto_client('dynamodb', region)
+        dynamodb.delete_table(TableName=table_name)
+        return {
+            'success': True, 'table_name': table_name,
+            'message': f'Successfully initiated deletion of DynamoDB table {table_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting DynamoDB table: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # ELASTICACHE OPERATIONS
 # ============================================================================
@@ -1535,6 +2460,70 @@ def list_elasticache_clusters(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing ElastiCache clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_elasticache_cluster(
+    cluster_id: str,
+    engine: str = 'redis',
+    node_type: str = 'cache.t3.micro',
+    num_nodes: int = 1,
+    engine_version: Optional[str] = None,
+    security_group_ids: Optional[List[str]] = None,
+    subnet_group_name: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an ElastiCache cluster (Redis or Memcached)."""
+    try:
+        ec = _get_boto_client('elasticache', region)
+        params = {
+            'CacheClusterId': cluster_id,
+            'Engine': engine,
+            'CacheNodeType': node_type,
+            'NumCacheNodes': num_nodes,
+        }
+        if engine_version:
+            params['EngineVersion'] = engine_version
+        if security_group_ids:
+            params['SecurityGroupIds'] = security_group_ids
+        if subnet_group_name:
+            params['CacheSubnetGroupName'] = subnet_group_name
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = ec.create_cache_cluster(**params)
+        cluster = response['CacheCluster']
+        return {
+            'success': True, 'cluster_id': cluster['CacheClusterId'],
+            'engine': cluster['Engine'], 'node_type': cluster['CacheNodeType'],
+            'status': cluster['CacheClusterStatus'], 'num_nodes': cluster['NumCacheNodes'],
+            'message': f'Successfully created ElastiCache {engine} cluster {cluster_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating ElastiCache cluster: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_elasticache_cluster(cluster_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an ElastiCache cluster."""
+    try:
+        ec = _get_boto_client('elasticache', region)
+        ec.delete_cache_cluster(CacheClusterId=cluster_id)
+        return {
+            'success': True, 'cluster_id': cluster_id,
+            'message': f'Successfully initiated deletion of ElastiCache cluster {cluster_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting ElastiCache cluster: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -1634,6 +2623,144 @@ def list_ecs_services(cluster: str, region: Optional[str] = None) -> Dict[str, A
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing ECS services: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_ecs_cluster(
+    cluster_name: str,
+    capacity_providers: Optional[List[str]] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an ECS cluster."""
+    try:
+        ecs = _get_boto_client('ecs', region)
+        params = {'clusterName': cluster_name}
+        if capacity_providers:
+            params['capacityProviders'] = capacity_providers
+        if tags:
+            params['tags'] = [{'key': k, 'value': v} for k, v in tags.items()]
+
+        response = ecs.create_cluster(**params)
+        cluster = response['cluster']
+        return {
+            'success': True, 'cluster_name': cluster['clusterName'],
+            'cluster_arn': cluster['clusterArn'], 'status': cluster['status'],
+            'registered_container_instances': cluster.get('registeredContainerInstancesCount', 0),
+            'message': f'Successfully created ECS cluster {cluster_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating ECS cluster: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def run_ecs_task(
+    cluster: str,
+    task_definition: str,
+    count: int = 1,
+    launch_type: str = 'FARGATE',
+    subnets: Optional[List[str]] = None,
+    security_groups: Optional[List[str]] = None,
+    assign_public_ip: bool = True,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Run a task on an ECS cluster."""
+    try:
+        ecs = _get_boto_client('ecs', region)
+        params = {
+            'cluster': cluster,
+            'taskDefinition': task_definition,
+            'count': count,
+            'launchType': launch_type,
+        }
+        if launch_type == 'FARGATE' and subnets:
+            network_config = {
+                'awsvpcConfiguration': {
+                    'subnets': subnets,
+                    'assignPublicIp': 'ENABLED' if assign_public_ip else 'DISABLED'
+                }
+            }
+            if security_groups:
+                network_config['awsvpcConfiguration']['securityGroups'] = security_groups
+            params['networkConfiguration'] = network_config
+
+        response = ecs.run_task(**params)
+        tasks = response.get('tasks', [])
+        failures = response.get('failures', [])
+
+        task_arns = [t['taskArn'] for t in tasks]
+        return {
+            'success': True, 'tasks_started': len(tasks), 'task_arns': task_arns,
+            'failures': [{'arn': f.get('arn', 'N/A'), 'reason': f.get('reason', 'unknown')} for f in failures],
+            'message': f'Successfully started {len(tasks)} task(s) on cluster {cluster}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error running ECS task: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def update_ecs_service(
+    cluster: str,
+    service: str,
+    desired_count: Optional[int] = None,
+    task_definition: Optional[str] = None,
+    force_new_deployment: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update an ECS service (desired count, task definition, or force deploy)."""
+    try:
+        ecs = _get_boto_client('ecs', region)
+        params = {'cluster': cluster, 'service': service}
+        if desired_count is not None:
+            params['desiredCount'] = desired_count
+        if task_definition:
+            params['taskDefinition'] = task_definition
+        if force_new_deployment:
+            params['forceNewDeployment'] = True
+
+        response = ecs.update_service(**params)
+        svc = response['service']
+        return {
+            'success': True, 'service_name': svc['serviceName'],
+            'status': svc['status'], 'desired_count': svc['desiredCount'],
+            'running_count': svc['runningCount'], 'pending_count': svc['pendingCount'],
+            'task_definition': svc['taskDefinition'],
+            'message': f'Successfully updated ECS service {service}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error updating ECS service: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_ecs_cluster(cluster: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an ECS cluster. All services and tasks must be stopped first."""
+    try:
+        ecs = _get_boto_client('ecs', region)
+        response = ecs.delete_cluster(cluster=cluster)
+        cl = response['cluster']
+        return {
+            'success': True, 'cluster_name': cl['clusterName'],
+            'cluster_arn': cl['clusterArn'], 'status': cl['status'],
+            'message': f'Successfully deleted ECS cluster {cluster}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting ECS cluster: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -1774,6 +2901,38 @@ def list_cloudfront_distributions(region: Optional[str] = None) -> Dict[str, Any
         return {'success': False, 'error': str(e)}
 
 
+def create_cloudfront_invalidation(
+    distribution_id: str,
+    paths: List[str],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a CloudFront cache invalidation for specified paths."""
+    try:
+        cf = _get_boto_client('cloudfront', region)
+        import time
+        caller_ref = f'inv-{int(time.time())}'
+        response = cf.create_invalidation(
+            DistributionId=distribution_id,
+            InvalidationBatch={
+                'Paths': {'Quantity': len(paths), 'Items': paths},
+                'CallerReference': caller_ref
+            }
+        )
+        inv = response['Invalidation']
+        return {
+            'success': True, 'invalidation_id': inv['Id'],
+            'status': inv['Status'], 'paths': paths,
+            'message': f'Successfully created invalidation for {len(paths)} path(s)',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating CloudFront invalidation: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # ROUTE 53 OPERATIONS
 # ============================================================================
@@ -1813,6 +2972,85 @@ def list_route53_zones(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing Route 53 hosted zones: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_route53_record(
+    hosted_zone_id: str,
+    record_name: str,
+    record_type: str,
+    record_value: str,
+    ttl: int = 300,
+    action: str = 'UPSERT',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create or update a DNS record in Route 53."""
+    try:
+        r53 = _get_boto_client('route53', region)
+        response = r53.change_resource_record_sets(
+            HostedZoneId=hosted_zone_id,
+            ChangeBatch={
+                'Changes': [{
+                    'Action': action,
+                    'ResourceRecordSet': {
+                        'Name': record_name,
+                        'Type': record_type,
+                        'TTL': ttl,
+                        'ResourceRecords': [{'Value': record_value}]
+                    }
+                }]
+            }
+        )
+        change_id = response['ChangeInfo']['Id']
+        status = response['ChangeInfo']['Status']
+        return {
+            'success': True, 'change_id': change_id, 'status': status,
+            'record_name': record_name, 'record_type': record_type, 'record_value': record_value,
+            'message': f'Successfully {action.lower()}d DNS record {record_name} ({record_type})'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating Route53 record: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_route53_record(
+    hosted_zone_id: str,
+    record_name: str,
+    record_type: str,
+    record_value: str,
+    ttl: int = 300,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a DNS record from Route 53."""
+    try:
+        r53 = _get_boto_client('route53', region)
+        response = r53.change_resource_record_sets(
+            HostedZoneId=hosted_zone_id,
+            ChangeBatch={
+                'Changes': [{
+                    'Action': 'DELETE',
+                    'ResourceRecordSet': {
+                        'Name': record_name,
+                        'Type': record_type,
+                        'TTL': ttl,
+                        'ResourceRecords': [{'Value': record_value}]
+                    }
+                }]
+            }
+        )
+        return {
+            'success': True, 'change_id': response['ChangeInfo']['Id'],
+            'status': response['ChangeInfo']['Status'],
+            'message': f'Successfully deleted DNS record {record_name} ({record_type})'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting Route53 record: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -2047,6 +3285,107 @@ def list_cloudformation_stacks(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_cloudformation_stack(
+    stack_name: str,
+    template_body: Optional[str] = None,
+    template_url: Optional[str] = None,
+    parameters: Optional[List[Dict[str, str]]] = None,
+    capabilities: Optional[List[str]] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a CloudFormation stack from a template."""
+    try:
+        cf = _get_boto_client('cloudformation', region)
+        params = {'StackName': stack_name}
+
+        if template_body:
+            params['TemplateBody'] = template_body
+        elif template_url:
+            params['TemplateURL'] = template_url
+        else:
+            return {'success': False, 'error': 'Must specify either template_body or template_url'}
+
+        if parameters:
+            params['Parameters'] = [
+                {'ParameterKey': p['key'], 'ParameterValue': p['value']} for p in parameters
+            ]
+        if capabilities:
+            params['Capabilities'] = capabilities
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = cf.create_stack(**params)
+        return {
+            'success': True, 'stack_id': response['StackId'], 'stack_name': stack_name,
+            'message': f'Successfully initiated creation of CloudFormation stack {stack_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating CloudFormation stack: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def update_cloudformation_stack(
+    stack_name: str,
+    template_body: Optional[str] = None,
+    template_url: Optional[str] = None,
+    parameters: Optional[List[Dict[str, str]]] = None,
+    capabilities: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update an existing CloudFormation stack."""
+    try:
+        cf = _get_boto_client('cloudformation', region)
+        params = {'StackName': stack_name}
+
+        if template_body:
+            params['TemplateBody'] = template_body
+        elif template_url:
+            params['TemplateURL'] = template_url
+
+        if parameters:
+            params['Parameters'] = [
+                {'ParameterKey': p['key'], 'ParameterValue': p['value']} for p in parameters
+            ]
+        if capabilities:
+            params['Capabilities'] = capabilities
+
+        response = cf.update_stack(**params)
+        return {
+            'success': True, 'stack_id': response['StackId'], 'stack_name': stack_name,
+            'message': f'Successfully initiated update of CloudFormation stack {stack_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error updating CloudFormation stack: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_cloudformation_stack(stack_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a CloudFormation stack and all its resources."""
+    try:
+        cf = _get_boto_client('cloudformation', region)
+        cf.delete_stack(StackName=stack_name)
+        return {
+            'success': True, 'stack_name': stack_name,
+            'message': f'Successfully initiated deletion of CloudFormation stack {stack_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting CloudFormation stack: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # SYSTEMS MANAGER OPERATIONS
 # ============================================================================
@@ -2130,6 +3469,73 @@ def list_ssm_managed_instances(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing SSM managed instances: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def ssm_run_command(
+    instance_ids: List[str],
+    commands: List[str],
+    document_name: str = 'AWS-RunShellScript',
+    comment: Optional[str] = None,
+    timeout_seconds: int = 600,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Run a command on EC2 instances via SSM."""
+    try:
+        ssm = _get_boto_client('ssm', region)
+        params = {
+            'InstanceIds': instance_ids,
+            'DocumentName': document_name,
+            'Parameters': {'commands': commands},
+            'TimeoutSeconds': timeout_seconds,
+        }
+        if comment:
+            params['Comment'] = comment
+
+        response = ssm.send_command(**params)
+        cmd = response['Command']
+        return {
+            'success': True, 'command_id': cmd['CommandId'],
+            'status': cmd['Status'], 'instance_ids': instance_ids,
+            'document_name': document_name,
+            'message': f'Successfully sent command to {len(instance_ids)} instance(s)',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error running SSM command: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def ssm_put_parameter(
+    name: str,
+    value: str,
+    param_type: str = 'String',
+    description: Optional[str] = None,
+    overwrite: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create or update an SSM parameter."""
+    try:
+        ssm = _get_boto_client('ssm', region)
+        params = {'Name': name, 'Value': value, 'Type': param_type, 'Overwrite': overwrite}
+        if description:
+            params['Description'] = description
+
+        response = ssm.put_parameter(**params)
+        return {
+            'success': True, 'name': name, 'type': param_type,
+            'version': response.get('Version'),
+            'message': f'Successfully {"updated" if overwrite else "created"} SSM parameter {name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error putting SSM parameter: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -2287,6 +3693,146 @@ def list_autoscaling_groups(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing Auto Scaling groups: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_launch_template(
+    template_name: str,
+    ami_id: str,
+    instance_type: str,
+    key_name: Optional[str] = None,
+    security_group_ids: Optional[List[str]] = None,
+    user_data: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an EC2 launch template for Auto Scaling."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        launch_data = {'ImageId': ami_id, 'InstanceType': instance_type}
+        if key_name:
+            launch_data['KeyName'] = key_name
+        if security_group_ids:
+            launch_data['SecurityGroupIds'] = security_group_ids
+        if user_data:
+            import base64
+            launch_data['UserData'] = base64.b64encode(user_data.encode()).decode()
+
+        params = {'LaunchTemplateName': template_name, 'LaunchTemplateData': launch_data}
+        if tags:
+            params['TagSpecifications'] = [{
+                'ResourceType': 'launch-template',
+                'Tags': [{'Key': k, 'Value': v} for k, v in tags.items()]
+            }]
+
+        response = ec2.create_launch_template(**params)
+        lt = response['LaunchTemplate']
+        return {
+            'success': True, 'template_name': lt['LaunchTemplateName'],
+            'template_id': lt['LaunchTemplateId'], 'version': lt['LatestVersionNumber'],
+            'message': f'Successfully created launch template {template_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating launch template: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_auto_scaling_group(
+    group_name: str,
+    launch_template_id: Optional[str] = None,
+    launch_template_name: Optional[str] = None,
+    min_size: int = 1,
+    max_size: int = 1,
+    desired_capacity: int = 1,
+    subnet_ids: Optional[List[str]] = None,
+    target_group_arns: Optional[List[str]] = None,
+    health_check_type: str = 'EC2',
+    health_check_grace_period: int = 300,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an Auto Scaling group."""
+    try:
+        asg = _get_boto_client('autoscaling', region)
+        params = {
+            'AutoScalingGroupName': group_name,
+            'MinSize': min_size,
+            'MaxSize': max_size,
+            'DesiredCapacity': desired_capacity,
+            'HealthCheckType': health_check_type,
+            'HealthCheckGracePeriod': health_check_grace_period,
+        }
+
+        lt_spec = {}
+        if launch_template_id:
+            lt_spec['LaunchTemplateId'] = launch_template_id
+        elif launch_template_name:
+            lt_spec['LaunchTemplateName'] = launch_template_name
+        else:
+            return {'success': False, 'error': 'Must specify launch_template_id or launch_template_name'}
+        lt_spec['Version'] = '$Latest'
+        params['LaunchTemplate'] = lt_spec
+
+        if subnet_ids:
+            params['VPCZoneIdentifier'] = ','.join(subnet_ids)
+        if target_group_arns:
+            params['TargetGroupARNs'] = target_group_arns
+        if tags:
+            params['Tags'] = [
+                {'Key': k, 'Value': v, 'ResourceId': group_name,
+                 'ResourceType': 'auto-scaling-group', 'PropagateAtLaunch': True}
+                for k, v in tags.items()
+            ]
+
+        asg.create_auto_scaling_group(**params)
+        return {
+            'success': True, 'group_name': group_name,
+            'min_size': min_size, 'max_size': max_size, 'desired_capacity': desired_capacity,
+            'message': f'Successfully created Auto Scaling group {group_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating Auto Scaling group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def update_auto_scaling_group(
+    group_name: str,
+    min_size: Optional[int] = None,
+    max_size: Optional[int] = None,
+    desired_capacity: Optional[int] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update an Auto Scaling group (min/max/desired capacity)."""
+    try:
+        asg = _get_boto_client('autoscaling', region)
+        params = {'AutoScalingGroupName': group_name}
+        if min_size is not None:
+            params['MinSize'] = min_size
+        if max_size is not None:
+            params['MaxSize'] = max_size
+        if desired_capacity is not None:
+            params['DesiredCapacity'] = desired_capacity
+
+        asg.update_auto_scaling_group(**params)
+        return {
+            'success': True, 'group_name': group_name,
+            'min_size': min_size, 'max_size': max_size, 'desired_capacity': desired_capacity,
+            'message': f'Successfully updated Auto Scaling group {group_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error updating Auto Scaling group: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -2704,6 +4250,101 @@ def list_sns_topics(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_sns_topic(
+    topic_name: str,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an SNS topic."""
+    try:
+        sns = _get_boto_client('sns', region)
+        params = {'Name': topic_name}
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = sns.create_topic(**params)
+        return {
+            'success': True, 'topic_arn': response['TopicArn'], 'topic_name': topic_name,
+            'message': f'Successfully created SNS topic {topic_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating SNS topic: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def publish_sns_message(
+    topic_arn: str,
+    message: str,
+    subject: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Publish a message to an SNS topic."""
+    try:
+        sns = _get_boto_client('sns', region)
+        params = {'TopicArn': topic_arn, 'Message': message}
+        if subject:
+            params['Subject'] = subject
+
+        response = sns.publish(**params)
+        return {
+            'success': True, 'message_id': response['MessageId'],
+            'message': f'Successfully published message to {topic_arn}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error publishing SNS message: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def subscribe_sns_topic(
+    topic_arn: str,
+    protocol: str,
+    endpoint: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Subscribe to an SNS topic (email, SMS, Lambda, SQS, HTTP/S)."""
+    try:
+        sns = _get_boto_client('sns', region)
+        response = sns.subscribe(TopicArn=topic_arn, Protocol=protocol, Endpoint=endpoint)
+        return {
+            'success': True, 'subscription_arn': response['SubscriptionArn'],
+            'protocol': protocol, 'endpoint': endpoint,
+            'message': f'Successfully subscribed {endpoint} ({protocol}) to topic',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error subscribing to SNS topic: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_sns_topic(topic_arn: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an SNS topic and all its subscriptions."""
+    try:
+        sns = _get_boto_client('sns', region)
+        sns.delete_topic(TopicArn=topic_arn)
+        return {
+            'success': True, 'topic_arn': topic_arn,
+            'message': f'Successfully deleted SNS topic',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting SNS topic: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # SQS (SIMPLE QUEUE SERVICE) OPERATIONS
 # ============================================================================
@@ -2768,6 +4409,92 @@ def list_sqs_queues(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_sqs_queue(
+    queue_name: str,
+    fifo: bool = False,
+    visibility_timeout: int = 30,
+    message_retention_period: int = 345600,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an SQS queue (standard or FIFO)."""
+    try:
+        sqs = _get_boto_client('sqs', region)
+        attributes = {
+            'VisibilityTimeout': str(visibility_timeout),
+            'MessageRetentionPeriod': str(message_retention_period),
+        }
+        if fifo:
+            attributes['FifoQueue'] = 'true'
+            if not queue_name.endswith('.fifo'):
+                queue_name += '.fifo'
+
+        params = {'QueueName': queue_name, 'Attributes': attributes}
+        if tags:
+            params['tags'] = tags
+
+        response = sqs.create_queue(**params)
+        return {
+            'success': True, 'queue_url': response['QueueUrl'], 'queue_name': queue_name,
+            'fifo': fifo,
+            'message': f'Successfully created SQS queue {queue_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating SQS queue: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def send_sqs_message(
+    queue_url: str,
+    message_body: str,
+    delay_seconds: int = 0,
+    message_group_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Send a message to an SQS queue."""
+    try:
+        sqs = _get_boto_client('sqs', region)
+        params = {'QueueUrl': queue_url, 'MessageBody': message_body, 'DelaySeconds': delay_seconds}
+        if message_group_id:
+            params['MessageGroupId'] = message_group_id
+
+        response = sqs.send_message(**params)
+        return {
+            'success': True, 'message_id': response['MessageId'],
+            'md5': response.get('MD5OfMessageBody'),
+            'message': f'Successfully sent message to queue',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error sending SQS message: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_sqs_queue(queue_url: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an SQS queue."""
+    try:
+        sqs = _get_boto_client('sqs', region)
+        sqs.delete_queue(QueueUrl=queue_url)
+        return {
+            'success': True, 'queue_url': queue_url,
+            'message': f'Successfully deleted SQS queue: {queue_url}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting SQS queue: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # ECR (ELASTIC CONTAINER REGISTRY) OPERATIONS
 # ============================================================================
@@ -2821,6 +4548,65 @@ def list_ecr_repositories(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_ecr_repository(
+    repository_name: str,
+    image_tag_mutability: str = 'MUTABLE',
+    scan_on_push: bool = True,
+    encryption_type: str = 'AES256',
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an ECR repository for Docker images."""
+    try:
+        ecr = _get_boto_client('ecr', region)
+        params = {
+            'repositoryName': repository_name,
+            'imageTagMutability': image_tag_mutability,
+            'imageScanningConfiguration': {'scanOnPush': scan_on_push},
+            'encryptionConfiguration': {'encryptionType': encryption_type},
+        }
+        if tags:
+            params['tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = ecr.create_repository(**params)
+        repo = response['repository']
+        return {
+            'success': True, 'repository_name': repo['repositoryName'],
+            'repository_uri': repo['repositoryUri'], 'arn': repo['repositoryArn'],
+            'registry_id': repo.get('registryId'),
+            'message': f'Successfully created ECR repository {repository_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating ECR repository: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_ecr_repository(
+    repository_name: str,
+    force: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete an ECR repository. Use force=True to delete even if it contains images."""
+    try:
+        ecr = _get_boto_client('ecr', region)
+        ecr.delete_repository(repositoryName=repository_name, force=force)
+        return {
+            'success': True, 'repository_name': repository_name,
+            'message': f'Successfully deleted ECR repository {repository_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting ECR repository: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # SECRETS MANAGER OPERATIONS
 # ============================================================================
@@ -2866,6 +4652,91 @@ def list_secrets_manager_secrets(region: Optional[str] = None) -> Dict[str, Any]
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing Secrets Manager secrets: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_secret(
+    secret_name: str,
+    secret_value: str,
+    description: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a secret in Secrets Manager."""
+    try:
+        sm = _get_boto_client('secretsmanager', region)
+        params = {'Name': secret_name, 'SecretString': secret_value}
+        if description:
+            params['Description'] = description
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = sm.create_secret(**params)
+        return {
+            'success': True, 'secret_name': response['Name'],
+            'arn': response['ARN'], 'version_id': response.get('VersionId'),
+            'message': f'Successfully created secret {secret_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating secret: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def update_secret(
+    secret_name: str,
+    secret_value: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update the value of a secret in Secrets Manager."""
+    try:
+        sm = _get_boto_client('secretsmanager', region)
+        response = sm.update_secret(SecretId=secret_name, SecretString=secret_value)
+        return {
+            'success': True, 'secret_name': response['Name'],
+            'arn': response['ARN'], 'version_id': response.get('VersionId'),
+            'message': f'Successfully updated secret {secret_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error updating secret: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_secret(
+    secret_name: str,
+    force_delete: bool = False,
+    recovery_window_days: int = 30,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a secret from Secrets Manager."""
+    try:
+        sm = _get_boto_client('secretsmanager', region)
+        params = {'SecretId': secret_name}
+        if force_delete:
+            params['ForceDeleteWithoutRecovery'] = True
+        else:
+            params['RecoveryWindowInDays'] = recovery_window_days
+
+        response = sm.delete_secret(**params)
+        return {
+            'success': True, 'secret_name': response['Name'],
+            'arn': response['ARN'],
+            'deletion_date': response.get('DeletionDate', '').isoformat() if response.get('DeletionDate') else 'N/A',
+            'message': f'Successfully scheduled deletion of secret {secret_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting secret: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -2956,6 +4827,412 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_load_balancer(
+    name: str,
+    subnets: List[str],
+    security_groups: Optional[List[str]] = None,
+    scheme: str = 'internet-facing',
+    lb_type: str = 'application',
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create an Application or Network Load Balancer.
+
+    Args:
+        name: Load balancer name
+        subnets: List of subnet IDs (minimum 2 for ALB)
+        security_groups: List of security group IDs (ALB only)
+        scheme: 'internet-facing' or 'internal'
+        lb_type: 'application' or 'network'
+        tags: Dictionary of tags
+        region: AWS region
+
+    Returns:
+        Dictionary with created load balancer information
+    """
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+
+        create_params = {
+            'Name': name,
+            'Subnets': subnets,
+            'Scheme': scheme,
+            'Type': lb_type,
+        }
+
+        if security_groups and lb_type == 'application':
+            create_params['SecurityGroups'] = security_groups
+
+        if tags:
+            create_params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = elbv2.create_load_balancer(**create_params)
+        lb = response['LoadBalancers'][0]
+
+        return {
+            'success': True,
+            'name': lb['LoadBalancerName'],
+            'arn': lb['LoadBalancerArn'],
+            'dns_name': lb['DNSName'],
+            'type': lb.get('Type', lb_type),
+            'scheme': lb.get('Scheme', scheme),
+            'vpc_id': lb.get('VpcId'),
+            'state': lb.get('State', {}).get('Code', 'provisioning'),
+            'availability_zones': [az.get('ZoneName') for az in lb.get('AvailabilityZones', [])],
+            'message': f'Successfully created {lb_type} load balancer {name}',
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating load balancer: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_target_group(
+    name: str,
+    protocol: str = 'HTTP',
+    port: int = 80,
+    vpc_id: Optional[str] = None,
+    target_type: str = 'instance',
+    health_check_path: Optional[str] = None,
+    health_check_interval_seconds: int = 30,
+    health_check_protocol: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a target group for a load balancer.
+
+    Args:
+        name: Target group name
+        protocol: Protocol (HTTP, HTTPS, TCP, TLS, UDP, TCP_UDP)
+        port: Port number
+        vpc_id: VPC ID (required for instance/ip target types)
+        target_type: Target type - 'instance', 'ip', or 'lambda'
+        health_check_path: Health check path (e.g., '/' or '/health')
+        health_check_interval_seconds: Health check interval (5-300)
+        health_check_protocol: Health check protocol (defaults to target protocol)
+        tags: Dictionary of tags
+        region: AWS region
+
+    Returns:
+        Dictionary with created target group information
+    """
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+
+        create_params = {
+            'Name': name,
+            'Protocol': protocol,
+            'Port': port,
+            'TargetType': target_type,
+        }
+
+        if vpc_id:
+            create_params['VpcId'] = vpc_id
+
+        if health_check_path:
+            create_params['HealthCheckPath'] = health_check_path
+
+        if health_check_protocol:
+            create_params['HealthCheckProtocol'] = health_check_protocol
+
+        create_params['HealthCheckIntervalSeconds'] = health_check_interval_seconds
+
+        if tags:
+            create_params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = elbv2.create_target_group(**create_params)
+        tg = response['TargetGroups'][0]
+
+        return {
+            'success': True,
+            'name': tg['TargetGroupName'],
+            'arn': tg['TargetGroupArn'],
+            'protocol': tg.get('Protocol'),
+            'port': tg.get('Port'),
+            'vpc_id': tg.get('VpcId'),
+            'target_type': tg.get('TargetType'),
+            'health_check': {
+                'protocol': tg.get('HealthCheckProtocol'),
+                'path': tg.get('HealthCheckPath'),
+                'interval': tg.get('HealthCheckIntervalSeconds'),
+                'healthy_threshold': tg.get('HealthyThresholdCount'),
+                'unhealthy_threshold': tg.get('UnhealthyThresholdCount'),
+            },
+            'message': f'Successfully created target group {name}',
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating target group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_listener(
+    load_balancer_arn: str,
+    protocol: str = 'HTTP',
+    port: int = 80,
+    default_target_group_arn: str = '',
+    ssl_certificate_arn: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a listener on a load balancer to forward traffic to a target group.
+
+    Args:
+        load_balancer_arn: ARN of the load balancer
+        protocol: Listener protocol (HTTP, HTTPS, TCP, TLS)
+        port: Listener port
+        default_target_group_arn: ARN of the default target group to forward to
+        ssl_certificate_arn: ACM certificate ARN (required for HTTPS/TLS)
+        region: AWS region
+
+    Returns:
+        Dictionary with created listener information
+    """
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+
+        create_params = {
+            'LoadBalancerArn': load_balancer_arn,
+            'Protocol': protocol,
+            'Port': port,
+            'DefaultActions': [
+                {
+                    'Type': 'forward',
+                    'TargetGroupArn': default_target_group_arn,
+                }
+            ]
+        }
+
+        if ssl_certificate_arn and protocol in ('HTTPS', 'TLS'):
+            create_params['Certificates'] = [{'CertificateArn': ssl_certificate_arn}]
+
+        response = elbv2.create_listener(**create_params)
+        listener = response['Listeners'][0]
+
+        return {
+            'success': True,
+            'listener_arn': listener['ListenerArn'],
+            'load_balancer_arn': listener['LoadBalancerArn'],
+            'protocol': listener['Protocol'],
+            'port': listener['Port'],
+            'default_action': {
+                'type': listener['DefaultActions'][0]['Type'],
+                'target_group_arn': listener['DefaultActions'][0].get('TargetGroupArn', 'N/A'),
+            },
+            'message': f'Successfully created {protocol}:{port} listener on load balancer',
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating listener: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_listener(listener_arn: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a listener from a load balancer."""
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+        elbv2.delete_listener(ListenerArn=listener_arn)
+        return {
+            'success': True, 'listener_arn': listener_arn,
+            'message': f'Successfully deleted listener: {listener_arn}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting listener: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def register_targets(
+    target_group_arn: str,
+    targets: List[Dict[str, Any]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Register targets (instances/IPs) with a target group.
+
+    Args:
+        target_group_arn: ARN of the target group
+        targets: List of targets [{'id': 'i-xxxx', 'port': 80}, ...]. Port is optional.
+        region: AWS region
+
+    Returns:
+        Dictionary with registration result
+    """
+    try:
+        if not targets:
+            return {'success': False, 'error': 'No targets specified'}
+
+        elbv2 = _get_boto_client('elbv2', region)
+
+        target_list = []
+        for t in targets:
+            entry = {'Id': t['id']}
+            if 'port' in t:
+                entry['Port'] = t['port']
+            target_list.append(entry)
+
+        elbv2.register_targets(
+            TargetGroupArn=target_group_arn,
+            Targets=target_list
+        )
+
+        return {
+            'success': True,
+            'target_group_arn': target_group_arn,
+            'registered_count': len(target_list),
+            'targets': [{'id': t['Id'], 'port': t.get('Port', 'default')} for t in target_list],
+            'message': f'Successfully registered {len(target_list)} target(s) with target group',
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error registering targets: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def describe_target_health(
+    target_group_arn: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Describe the health of targets in a target group.
+
+    Args:
+        target_group_arn: ARN of the target group
+        region: AWS region
+
+    Returns:
+        Dictionary with target health information
+    """
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+
+        response = elbv2.describe_target_health(TargetGroupArn=target_group_arn)
+
+        targets = []
+        for desc in response.get('TargetHealthDescriptions', []):
+            target = desc.get('Target', {})
+            health = desc.get('TargetHealth', {})
+            targets.append({
+                'id': target.get('Id'),
+                'port': target.get('Port'),
+                'health_check_port': desc.get('HealthCheckPort'),
+                'state': health.get('State', 'unknown'),
+                'reason': health.get('Reason', ''),
+                'description': health.get('Description', ''),
+            })
+
+        healthy = sum(1 for t in targets if t['state'] == 'healthy')
+        unhealthy = sum(1 for t in targets if t['state'] == 'unhealthy')
+
+        return {
+            'success': True,
+            'target_group_arn': target_group_arn,
+            'total_targets': len(targets),
+            'healthy': healthy,
+            'unhealthy': unhealthy,
+            'targets': targets,
+            'message': f'{len(targets)} target(s): {healthy} healthy, {unhealthy} unhealthy',
+            'region': region or 'default'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error describing target health: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_load_balancer(load_balancer_arn: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a load balancer."""
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+        elbv2.delete_load_balancer(LoadBalancerArn=load_balancer_arn)
+        return {
+            'success': True, 'load_balancer_arn': load_balancer_arn,
+            'message': f'Successfully deleted load balancer',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting load balancer: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_target_group(target_group_arn: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a target group."""
+    try:
+        elbv2 = _get_boto_client('elbv2', region)
+        elbv2.delete_target_group(TargetGroupArn=target_group_arn)
+        return {
+            'success': True, 'target_group_arn': target_group_arn,
+            'message': f'Successfully deleted target group',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting target group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def deregister_targets(
+    target_group_arn: str,
+    targets: List[Dict[str, Any]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Deregister targets from a target group."""
+    try:
+        if not targets:
+            return {'success': False, 'error': 'No targets specified'}
+
+        elbv2 = _get_boto_client('elbv2', region)
+        target_list = []
+        for t in targets:
+            entry = {'Id': t['id']}
+            if 'port' in t:
+                entry['Port'] = t['port']
+            target_list.append(entry)
+
+        elbv2.deregister_targets(TargetGroupArn=target_group_arn, Targets=target_list)
+        return {
+            'success': True, 'target_group_arn': target_group_arn,
+            'deregistered_count': len(target_list),
+            'message': f'Successfully deregistered {len(target_list)} target(s)',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deregistering targets: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # EFS (ELASTIC FILE SYSTEM) OPERATIONS
 # ============================================================================
@@ -3011,6 +5288,62 @@ def list_efs_file_systems(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing EFS file systems: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_efs_file_system(
+    creation_token: Optional[str] = None,
+    performance_mode: str = 'generalPurpose',
+    throughput_mode: str = 'bursting',
+    encrypted: bool = True,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an EFS file system."""
+    try:
+        efs = _get_boto_client('efs', region)
+        import time
+        params = {
+            'CreationToken': creation_token or f'efs-{int(time.time())}',
+            'PerformanceMode': performance_mode,
+            'ThroughputMode': throughput_mode,
+            'Encrypted': encrypted,
+        }
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = efs.create_file_system(**params)
+        return {
+            'success': True, 'file_system_id': response['FileSystemId'],
+            'lifecycle_state': response['LifeCycleState'],
+            'performance_mode': response['PerformanceMode'],
+            'encrypted': response['Encrypted'],
+            'message': f'Successfully created EFS file system {response["FileSystemId"]}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating EFS file system: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_efs_file_system(file_system_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an EFS file system. All mount targets must be deleted first."""
+    try:
+        efs = _get_boto_client('efs', region)
+        efs.delete_file_system(FileSystemId=file_system_id)
+        return {
+            'success': True, 'file_system_id': file_system_id,
+            'message': f'Successfully deleted EFS file system {file_system_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting EFS file system: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -3115,6 +5448,96 @@ def list_eventbridge_event_buses(region: Optional[str] = None) -> Dict[str, Any]
         return {'success': False, 'error': str(e)}
 
 
+def create_eventbridge_rule(
+    rule_name: str,
+    schedule_expression: Optional[str] = None,
+    event_pattern: Optional[str] = None,
+    state: str = 'ENABLED',
+    description: Optional[str] = None,
+    event_bus_name: Optional[str] = None,
+    targets: Optional[List[Dict[str, str]]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an EventBridge rule (schedule or event pattern based)."""
+    try:
+        eb = _get_boto_client('events', region)
+        params = {'Name': rule_name, 'State': state}
+        if schedule_expression:
+            params['ScheduleExpression'] = schedule_expression
+        elif event_pattern:
+            params['EventPattern'] = event_pattern
+        else:
+            return {'success': False, 'error': 'Must specify schedule_expression or event_pattern'}
+        if description:
+            params['Description'] = description
+        if event_bus_name:
+            params['EventBusName'] = event_bus_name
+
+        response = eb.put_rule(**params)
+        rule_arn = response['RuleArn']
+
+        targets_added = 0
+        if targets:
+            target_list = [{'Id': t['id'], 'Arn': t['arn']} for t in targets]
+            eb.put_targets(Rule=rule_name, Targets=target_list)
+            targets_added = len(target_list)
+
+        return {
+            'success': True, 'rule_name': rule_name, 'rule_arn': rule_arn,
+            'targets_added': targets_added,
+            'message': f'Successfully created EventBridge rule {rule_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating EventBridge rule: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_eventbridge_rule(
+    rule_name: str,
+    event_bus_name: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete an EventBridge rule. Targets are removed automatically."""
+    try:
+        eb = _get_boto_client('events', region)
+        params = {'Rule': rule_name}
+        if event_bus_name:
+            params['EventBusName'] = event_bus_name
+
+        # Remove targets first
+        try:
+            targets_response = eb.list_targets_by_rule(**params)
+            target_ids = [t['Id'] for t in targets_response.get('Targets', [])]
+            if target_ids:
+                remove_params = {'Rule': rule_name, 'Ids': target_ids}
+                if event_bus_name:
+                    remove_params['EventBusName'] = event_bus_name
+                eb.remove_targets(**remove_params)
+        except Exception:
+            pass
+
+        delete_params = {'Name': rule_name}
+        if event_bus_name:
+            delete_params['EventBusName'] = event_bus_name
+        eb.delete_rule(**delete_params)
+
+        return {
+            'success': True, 'rule_name': rule_name,
+            'message': f'Successfully deleted EventBridge rule {rule_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting EventBridge rule: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # STEP FUNCTIONS OPERATIONS
 # ============================================================================
@@ -3166,6 +5589,36 @@ def list_step_functions(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing Step Functions: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def start_step_function_execution(
+    state_machine_arn: str,
+    execution_name: Optional[str] = None,
+    input_data: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Start an execution of a Step Functions state machine."""
+    try:
+        sfn = _get_boto_client('stepfunctions', region)
+        params = {'stateMachineArn': state_machine_arn}
+        if execution_name:
+            params['name'] = execution_name
+        if input_data:
+            params['input'] = input_data
+
+        response = sfn.start_execution(**params)
+        return {
+            'success': True, 'execution_arn': response['executionArn'],
+            'start_date': response['startDate'].isoformat(),
+            'message': f'Successfully started Step Functions execution',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error starting Step Functions execution: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -3227,6 +5680,54 @@ def list_kinesis_streams(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_kinesis_stream(
+    stream_name: str,
+    shard_count: int = 1,
+    stream_mode: str = 'PROVISIONED',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a Kinesis data stream."""
+    try:
+        kinesis = _get_boto_client('kinesis', region)
+        params = {'StreamName': stream_name}
+        if stream_mode == 'ON_DEMAND':
+            params['StreamModeDetails'] = {'StreamMode': 'ON_DEMAND'}
+        else:
+            params['ShardCount'] = shard_count
+
+        kinesis.create_stream(**params)
+        return {
+            'success': True, 'stream_name': stream_name,
+            'shard_count': shard_count, 'stream_mode': stream_mode,
+            'message': f'Successfully created Kinesis stream {stream_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating Kinesis stream: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_kinesis_stream(stream_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a Kinesis data stream."""
+    try:
+        kinesis = _get_boto_client('kinesis', region)
+        kinesis.delete_stream(StreamName=stream_name, EnforceConsumerDeletion=True)
+        return {
+            'success': True, 'stream_name': stream_name,
+            'message': f'Successfully initiated deletion of Kinesis stream {stream_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting Kinesis stream: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # ACM (CERTIFICATE MANAGER) OPERATIONS
 # ============================================================================
@@ -3284,6 +5785,37 @@ def list_acm_certificates(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing ACM certificates: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def request_acm_certificate(
+    domain_name: str,
+    validation_method: str = 'DNS',
+    subject_alternative_names: Optional[List[str]] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Request an SSL/TLS certificate from AWS Certificate Manager."""
+    try:
+        acm = _get_boto_client('acm', region)
+        params = {'DomainName': domain_name, 'ValidationMethod': validation_method}
+        if subject_alternative_names:
+            params['SubjectAlternativeNames'] = subject_alternative_names
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+
+        response = acm.request_certificate(**params)
+        return {
+            'success': True, 'certificate_arn': response['CertificateArn'],
+            'domain_name': domain_name, 'validation_method': validation_method,
+            'message': f'Successfully requested certificate for {domain_name}. Complete {validation_method} validation to activate.',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error requesting ACM certificate: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -3465,6 +5997,138 @@ def list_ebs_volumes(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def create_ebs_volume(
+    availability_zone: str,
+    size: int = 20,
+    volume_type: str = 'gp3',
+    encrypted: bool = True,
+    iops: Optional[int] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an EBS volume."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params = {
+            'AvailabilityZone': availability_zone,
+            'Size': size,
+            'VolumeType': volume_type,
+            'Encrypted': encrypted,
+        }
+        if iops and volume_type in ('io1', 'io2', 'gp3'):
+            params['Iops'] = iops
+        if tags:
+            params['TagSpecifications'] = [{
+                'ResourceType': 'volume',
+                'Tags': [{'Key': k, 'Value': v} for k, v in tags.items()]
+            }]
+
+        response = ec2.create_volume(**params)
+        return {
+            'success': True, 'volume_id': response['VolumeId'],
+            'size': response['Size'], 'volume_type': response['VolumeType'],
+            'availability_zone': response['AvailabilityZone'],
+            'encrypted': response['Encrypted'], 'state': response['State'],
+            'message': f'Successfully created EBS volume {response["VolumeId"]} ({size} GB)',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating EBS volume: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def attach_ebs_volume(
+    volume_id: str,
+    instance_id: str,
+    device: str = '/dev/sdf',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Attach an EBS volume to an EC2 instance."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.attach_volume(VolumeId=volume_id, InstanceId=instance_id, Device=device)
+        return {
+            'success': True, 'volume_id': response['VolumeId'],
+            'instance_id': response['InstanceId'], 'device': response['Device'],
+            'state': response['State'],
+            'message': f'Successfully attached {volume_id} to {instance_id} as {device}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error attaching EBS volume: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def detach_ebs_volume(
+    volume_id: str,
+    instance_id: Optional[str] = None,
+    force: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Detach an EBS volume from an EC2 instance."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params = {'VolumeId': volume_id, 'Force': force}
+        if instance_id:
+            params['InstanceId'] = instance_id
+
+        response = ec2.detach_volume(**params)
+        return {
+            'success': True, 'volume_id': response['VolumeId'],
+            'instance_id': response.get('InstanceId'),
+            'device': response.get('Device'),
+            'state': response['State'],
+            'message': f'Successfully detaching {volume_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error detaching EBS volume: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_ebs_snapshot(
+    volume_id: str,
+    description: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a snapshot of an EBS volume."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params = {'VolumeId': volume_id}
+        if description:
+            params['Description'] = description
+        if tags:
+            params['TagSpecifications'] = [{
+                'ResourceType': 'snapshot',
+                'Tags': [{'Key': k, 'Value': v} for k, v in tags.items()]
+            }]
+
+        response = ec2.create_snapshot(**params)
+        return {
+            'success': True, 'snapshot_id': response['SnapshotId'],
+            'volume_id': response['VolumeId'], 'state': response['State'],
+            'volume_size': response.get('VolumeSize'),
+            'message': f'Successfully created snapshot {response["SnapshotId"]} of {volume_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating EBS snapshot: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # ELASTIC IP OPERATIONS
 # ============================================================================
@@ -3565,6 +6229,60 @@ def list_nat_gateways(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing NAT Gateways: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_nat_gateway(
+    subnet_id: str,
+    allocation_id: Optional[str] = None,
+    connectivity_type: str = 'public',
+    name: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a NAT gateway in a subnet. For public NAT, provide an Elastic IP allocation ID."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params = {'SubnetId': subnet_id, 'ConnectivityType': connectivity_type}
+        if allocation_id and connectivity_type == 'public':
+            params['AllocationId'] = allocation_id
+        if name:
+            params['TagSpecifications'] = [{
+                'ResourceType': 'natgateway',
+                'Tags': [{'Key': 'Name', 'Value': name}]
+            }]
+
+        response = ec2.create_nat_gateway(**params)
+        ngw = response['NatGateway']
+        return {
+            'success': True, 'nat_gateway_id': ngw['NatGatewayId'],
+            'subnet_id': ngw['SubnetId'], 'state': ngw['State'],
+            'connectivity_type': connectivity_type,
+            'message': f'Successfully created NAT gateway {ngw["NatGatewayId"]}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating NAT gateway: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_nat_gateway(nat_gateway_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a NAT gateway."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_nat_gateway(NatGatewayId=nat_gateway_id)
+        return {
+            'success': True, 'nat_gateway_id': nat_gateway_id,
+            'message': f'Successfully initiated deletion of NAT gateway {nat_gateway_id}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting NAT gateway: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -6129,5 +8847,1640 @@ def get_tools() -> List[Dict[str, Any]]:
                 }
             },
             'handler': get_aws_resource_inventory
+        },
+        # Spot Instance Operations
+        {
+            'name': 'create_spot_instance',
+            'description': (
+                'Create EC2 spot instance(s) for cost-effective compute. '
+                'Spot instances can save up to 90% compared to on-demand pricing. '
+                'Use when user asks for spot instances, cheap instances, or cost-effective compute.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'ami_id': {
+                        'type': 'string',
+                        'description': 'AMI ID to use (e.g., ami-0c55b159cbfafe1f0)'
+                    },
+                    'instance_type': {
+                        'type': 'string',
+                        'description': 'Instance type (e.g., t3.medium, m5.large)'
+                    },
+                    'spot_price': {
+                        'type': 'string',
+                        'description': 'Maximum hourly price in USD (e.g., "0.05"). If not set, uses on-demand price as max.'
+                    },
+                    'spot_type': {
+                        'type': 'string',
+                        'enum': ['one-time', 'persistent'],
+                        'description': 'Spot request type (default: one-time)',
+                        'default': 'one-time'
+                    },
+                    'key_name': {
+                        'type': 'string',
+                        'description': 'SSH key pair name'
+                    },
+                    'security_group_ids': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'List of security group IDs'
+                    },
+                    'subnet_id': {
+                        'type': 'string',
+                        'description': 'Subnet ID for VPC placement'
+                    },
+                    'tags': {
+                        'type': 'object',
+                        'description': 'Tags to apply (e.g., {"Name": "web-server"})'
+                    },
+                    'user_data': {
+                        'type': 'string',
+                        'description': 'User data script to run on launch'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    },
+                    'count': {
+                        'type': 'integer',
+                        'description': 'Number of instances (1-10, default: 1)',
+                        'default': 1,
+                        'minimum': 1,
+                        'maximum': 10
+                    }
+                },
+                'required': ['ami_id', 'instance_type']
+            },
+            'handler': create_spot_instance
+        },
+        # Security Group Ingress
+        {
+            'name': 'authorize_security_group_ingress',
+            'description': (
+                'Add an ingress rule to an existing security group. '
+                'Supports both CIDR-based rules (e.g., 10.0.0.0/16) and source-security-group-based rules. '
+                'Use source_security_group_id to allow traffic from another security group instead of opening to a CIDR. '
+                'This is the secure way to allow traffic from a load balancer or bastion host.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_id': {
+                        'type': 'string',
+                        'description': 'Security group ID to add the rule to'
+                    },
+                    'protocol': {
+                        'type': 'string',
+                        'description': 'Protocol (tcp, udp, icmp, -1 for all)',
+                        'default': 'tcp'
+                    },
+                    'from_port': {
+                        'type': 'integer',
+                        'description': 'Start of port range'
+                    },
+                    'to_port': {
+                        'type': 'integer',
+                        'description': 'End of port range (defaults to from_port for single port)'
+                    },
+                    'cidr': {
+                        'type': 'string',
+                        'description': 'CIDR block (e.g., "10.0.0.0/16", "0.0.0.0/0"). Mutually exclusive with source_security_group_id.'
+                    },
+                    'source_security_group_id': {
+                        'type': 'string',
+                        'description': 'Source security group ID to allow traffic from. Use this for SG-to-SG rules (e.g., allow ALB SG to reach instance SG).'
+                    },
+                    'description': {
+                        'type': 'string',
+                        'description': 'Rule description (e.g., "Allow HTTP from ALB")'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['group_id', 'protocol', 'from_port']
+            },
+            'handler': authorize_security_group_ingress
+        },
+        # Load Balancer Management
+        {
+            'name': 'create_load_balancer',
+            'description': (
+                'Create an Application Load Balancer (ALB) or Network Load Balancer (NLB). '
+                'Requires at least 2 subnets in different availability zones. '
+                'For ALB, specify security groups. For internal services, set scheme to "internal".'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'name': {
+                        'type': 'string',
+                        'description': 'Load balancer name'
+                    },
+                    'subnets': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'List of subnet IDs (minimum 2 for ALB, in different AZs)'
+                    },
+                    'security_groups': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'List of security group IDs (ALB only)'
+                    },
+                    'scheme': {
+                        'type': 'string',
+                        'enum': ['internet-facing', 'internal'],
+                        'description': 'Load balancer scheme (default: internet-facing)',
+                        'default': 'internet-facing'
+                    },
+                    'lb_type': {
+                        'type': 'string',
+                        'enum': ['application', 'network'],
+                        'description': 'Load balancer type (default: application)',
+                        'default': 'application'
+                    },
+                    'tags': {
+                        'type': 'object',
+                        'description': 'Tags to apply'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['name', 'subnets']
+            },
+            'handler': create_load_balancer
+        },
+        {
+            'name': 'create_target_group',
+            'description': (
+                'Create a target group for a load balancer. '
+                'Target groups route requests to registered targets (instances, IPs, or Lambda functions). '
+                'Configure health checks to monitor target availability.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'name': {
+                        'type': 'string',
+                        'description': 'Target group name'
+                    },
+                    'protocol': {
+                        'type': 'string',
+                        'enum': ['HTTP', 'HTTPS', 'TCP', 'TLS', 'UDP', 'TCP_UDP'],
+                        'description': 'Protocol (default: HTTP)',
+                        'default': 'HTTP'
+                    },
+                    'port': {
+                        'type': 'integer',
+                        'description': 'Port number (default: 80)',
+                        'default': 80
+                    },
+                    'vpc_id': {
+                        'type': 'string',
+                        'description': 'VPC ID (required for instance/ip target types)'
+                    },
+                    'target_type': {
+                        'type': 'string',
+                        'enum': ['instance', 'ip', 'lambda'],
+                        'description': 'Target type (default: instance)',
+                        'default': 'instance'
+                    },
+                    'health_check_path': {
+                        'type': 'string',
+                        'description': 'Health check path (e.g., "/" or "/health")'
+                    },
+                    'health_check_interval_seconds': {
+                        'type': 'integer',
+                        'description': 'Health check interval in seconds (5-300, default: 30)',
+                        'default': 30
+                    },
+                    'health_check_protocol': {
+                        'type': 'string',
+                        'description': 'Health check protocol (defaults to target protocol)'
+                    },
+                    'tags': {
+                        'type': 'object',
+                        'description': 'Tags to apply'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['name', 'vpc_id']
+            },
+            'handler': create_target_group
+        },
+        {
+            'name': 'create_listener',
+            'description': (
+                'Create a listener on a load balancer to forward traffic to a target group. '
+                'A listener checks for connection requests and routes them to targets. '
+                'For HTTPS, provide an ACM certificate ARN.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'load_balancer_arn': {
+                        'type': 'string',
+                        'description': 'ARN of the load balancer'
+                    },
+                    'protocol': {
+                        'type': 'string',
+                        'enum': ['HTTP', 'HTTPS', 'TCP', 'TLS'],
+                        'description': 'Listener protocol (default: HTTP)',
+                        'default': 'HTTP'
+                    },
+                    'port': {
+                        'type': 'integer',
+                        'description': 'Listener port (default: 80)',
+                        'default': 80
+                    },
+                    'default_target_group_arn': {
+                        'type': 'string',
+                        'description': 'ARN of the default target group to forward traffic to'
+                    },
+                    'ssl_certificate_arn': {
+                        'type': 'string',
+                        'description': 'ACM certificate ARN (required for HTTPS/TLS listeners)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['load_balancer_arn', 'default_target_group_arn']
+            },
+            'handler': create_listener
+        },
+        {
+            'name': 'register_targets',
+            'description': (
+                'Register instances or IPs with a target group. '
+                'After registering, the load balancer starts routing traffic to these targets. '
+                'Each target needs an id (instance ID or IP) and optionally a port.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'target_group_arn': {
+                        'type': 'string',
+                        'description': 'ARN of the target group'
+                    },
+                    'targets': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'id': {
+                                    'type': 'string',
+                                    'description': 'Instance ID (e.g., i-xxxx) or IP address'
+                                },
+                                'port': {
+                                    'type': 'integer',
+                                    'description': 'Port override (optional, uses target group default if not specified)'
+                                }
+                            },
+                            'required': ['id']
+                        },
+                        'description': 'List of targets to register'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['target_group_arn', 'targets']
+            },
+            'handler': register_targets
+        },
+        {
+            'name': 'describe_target_health',
+            'description': (
+                'Check the health status of targets in a target group. '
+                'Shows whether each target is healthy, unhealthy, draining, or unused. '
+                'Use this to verify targets are receiving traffic after registration.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'target_group_arn': {
+                        'type': 'string',
+                        'description': 'ARN of the target group'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['target_group_arn']
+            },
+            'handler': describe_target_health
+        },
+        # ---- Security Group Management ----
+        {
+            'name': 'revoke_security_group_ingress',
+            'description': 'Remove an ingress rule from a security group. Supports CIDR or source security group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_id': {'type': 'string', 'description': 'Security group ID'},
+                    'protocol': {'type': 'string', 'description': 'Protocol (tcp, udp, icmp, -1)', 'default': 'tcp'},
+                    'from_port': {'type': 'integer', 'description': 'Start of port range'},
+                    'to_port': {'type': 'integer', 'description': 'End of port range'},
+                    'cidr': {'type': 'string', 'description': 'CIDR block to revoke'},
+                    'source_security_group_id': {'type': 'string', 'description': 'Source SG to revoke'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_id', 'protocol', 'from_port']
+            },
+            'handler': revoke_security_group_ingress
+        },
+        {
+            'name': 'delete_security_group',
+            'description': 'Delete a security group. Cannot delete if in use by instances.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_id': {'type': 'string', 'description': 'Security group ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_id']
+            },
+            'handler': delete_security_group
+        },
+        # ---- IAM Management ----
+        {
+            'name': 'create_iam_role',
+            'description': 'Create an IAM role with a trust policy (assume role policy document as JSON string).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_name': {'type': 'string', 'description': 'Name for the IAM role'},
+                    'assume_role_policy': {'type': 'string', 'description': 'Trust policy JSON document (who can assume this role)'},
+                    'description': {'type': 'string', 'description': 'Role description'},
+                    'tags': {'type': 'object', 'description': 'Tags to apply'}
+                },
+                'required': ['role_name', 'assume_role_policy']
+            },
+            'handler': create_iam_role
+        },
+        {
+            'name': 'create_iam_policy',
+            'description': 'Create an IAM policy from a JSON policy document.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'policy_name': {'type': 'string', 'description': 'Name for the policy'},
+                    'policy_document': {'type': 'string', 'description': 'IAM policy JSON document'},
+                    'description': {'type': 'string', 'description': 'Policy description'},
+                    'path': {'type': 'string', 'description': 'Path prefix (e.g., /app/)'}
+                },
+                'required': ['policy_name', 'policy_document']
+            },
+            'handler': create_iam_policy
+        },
+        {
+            'name': 'attach_iam_role_policy',
+            'description': 'Attach a managed policy to an IAM role.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_name': {'type': 'string', 'description': 'IAM role name'},
+                    'policy_arn': {'type': 'string', 'description': 'ARN of the policy to attach'}
+                },
+                'required': ['role_name', 'policy_arn']
+            },
+            'handler': attach_iam_role_policy
+        },
+        # ---- VPC & Networking ----
+        {
+            'name': 'create_vpc',
+            'description': 'Create a VPC with DNS support and hostnames enabled.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cidr_block': {'type': 'string', 'description': 'CIDR block (e.g., 10.0.0.0/16)'},
+                    'name': {'type': 'string', 'description': 'Name tag for the VPC'},
+                    'enable_dns_support': {'type': 'boolean', 'description': 'Enable DNS support (default: true)', 'default': True},
+                    'enable_dns_hostnames': {'type': 'boolean', 'description': 'Enable DNS hostnames (default: true)', 'default': True},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cidr_block']
+            },
+            'handler': create_vpc
+        },
+        {
+            'name': 'delete_vpc',
+            'description': 'Delete a VPC. All dependent resources (subnets, IGWs, etc.) must be deleted first.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id']
+            },
+            'handler': delete_vpc
+        },
+        {
+            'name': 'create_subnet',
+            'description': 'Create a subnet in a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'cidr_block': {'type': 'string', 'description': 'Subnet CIDR (e.g., 10.0.1.0/24)'},
+                    'availability_zone': {'type': 'string', 'description': 'AZ (e.g., us-east-1a)'},
+                    'name': {'type': 'string', 'description': 'Name tag'},
+                    'map_public_ip': {'type': 'boolean', 'description': 'Auto-assign public IPs (default: false)', 'default': False},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id', 'cidr_block']
+            },
+            'handler': create_subnet
+        },
+        {
+            'name': 'create_internet_gateway',
+            'description': 'Create an internet gateway and attach it to a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID to attach the IGW to'},
+                    'name': {'type': 'string', 'description': 'Name tag'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id']
+            },
+            'handler': create_internet_gateway
+        },
+        {
+            'name': 'create_route_table',
+            'description': (
+                'Create a route table, optionally add routes and associate with subnets. '
+                'Routes format: [{"cidr": "0.0.0.0/0", "gateway_id": "igw-xxx"}]'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'name': {'type': 'string', 'description': 'Name tag'},
+                    'routes': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'cidr': {'type': 'string', 'description': 'Destination CIDR'},
+                                'gateway_id': {'type': 'string', 'description': 'Internet gateway ID'},
+                                'nat_gateway_id': {'type': 'string', 'description': 'NAT gateway ID'},
+                                'instance_id': {'type': 'string', 'description': 'Instance ID'}
+                            },
+                            'required': ['cidr']
+                        },
+                        'description': 'Routes to add'
+                    },
+                    'subnet_ids': {
+                        'type': 'array', 'items': {'type': 'string'},
+                        'description': 'Subnet IDs to associate'
+                    },
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id']
+            },
+            'handler': create_route_table
+        },
+        {
+            'name': 'allocate_elastic_ip',
+            'description': 'Allocate an Elastic IP and optionally associate with an instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'instance_id': {'type': 'string', 'description': 'Instance ID to associate with (optional)'},
+                    'name': {'type': 'string', 'description': 'Name tag'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': allocate_elastic_ip
+        },
+        {
+            'name': 'release_elastic_ip',
+            'description': 'Release an Elastic IP address back to AWS.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'allocation_id': {'type': 'string', 'description': 'Allocation ID of the Elastic IP'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['allocation_id']
+            },
+            'handler': release_elastic_ip
+        },
+        # ---- CloudWatch ----
+        {
+            'name': 'create_cloudwatch_alarm',
+            'description': (
+                'Create a CloudWatch metric alarm for monitoring. '
+                'Common namespaces: AWS/EC2, AWS/RDS, AWS/ELB, AWS/Lambda.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'alarm_name': {'type': 'string', 'description': 'Alarm name'},
+                    'metric_name': {'type': 'string', 'description': 'Metric name (e.g., CPUUtilization, DatabaseConnections)'},
+                    'namespace': {'type': 'string', 'description': 'Metric namespace (e.g., AWS/EC2, AWS/RDS)'},
+                    'statistic': {'type': 'string', 'enum': ['Average', 'Sum', 'Minimum', 'Maximum', 'SampleCount'], 'default': 'Average'},
+                    'period': {'type': 'integer', 'description': 'Period in seconds (default: 300)', 'default': 300},
+                    'evaluation_periods': {'type': 'integer', 'description': 'Evaluation periods (default: 1)', 'default': 1},
+                    'threshold': {'type': 'number', 'description': 'Threshold value (default: 80)', 'default': 80},
+                    'comparison_operator': {
+                        'type': 'string',
+                        'enum': ['GreaterThanThreshold', 'LessThanThreshold', 'GreaterThanOrEqualToThreshold', 'LessThanOrEqualToThreshold'],
+                        'default': 'GreaterThanThreshold'
+                    },
+                    'dimensions': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'name': {'type': 'string'}, 'value': {'type': 'string'}
+                            },
+                            'required': ['name', 'value']
+                        },
+                        'description': 'Dimensions (e.g., [{"name": "InstanceId", "value": "i-xxx"}])'
+                    },
+                    'alarm_actions': {
+                        'type': 'array', 'items': {'type': 'string'},
+                        'description': 'SNS topic ARNs to notify on alarm'
+                    },
+                    'description': {'type': 'string', 'description': 'Alarm description'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['alarm_name', 'metric_name', 'namespace']
+            },
+            'handler': create_cloudwatch_alarm
+        },
+        # ---- Route 53 DNS ----
+        {
+            'name': 'create_route53_record',
+            'description': 'Create or update a DNS record in Route 53 (UPSERT by default).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'hosted_zone_id': {'type': 'string', 'description': 'Hosted zone ID'},
+                    'record_name': {'type': 'string', 'description': 'DNS record name (e.g., app.example.com)'},
+                    'record_type': {'type': 'string', 'enum': ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV'], 'description': 'Record type'},
+                    'record_value': {'type': 'string', 'description': 'Record value (IP, hostname, etc.)'},
+                    'ttl': {'type': 'integer', 'description': 'TTL in seconds (default: 300)', 'default': 300},
+                    'action': {'type': 'string', 'enum': ['CREATE', 'UPSERT'], 'description': 'Action (default: UPSERT)', 'default': 'UPSERT'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['hosted_zone_id', 'record_name', 'record_type', 'record_value']
+            },
+            'handler': create_route53_record
+        },
+        {
+            'name': 'delete_route53_record',
+            'description': 'Delete a DNS record from Route 53. Must specify exact current values.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'hosted_zone_id': {'type': 'string', 'description': 'Hosted zone ID'},
+                    'record_name': {'type': 'string', 'description': 'DNS record name'},
+                    'record_type': {'type': 'string', 'description': 'Record type (A, CNAME, etc.)'},
+                    'record_value': {'type': 'string', 'description': 'Current record value'},
+                    'ttl': {'type': 'integer', 'description': 'Current TTL (default: 300)', 'default': 300},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['hosted_zone_id', 'record_name', 'record_type', 'record_value']
+            },
+            'handler': delete_route53_record
+        },
+        # ---- CloudFormation ----
+        {
+            'name': 'create_cloudformation_stack',
+            'description': 'Create a CloudFormation stack from a template body or S3 URL.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'stack_name': {'type': 'string', 'description': 'Stack name'},
+                    'template_body': {'type': 'string', 'description': 'Template body (JSON/YAML string)'},
+                    'template_url': {'type': 'string', 'description': 'S3 URL to template (alternative to template_body)'},
+                    'parameters': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {'key': {'type': 'string'}, 'value': {'type': 'string'}},
+                            'required': ['key', 'value']
+                        },
+                        'description': 'Stack parameters'
+                    },
+                    'capabilities': {
+                        'type': 'array', 'items': {'type': 'string'},
+                        'description': 'Capabilities (e.g., ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"])'
+                    },
+                    'tags': {'type': 'object', 'description': 'Tags to apply'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['stack_name']
+            },
+            'handler': create_cloudformation_stack
+        },
+        {
+            'name': 'update_cloudformation_stack',
+            'description': 'Update an existing CloudFormation stack with new template or parameters.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'stack_name': {'type': 'string', 'description': 'Stack name'},
+                    'template_body': {'type': 'string', 'description': 'Updated template body'},
+                    'template_url': {'type': 'string', 'description': 'S3 URL to updated template'},
+                    'parameters': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {'key': {'type': 'string'}, 'value': {'type': 'string'}},
+                            'required': ['key', 'value']
+                        }
+                    },
+                    'capabilities': {'type': 'array', 'items': {'type': 'string'}},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['stack_name']
+            },
+            'handler': update_cloudformation_stack
+        },
+        {
+            'name': 'delete_cloudformation_stack',
+            'description': 'Delete a CloudFormation stack and all its resources.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'stack_name': {'type': 'string', 'description': 'Stack name or ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['stack_name']
+            },
+            'handler': delete_cloudformation_stack
+        },
+        # ---- ECS Container Management ----
+        {
+            'name': 'create_ecs_cluster',
+            'description': 'Create an ECS cluster for running containerized applications.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'Cluster name'},
+                    'capacity_providers': {
+                        'type': 'array', 'items': {'type': 'string'},
+                        'description': 'Capacity providers (e.g., ["FARGATE", "FARGATE_SPOT"])'
+                    },
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': create_ecs_cluster
+        },
+        {
+            'name': 'run_ecs_task',
+            'description': 'Run a task on an ECS cluster (Fargate or EC2 launch type).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster': {'type': 'string', 'description': 'Cluster name or ARN'},
+                    'task_definition': {'type': 'string', 'description': 'Task definition family:revision or ARN'},
+                    'count': {'type': 'integer', 'description': 'Number of tasks (default: 1)', 'default': 1},
+                    'launch_type': {'type': 'string', 'enum': ['FARGATE', 'EC2'], 'default': 'FARGATE'},
+                    'subnets': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Subnet IDs (required for Fargate)'},
+                    'security_groups': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Security group IDs'},
+                    'assign_public_ip': {'type': 'boolean', 'description': 'Assign public IP (default: true)', 'default': True},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster', 'task_definition']
+            },
+            'handler': run_ecs_task
+        },
+        {
+            'name': 'update_ecs_service',
+            'description': 'Update an ECS service (desired count, task definition, or force new deployment).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster': {'type': 'string', 'description': 'Cluster name or ARN'},
+                    'service': {'type': 'string', 'description': 'Service name or ARN'},
+                    'desired_count': {'type': 'integer', 'description': 'New desired task count'},
+                    'task_definition': {'type': 'string', 'description': 'New task definition'},
+                    'force_new_deployment': {'type': 'boolean', 'description': 'Force new deployment (default: false)', 'default': False},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster', 'service']
+            },
+            'handler': update_ecs_service
+        },
+        # ---- SNS Messaging ----
+        {
+            'name': 'create_sns_topic',
+            'description': 'Create an SNS topic for pub/sub messaging.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'topic_name': {'type': 'string', 'description': 'Topic name'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['topic_name']
+            },
+            'handler': create_sns_topic
+        },
+        {
+            'name': 'publish_sns_message',
+            'description': 'Publish a message to an SNS topic.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'topic_arn': {'type': 'string', 'description': 'SNS topic ARN'},
+                    'message': {'type': 'string', 'description': 'Message body'},
+                    'subject': {'type': 'string', 'description': 'Message subject (for email subscribers)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['topic_arn', 'message']
+            },
+            'handler': publish_sns_message
+        },
+        {
+            'name': 'subscribe_sns_topic',
+            'description': 'Subscribe an endpoint to an SNS topic (email, SMS, Lambda, SQS, HTTP/S).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'topic_arn': {'type': 'string', 'description': 'SNS topic ARN'},
+                    'protocol': {'type': 'string', 'enum': ['email', 'sms', 'lambda', 'sqs', 'http', 'https'], 'description': 'Subscription protocol'},
+                    'endpoint': {'type': 'string', 'description': 'Endpoint (email address, phone, Lambda ARN, SQS ARN, URL)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['topic_arn', 'protocol', 'endpoint']
+            },
+            'handler': subscribe_sns_topic
+        },
+        # ---- SQS Messaging ----
+        {
+            'name': 'create_sqs_queue',
+            'description': 'Create an SQS queue (standard or FIFO).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'queue_name': {'type': 'string', 'description': 'Queue name'},
+                    'fifo': {'type': 'boolean', 'description': 'Create FIFO queue (default: false)', 'default': False},
+                    'visibility_timeout': {'type': 'integer', 'description': 'Visibility timeout in seconds (default: 30)', 'default': 30},
+                    'message_retention_period': {'type': 'integer', 'description': 'Message retention in seconds (default: 345600 = 4 days)', 'default': 345600},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['queue_name']
+            },
+            'handler': create_sqs_queue
+        },
+        {
+            'name': 'send_sqs_message',
+            'description': 'Send a message to an SQS queue.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'queue_url': {'type': 'string', 'description': 'SQS queue URL'},
+                    'message_body': {'type': 'string', 'description': 'Message body'},
+                    'delay_seconds': {'type': 'integer', 'description': 'Delay in seconds (0-900)', 'default': 0},
+                    'message_group_id': {'type': 'string', 'description': 'Message group ID (FIFO queues only)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['queue_url', 'message_body']
+            },
+            'handler': send_sqs_message
+        },
+        # ---- DynamoDB ----
+        {
+            'name': 'create_dynamodb_table',
+            'description': 'Create a DynamoDB table with partition key and optional sort key.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'table_name': {'type': 'string', 'description': 'Table name'},
+                    'partition_key': {'type': 'string', 'description': 'Partition key attribute name'},
+                    'partition_key_type': {'type': 'string', 'enum': ['S', 'N', 'B'], 'description': 'Partition key type (S=String, N=Number, B=Binary)', 'default': 'S'},
+                    'sort_key': {'type': 'string', 'description': 'Sort key attribute name (optional)'},
+                    'sort_key_type': {'type': 'string', 'enum': ['S', 'N', 'B'], 'description': 'Sort key type', 'default': 'S'},
+                    'billing_mode': {'type': 'string', 'enum': ['PAY_PER_REQUEST', 'PROVISIONED'], 'default': 'PAY_PER_REQUEST'},
+                    'read_capacity': {'type': 'integer', 'description': 'Read capacity units (provisioned mode)', 'default': 5},
+                    'write_capacity': {'type': 'integer', 'description': 'Write capacity units (provisioned mode)', 'default': 5},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['table_name', 'partition_key']
+            },
+            'handler': create_dynamodb_table
+        },
+        {
+            'name': 'delete_dynamodb_table',
+            'description': 'Delete a DynamoDB table and all its data.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'table_name': {'type': 'string', 'description': 'Table name to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['table_name']
+            },
+            'handler': delete_dynamodb_table
+        },
+        # ---- SSM Operations ----
+        {
+            'name': 'ssm_run_command',
+            'description': 'Run a shell command on EC2 instances via SSM (no SSH required). Instances must have SSM agent.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'instance_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Instance IDs to run on'},
+                    'commands': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Shell commands to run'},
+                    'document_name': {'type': 'string', 'description': 'SSM document (default: AWS-RunShellScript)', 'default': 'AWS-RunShellScript'},
+                    'comment': {'type': 'string', 'description': 'Comment for the command'},
+                    'timeout_seconds': {'type': 'integer', 'description': 'Timeout in seconds (default: 600)', 'default': 600},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['instance_ids', 'commands']
+            },
+            'handler': ssm_run_command
+        },
+        {
+            'name': 'ssm_put_parameter',
+            'description': 'Create or update an SSM Parameter Store parameter.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string', 'description': 'Parameter name (e.g., /app/db/password)'},
+                    'value': {'type': 'string', 'description': 'Parameter value'},
+                    'param_type': {'type': 'string', 'enum': ['String', 'StringList', 'SecureString'], 'default': 'String'},
+                    'description': {'type': 'string', 'description': 'Parameter description'},
+                    'overwrite': {'type': 'boolean', 'description': 'Overwrite if exists (default: false)', 'default': False},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['name', 'value']
+            },
+            'handler': ssm_put_parameter
+        },
+        # ---- Auto Scaling ----
+        {
+            'name': 'create_launch_template',
+            'description': 'Create an EC2 launch template for use with Auto Scaling groups.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'template_name': {'type': 'string', 'description': 'Launch template name'},
+                    'ami_id': {'type': 'string', 'description': 'AMI ID'},
+                    'instance_type': {'type': 'string', 'description': 'Instance type'},
+                    'key_name': {'type': 'string', 'description': 'SSH key pair name'},
+                    'security_group_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Security group IDs'},
+                    'user_data': {'type': 'string', 'description': 'User data script (plain text, will be base64 encoded)'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['template_name', 'ami_id', 'instance_type']
+            },
+            'handler': create_launch_template
+        },
+        {
+            'name': 'create_auto_scaling_group',
+            'description': 'Create an Auto Scaling group from a launch template.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'ASG name'},
+                    'launch_template_id': {'type': 'string', 'description': 'Launch template ID'},
+                    'launch_template_name': {'type': 'string', 'description': 'Launch template name (alternative to ID)'},
+                    'min_size': {'type': 'integer', 'description': 'Minimum instances (default: 1)', 'default': 1},
+                    'max_size': {'type': 'integer', 'description': 'Maximum instances (default: 1)', 'default': 1},
+                    'desired_capacity': {'type': 'integer', 'description': 'Desired instances (default: 1)', 'default': 1},
+                    'subnet_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Subnet IDs for placement'},
+                    'target_group_arns': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Target group ARNs for ALB'},
+                    'health_check_type': {'type': 'string', 'enum': ['EC2', 'ELB'], 'default': 'EC2'},
+                    'health_check_grace_period': {'type': 'integer', 'description': 'Grace period in seconds (default: 300)', 'default': 300},
+                    'tags': {'type': 'object', 'description': 'Tags (propagated to instances)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_name']
+            },
+            'handler': create_auto_scaling_group
+        },
+        {
+            'name': 'update_auto_scaling_group',
+            'description': 'Update Auto Scaling group capacity (min, max, desired).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'ASG name'},
+                    'min_size': {'type': 'integer', 'description': 'New minimum'},
+                    'max_size': {'type': 'integer', 'description': 'New maximum'},
+                    'desired_capacity': {'type': 'integer', 'description': 'New desired capacity'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_name']
+            },
+            'handler': update_auto_scaling_group
+        },
+        # ---- ALB Lifecycle (Delete) ----
+        {
+            'name': 'delete_load_balancer',
+            'description': 'Delete a load balancer.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'load_balancer_arn': {'type': 'string', 'description': 'Load balancer ARN'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['load_balancer_arn']
+            },
+            'handler': delete_load_balancer
+        },
+        {
+            'name': 'delete_target_group',
+            'description': 'Delete a target group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'target_group_arn': {'type': 'string', 'description': 'Target group ARN'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['target_group_arn']
+            },
+            'handler': delete_target_group
+        },
+        {
+            'name': 'deregister_targets',
+            'description': 'Deregister targets from a target group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'target_group_arn': {'type': 'string', 'description': 'Target group ARN'},
+                    'targets': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'id': {'type': 'string', 'description': 'Instance ID or IP'},
+                                'port': {'type': 'integer', 'description': 'Port (optional)'}
+                            },
+                            'required': ['id']
+                        },
+                        'description': 'Targets to deregister'
+                    },
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['target_group_arn', 'targets']
+            },
+            'handler': deregister_targets
+        },
+        # ---- EBS Storage ----
+        {
+            'name': 'create_ebs_volume',
+            'description': 'Create an EBS volume (encrypted by default).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'availability_zone': {'type': 'string', 'description': 'AZ (e.g., us-east-1a) - must match instance AZ'},
+                    'size': {'type': 'integer', 'description': 'Volume size in GB (default: 20)', 'default': 20},
+                    'volume_type': {'type': 'string', 'enum': ['gp3', 'gp2', 'io1', 'io2', 'st1', 'sc1', 'standard'], 'default': 'gp3'},
+                    'encrypted': {'type': 'boolean', 'description': 'Encrypt volume (default: true)', 'default': True},
+                    'iops': {'type': 'integer', 'description': 'IOPS (for io1/io2/gp3)'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['availability_zone']
+            },
+            'handler': create_ebs_volume
+        },
+        {
+            'name': 'attach_ebs_volume',
+            'description': 'Attach an EBS volume to an EC2 instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'volume_id': {'type': 'string', 'description': 'EBS volume ID'},
+                    'instance_id': {'type': 'string', 'description': 'EC2 instance ID'},
+                    'device': {'type': 'string', 'description': 'Device name (e.g., /dev/sdf)', 'default': '/dev/sdf'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['volume_id', 'instance_id']
+            },
+            'handler': attach_ebs_volume
+        },
+        {
+            'name': 'create_ebs_snapshot',
+            'description': 'Create a snapshot of an EBS volume for backup.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'volume_id': {'type': 'string', 'description': 'EBS volume ID'},
+                    'description': {'type': 'string', 'description': 'Snapshot description'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['volume_id']
+            },
+            'handler': create_ebs_snapshot
+        },
+        # ---- ACM Certificates ----
+        {
+            'name': 'request_acm_certificate',
+            'description': 'Request an SSL/TLS certificate from AWS Certificate Manager.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'domain_name': {'type': 'string', 'description': 'Primary domain (e.g., example.com)'},
+                    'validation_method': {'type': 'string', 'enum': ['DNS', 'EMAIL'], 'default': 'DNS'},
+                    'subject_alternative_names': {
+                        'type': 'array', 'items': {'type': 'string'},
+                        'description': 'SANs (e.g., ["*.example.com", "api.example.com"])'
+                    },
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['domain_name']
+            },
+            'handler': request_acm_certificate
+        },
+        # ---- Previously Unregistered Existing Tools ----
+        {
+            'name': 'list_cloudtrail_trails',
+            'description': 'List CloudTrail trails for audit logging.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_cloudtrail_trails
+        },
+        {
+            'name': 'list_config_rules',
+            'description': 'List AWS Config rules for compliance monitoring.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_config_rules
+        },
+        {
+            'name': 'list_organization_accounts',
+            'description': 'List AWS Organization member accounts.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {}
+            },
+            'handler': list_organization_accounts
+        },
+        {
+            'name': 'list_service_catalog_products',
+            'description': 'List AWS Service Catalog products.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_service_catalog_products
+        },
+        {
+            'name': 'list_trusted_advisor_checks',
+            'description': 'List AWS Trusted Advisor checks for cost optimization, security, and performance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_trusted_advisor_checks
+        },
+        {
+            'name': 'list_resource_groups',
+            'description': 'List AWS Resource Groups.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_resource_groups
+        },
+        {
+            'name': 'list_codeartifact_repositories',
+            'description': 'List AWS CodeArtifact repositories for package management.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_codeartifact_repositories
+        },
+        {
+            'name': 'list_xray_traces',
+            'description': 'List recent AWS X-Ray traces for distributed tracing.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_xray_traces
+        },
+        # ---- EKS Kubernetes ----
+        {
+            'name': 'create_eks_cluster',
+            'description': 'Create an EKS (Kubernetes) cluster. Requires a service role ARN and subnets.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'Cluster name'},
+                    'role_arn': {'type': 'string', 'description': 'IAM role ARN for the EKS service'},
+                    'subnet_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Subnet IDs (at least 2)'},
+                    'security_group_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Security group IDs'},
+                    'kubernetes_version': {'type': 'string', 'description': 'K8s version (e.g., 1.28)'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'role_arn', 'subnet_ids']
+            },
+            'handler': create_eks_cluster
+        },
+        {
+            'name': 'delete_eks_cluster',
+            'description': 'Delete an EKS cluster. All node groups must be deleted first.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'Cluster name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': delete_eks_cluster
+        },
+        {
+            'name': 'create_eks_node_group',
+            'description': 'Create a managed node group for an EKS cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'node_group_name': {'type': 'string', 'description': 'Node group name'},
+                    'node_role_arn': {'type': 'string', 'description': 'IAM role ARN for worker nodes'},
+                    'subnet_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Subnet IDs'},
+                    'instance_types': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Instance types (e.g., ["t3.medium"])'},
+                    'scaling_config_min': {'type': 'integer', 'description': 'Min nodes (default: 1)', 'default': 1},
+                    'scaling_config_max': {'type': 'integer', 'description': 'Max nodes (default: 3)', 'default': 3},
+                    'scaling_config_desired': {'type': 'integer', 'description': 'Desired nodes (default: 2)', 'default': 2},
+                    'disk_size': {'type': 'integer', 'description': 'Disk size GB (default: 20)', 'default': 20},
+                    'ami_type': {'type': 'string', 'enum': ['AL2_x86_64', 'AL2_x86_64_GPU', 'AL2_ARM_64'], 'default': 'AL2_x86_64'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'node_group_name', 'node_role_arn', 'subnet_ids']
+            },
+            'handler': create_eks_node_group
+        },
+        # ---- ECR Container Registry ----
+        {
+            'name': 'create_ecr_repository',
+            'description': 'Create an ECR repository for Docker container images.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'repository_name': {'type': 'string', 'description': 'Repository name'},
+                    'image_tag_mutability': {'type': 'string', 'enum': ['MUTABLE', 'IMMUTABLE'], 'default': 'MUTABLE'},
+                    'scan_on_push': {'type': 'boolean', 'description': 'Scan images on push (default: true)', 'default': True},
+                    'encryption_type': {'type': 'string', 'enum': ['AES256', 'KMS'], 'default': 'AES256'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['repository_name']
+            },
+            'handler': create_ecr_repository
+        },
+        {
+            'name': 'delete_ecr_repository',
+            'description': 'Delete an ECR repository. Use force=true to delete even with images.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'repository_name': {'type': 'string', 'description': 'Repository name'},
+                    'force': {'type': 'boolean', 'description': 'Force delete with images (default: false)', 'default': False},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['repository_name']
+            },
+            'handler': delete_ecr_repository
+        },
+        # ---- Secrets Manager ----
+        {
+            'name': 'create_secret',
+            'description': 'Create a secret in AWS Secrets Manager.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'secret_name': {'type': 'string', 'description': 'Secret name'},
+                    'secret_value': {'type': 'string', 'description': 'Secret value (string or JSON)'},
+                    'description': {'type': 'string', 'description': 'Description'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['secret_name', 'secret_value']
+            },
+            'handler': create_secret
+        },
+        {
+            'name': 'update_secret',
+            'description': 'Update the value of a secret in Secrets Manager.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'secret_name': {'type': 'string', 'description': 'Secret name or ARN'},
+                    'secret_value': {'type': 'string', 'description': 'New secret value'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['secret_name', 'secret_value']
+            },
+            'handler': update_secret
+        },
+        {
+            'name': 'delete_secret',
+            'description': 'Delete a secret from Secrets Manager (30-day recovery window by default).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'secret_name': {'type': 'string', 'description': 'Secret name or ARN'},
+                    'force_delete': {'type': 'boolean', 'description': 'Skip recovery window (default: false)', 'default': False},
+                    'recovery_window_days': {'type': 'integer', 'description': 'Recovery window in days (7-30, default: 30)', 'default': 30},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['secret_name']
+            },
+            'handler': delete_secret
+        },
+        # ---- CloudFront ----
+        {
+            'name': 'create_cloudfront_invalidation',
+            'description': 'Invalidate CloudFront cache for specified paths (e.g., ["/*"] for all).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'distribution_id': {'type': 'string', 'description': 'CloudFront distribution ID'},
+                    'paths': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Paths to invalidate (e.g., ["/*", "/images/*"])'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['distribution_id', 'paths']
+            },
+            'handler': create_cloudfront_invalidation
+        },
+        # ---- NAT Gateway ----
+        {
+            'name': 'create_nat_gateway',
+            'description': 'Create a NAT gateway in a public subnet for private subnet internet access.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'subnet_id': {'type': 'string', 'description': 'Public subnet ID'},
+                    'allocation_id': {'type': 'string', 'description': 'Elastic IP allocation ID (required for public NAT)'},
+                    'connectivity_type': {'type': 'string', 'enum': ['public', 'private'], 'default': 'public'},
+                    'name': {'type': 'string', 'description': 'Name tag'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['subnet_id']
+            },
+            'handler': create_nat_gateway
+        },
+        {
+            'name': 'delete_nat_gateway',
+            'description': 'Delete a NAT gateway.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'nat_gateway_id': {'type': 'string', 'description': 'NAT gateway ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['nat_gateway_id']
+            },
+            'handler': delete_nat_gateway
+        },
+        # ---- ElastiCache ----
+        {
+            'name': 'create_elasticache_cluster',
+            'description': 'Create an ElastiCache cluster (Redis or Memcached).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_id': {'type': 'string', 'description': 'Cluster ID'},
+                    'engine': {'type': 'string', 'enum': ['redis', 'memcached'], 'default': 'redis'},
+                    'node_type': {'type': 'string', 'description': 'Node type (default: cache.t3.micro)', 'default': 'cache.t3.micro'},
+                    'num_nodes': {'type': 'integer', 'description': 'Number of nodes (default: 1)', 'default': 1},
+                    'engine_version': {'type': 'string', 'description': 'Engine version'},
+                    'security_group_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Security group IDs'},
+                    'subnet_group_name': {'type': 'string', 'description': 'Cache subnet group name'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_id']
+            },
+            'handler': create_elasticache_cluster
+        },
+        {
+            'name': 'delete_elasticache_cluster',
+            'description': 'Delete an ElastiCache cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_id': {'type': 'string', 'description': 'Cluster ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_id']
+            },
+            'handler': delete_elasticache_cluster
+        },
+        # ---- EFS File System ----
+        {
+            'name': 'create_efs_file_system',
+            'description': 'Create an EFS file system (encrypted by default).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'creation_token': {'type': 'string', 'description': 'Unique creation token (auto-generated if not specified)'},
+                    'performance_mode': {'type': 'string', 'enum': ['generalPurpose', 'maxIO'], 'default': 'generalPurpose'},
+                    'throughput_mode': {'type': 'string', 'enum': ['bursting', 'provisioned', 'elastic'], 'default': 'bursting'},
+                    'encrypted': {'type': 'boolean', 'description': 'Encrypt at rest (default: true)', 'default': True},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': create_efs_file_system
+        },
+        {
+            'name': 'delete_efs_file_system',
+            'description': 'Delete an EFS file system. Mount targets must be deleted first.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'file_system_id': {'type': 'string', 'description': 'EFS file system ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['file_system_id']
+            },
+            'handler': delete_efs_file_system
+        },
+        # ---- EventBridge ----
+        {
+            'name': 'create_eventbridge_rule',
+            'description': (
+                'Create an EventBridge rule for scheduling or event matching. '
+                'Schedule examples: "rate(5 minutes)", "cron(0 12 * * ? *)".'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'rule_name': {'type': 'string', 'description': 'Rule name'},
+                    'schedule_expression': {'type': 'string', 'description': 'Schedule (e.g., "rate(1 hour)", "cron(0 12 * * ? *)")'},
+                    'event_pattern': {'type': 'string', 'description': 'Event pattern JSON (alternative to schedule)'},
+                    'state': {'type': 'string', 'enum': ['ENABLED', 'DISABLED'], 'default': 'ENABLED'},
+                    'description': {'type': 'string', 'description': 'Rule description'},
+                    'event_bus_name': {'type': 'string', 'description': 'Event bus name (default: default)'},
+                    'targets': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'id': {'type': 'string', 'description': 'Target ID'},
+                                'arn': {'type': 'string', 'description': 'Target ARN (Lambda, SNS, SQS, etc.)'}
+                            },
+                            'required': ['id', 'arn']
+                        },
+                        'description': 'Targets to invoke when rule matches'
+                    },
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['rule_name']
+            },
+            'handler': create_eventbridge_rule
+        },
+        {
+            'name': 'delete_eventbridge_rule',
+            'description': 'Delete an EventBridge rule and its targets.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'rule_name': {'type': 'string', 'description': 'Rule name'},
+                    'event_bus_name': {'type': 'string', 'description': 'Event bus name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['rule_name']
+            },
+            'handler': delete_eventbridge_rule
+        },
+        # ---- Step Functions ----
+        {
+            'name': 'start_step_function_execution',
+            'description': 'Start an execution of a Step Functions state machine.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'state_machine_arn': {'type': 'string', 'description': 'State machine ARN'},
+                    'execution_name': {'type': 'string', 'description': 'Execution name (auto-generated if not specified)'},
+                    'input_data': {'type': 'string', 'description': 'Input JSON string for the execution'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['state_machine_arn']
+            },
+            'handler': start_step_function_execution
+        },
+        # ---- Kinesis ----
+        {
+            'name': 'create_kinesis_stream',
+            'description': 'Create a Kinesis data stream for real-time data processing.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'stream_name': {'type': 'string', 'description': 'Stream name'},
+                    'shard_count': {'type': 'integer', 'description': 'Number of shards (default: 1)', 'default': 1},
+                    'stream_mode': {'type': 'string', 'enum': ['PROVISIONED', 'ON_DEMAND'], 'default': 'PROVISIONED'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['stream_name']
+            },
+            'handler': create_kinesis_stream
+        },
+        {
+            'name': 'delete_kinesis_stream',
+            'description': 'Delete a Kinesis data stream.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'stream_name': {'type': 'string', 'description': 'Stream name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['stream_name']
+            },
+            'handler': delete_kinesis_stream
+        },
+        # ---- Round 4: Delete/Update completions ----
+        {
+            'name': 'delete_rds_instance',
+            'description': 'Delete an RDS database instance. Optionally skip final snapshot.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_id': {'type': 'string', 'description': 'DB instance identifier'},
+                    'skip_final_snapshot': {'type': 'boolean', 'description': 'Skip final snapshot (default: False)', 'default': False},
+                    'final_snapshot_id': {'type': 'string', 'description': 'Final snapshot identifier (required if skip_final_snapshot is False)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_id']
+            },
+            'handler': delete_rds_instance
+        },
+        {
+            'name': 'delete_lambda_function',
+            'description': 'Delete a Lambda function.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'function_name': {'type': 'string', 'description': 'Function name or ARN'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['function_name']
+            },
+            'handler': delete_lambda_function
+        },
+        {
+            'name': 'update_lambda_function_config',
+            'description': 'Update a Lambda function configuration (memory, timeout, env vars, runtime).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'function_name': {'type': 'string', 'description': 'Function name or ARN'},
+                    'memory_size': {'type': 'integer', 'description': 'Memory in MB (128-10240)'},
+                    'timeout': {'type': 'integer', 'description': 'Timeout in seconds (1-900)'},
+                    'runtime': {'type': 'string', 'description': 'Runtime (e.g., python3.12, nodejs20.x)'},
+                    'environment': {'type': 'object', 'description': 'Environment variables as key-value pairs'},
+                    'description': {'type': 'string', 'description': 'Function description'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['function_name']
+            },
+            'handler': update_lambda_function_config
+        },
+        {
+            'name': 'delete_ecs_cluster',
+            'description': 'Delete an ECS cluster (must have no running services or tasks).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'Cluster name or ARN'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': delete_ecs_cluster
+        },
+        {
+            'name': 'delete_sns_topic',
+            'description': 'Delete an SNS topic and all its subscriptions.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'topic_arn': {'type': 'string', 'description': 'SNS topic ARN'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['topic_arn']
+            },
+            'handler': delete_sns_topic
+        },
+        {
+            'name': 'delete_sqs_queue',
+            'description': 'Delete an SQS queue.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'queue_url': {'type': 'string', 'description': 'SQS queue URL'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['queue_url']
+            },
+            'handler': delete_sqs_queue
+        },
+        {
+            'name': 'delete_iam_role',
+            'description': 'Delete an IAM role. Automatically detaches all policies and removes from instance profiles first.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_name': {'type': 'string', 'description': 'IAM role name'}
+                },
+                'required': ['role_name']
+            },
+            'handler': delete_iam_role
+        },
+        {
+            'name': 'delete_listener',
+            'description': 'Delete a listener from a load balancer.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'listener_arn': {'type': 'string', 'description': 'Listener ARN'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['listener_arn']
+            },
+            'handler': delete_listener
+        },
+        {
+            'name': 'delete_subnet',
+            'description': 'Delete a subnet from a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'subnet_id': {'type': 'string', 'description': 'Subnet ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['subnet_id']
+            },
+            'handler': delete_subnet
+        },
+        {
+            'name': 'detach_ebs_volume',
+            'description': 'Detach an EBS volume from an EC2 instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'volume_id': {'type': 'string', 'description': 'EBS volume ID'},
+                    'instance_id': {'type': 'string', 'description': 'Instance ID (optional, detaches from current)'},
+                    'force': {'type': 'boolean', 'description': 'Force detach (default: False)', 'default': False},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['volume_id']
+            },
+            'handler': detach_ebs_volume
+        },
+        {
+            'name': 'list_service_quotas',
+            'description': 'List AWS service quotas (limits) for a specific service like EC2, S3, Lambda, etc.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'service_code': {'type': 'string', 'description': 'AWS service code (e.g., "ec2", "s3", "lambda", "rds")'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['service_code']
+            },
+            'handler': list_service_quotas
         }
     ]

@@ -413,6 +413,17 @@ class SubscriptionTier(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Feature limits
+    max_cloud_accounts = db.Column(db.Integer, default=1)
+    max_resources = db.Column(db.Integer, default=50)
+    max_team_members = db.Column(db.Integer, default=1)
+    sync_interval_minutes = db.Column(db.Integer, default=0)  # 0 = manual only
+    compliance_frameworks = db.Column(db.JSON, default=list)
+    has_pdf_export = db.Column(db.Boolean, default=False)
+    has_auto_remediation = db.Column(db.Boolean, default=False)
+    has_sso = db.Column(db.Boolean, default=False)
+    has_audit_export = db.Column(db.Boolean, default=False)
+
     def to_dict(self):
         """Convert tier to dictionary"""
         return {
@@ -423,7 +434,16 @@ class SubscriptionTier(db.Model):
             'monthly_credits': self.monthly_credits,
             'description': self.description,
             'features': self.features or [],
-            'is_active': self.is_active
+            'is_active': self.is_active,
+            'max_cloud_accounts': self.max_cloud_accounts or 1,
+            'max_resources': self.max_resources or 50,
+            'max_team_members': self.max_team_members or 1,
+            'sync_interval_minutes': self.sync_interval_minutes or 0,
+            'compliance_frameworks': self.compliance_frameworks or [],
+            'has_pdf_export': self.has_pdf_export or False,
+            'has_auto_remediation': self.has_auto_remediation or False,
+            'has_sso': self.has_sso or False,
+            'has_audit_export': self.has_audit_export or False,
         }
 
     def __repr__(self):
@@ -453,6 +473,7 @@ class UserSubscription(db.Model):
     stripe_customer_id = db.Column(db.String(100), unique=True, index=True)
     stripe_subscription_id = db.Column(db.String(100), unique=True, index=True)
     payment_status = db.Column(db.String(20), default='active')  # active, cancelled, past_due, unpaid
+    payment_failed_at = db.Column(db.DateTime, nullable=True)
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1943,3 +1964,12 @@ class BudgetAlert(db.Model):
             'last_checked_amount': self.last_checked_amount,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class StripeWebhookEvent(db.Model):
+    """Track processed Stripe webhook events for idempotency"""
+    __tablename__ = 'stripe_webhook_events'
+
+    id = db.Column(db.String(100), primary_key=True)
+    event_type = db.Column(db.String(100), nullable=False)
+    processed_at = db.Column(db.DateTime, default=datetime.utcnow)

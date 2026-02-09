@@ -62,27 +62,56 @@ def sync_cloud_resources(self, user_id: int, provider: str):
 @shared_task(bind=True, max_retries=3)
 def sync_all_user_resources(self):
     """
-    Sync resources for all active users.
-    Called periodically by Celery Beat.
+    Sync resources for all active users based on their tier's sync interval.
+    Called every 15 minutes by Celery Beat.
+    Users with sync_interval_minutes=0 (manual only) are skipped.
     """
     try:
         from app import app, db
-        from models import User
+        from models import User, UserSubscription, UserCloudCredential
+        from datetime import datetime, timedelta
 
         with app.app_context():
-            # Get users who have cloud credentials configured
             active_users = User.query.filter(
                 User.is_active == True
             ).all()
 
             synced = 0
+            skipped = 0
             for user in active_users:
-                # Queue individual sync tasks
-                for provider in ['aws', 'gcp', 'azure']:
-                    sync_cloud_resources.delay(user.id, provider)
+                # Check tier sync interval
+                sub = UserSubscription.query.filter_by(user_id=user.id).first()
+                if not sub or not sub.tier:
+                    skipped += 1
+                    continue
+
+                interval = sub.tier.sync_interval_minutes or 0
+                if interval == 0:
+                    skipped += 1
+                    continue
+
+                # Check if enough time has passed since last sync
+                from models import InfrastructureResource
+                last_resource = InfrastructureResource.query.filter_by(
+                    user_id=user.id
+                ).order_by(InfrastructureResource.last_synced.desc()).first()
+
+                if last_resource and last_resource.last_synced:
+                    next_sync = last_resource.last_synced + timedelta(minutes=interval)
+                    if datetime.utcnow() < next_sync:
+                        skipped += 1
+                        continue
+
+                # Check user has cloud credentials configured
+                creds = UserCloudCredential.query.filter_by(
+                    user_id=user.id, is_active=True
+                ).all()
+
+                for cred in creds:
+                    sync_cloud_resources.delay(user.id, cred.cloud_provider)
                     synced += 1
 
-            return {'status': 'success', 'tasks_queued': synced}
+            return {'status': 'success', 'tasks_queued': synced, 'skipped': skipped}
 
     except Exception as e:
         logger.error(f"Error in sync_all_user_resources: {e}")

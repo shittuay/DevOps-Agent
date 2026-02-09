@@ -732,15 +732,75 @@
 
         .btn-ghost-md:hover { background: var(--bg-tertiary); }
 
-        /* ── Loading ── */
+        /* ── Loading (Skeleton) ── */
         .dash-loading {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 100px 20px;
-            gap: 16px;
+            padding: 24px;
         }
+
+        .skeleton-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .skeleton-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .skeleton-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 2px;
+            background: var(--border-medium);
+        }
+
+        .skeleton-line {
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .skeleton-line::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%);
+            animation: shimmer 1.5s ease infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .skeleton-label { width: 80px; height: 10px; margin-bottom: 12px; }
+        .skeleton-value { width: 100px; height: 24px; margin-bottom: 8px; }
+        .skeleton-sub   { width: 120px; height: 10px; }
+
+        .skeleton-panel-row {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 14px;
+        }
+
+        .skeleton-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 20px;
+            height: 180px;
+        }
+
+        @media (max-width: 1024px) { .skeleton-row { grid-template-columns: repeat(2, 1fr); } .skeleton-panel-row { grid-template-columns: 1fr; } }
+        @media (max-width: 640px) { .skeleton-row { grid-template-columns: 1fr; } }
 
         .loading-spinner {
             width: 32px; height: 32px;
@@ -753,6 +813,70 @@
         .loading-text {
             font-size: 14px;
             color: var(--text-tertiary);
+        }
+
+        /* ── Onboarding Empty State ── */
+        .onboarding-steps {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-top: 28px;
+        }
+
+        .onboarding-step {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 24px 20px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .onboarding-step:hover {
+            border-color: var(--border-medium);
+            transform: translateY(-2px);
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--gradient-primary);
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .step-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        .step-desc {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            line-height: 1.5;
+        }
+
+        .step-link {
+            display: inline-block;
+            margin-top: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-primary);
+            text-decoration: none;
+        }
+
+        .step-link:hover { text-decoration: underline; }
+
+        @media (max-width: 768px) {
+            .onboarding-steps { grid-template-columns: 1fr; }
         }
 
         /* ── Toast ── */
@@ -820,10 +944,18 @@
     </div>
 
     <div class="dash-main" id="dashMain">
-        <!-- Loading -->
+        <!-- Loading (Skeleton) -->
         <div class="dash-loading" id="loadingState">
-            <div class="loading-spinner"></div>
-            <div class="loading-text">Loading infrastructure data...</div>
+            <div class="skeleton-row">
+                <div class="skeleton-card"><div class="skeleton-line skeleton-label"></div><div class="skeleton-line skeleton-value"></div><div class="skeleton-line skeleton-sub"></div></div>
+                <div class="skeleton-card"><div class="skeleton-line skeleton-label"></div><div class="skeleton-line skeleton-value"></div><div class="skeleton-line skeleton-sub"></div></div>
+                <div class="skeleton-card"><div class="skeleton-line skeleton-label"></div><div class="skeleton-line skeleton-value"></div><div class="skeleton-line skeleton-sub"></div></div>
+                <div class="skeleton-card"><div class="skeleton-line skeleton-label"></div><div class="skeleton-line skeleton-value"></div><div class="skeleton-line skeleton-sub"></div></div>
+            </div>
+            <div class="skeleton-panel-row">
+                <div class="skeleton-panel"><div class="skeleton-line" style="width:120px;height:12px;margin-bottom:16px;"></div><div class="skeleton-line" style="width:100%;height:8px;margin-bottom:10px;"></div><div class="skeleton-line" style="width:80%;height:8px;margin-bottom:10px;"></div><div class="skeleton-line" style="width:60%;height:8px;"></div></div>
+                <div class="skeleton-panel"><div class="skeleton-line" style="width:120px;height:12px;margin-bottom:16px;"></div><div class="skeleton-line" style="width:100%;height:100px;"></div></div>
+            </div>
         </div>
 
         <!-- Dashboard Content (hidden until loaded) -->
@@ -900,10 +1032,25 @@
                     <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke-linecap="round" stroke-linejoin="round"/><polyline points="3.27 6.96 12 12.01 20.73 6.96" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="22.08" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </div>
                 <div class="empty-title">No infrastructure synced</div>
-                <div class="empty-desc">Configure your AWS credentials in Settings, then sync to see your resources, costs, and optimization opportunities here.</div>
-                <div class="empty-actions">
-                    <button class="btn-primary-md" onclick="syncInfrastructure()">Sync Infrastructure</button>
-                    <a href="/settings" class="btn-ghost-md">Configure Credentials</a>
+                <div class="empty-desc">Get started in 3 steps to see your resources, costs, and optimization opportunities.</div>
+                <div class="onboarding-steps">
+                    <div class="onboarding-step">
+                        <div class="step-number">1</div>
+                        <div class="step-title">Add Cloud Credentials</div>
+                        <div class="step-desc">Configure your AWS, Azure, or GCP credentials securely in Settings.</div>
+                        <a href="/settings" class="step-link">Open Settings &rarr;</a>
+                    </div>
+                    <div class="onboarding-step">
+                        <div class="step-number">2</div>
+                        <div class="step-title">Sync Infrastructure</div>
+                        <div class="step-desc">Click the button below to discover and import your cloud resources.</div>
+                        <button class="btn-primary-md" onclick="syncInfrastructure()" style="margin-top:10px;font-size:12px;padding:8px 16px;">Sync Now</button>
+                    </div>
+                    <div class="onboarding-step">
+                        <div class="step-number">3</div>
+                        <div class="step-title">View Insights</div>
+                        <div class="step-desc">See costs, security findings, and optimization recommendations.</div>
+                    </div>
                 </div>
             </div>
         </div>
