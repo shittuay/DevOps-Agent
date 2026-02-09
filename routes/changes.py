@@ -10,7 +10,7 @@ Manages infrastructure change requests with risk-based approval routing:
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from models import db, InfrastructureChange
-from services.rbac import require_permission, Permission, approver_required
+from services.rbac import require_permission, Permission, approver_required, user_is_admin
 from datetime import datetime
 import logging
 
@@ -217,10 +217,10 @@ def approve_change(change_id):
     if change.status != 'pending':
         return jsonify({'error': f'Change is already {change.status}'}), 400
 
-    # Can't approve your own high-risk changes
+    # Non-admin users can't approve their own high-risk changes
     risk_level = (change.change_details or {}).get('risk_level', 'medium')
-    if change.user_id == current_user.id and risk_level == 'high':
-        return jsonify({'error': 'Cannot self-approve high-risk changes'}), 403
+    if change.user_id == current_user.id and risk_level == 'high' and not user_is_admin(current_user):
+        return jsonify({'error': 'Cannot self-approve high-risk changes. An admin must approve this.'}), 403
 
     data = request.get_json() or {}
     change.status = 'approved'

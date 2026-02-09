@@ -349,8 +349,17 @@ def handle_exception(e):
     if request.path.startswith('/api/') or request.path.startswith('/chat'):
         return jsonify({'error': 'An internal error occurred. Please try again.'}), 500
 
-    # For page requests, render error template or return error message
-    return f"An error occurred: {str(e)}", 500
+    # For page requests, render error template
+    return render_template('500.html'), 500
+
+
+@app.errorhandler(404)
+def page_not_found(e):
+    """Handle 404 errors."""
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Not found'}), 404
+    return render_template('404.html'), 404
+
 
 # Global agent instance
 agent = None
@@ -1058,6 +1067,12 @@ def invite_team_member():
     if current_user.role != 'admin':
         return jsonify({'error': 'Only administrators can invite team members'}), 403
 
+    # Check tier limits
+    from services.tier_enforcement import check_resource_limit
+    allowed, current, limit = check_resource_limit(current_user.id, 'team_members')
+    if not allowed:
+        return jsonify({'error': f'Team member limit reached ({limit}). Upgrade your plan to invite more members.', 'upgrade_url': '/billing'}), 403
+
     try:
         data = request.get_json()
         email = data.get('email', '').strip()
@@ -1081,8 +1096,6 @@ def invite_team_member():
             return jsonify({'error': 'A user with this email or username already exists'}), 400
 
         # Create new user with a randomly generated secure password
-        from werkzeug.security import generate_password_hash
-        # Generate a secure random password (16 characters with uppercase, lowercase, digits, special chars)
         import string
         password_chars = string.ascii_letters + string.digits + '!@#$%^&*'
         default_password = ''.join(secrets.choice(password_chars) for _ in range(16))
@@ -1090,9 +1103,9 @@ def invite_team_member():
         new_user = User(
             username=username,
             email=email,
-            password=generate_password_hash(default_password),
             role=role
         )
+        new_user.set_password(default_password)
         db.session.add(new_user)
         db.session.commit()
 
@@ -1249,6 +1262,14 @@ def aws_config():
         return jsonify({'error': message}), 400
 
     # POST - Save AWS credentials for this user
+    # Check tier limits (only for new credentials, not updates)
+    from services.tier_enforcement import check_resource_limit
+    existing = UserCloudCredential.query.filter_by(user_id=current_user.id, cloud_provider='aws').first()
+    if not existing:
+        allowed, current, limit = check_resource_limit(current_user.id, 'cloud_accounts')
+        if not allowed:
+            return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
+
     try:
         data = request.get_json()
         access_key = (data.get('access_key') or data.get('access_key_id') or '').strip()
@@ -1285,7 +1306,7 @@ def test_aws_connection():
             'arn': identity.get('Arn')
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 200
+        return jsonify({'success': False, 'error': str(e)}), 502
 
 
 @app.route('/api/azure-config', methods=['GET', 'POST', 'DELETE'])
@@ -1325,6 +1346,13 @@ def azure_config():
         return jsonify({'error': message}), 400
 
     # POST - Save Azure credentials for this user
+    from services.tier_enforcement import check_resource_limit
+    existing = UserCloudCredential.query.filter_by(user_id=current_user.id, cloud_provider='azure').first()
+    if not existing:
+        allowed, current, limit = check_resource_limit(current_user.id, 'cloud_accounts')
+        if not allowed:
+            return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
+
     try:
         data = request.get_json()
         subscription_id = data.get('subscription_id', '').strip()
@@ -1388,6 +1416,13 @@ def gcp_config():
         return jsonify({'error': message}), 400
 
     # POST - Save GCP credentials for this user
+    from services.tier_enforcement import check_resource_limit
+    existing = UserCloudCredential.query.filter_by(user_id=current_user.id, cloud_provider='gcp').first()
+    if not existing:
+        allowed, current, limit = check_resource_limit(current_user.id, 'cloud_accounts')
+        if not allowed:
+            return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
+
     try:
         data = request.get_json()
         project_id = data.get('project_id', '').strip()
@@ -1463,6 +1498,20 @@ def notification_channels():
 
     if not name or not webhook_url:
         return jsonify({'error': 'Name and webhook URL are required'}), 400
+
+    if not webhook_url.startswith('https://'):
+        return jsonify({'error': 'Webhook URL must use HTTPS'}), 400
+
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+    parsed = urlparse(webhook_url)
+    try:
+        ip = ipaddress.ip_address(socket.gethostbyname(parsed.hostname))
+        if ip.is_private or ip.is_loopback or ip.is_reserved:
+            return jsonify({'error': 'Webhook URL must not point to a private or reserved IP address'}), 400
+    except (socket.gaierror, ValueError):
+        pass
 
     channel = UserNotificationChannel(
         user_id=current_user.id,
@@ -1897,6 +1946,7 @@ def get_cost_data():
     try:
         from services.cost_explorer import get_actual_costs, get_cost_forecast
         days = request.args.get('days', 30, type=int)
+        days = max(1, min(days, 365))
         costs = get_actual_costs(current_user.id, days=days)
         forecast = get_cost_forecast(current_user.id)
         costs['forecast'] = forecast
@@ -1946,6 +1996,7 @@ def get_resource_utilization(resource_db_id):
 
 @app.route('/api/dashboard/sync', methods=['POST'])
 @login_required
+@limiter.limit("3 per minute")
 def sync_infrastructure():
     """Trigger infrastructure sync for current user."""
     try:
@@ -2130,9 +2181,14 @@ def run_compliance_scan():
     """Run compliance scan for a specific framework."""
     try:
         from services.compliance_service import ComplianceService
+        from services.tier_enforcement import check_compliance_framework
 
         data = request.get_json() or {}
         framework = data.get('framework', 'soc2')
+
+        if not check_compliance_framework(current_user.id, framework):
+            return jsonify({'error': f'The {framework.upper()} framework is not available on your plan. Upgrade to access it.', 'upgrade_url': '/billing'}), 403
+
         service = ComplianceService(current_user.id)
         report = service.run_compliance_check(current_user.id, framework)
 
@@ -2155,6 +2211,7 @@ def run_compliance_scan():
 
 @app.route('/api/compliance/scan-all', methods=['POST'])
 @login_required
+@limiter.limit("2 per minute")
 def run_all_compliance_scans():
     """Run compliance scans for all supported frameworks."""
     try:
@@ -2187,6 +2244,49 @@ def run_all_compliance_scans():
                 pass
 
         return jsonify({'success': True, 'results': results})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/compliance/report/<framework>/pdf', methods=['GET'])
+@login_required
+def download_compliance_pdf(framework):
+    """Download compliance report as PDF."""
+    from services.tier_enforcement import check_feature
+    if not check_feature(current_user.id, 'has_pdf_export'):
+        return jsonify({'error': 'PDF export is available on Pro and Enterprise plans.', 'upgrade_url': '/billing'}), 403
+
+    try:
+        from models import ComplianceReport
+        report = ComplianceReport.query.filter_by(
+            user_id=current_user.id,
+            framework=framework
+        ).order_by(ComplianceReport.generated_at.desc()).first()
+
+        if not report:
+            return jsonify({'error': f'No {framework.upper()} report found. Run a compliance scan first.'}), 404
+
+        report_data = {
+            'overall_score': report.overall_score,
+            'controls_passed': report.controls_passed,
+            'controls_failed': report.controls_failed,
+            'findings': report.findings or [],
+            'summary': report.summary,
+            'generated_at': report.generated_at.isoformat() if report.generated_at else None,
+        }
+
+        from services.pdf_service import generate_compliance_pdf
+        pdf_buffer = generate_compliance_pdf(current_user.id, framework, report_data)
+
+        filename = f"devops-agent-{framework}-report-{datetime.now().strftime('%Y%m%d')}.pdf"
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )
+    except ImportError as e:
+        return jsonify({'error': str(e)}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2323,6 +2423,11 @@ def submit_contact():
 
         if not all([name, email, category, message]):
             return jsonify({'error': 'All fields are required'}), 400
+
+        try:
+            validate_email(email, check_deliverability=False)
+        except EmailNotValidError:
+            return jsonify({'error': 'Please provide a valid email address'}), 400
 
         # Import ContactMessage model
         from models import ContactMessage
@@ -3275,6 +3380,13 @@ def stripe_webhook():
     logger = get_logger(__name__)
     logger.info(f"Received Stripe webhook: {event['type']}")
 
+    # Idempotency check
+    from models import StripeWebhookEvent
+    event_id = event.get('id')
+    if event_id and StripeWebhookEvent.query.get(event_id):
+        logger.info(f"Duplicate webhook event {event_id}, skipping")
+        return jsonify({'success': True, 'duplicate': True})
+
     # Handle different event types
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
@@ -3284,9 +3396,25 @@ def stripe_webhook():
         invoice = event['data']['object']
         handle_invoice_payment_succeeded(invoice)
 
+    elif event['type'] == 'invoice.payment_failed':
+        invoice = event['data']['object']
+        handle_invoice_payment_failed(invoice)
+
+    elif event['type'] == 'customer.subscription.updated':
+        subscription = event['data']['object']
+        handle_customer_subscription_updated(subscription)
+
     elif event['type'] == 'customer.subscription.deleted':
         subscription = event['data']['object']
         handle_subscription_deleted(subscription)
+
+    # Record processed event for idempotency
+    if event_id:
+        try:
+            db.session.add(StripeWebhookEvent(id=event_id, event_type=event['type']))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     return jsonify({'success': True})
 
@@ -3372,10 +3500,42 @@ def handle_checkout_completed(session):
 
 
 def handle_invoice_payment_succeeded(invoice):
-    """Handle successful subscription invoice payment."""
+    """Handle successful subscription invoice payment (recurring billing)."""
     logger = get_logger(__name__)
-    logger.info(f"Invoice payment succeeded: {invoice.get('id')}")
-    # Additional logic for recurring payments can be added here
+
+    try:
+        customer_id = invoice.get('customer')
+        if not customer_id:
+            return
+
+        user_subscription = UserSubscription.query.filter_by(
+            stripe_customer_id=customer_id
+        ).first()
+
+        if not user_subscription:
+            logger.warning(f"No subscription found for Stripe customer {customer_id}")
+            return
+
+        # Reset monthly credits for the new billing period
+        user_subscription.payment_status = 'active'
+        user_subscription.payment_failed_at = None
+        if user_subscription.should_reset_credits():
+            user_subscription.reset_monthly_credits()
+        else:
+            # Force reset on payment success even if dates haven't triggered it
+            from dateutil.relativedelta import relativedelta
+            user_subscription.credits_remaining = user_subscription.tier.monthly_credits
+            user_subscription.credits_used_this_month = 0
+            user_subscription.last_reset_date = datetime.utcnow()
+            user_subscription.current_period_start = datetime.utcnow()
+            user_subscription.current_period_end = datetime.utcnow() + relativedelta(months=1)
+
+        db.session.commit()
+        logger.info(f"Recurring payment processed for user {user_subscription.user_id}")
+
+    except Exception as e:
+        logger.error(f"Error handling invoice payment: {str(e)}", exc_info=True)
+        db.session.rollback()
 
 
 def handle_subscription_deleted(subscription):
@@ -3395,6 +3555,116 @@ def handle_subscription_deleted(subscription):
 
     except Exception as e:
         logger.error(f"Error handling subscription deletion: {str(e)}", exc_info=True)
+        db.session.rollback()
+
+
+def handle_invoice_payment_failed(invoice):
+    """Handle failed subscription invoice payment."""
+    logger = get_logger(__name__)
+
+    try:
+        customer_id = invoice.get('customer')
+        if not customer_id:
+            return
+
+        user_subscription = UserSubscription.query.filter_by(
+            stripe_customer_id=customer_id
+        ).first()
+
+        if not user_subscription:
+            return
+
+        user_subscription.payment_status = 'past_due'
+        if not user_subscription.payment_failed_at:
+            user_subscription.payment_failed_at = datetime.utcnow()
+
+        # If past_due for > 3 days, downgrade to free tier
+        if user_subscription.payment_failed_at:
+            days_overdue = (datetime.utcnow() - user_subscription.payment_failed_at).days
+            if days_overdue > 3:
+                free_tier = SubscriptionTier.query.filter_by(name='free').first()
+                if free_tier:
+                    user_subscription.tier_id = free_tier.id
+                    user_subscription.credits_remaining = min(
+                        user_subscription.credits_remaining, free_tier.monthly_credits
+                    )
+                    logger.warning(f"Downgraded user {user_subscription.user_id} to free tier after {days_overdue} days overdue")
+
+        db.session.commit()
+        logger.info(f"Payment failed for user {user_subscription.user_id}")
+
+        # Queue email notification
+        try:
+            from tasks.email_tasks import send_email_async
+            user = User.query.get(user_subscription.user_id)
+            if user and user.email:
+                send_email_async.delay(
+                    to_email=user.email,
+                    subject="Payment Failed - DevOps Agent",
+                    html_content=f"""
+                    <h2>Payment Failed</h2>
+                    <p>Hi {user.username},</p>
+                    <p>We were unable to process your subscription payment. Please update your payment method to avoid service interruption.</p>
+                    <a href="/billing">Update Payment Method</a>
+                    """
+                )
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.error(f"Error handling payment failure: {str(e)}", exc_info=True)
+        db.session.rollback()
+
+
+def handle_customer_subscription_updated(stripe_subscription):
+    """Handle subscription changes (upgrades/downgrades)."""
+    logger = get_logger(__name__)
+
+    try:
+        stripe_sub_id = stripe_subscription.get('id')
+        user_subscription = UserSubscription.query.filter_by(
+            stripe_subscription_id=stripe_sub_id
+        ).first()
+
+        if not user_subscription:
+            return
+
+        # Update payment status
+        status = stripe_subscription.get('status', 'active')
+        status_map = {
+            'active': 'active',
+            'past_due': 'past_due',
+            'canceled': 'cancelled',
+            'unpaid': 'past_due',
+            'trialing': 'active',
+        }
+        user_subscription.payment_status = status_map.get(status, 'active')
+
+        # Check if plan/price changed via metadata
+        items = stripe_subscription.get('items', {}).get('data', [])
+        if items:
+            price_id = items[0].get('price', {}).get('id')
+            if price_id:
+                # Try to match tier by Stripe price ID from environment
+                import os
+                for tier_name in ['starter', 'professional', 'business']:
+                    env_price = os.getenv(f'STRIPE_PRICE_{tier_name.upper()}')
+                    if env_price == price_id:
+                        new_tier = SubscriptionTier.query.filter_by(name=tier_name).first()
+                        if new_tier and new_tier.id != user_subscription.tier_id:
+                            old_tier = user_subscription.tier
+                            user_subscription.tier_id = new_tier.id
+                            # Add credit difference on upgrade
+                            if new_tier.monthly_credits > old_tier.monthly_credits:
+                                diff = new_tier.monthly_credits - old_tier.monthly_credits
+                                user_subscription.add_credits(diff)
+                            logger.info(f"User {user_subscription.user_id} changed plan: {old_tier.name} -> {new_tier.name}")
+                        break
+
+        db.session.commit()
+
+    except Exception as e:
+        logger.error(f"Error handling subscription update: {str(e)}", exc_info=True)
         db.session.rollback()
 
 
@@ -3456,36 +3726,109 @@ def init_database():
             free_tier = SubscriptionTier(
                 name='free',
                 display_name='Free',
-                monthly_credits=10,
+                monthly_credits=20,
                 monthly_price=0.0,
-                features={'basic_chat': True},
+                description='Try the DevOps Agent with limited features',
+                features=[
+                    '20 AI messages per month',
+                    '1 cloud account',
+                    '25 resources tracked',
+                    'Manual sync only',
+                ],
+                max_cloud_accounts=1,
+                max_resources=25,
+                max_team_members=1,
+                sync_interval_minutes=0,
+                compliance_frameworks=[],
+                has_pdf_export=False,
+                has_auto_remediation=False,
+                has_sso=False,
+                has_audit_export=False,
                 is_active=True
             )
 
             starter_tier = SubscriptionTier(
                 name='starter',
                 display_name='Starter',
-                monthly_credits=100,
-                monthly_price=9.99,
-                features={'basic_chat': True, 'aws_tools': True},
+                monthly_credits=200,
+                monthly_price=49.0,
+                description='For individual developers and solo operators',
+                features=[
+                    '200 AI messages per month',
+                    '1 cloud account',
+                    '50 resources tracked',
+                    'SOC 2 compliance scans',
+                    'Email support',
+                ],
+                max_cloud_accounts=1,
+                max_resources=50,
+                max_team_members=1,
+                sync_interval_minutes=0,
+                compliance_frameworks=['soc2'],
+                has_pdf_export=False,
+                has_auto_remediation=False,
+                has_sso=False,
+                has_audit_export=False,
                 is_active=True
             )
 
             pro_tier = SubscriptionTier(
                 name='professional',
-                display_name='Professional',
-                monthly_credits=500,
-                monthly_price=29.99,
-                features={'basic_chat': True, 'aws_tools': True, 'gcp_tools': True, 'k8s_tools': True},
+                display_name='Pro',
+                monthly_credits=2000,
+                monthly_price=199.0,
+                description='For growing teams with multi-cloud needs',
+                features=[
+                    '2,000 AI messages per month',
+                    '3 cloud accounts (AWS + Azure + GCP)',
+                    '500 resources tracked',
+                    'Up to 10 team members',
+                    'SOC 2 + HIPAA compliance',
+                    'PDF compliance reports',
+                    'Auto-remediation',
+                    'Auto-sync every 6 hours',
+                    'Priority support',
+                ],
+                max_cloud_accounts=3,
+                max_resources=500,
+                max_team_members=10,
+                sync_interval_minutes=360,
+                compliance_frameworks=['soc2', 'hipaa'],
+                has_pdf_export=True,
+                has_auto_remediation=True,
+                has_sso=False,
+                has_audit_export=False,
                 is_active=True
             )
 
             business_tier = SubscriptionTier(
                 name='business',
-                display_name='Business',
-                monthly_credits=2000,
-                monthly_price=99.99,
-                features={'basic_chat': True, 'aws_tools': True, 'gcp_tools': True, 'k8s_tools': True, 'priority_support': True},
+                display_name='Enterprise',
+                monthly_credits=99999,
+                monthly_price=799.0,
+                description='Unlimited automation for large organizations',
+                features=[
+                    'Unlimited AI messages',
+                    'Unlimited cloud accounts',
+                    'Unlimited resources',
+                    'Unlimited team members',
+                    'All compliance frameworks',
+                    'PDF compliance reports',
+                    'Auto-remediation + custom rules',
+                    'Auto-sync every 15 minutes',
+                    'SSO / SAML',
+                    'Audit log export',
+                    'Dedicated support + SLA',
+                ],
+                max_cloud_accounts=99,
+                max_resources=99999,
+                max_team_members=99,
+                sync_interval_minutes=15,
+                compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
+                has_pdf_export=True,
+                has_auto_remediation=True,
+                has_sso=True,
+                has_audit_export=True,
                 is_active=True
             )
 

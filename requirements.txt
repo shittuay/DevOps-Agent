@@ -102,6 +102,9 @@ kubernetes==31.0.0
 # Payment Processing
 stripe==11.3.0
 
+# PDF Generation
+reportlab>=4.0
+
 # Utilities
 python-dotenv==1.0.1
 psutil==5.9.8

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>500 - Something Went Wrong</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .error-card {
+            position: relative;
+            z-index: 1;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 60px 48px;
+            max-width: 480px;
+            width: 90%;
+            text-align: center;
+            box-shadow: var(--glass-shadow);
+        }
+
+        .error-code {
+            font-family: 'Syne', sans-serif;
+            font-size: 96px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-danger), var(--accent-warning));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+            margin-bottom: 12px;
+        }
+
+        .error-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        .error-message {
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+
+        .error-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 12px 28px;
+            border-radius: 10px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(255, 107, 53, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border-medium);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-tertiary);
+            transform: translateY(-1px);
+        }
+
+        .terminal-hint {
+            margin-top: 32px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--text-tertiary);
+        }
+
+        .terminal-hint span {
+            color: var(--accent-danger);
+        }
+    </style>
+</head>
+<body>
+    <div class="error-card">
+        <div class="error-code">500</div>
+        <h1 class="error-title">Something Went Wrong</h1>
+        <p class="error-message">An unexpected error occurred. Our team has been notified.</p>
+        <div class="error-actions">
+            <a href="javascript:location.reload()" class="btn btn-secondary">Try Again</a>
+            <a href="/" class="btn btn-primary">Go Home</a>
+        </div>
+        <div class="terminal-hint"><span>ERR</span> internal server exception</div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

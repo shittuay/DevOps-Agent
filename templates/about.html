@@ -4,29 +4,58 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>About - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #f7f7f8;
-            color: #2c2d30;
-            font-size: 16px;
-            line-height: 1.6;
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: var(--gradient-mesh);
+            pointer-events: none;
         }
 
         /* Header */
         .header {
-            background: white;
-            border-bottom: 1px solid #e5e5e5;
-            padding: 0;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
             position: sticky;
             top: 0;
             z-index: 100;
@@ -48,59 +77,59 @@
         }
 
         .logo {
+            font-family: 'Syne', sans-serif;
             font-size: 16px;
-            font-weight: 600;
-            color: #2c2d30;
+            font-weight: 700;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             text-decoration: none;
         }
 
         .logo-icon {
-            width: 24px;
-            height: 24px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
-            border-radius: 6px;
+            width: 28px;
+            height: 28px;
+            background: var(--gradient-primary);
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-weight: 700;
+            font-weight: 800;
             font-size: 14px;
         }
 
         .header-right {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
         }
 
         .header-button {
-            padding: 8px 12px;
+            padding: 8px 14px;
             background: transparent;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            color: #2c2d30;
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
             transition: all 0.15s;
             text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
         }
 
         .header-button:hover {
-            background: #f7f7f8;
-            border-color: #d0d0d0;
+            background: var(--bg-elevated);
+            border-color: var(--border-medium);
+            color: var(--text-primary);
         }
 
         .header-button.active {
-            background: #fff9f5;
-            border-color: #cd7c48;
-            color: #cd7c48;
+            background: rgba(255, 107, 53, 0.1);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
         }
 
         /* Main Content */
@@ -110,46 +139,53 @@
             padding: 0 24px;
             flex: 1;
             width: 100%;
+            position: relative;
+            z-index: 1;
         }
 
         .hero {
             text-align: center;
-            margin-bottom: 64px;
+            margin-bottom: 56px;
         }
 
         .hero-title {
+            font-family: 'Syne', sans-serif;
             font-size: 48px;
-            font-weight: 700;
+            font-weight: 800;
             margin-bottom: 16px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            background: var(--gradient-primary);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
 
         .hero-subtitle {
-            font-size: 20px;
-            color: #666;
+            font-size: 18px;
+            color: var(--text-secondary);
             max-width: 600px;
             margin: 0 auto;
+            line-height: 1.6;
         }
 
         .features {
             display: grid;
-            gap: 32px;
-            margin-bottom: 64px;
+            gap: 24px;
+            margin-bottom: 56px;
         }
 
         .feature-card {
-            background: white;
-            border-radius: 12px;
-            border: 1px solid #e5e5e5;
-            padding: 32px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            padding: 28px;
             transition: all 0.2s;
+            box-shadow: var(--glass-shadow);
         }
 
         .feature-card:hover {
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+            border-color: var(--border-medium);
             transform: translateY(-2px);
         }
 
@@ -157,28 +193,32 @@
             display: flex;
             align-items: center;
             gap: 16px;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
         }
 
         .feature-icon {
-            width: 56px;
-            height: 56px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-primary);
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 28px;
+            font-size: 24px;
+            flex-shrink: 0;
         }
 
         .feature-title {
-            font-size: 24px;
-            font-weight: 600;
+            font-family: 'Syne', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
         }
 
         .feature-description {
-            color: #666;
-            margin-bottom: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 14px;
+            font-size: 14px;
+            line-height: 1.6;
         }
 
         .feature-list {
@@ -187,46 +227,63 @@
         }
 
         .feature-list li {
-            padding: 8px 0;
-            padding-left: 24px;
+            padding: 5px 0;
+            padding-left: 20px;
             position: relative;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.5;
         }
 
         .feature-list li:before {
-            content: "✓";
+            content: "";
             position: absolute;
             left: 0;
-            color: #cd7c48;
-            font-weight: 700;
+            top: 10px;
+            width: 6px;
+            height: 6px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+        }
+
+        .feature-list li strong {
+            color: var(--text-primary);
         }
 
         .cta {
             text-align: center;
             padding: 48px;
-            background: white;
-            border-radius: 12px;
-            border: 1px solid #e5e5e5;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            margin-bottom: 48px;
+            box-shadow: var(--glass-shadow);
         }
 
         .cta-title {
-            font-size: 32px;
-            font-weight: 600;
-            margin-bottom: 16px;
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 12px;
         }
 
         .cta-description {
-            color: #666;
+            color: var(--text-secondary);
             margin-bottom: 24px;
+            font-size: 15px;
         }
 
         .btn-primary {
             display: inline-block;
-            padding: 12px 32px;
-            background: linear-gradient(135deg, #cd7c48 0%, #b85c38 100%);
+            padding: 14px 36px;
+            background: var(--gradient-primary);
             color: white;
             border: none;
-            border-radius: 8px;
-            font-size: 18px;
+            border-radius: 10px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
             font-weight: 600;
             text-decoration: none;
             cursor: pointer;
@@ -235,7 +292,14 @@
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(205, 124, 72, 0.3);
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
+        }
+
+        @media (max-width: 768px) {
+            .hero-title { font-size: 32px; }
+            .header-right { display: none; }
+            .main-container { padding: 0 16px; margin: 32px auto; }
+            .feature-card { padding: 20px; }
         }
     </style>
 </head>
@@ -269,10 +333,9 @@
         </div>
 
         <div class="features">
-            <!-- Multi-Cloud Support -->
             <div class="feature-card">
                 <div class="feature-header">
-                    <div class="feature-icon">☁️</div>
+                    <div class="feature-icon">&#9729;</div>
                     <h2 class="feature-title">Multi-Cloud Infrastructure</h2>
                 </div>
                 <p class="feature-description">
@@ -286,10 +349,9 @@
                 </ul>
             </div>
 
-            <!-- Cost Optimization -->
             <div class="feature-card">
                 <div class="feature-header">
-                    <div class="feature-icon">💰</div>
+                    <div class="feature-icon">$</div>
                     <h2 class="feature-title">Cost Optimization</h2>
                 </div>
                 <p class="feature-description">
@@ -306,10 +368,9 @@
                 </ul>
             </div>
 
-            <!-- Security Scanning -->
             <div class="feature-card">
                 <div class="feature-header">
-                    <div class="feature-icon">🔒</div>
+                    <div class="feature-icon">&#9670;</div>
                     <h2 class="feature-title">Security Scanning</h2>
                 </div>
                 <p class="feature-description">
@@ -325,10 +386,9 @@
                 </ul>
             </div>
 
-            <!-- Alerting & Auto-Remediation -->
             <div class="feature-card">
                 <div class="feature-header">
-                    <div class="feature-icon">🔔</div>
+                    <div class="feature-icon">&#9881;</div>
                     <h2 class="feature-title">Alerting & Auto-Remediation</h2>
                 </div>
                 <p class="feature-description">
@@ -343,10 +403,9 @@
                 </ul>
             </div>
 
-            <!-- Team Collaboration -->
             <div class="feature-card">
                 <div class="feature-header">
-                    <div class="feature-icon">👥</div>
+                    <div class="feature-icon">&#9733;</div>
                     <h2 class="feature-title">Team Collaboration</h2>
                 </div>
                 <p class="feature-description">
@@ -361,10 +420,9 @@
                 </ul>
             </div>
 
-            <!-- AI-Powered Chat -->
             <div class="feature-card">
                 <div class="feature-header">
-                    <div class="feature-icon">💬</div>
+                    <div class="feature-icon">&gt;_</div>
                     <h2 class="feature-title">AI-Powered Chat</h2>
                 </div>
                 <p class="feature-description">
@@ -390,5 +448,7 @@
             <a href="/chat" class="btn-primary">Get Started</a>
         </div>
     </div>
+
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>
