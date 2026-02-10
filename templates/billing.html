@@ -1109,9 +1109,9 @@
                     {% elif tier.name == 'business' %}
                     <a href="mailto:sales@devopsagent.io?subject=Enterprise%20Plan%20Inquiry" class="btn btn-contact" style="margin-top: 20px; display: block; text-align: center; text-decoration: none;">Contact Sales</a>
                     {% elif subscription and tier.monthly_price < subscription.tier.monthly_price %}
-                    <button class="btn btn-secondary" onclick="upgradeTier({{ tier.id }})" style="margin-top: 20px;">Downgrade</button>
+                    <button class="btn btn-secondary" onclick="upgradeTier('{{ tier.name }}')" style="margin-top: 20px;">Downgrade</button>
                     {% else %}
-                    <button class="btn btn-primary" onclick="upgradeTier({{ tier.id }})" style="margin-top: 20px;">
+                    <button class="btn btn-primary" onclick="upgradeTier('{{ tier.name }}')" style="margin-top: 20px;">
                         {% if subscription %}Upgrade{% else %}Get Started{% endif %}
                     </button>
                     {% endif %}
@@ -1154,75 +1154,9 @@
         </div>
     </div>
 
-    <!-- Payment Modal -->
-    <div class="payment-overlay" id="paymentOverlay">
-        <div class="payment-modal">
-            <div class="payment-modal-header">
-                <h3 id="paymentTitle">Complete Payment</h3>
-                <button class="payment-close-btn" onclick="closePaymentModal()" type="button">&times;</button>
-            </div>
-            <div class="payment-modal-body">
-                <div class="order-summary">
-                    <div class="order-summary-label">Order Summary</div>
-                    <div class="order-summary-row">
-                        <span class="order-item-name" id="orderItemName">--</span>
-                        <span class="order-item-price" id="orderItemPrice">--</span>
-                    </div>
-                </div>
-
-                <div class="payment-error" id="paymentError"></div>
-
-                <form id="paymentForm" onsubmit="return processPayment(event)">
-                    <div class="card-form-group">
-                        <label for="cardName">Cardholder Name</label>
-                        <input type="text" id="cardName" class="card-input" placeholder="John Doe" autocomplete="cc-name" required>
-                    </div>
-
-                    <div class="card-form-group">
-                        <label for="cardNumber">Card Number</label>
-                        <div class="card-number-wrapper">
-                            <input type="text" id="cardNumber" class="card-input has-brand" placeholder="1234 5678 9012 3456" inputmode="numeric" autocomplete="cc-number" maxlength="19" required>
-                            <span class="card-brand-icon" id="cardBrandIcon">&#128179;</span>
-                        </div>
-                    </div>
-
-                    <div class="card-row">
-                        <div class="card-form-group">
-                            <label for="cardExpiry">Expiry Date</label>
-                            <input type="text" id="cardExpiry" class="card-input" placeholder="MM / YY" inputmode="numeric" autocomplete="cc-exp" maxlength="7" required>
-                        </div>
-                        <div class="card-form-group">
-                            <label for="cardCvc">CVC</label>
-                            <input type="text" id="cardCvc" class="card-input" placeholder="123" inputmode="numeric" autocomplete="cc-csc" maxlength="4" required>
-                        </div>
-                    </div>
-
-                    <div class="secure-badge">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                        Secured with 256-bit SSL encryption
-                    </div>
-
-                    <button type="submit" class="btn-pay" id="payButton">
-                        <span class="spinner"></span>
-                        <span id="payButtonText">Pay Now</span>
-                    </button>
-                </form>
-
-                <div class="accepted-cards">
-                    <span>Accepted:</span>
-                    <span class="card-icon">&#128179;</span>
-                    <span style="font-size: 13px; color: var(--text-tertiary);">Visa, Mastercard, Amex</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="toast" id="toast"></div>
 
     <script>
-        // Payment modal state
-        var pendingPayment = null;
-
         function showToast(message, type) {
             var toast = document.getElementById('toast');
             toast.textContent = message;
@@ -1245,198 +1179,60 @@
             }
         }
 
-        // Card number formatting
-        function formatCardNumber(value) {
-            var v = value.replace(/\D/g, '').substring(0, 16);
-            var parts = [];
-            for (var i = 0; i < v.length; i += 4) {
-                parts.push(v.substring(i, i + 4));
-            }
-            return parts.length > 0 ? parts.join(' ') : '';
-        }
+        // Redirect to Stripe Checkout for subscription upgrade
+        function upgradeTier(tierName) {
+            var btn = event.currentTarget;
+            btn.disabled = true;
+            btn.textContent = 'Redirecting...';
 
-        function formatExpiry(value) {
-            var v = value.replace(/\D/g, '').substring(0, 4);
-            if (v.length >= 2) {
-                return v.substring(0, 2) + ' / ' + v.substring(2);
-            }
-            return v;
-        }
-
-        function detectCardBrand(number) {
-            var clean = number.replace(/\D/g, '');
-            if (/^4/.test(clean)) return 'VISA';
-            if (/^5[1-5]/.test(clean) || /^2[2-7]/.test(clean)) return 'MC';
-            if (/^3[47]/.test(clean)) return 'AMEX';
-            if (/^6(?:011|5)/.test(clean)) return 'DISC';
-            return '';
-        }
-
-        // Input formatting listeners
-        document.getElementById('cardNumber').addEventListener('input', function(e) {
-            var pos = e.target.selectionStart;
-            var oldLen = e.target.value.length;
-            e.target.value = formatCardNumber(e.target.value);
-            var newLen = e.target.value.length;
-            e.target.setSelectionRange(pos + (newLen - oldLen), pos + (newLen - oldLen));
-
-            var brand = detectCardBrand(e.target.value);
-            var icon = document.getElementById('cardBrandIcon');
-            if (brand === 'VISA') icon.textContent = 'VISA';
-            else if (brand === 'MC') icon.textContent = 'MC';
-            else if (brand === 'AMEX') icon.textContent = 'AMEX';
-            else icon.innerHTML = '&#128179;';
-        });
-
-        document.getElementById('cardExpiry').addEventListener('input', function(e) {
-            e.target.value = formatExpiry(e.target.value);
-        });
-
-        document.getElementById('cardCvc').addEventListener('input', function(e) {
-            e.target.value = e.target.value.replace(/\D/g, '').substring(0, 4);
-        });
-
-        // Open payment modal
-        function openPaymentModal(type, id, name, price) {
-            pendingPayment = { type: type, id: id, name: name, price: price };
-
-            document.getElementById('paymentTitle').textContent = type === 'subscription' ? 'Upgrade Plan' : 'Purchase Credits';
-            document.getElementById('orderItemName').textContent = name;
-            document.getElementById('orderItemPrice').textContent = price;
-            document.getElementById('payButtonText').textContent = 'Pay ' + price;
-
-            // Reset form
-            document.getElementById('paymentForm').reset();
-            document.getElementById('paymentError').className = 'payment-error';
-            document.getElementById('paymentError').textContent = '';
-            document.getElementById('payButton').classList.remove('processing');
-            document.getElementById('payButton').disabled = false;
-            document.getElementById('cardBrandIcon').innerHTML = '&#128179;';
-
-            document.getElementById('paymentOverlay').classList.add('active');
-            setTimeout(function() {
-                document.getElementById('cardName').focus();
-            }, 300);
-        }
-
-        function closePaymentModal() {
-            document.getElementById('paymentOverlay').classList.remove('active');
-            pendingPayment = null;
-        }
-
-        // Close on overlay click
-        document.getElementById('paymentOverlay').addEventListener('click', function(e) {
-            if (e.target === this) closePaymentModal();
-        });
-
-        // Close on Escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') closePaymentModal();
-        });
-
-        // Validate card form
-        function validateCardForm() {
-            var cardNum = document.getElementById('cardNumber').value.replace(/\D/g, '');
-            var expiry = document.getElementById('cardExpiry').value.replace(/\D/g, '');
-            var cvc = document.getElementById('cardCvc').value.replace(/\D/g, '');
-            var name = document.getElementById('cardName').value.trim();
-
-            if (!name) return 'Please enter the cardholder name';
-            if (cardNum.length < 13 || cardNum.length > 19) return 'Please enter a valid card number';
-            if (expiry.length !== 4) return 'Please enter a valid expiry date (MM/YY)';
-
-            var month = parseInt(expiry.substring(0, 2), 10);
-            var year = parseInt('20' + expiry.substring(2), 10);
-            var now = new Date();
-            if (month < 1 || month > 12) return 'Invalid expiry month';
-            if (year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1)) {
-                return 'Card has expired';
-            }
-
-            if (cvc.length < 3) return 'Please enter a valid CVC';
-
-            return null;
-        }
-
-        // Process payment
-        function processPayment(e) {
-            e.preventDefault();
-            if (!pendingPayment) return false;
-
-            var error = validateCardForm();
-            if (error) {
-                var errEl = document.getElementById('paymentError');
-                errEl.textContent = error;
-                errEl.classList.add('visible');
-                return false;
-            }
-
-            document.getElementById('paymentError').classList.remove('visible');
-            var payBtn = document.getElementById('payButton');
-            payBtn.classList.add('processing');
-            payBtn.disabled = true;
-            document.getElementById('payButtonText').textContent = 'Processing...';
-
-            var url, body;
-            if (pendingPayment.type === 'subscription') {
-                url = '/api/subscription/upgrade';
-                body = JSON.stringify({ tier_id: pendingPayment.id });
-            } else {
-                url = '/api/credits/purchase';
-                body = JSON.stringify({ pack_size: pendingPayment.id });
-            }
-
-            fetch(url, {
+            fetch('/api/subscription/create-checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: body
+                body: JSON.stringify({ tier_name: tierName })
             })
-            .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
-            .then(function(result) {
-                if (result.ok && result.data.success) {
-                    closePaymentModal();
-                    showToast(result.data.message || 'Payment successful!', 'success');
-                    setTimeout(function() { location.reload(); }, 1200);
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data.success && data.checkout_url) {
+                    window.location.href = data.checkout_url;
                 } else {
-                    var errEl = document.getElementById('paymentError');
-                    errEl.textContent = result.data.error || 'Payment failed. Please try again.';
-                    errEl.classList.add('visible');
-                    payBtn.classList.remove('processing');
-                    payBtn.disabled = false;
-                    document.getElementById('payButtonText').textContent = 'Pay ' + pendingPayment.price;
+                    showToast(data.error || 'Failed to start checkout. Please try again.', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Upgrade';
                 }
             })
             .catch(function() {
-                var errEl = document.getElementById('paymentError');
-                errEl.textContent = 'Network error. Please check your connection and try again.';
-                errEl.classList.add('visible');
-                payBtn.classList.remove('processing');
-                payBtn.disabled = false;
-                document.getElementById('payButtonText').textContent = 'Pay ' + pendingPayment.price;
+                showToast('Network error. Please try again.', 'error');
+                btn.disabled = false;
+                btn.textContent = 'Upgrade';
             });
-
-            return false;
         }
 
-        // Tier upgrade - opens payment modal
-        function upgradeTier(tierId) {
-            // Find the tier card to get name and price
-            var btn = event.currentTarget;
-            var card = btn.closest('.tier-card');
-            var tierName = card ? card.querySelector('.tier-name').textContent : 'Plan';
-            var tierPrice = card ? card.querySelector('.tier-price').textContent.trim() : '';
-            // Clean price text: grab just "$XX" portion
-            var priceMatch = tierPrice.match(/\$[\d,.]+/);
-            var displayPrice = priceMatch ? priceMatch[0] + '/mo' : tierPrice;
-
-            openPaymentModal('subscription', tierId, tierName + ' Plan', displayPrice);
-        }
-
-        // Credit purchase - opens payment modal
+        // Redirect to Stripe Checkout for credit pack purchase
         function purchaseCredits(packSize) {
-            var prices = { 50: '$9', 200: '$29', 500: '$59', 1000: '$99' };
-            var price = prices[packSize] || '$' + packSize;
-            openPaymentModal('credits', packSize, packSize.toLocaleString() + ' Credits', price);
+            var btn = event.currentTarget;
+            btn.disabled = true;
+            btn.textContent = 'Redirecting...';
+
+            fetch('/api/credits/create-checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pack_size: packSize })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data.success && data.checkout_url) {
+                    window.location.href = data.checkout_url;
+                } else {
+                    showToast(data.error || 'Failed to start checkout. Please try again.', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Purchase';
+                }
+            })
+            .catch(function() {
+                showToast('Network error. Please try again.', 'error');
+                btn.disabled = false;
+                btn.textContent = 'Purchase';
+            });
         }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
