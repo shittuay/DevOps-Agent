@@ -13,9 +13,17 @@ import os
 from celery import Celery
 from celery.schedules import crontab
 
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
+# Load secrets: production from AWS Secrets Manager, development from .env
+_flask_env = os.environ.get('FLASK_ENV', 'development')
+if _flask_env == 'production' or os.environ.get('USE_AWS_SECRETS', '').lower() == 'true':
+    from services.secrets_manager import init_secrets
+    init_secrets()
+else:
+    from dotenv import load_dotenv
+    for _env_path in ['config/.env', '.env']:
+        if os.path.exists(_env_path):
+            load_dotenv(_env_path)
+            break
 
 
 def make_celery(app=None):

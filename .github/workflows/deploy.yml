@@ -52,13 +52,13 @@ jobs:
           # Create necessary directories
           mkdir -p logs instance config
 
-          # Create or update .env file
+          # Configure environment (secrets loaded from AWS Secrets Manager via IAM role)
           echo "⚙️  Configuring environment..."
           cat > config/.env << 'ENVEOF'
-          SECRET_KEY=${{ secrets.SECRET_KEY }}
-          DATABASE_URL=sqlite:///devops_agent.db
           FLASK_ENV=production
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          USE_AWS_SECRETS=true
+          AWS_DEFAULT_REGION=us-east-1
+          BASE_URL=http://3.91.154.244:5000
           PORT=5000
           HOST=0.0.0.0
           LOG_LEVEL=INFO

@@ -5,26 +5,45 @@ Securely retrieve secrets from AWS Secrets Manager instead of .env files
 import boto3
 import json
 import os
+import time
+import logging
 from botocore.exceptions import ClientError
 from typing import Dict, Any, Optional
 
+logger = logging.getLogger(__name__)
+
+# All sensitive keys managed by Secrets Manager
+MANAGED_SECRET_KEYS = [
+    'ANTHROPIC_API_KEY',
+    'SECRET_KEY',
+    'DATABASE_URL',
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'SMTP_USER',
+    'SMTP_PASS',
+    'CREDENTIAL_ENCRYPTION_KEY',
+]
+
+# Primary secret name in AWS Secrets Manager (single JSON blob)
+PRIMARY_SECRET_NAME = 'devops-agent/production'
+# Legacy fallback secret name
+LEGACY_SECRET_NAME = 'ANTHROPIC_API_KEY'
+
 
 class SecretsManager:
-    """Manage secrets from AWS Secrets Manager"""
+    """Manage secrets from AWS Secrets Manager with TTL-based caching."""
 
-    def __init__(self, region_name: str = "us-east-1"):
-        """
-        Initialize Secrets Manager client
-
-        Args:
-            region_name: AWS region where secrets are stored
-        """
+    def __init__(self, region_name: str = "us-east-1", cache_ttl: int = 3600):
         self.region_name = region_name
         self.client = None
         self._cache = {}
+        self._cache_timestamps = {}
+        self.cache_ttl = cache_ttl
 
     def _get_client(self):
-        """Get or create Secrets Manager client"""
+        """Get or create Secrets Manager client."""
         if self.client is None:
             session = boto3.session.Session()
             self.client = session.client(
@@ -35,11 +54,11 @@ class SecretsManager:
 
     def get_secret(self, secret_name: str, use_cache: bool = True) -> Optional[str]:
         """
-        Get a secret from AWS Secrets Manager
+        Get a secret from AWS Secrets Manager.
 
         Args:
             secret_name: Name of the secret in AWS Secrets Manager
-            use_cache: Whether to use cached value if available
+            use_cache: Whether to use cached value if available and not expired
 
         Returns:
             Secret value as string, or None if error
@@ -47,83 +66,51 @@ class SecretsManager:
         Raises:
             ClientError: If AWS API call fails
         """
-        # Check cache first
         if use_cache and secret_name in self._cache:
-            return self._cache[secret_name]
+            cached_at = self._cache_timestamps.get(secret_name, 0)
+            if time.time() - cached_at < self.cache_ttl:
+                return self._cache[secret_name]
+            else:
+                del self._cache[secret_name]
+                del self._cache_timestamps[secret_name]
 
         try:
             client = self._get_client()
-            get_secret_value_response = client.get_secret_value(
-                SecretId=secret_name
-            )
+            response = client.get_secret_value(SecretId=secret_name)
 
-            # Secrets Manager returns either SecretString or SecretBinary
-            if 'SecretString' in get_secret_value_response:
-                secret = get_secret_value_response['SecretString']
+            if 'SecretString' in response:
+                secret = response['SecretString']
             else:
-                # Binary secrets are base64 encoded
                 import base64
-                secret = base64.b64decode(get_secret_value_response['SecretBinary'])
+                secret = base64.b64decode(response['SecretBinary'])
 
-            # Cache the secret
             if use_cache:
                 self._cache[secret_name] = secret
+                self._cache_timestamps[secret_name] = time.time()
 
             return secret
 
         except ClientError as e:
             error_code = e.response['Error']['Code']
-
-            if error_code == 'DecryptionFailureException':
-                # Secrets Manager can't decrypt the secret using the KMS key
-                print(f"Error: Cannot decrypt secret {secret_name}")
-            elif error_code == 'InternalServiceErrorException':
-                # An error occurred on the server side
-                print(f"Error: Internal server error retrieving {secret_name}")
-            elif error_code == 'InvalidParameterException':
-                # Invalid parameter in request
-                print(f"Error: Invalid parameter for {secret_name}")
-            elif error_code == 'InvalidRequestException':
-                # Invalid request
-                print(f"Error: Invalid request for {secret_name}")
-            elif error_code == 'ResourceNotFoundException':
-                # Secret not found
-                print(f"Error: Secret {secret_name} not found in {self.region_name}")
+            if error_code == 'ResourceNotFoundException':
+                logger.warning("Secret %s not found in %s", secret_name, self.region_name)
             else:
-                print(f"Error retrieving secret {secret_name}: {str(e)}")
-
-            raise e
+                logger.error("Error retrieving secret %s: %s", secret_name, e)
+            raise
 
     def get_secret_json(self, secret_name: str, use_cache: bool = True) -> Optional[Dict[str, Any]]:
-        """
-        Get a JSON secret from AWS Secrets Manager and parse it
-
-        Args:
-            secret_name: Name of the secret in AWS Secrets Manager
-            use_cache: Whether to use cached value
-
-        Returns:
-            Parsed JSON as dictionary, or None if error
-        """
+        """Get a JSON secret and parse it."""
         try:
             secret_string = self.get_secret(secret_name, use_cache)
             if secret_string:
                 return json.loads(secret_string)
             return None
         except json.JSONDecodeError as e:
-            print(f"Error: Secret {secret_name} is not valid JSON: {str(e)}")
+            logger.error("Secret %s is not valid JSON: %s", secret_name, e)
             return None
 
     def get_multiple_secrets(self, secret_names: list) -> Dict[str, str]:
-        """
-        Get multiple secrets at once
-
-        Args:
-            secret_names: List of secret names
-
-        Returns:
-            Dictionary mapping secret names to values
-        """
+        """Get multiple secrets at once."""
         secrets = {}
         for name in secret_names:
             try:
@@ -133,8 +120,9 @@ class SecretsManager:
         return secrets
 
     def clear_cache(self):
-        """Clear the secrets cache"""
+        """Clear the secrets cache and timestamps."""
         self._cache = {}
+        self._cache_timestamps = {}
 
 
 # Singleton instance
@@ -142,7 +130,7 @@ _secrets_manager = None
 
 
 def get_secrets_manager(region_name: str = "us-east-1") -> SecretsManager:
-    """Get singleton SecretsManager instance"""
+    """Get singleton SecretsManager instance."""
     global _secrets_manager
     if _secrets_manager is None:
         _secrets_manager = SecretsManager(region_name)
@@ -151,87 +139,120 @@ def get_secrets_manager(region_name: str = "us-east-1") -> SecretsManager:
 
 def get_anthropic_api_key() -> Optional[str]:
     """
-    Get Anthropic API key from AWS Secrets Manager or environment variable
+    Get Anthropic API key from environment or AWS Secrets Manager.
 
     Returns:
         API key string or None
     """
-    # Try environment variable first (for local development)
     api_key = os.environ.get('ANTHROPIC_API_KEY')
     if api_key:
         return api_key
 
-    # Try AWS Secrets Manager (for production)
     try:
         sm = get_secrets_manager()
-        # Try to get as JSON first (recommended format)
-        secrets = sm.get_secret_json('ANTHROPIC_API_KEY')
+        secrets = sm.get_secret_json(PRIMARY_SECRET_NAME)
         if secrets and 'ANTHROPIC_API_KEY' in secrets:
             return secrets['ANTHROPIC_API_KEY']
-        # Fall back to plain string
-        return sm.get_secret('ANTHROPIC_API_KEY')
+        # Legacy fallback
+        secrets = sm.get_secret_json(LEGACY_SECRET_NAME)
+        if secrets and 'ANTHROPIC_API_KEY' in secrets:
+            return secrets['ANTHROPIC_API_KEY']
+        return sm.get_secret(LEGACY_SECRET_NAME)
     except ClientError:
         return None
 
 
-def get_all_secrets() -> Dict[str, str]:
+def get_all_secrets() -> Dict[str, Optional[str]]:
     """
-    Get all application secrets from AWS Secrets Manager
+    Get all application secrets from AWS Secrets Manager.
 
-    This retrieves a single JSON secret that contains all app secrets
+    Fetches the single JSON secret 'devops-agent/production' containing all keys.
+    Falls back to legacy 'ANTHROPIC_API_KEY' secret name.
 
     Returns:
-        Dictionary of all secrets
+        Dictionary of secret key -> value
     """
-    # Try environment variables first (local development)
-    if os.environ.get('USE_ENV_SECRETS', 'false').lower() == 'true':
-        return {
-            'ANTHROPIC_API_KEY': os.environ.get('ANTHROPIC_API_KEY'),
-            'SECRET_KEY': os.environ.get('SECRET_KEY'),
-            'AWS_ACCESS_KEY_ID': os.environ.get('AWS_ACCESS_KEY_ID'),
-            'AWS_SECRET_ACCESS_KEY': os.environ.get('AWS_SECRET_ACCESS_KEY'),
-            'STRIPE_SECRET_KEY': os.environ.get('STRIPE_SECRET_KEY'),
-            'GITHUB_TOKEN': os.environ.get('GITHUB_TOKEN'),
-            'DATABASE_URL': os.environ.get('DATABASE_URL'),
-        }
+    sm = get_secrets_manager()
 
-    # Try AWS Secrets Manager (production)
+    # Try primary consolidated secret
     try:
-        sm = get_secrets_manager()
-        # Use the actual secret name (adjust based on your setup)
-        # Try "ANTHROPIC_API_KEY" first (your current setup)
-        secrets = sm.get_secret_json('ANTHROPIC_API_KEY')
+        secrets = sm.get_secret_json(PRIMARY_SECRET_NAME)
         if secrets:
+            logger.info("Loaded secrets from %s", PRIMARY_SECRET_NAME)
             return secrets
-        # Fall back to "devops-agent/secrets" if that exists
-        secrets = sm.get_secret_json('devops-agent/secrets')
-        return secrets or {}
     except ClientError:
-        return {}
+        logger.warning("Primary secret %s not found, trying legacy", PRIMARY_SECRET_NAME)
+
+    # Fallback to legacy secret name
+    try:
+        secrets = sm.get_secret_json(LEGACY_SECRET_NAME)
+        if secrets:
+            logger.info("Loaded secrets from legacy %s", LEGACY_SECRET_NAME)
+            return secrets
+    except ClientError:
+        pass
+
+    return {}
 
 
 def init_secrets():
     """
-    Initialize secrets for the application
-    Sets environment variables from AWS Secrets Manager
-    """
-    secrets = get_all_secrets()
+    Initialize secrets for the application.
 
-    for key, value in secrets.items():
+    In production (FLASK_ENV=production or USE_AWS_SECRETS=true):
+      - Loads all secrets from AWS Secrets Manager into os.environ
+      - Fails fast if secrets cannot be loaded
+
+    In development:
+      - No-op (secrets come from .env via dotenv)
+    """
+    flask_env = os.environ.get('FLASK_ENV', 'development')
+    use_aws = os.environ.get('USE_AWS_SECRETS', '').lower() == 'true'
+
+    if flask_env != 'production' and not use_aws:
+        return
+
+    logger.info("Loading secrets from AWS Secrets Manager...")
+    try:
+        secrets = get_all_secrets()
+    except Exception as e:
+        raise RuntimeError(
+            f"FATAL: Failed to load secrets from AWS Secrets Manager: {e}\n"
+            "Ensure the EC2 instance has an IAM role with secretsmanager:GetSecretValue permission "
+            f"on arn:aws:secretsmanager:us-east-1:*:secret:devops-agent/*"
+        ) from e
+
+    if not secrets:
+        raise RuntimeError(
+            "FATAL: No secrets returned from AWS Secrets Manager.\n"
+            f"Ensure secret '{PRIMARY_SECRET_NAME}' exists in us-east-1 and contains the required keys."
+        )
+
+    loaded = 0
+    for key in MANAGED_SECRET_KEYS:
+        value = secrets.get(key)
         if value:
             os.environ[key] = value
-            print(f"✓ Loaded secret: {key}")
+            loaded += 1
+
+    if loaded == 0:
+        raise RuntimeError(
+            "FATAL: Secrets JSON was returned but contained none of the expected keys.\n"
+            f"Expected keys: {MANAGED_SECRET_KEYS}"
+        )
+
+    logger.info("Loaded %d secrets from AWS Secrets Manager", loaded)
 
 
 if __name__ == '__main__':
-    # Test the secrets manager
+    logging.basicConfig(level=logging.INFO)
     print("Testing AWS Secrets Manager integration...")
 
     try:
         api_key = get_anthropic_api_key()
         if api_key:
-            print(f"✅ Successfully retrieved ANTHROPIC_API_KEY: {api_key[:10]}...")
+            print(f"Successfully retrieved ANTHROPIC_API_KEY: {api_key[:10]}...")
         else:
-            print("❌ Failed to retrieve ANTHROPIC_API_KEY")
+            print("Failed to retrieve ANTHROPIC_API_KEY")
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {e}")
