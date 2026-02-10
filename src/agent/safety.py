@@ -227,6 +227,22 @@ class SafetyValidator:
             'delete_service',
             'delete_ingress',
             'delete_job',
+            'delete_storage_account',
+            'delete_sql_server',
+            'delete_sql_database',
+            'delete_network_security_group',
+            'delete_container_instance',
+            'delete_managed_disk',
+            'delete_public_ip',
+            'delete_cloud_sql_instance',
+            'delete_pubsub_topic',
+            'delete_gcp_secret',
+            'delete_cloud_run_service',
+            'delete_gke_cluster',
+            'delete_firewall_rule',
+            'delete_bigquery_dataset',
+            'delete_cloud_function',
+            'delete_disk_snapshot',
         }
 
         medium_risk_tools = {
@@ -253,6 +269,14 @@ class SafetyValidator:
             'uncordon_node',
             'update_deployment_image',
             'exec_pod_command',
+            'create_nsg_rule',
+            'create_sql_firewall_rule',
+            'restart_container_instance',
+            'regenerate_storage_key',
+            'restart_cloud_sql_instance',
+            'create_firewall_rule',
+            'resize_gke_cluster',
+            'create_pubsub_subscription',
         }
 
         # Check if tool is a pentest tool

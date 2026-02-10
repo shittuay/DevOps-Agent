@@ -886,6 +886,526 @@ def delete_virtual_machine(
         logger.error(f"Error deleting Azure VM: {str(e)}")
         return {'success': False, 'error': str(e)}
 
+# ==================== STORAGE LIFECYCLE ====================
+
+
+def delete_storage_account(resource_group: str, storage_account_name: str) -> Dict[str, Any]:
+    """Delete an Azure Storage Account."""
+    try:
+        storage_client = _get_azure_client('storage')
+        storage_client.storage_accounts.delete(resource_group, storage_account_name)
+        return {
+            'success': True, 'storage_account_name': storage_account_name,
+            'resource_group': resource_group,
+            'message': f'Successfully deleted storage account {storage_account_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Azure storage account: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def list_storage_account_keys(resource_group: str, storage_account_name: str) -> Dict[str, Any]:
+    """List access keys for a storage account."""
+    try:
+        storage_client = _get_azure_client('storage')
+        keys = storage_client.storage_accounts.list_keys(resource_group, storage_account_name)
+        return {
+            'success': True, 'storage_account_name': storage_account_name,
+            'keys': [{'key_name': k.key_name, 'value': k.value, 'permissions': k.permissions} for k in keys.keys],
+            'message': f'Retrieved {len(keys.keys)} keys for {storage_account_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error listing storage account keys: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def regenerate_storage_key(resource_group: str, storage_account_name: str, key_name: str = 'key1') -> Dict[str, Any]:
+    """Regenerate a storage account access key."""
+    try:
+        storage_client = _get_azure_client('storage')
+        keys = storage_client.storage_accounts.regenerate_key(
+            resource_group, storage_account_name, {'key_name': key_name}
+        )
+        return {
+            'success': True, 'storage_account_name': storage_account_name,
+            'regenerated_key': key_name,
+            'keys': [{'key_name': k.key_name, 'value': k.value} for k in keys.keys],
+            'message': f'Successfully regenerated {key_name} for {storage_account_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error regenerating storage key: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== NETWORK SECURITY GROUPS ====================
+
+
+def list_network_security_groups(resource_group: Optional[str] = None) -> Dict[str, Any]:
+    """List Azure Network Security Groups."""
+    try:
+        network_client = _get_azure_client('network')
+
+        nsgs = []
+        if resource_group:
+            nsg_list = network_client.network_security_groups.list(resource_group)
+        else:
+            nsg_list = network_client.network_security_groups.list_all()
+
+        for nsg in nsg_list:
+            rules = []
+            if nsg.security_rules:
+                for rule in nsg.security_rules:
+                    rules.append({
+                        'name': rule.name,
+                        'priority': rule.priority,
+                        'direction': rule.direction,
+                        'access': rule.access,
+                        'protocol': rule.protocol,
+                        'source': rule.source_address_prefix,
+                        'destination': rule.destination_address_prefix,
+                        'dest_port': rule.destination_port_range,
+                    })
+
+            nsgs.append({
+                'name': nsg.name,
+                'location': nsg.location,
+                'resource_group': nsg.id.split('/')[4],
+                'provisioning_state': nsg.provisioning_state,
+                'rules_count': len(rules),
+                'rules': rules,
+                'tags': nsg.tags or {}
+            })
+
+        return {'success': True, 'count': len(nsgs), 'network_security_groups': nsgs}
+    except Exception as e:
+        logger.error(f"Error listing Azure NSGs: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_network_security_group(
+    resource_group: str,
+    nsg_name: str,
+    location: str,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Create a Network Security Group."""
+    try:
+        network_client = _get_azure_client('network')
+        params = {'location': location}
+        if tags:
+            params['tags'] = tags
+
+        result = network_client.network_security_groups.begin_create_or_update(
+            resource_group, nsg_name, params
+        ).result()
+
+        return {
+            'success': True, 'nsg_name': result.name, 'location': result.location,
+            'resource_group': resource_group,
+            'provisioning_state': result.provisioning_state,
+            'message': f'Successfully created NSG {result.name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating Azure NSG: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_nsg_rule(
+    resource_group: str,
+    nsg_name: str,
+    rule_name: str,
+    priority: int,
+    direction: str = 'Inbound',
+    access: str = 'Allow',
+    protocol: str = 'Tcp',
+    source_address: str = '*',
+    source_port: str = '*',
+    destination_address: str = '*',
+    destination_port: str = '80'
+) -> Dict[str, Any]:
+    """Create a security rule in a Network Security Group."""
+    try:
+        network_client = _get_azure_client('network')
+        rule_params = {
+            'priority': priority,
+            'direction': direction,
+            'access': access,
+            'protocol': protocol,
+            'source_address_prefix': source_address,
+            'source_port_range': source_port,
+            'destination_address_prefix': destination_address,
+            'destination_port_range': destination_port,
+        }
+
+        result = network_client.security_rules.begin_create_or_update(
+            resource_group, nsg_name, rule_name, rule_params
+        ).result()
+
+        return {
+            'success': True, 'rule_name': result.name, 'nsg_name': nsg_name,
+            'priority': result.priority, 'direction': result.direction,
+            'access': result.access, 'protocol': result.protocol,
+            'destination_port': result.destination_port_range,
+            'message': f'Successfully created rule {result.name} in NSG {nsg_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating NSG rule: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_network_security_group(resource_group: str, nsg_name: str) -> Dict[str, Any]:
+    """Delete a Network Security Group."""
+    try:
+        network_client = _get_azure_client('network')
+        network_client.network_security_groups.begin_delete(resource_group, nsg_name).result()
+        return {
+            'success': True, 'nsg_name': nsg_name, 'resource_group': resource_group,
+            'message': f'Successfully deleted NSG {nsg_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Azure NSG: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== SQL LIFECYCLE ====================
+
+
+def delete_sql_server(resource_group: str, server_name: str) -> Dict[str, Any]:
+    """Delete an Azure SQL Server and all its databases."""
+    try:
+        sql_client = _get_azure_client('sql')
+        sql_client.servers.begin_delete(resource_group, server_name).result()
+        return {
+            'success': True, 'server_name': server_name, 'resource_group': resource_group,
+            'message': f'Successfully deleted SQL Server {server_name}',
+            'warning': 'All databases on this server have been deleted.'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Azure SQL Server: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_sql_database(resource_group: str, server_name: str, database_name: str) -> Dict[str, Any]:
+    """Delete an Azure SQL Database."""
+    try:
+        sql_client = _get_azure_client('sql')
+        sql_client.databases.begin_delete(resource_group, server_name, database_name).result()
+        return {
+            'success': True, 'database_name': database_name,
+            'server_name': server_name, 'resource_group': resource_group,
+            'message': f'Successfully deleted database {database_name} from server {server_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Azure SQL Database: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_sql_firewall_rule(
+    resource_group: str,
+    server_name: str,
+    rule_name: str,
+    start_ip: str,
+    end_ip: str
+) -> Dict[str, Any]:
+    """Create a firewall rule on an Azure SQL Server."""
+    try:
+        sql_client = _get_azure_client('sql')
+        result = sql_client.firewall_rules.create_or_update(
+            resource_group, server_name, rule_name,
+            {'start_ip_address': start_ip, 'end_ip_address': end_ip}
+        )
+        return {
+            'success': True, 'rule_name': result.name,
+            'server_name': server_name,
+            'start_ip': result.start_ip_address, 'end_ip': result.end_ip_address,
+            'message': f'Successfully created firewall rule {result.name} on {server_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating SQL firewall rule: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== CONTAINER INSTANCE LIFECYCLE ====================
+
+
+def create_container_instance(
+    resource_group: str,
+    container_group_name: str,
+    image: str,
+    location: str,
+    cpu: float = 1.0,
+    memory_gb: float = 1.5,
+    port: int = 80,
+    os_type: str = 'Linux',
+    restart_policy: str = 'Always',
+    env_vars: Optional[Dict[str, str]] = None,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Create an Azure Container Instance."""
+    try:
+        container_client = _get_azure_client('container')
+
+        container_resource = {
+            'requests': {'cpu': cpu, 'memory_in_gb': memory_gb}
+        }
+        container_def = {
+            'name': container_group_name,
+            'image': image,
+            'resources': container_resource,
+            'ports': [{'port': port}],
+        }
+        if env_vars:
+            container_def['environment_variables'] = [
+                {'name': k, 'value': v} for k, v in env_vars.items()
+            ]
+
+        params = {
+            'location': location,
+            'containers': [container_def],
+            'os_type': os_type,
+            'restart_policy': restart_policy,
+            'ip_address': {'type': 'Public', 'ports': [{'protocol': 'TCP', 'port': port}]},
+        }
+        if tags:
+            params['tags'] = tags
+
+        result = container_client.container_groups.begin_create_or_update(
+            resource_group, container_group_name, params
+        ).result()
+
+        ip = result.ip_address.ip if result.ip_address else None
+        return {
+            'success': True, 'name': result.name, 'location': result.location,
+            'provisioning_state': result.provisioning_state,
+            'ip_address': ip, 'image': image,
+            'message': f'Successfully created container instance {result.name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating Azure Container Instance: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_container_instance(resource_group: str, container_group_name: str) -> Dict[str, Any]:
+    """Delete an Azure Container Instance."""
+    try:
+        container_client = _get_azure_client('container')
+        container_client.container_groups.begin_delete(resource_group, container_group_name).result()
+        return {
+            'success': True, 'name': container_group_name, 'resource_group': resource_group,
+            'message': f'Successfully deleted container instance {container_group_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Azure Container Instance: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def restart_container_instance(resource_group: str, container_group_name: str) -> Dict[str, Any]:
+    """Restart an Azure Container Instance."""
+    try:
+        container_client = _get_azure_client('container')
+        container_client.container_groups.begin_restart(resource_group, container_group_name).result()
+        return {
+            'success': True, 'name': container_group_name, 'resource_group': resource_group,
+            'message': f'Successfully restarted container instance {container_group_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error restarting Azure Container Instance: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== DISK MANAGEMENT ====================
+
+
+def list_managed_disks(resource_group: str) -> Dict[str, Any]:
+    """List managed disks in a resource group."""
+    try:
+        compute_client = _get_azure_client('compute')
+        disks = []
+        for disk in compute_client.disks.list_by_resource_group(resource_group):
+            disks.append({
+                'name': disk.name,
+                'location': disk.location,
+                'size_gb': disk.disk_size_gb,
+                'sku': disk.sku.name if disk.sku else None,
+                'state': disk.disk_state,
+                'os_type': disk.os_type,
+                'provisioning_state': disk.provisioning_state,
+                'managed_by': disk.managed_by,
+                'tags': disk.tags or {}
+            })
+        return {'success': True, 'count': len(disks), 'disks': disks, 'resource_group': resource_group}
+    except Exception as e:
+        logger.error(f"Error listing Azure managed disks: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_managed_disk(
+    resource_group: str,
+    disk_name: str,
+    location: str,
+    size_gb: int = 32,
+    sku_name: str = 'Standard_LRS',
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Create a managed disk."""
+    try:
+        compute_client = _get_azure_client('compute')
+        params = {
+            'location': location,
+            'disk_size_gb': size_gb,
+            'creation_data': {'create_option': 'Empty'},
+            'sku': {'name': sku_name},
+        }
+        if tags:
+            params['tags'] = tags
+
+        result = compute_client.disks.begin_create_or_update(resource_group, disk_name, params).result()
+        return {
+            'success': True, 'disk_name': result.name, 'location': result.location,
+            'size_gb': result.disk_size_gb, 'sku': result.sku.name,
+            'provisioning_state': result.provisioning_state,
+            'message': f'Successfully created managed disk {result.name} ({size_gb}GB)'
+        }
+    except Exception as e:
+        logger.error(f"Error creating Azure managed disk: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_managed_disk(resource_group: str, disk_name: str) -> Dict[str, Any]:
+    """Delete a managed disk."""
+    try:
+        compute_client = _get_azure_client('compute')
+        compute_client.disks.begin_delete(resource_group, disk_name).result()
+        return {
+            'success': True, 'disk_name': disk_name, 'resource_group': resource_group,
+            'message': f'Successfully deleted managed disk {disk_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Azure managed disk: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== VIRTUAL NETWORK OPERATIONS ====================
+
+
+def list_virtual_networks(resource_group: Optional[str] = None) -> Dict[str, Any]:
+    """List Azure Virtual Networks."""
+    try:
+        network_client = _get_azure_client('network')
+        vnets = []
+        if resource_group:
+            vnet_list = network_client.virtual_networks.list(resource_group)
+        else:
+            vnet_list = network_client.virtual_networks.list_all()
+
+        for vnet in vnet_list:
+            subnets = []
+            if vnet.subnets:
+                for subnet in vnet.subnets:
+                    subnets.append({
+                        'name': subnet.name,
+                        'address_prefix': subnet.address_prefix,
+                        'provisioning_state': subnet.provisioning_state,
+                    })
+
+            vnets.append({
+                'name': vnet.name,
+                'location': vnet.location,
+                'resource_group': vnet.id.split('/')[4],
+                'address_space': vnet.address_space.address_prefixes if vnet.address_space else [],
+                'subnets': subnets,
+                'provisioning_state': vnet.provisioning_state,
+                'tags': vnet.tags or {}
+            })
+
+        return {'success': True, 'count': len(vnets), 'virtual_networks': vnets}
+    except Exception as e:
+        logger.error(f"Error listing Azure VNets: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_virtual_network(
+    resource_group: str,
+    vnet_name: str,
+    location: str,
+    address_prefix: str = '10.0.0.0/16',
+    subnet_name: Optional[str] = None,
+    subnet_prefix: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Create a Virtual Network with an optional subnet."""
+    try:
+        network_client = _get_azure_client('network')
+        params = {
+            'location': location,
+            'address_space': {'address_prefixes': [address_prefix]},
+        }
+        if subnet_name and subnet_prefix:
+            params['subnets'] = [{'name': subnet_name, 'address_prefix': subnet_prefix}]
+        if tags:
+            params['tags'] = tags
+
+        result = network_client.virtual_networks.begin_create_or_update(
+            resource_group, vnet_name, params
+        ).result()
+
+        subnets = [s.name for s in result.subnets] if result.subnets else []
+        return {
+            'success': True, 'vnet_name': result.name, 'location': result.location,
+            'address_space': result.address_space.address_prefixes,
+            'subnets': subnets, 'resource_group': resource_group,
+            'message': f'Successfully created VNet {result.name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating Azure VNet: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== PUBLIC IP OPERATIONS ====================
+
+
+def list_public_ips(resource_group: Optional[str] = None) -> Dict[str, Any]:
+    """List Azure Public IP addresses."""
+    try:
+        network_client = _get_azure_client('network')
+        ips = []
+        if resource_group:
+            ip_list = network_client.public_ip_addresses.list(resource_group)
+        else:
+            ip_list = network_client.public_ip_addresses.list_all()
+
+        for ip in ip_list:
+            ips.append({
+                'name': ip.name,
+                'location': ip.location,
+                'resource_group': ip.id.split('/')[4],
+                'ip_address': ip.ip_address,
+                'allocation_method': ip.public_ip_allocation_method,
+                'sku': ip.sku.name if ip.sku else None,
+                'provisioning_state': ip.provisioning_state,
+                'tags': ip.tags or {}
+            })
+
+        return {'success': True, 'count': len(ips), 'public_ips': ips}
+    except Exception as e:
+        logger.error(f"Error listing Azure public IPs: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_public_ip(resource_group: str, public_ip_name: str) -> Dict[str, Any]:
+    """Delete an Azure Public IP address."""
+    try:
+        network_client = _get_azure_client('network')
+        network_client.public_ip_addresses.begin_delete(resource_group, public_ip_name).result()
+        return {
+            'success': True, 'public_ip_name': public_ip_name, 'resource_group': resource_group,
+            'message': f'Successfully deleted public IP {public_ip_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Azure public IP: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
 # ==================== TOOL REGISTRATION ====================
 
 
@@ -1301,5 +1821,299 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['resource_id', 'metric_names']
             },
             'handler': get_azure_metrics
+        },
+        # ---- Storage Lifecycle ----
+        {
+            'name': 'delete_storage_account',
+            'description': 'Delete an Azure Storage Account.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'storage_account_name': {'type': 'string', 'description': 'Storage account name'}
+                },
+                'required': ['resource_group', 'storage_account_name']
+            },
+            'handler': delete_storage_account
+        },
+        {
+            'name': 'list_storage_account_keys',
+            'description': 'List access keys for an Azure Storage Account.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'storage_account_name': {'type': 'string', 'description': 'Storage account name'}
+                },
+                'required': ['resource_group', 'storage_account_name']
+            },
+            'handler': list_storage_account_keys
+        },
+        {
+            'name': 'regenerate_storage_key',
+            'description': 'Regenerate (rotate) a storage account access key.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'storage_account_name': {'type': 'string', 'description': 'Storage account name'},
+                    'key_name': {'type': 'string', 'enum': ['key1', 'key2'], 'description': 'Key to regenerate', 'default': 'key1'}
+                },
+                'required': ['resource_group', 'storage_account_name']
+            },
+            'handler': regenerate_storage_key
+        },
+        # ---- Network Security Groups ----
+        {
+            'name': 'list_network_security_groups',
+            'description': 'List Azure Network Security Groups with their rules.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group (optional, lists all if omitted)'}
+                }
+            },
+            'handler': list_network_security_groups
+        },
+        {
+            'name': 'create_network_security_group',
+            'description': 'Create an Azure Network Security Group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'nsg_name': {'type': 'string', 'description': 'NSG name'},
+                    'location': {'type': 'string', 'description': 'Azure region'},
+                    'tags': {'type': 'object', 'description': 'Optional tags'}
+                },
+                'required': ['resource_group', 'nsg_name', 'location']
+            },
+            'handler': create_network_security_group
+        },
+        {
+            'name': 'create_nsg_rule',
+            'description': 'Create a security rule in a Network Security Group (firewall rule).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'nsg_name': {'type': 'string', 'description': 'NSG name'},
+                    'rule_name': {'type': 'string', 'description': 'Rule name'},
+                    'priority': {'type': 'integer', 'description': 'Priority (100-4096, lower = higher priority)'},
+                    'direction': {'type': 'string', 'enum': ['Inbound', 'Outbound'], 'default': 'Inbound'},
+                    'access': {'type': 'string', 'enum': ['Allow', 'Deny'], 'default': 'Allow'},
+                    'protocol': {'type': 'string', 'enum': ['Tcp', 'Udp', 'Icmp', '*'], 'default': 'Tcp'},
+                    'source_address': {'type': 'string', 'description': 'Source IP/CIDR (* for any)', 'default': '*'},
+                    'source_port': {'type': 'string', 'description': 'Source port range', 'default': '*'},
+                    'destination_address': {'type': 'string', 'description': 'Destination IP/CIDR', 'default': '*'},
+                    'destination_port': {'type': 'string', 'description': 'Destination port (e.g., "80", "443", "22")'}
+                },
+                'required': ['resource_group', 'nsg_name', 'rule_name', 'priority', 'destination_port']
+            },
+            'handler': create_nsg_rule
+        },
+        {
+            'name': 'delete_network_security_group',
+            'description': 'Delete an Azure Network Security Group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'nsg_name': {'type': 'string', 'description': 'NSG name'}
+                },
+                'required': ['resource_group', 'nsg_name']
+            },
+            'handler': delete_network_security_group
+        },
+        # ---- SQL Lifecycle ----
+        {
+            'name': 'delete_sql_server',
+            'description': 'Delete an Azure SQL Server and all its databases.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'server_name': {'type': 'string', 'description': 'SQL server name'}
+                },
+                'required': ['resource_group', 'server_name']
+            },
+            'handler': delete_sql_server
+        },
+        {
+            'name': 'delete_sql_database',
+            'description': 'Delete an Azure SQL Database.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'server_name': {'type': 'string', 'description': 'SQL server name'},
+                    'database_name': {'type': 'string', 'description': 'Database name'}
+                },
+                'required': ['resource_group', 'server_name', 'database_name']
+            },
+            'handler': delete_sql_database
+        },
+        {
+            'name': 'create_sql_firewall_rule',
+            'description': 'Create a firewall rule on an Azure SQL Server to allow IP access.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'server_name': {'type': 'string', 'description': 'SQL server name'},
+                    'rule_name': {'type': 'string', 'description': 'Firewall rule name'},
+                    'start_ip': {'type': 'string', 'description': 'Start IP address'},
+                    'end_ip': {'type': 'string', 'description': 'End IP address (same as start for single IP)'}
+                },
+                'required': ['resource_group', 'server_name', 'rule_name', 'start_ip', 'end_ip']
+            },
+            'handler': create_sql_firewall_rule
+        },
+        # ---- Container Instance Lifecycle ----
+        {
+            'name': 'create_container_instance',
+            'description': 'Create an Azure Container Instance (serverless container).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'container_group_name': {'type': 'string', 'description': 'Container group name'},
+                    'image': {'type': 'string', 'description': 'Container image (e.g., "nginx:latest")'},
+                    'location': {'type': 'string', 'description': 'Azure region'},
+                    'cpu': {'type': 'number', 'description': 'CPU cores (default: 1.0)', 'default': 1.0},
+                    'memory_gb': {'type': 'number', 'description': 'Memory in GB (default: 1.5)', 'default': 1.5},
+                    'port': {'type': 'integer', 'description': 'Container port (default: 80)', 'default': 80},
+                    'os_type': {'type': 'string', 'enum': ['Linux', 'Windows'], 'default': 'Linux'},
+                    'restart_policy': {'type': 'string', 'enum': ['Always', 'Never', 'OnFailure'], 'default': 'Always'},
+                    'env_vars': {'type': 'object', 'description': 'Environment variables as key-value pairs'},
+                    'tags': {'type': 'object', 'description': 'Optional tags'}
+                },
+                'required': ['resource_group', 'container_group_name', 'image', 'location']
+            },
+            'handler': create_container_instance
+        },
+        {
+            'name': 'delete_container_instance',
+            'description': 'Delete an Azure Container Instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'container_group_name': {'type': 'string', 'description': 'Container group name'}
+                },
+                'required': ['resource_group', 'container_group_name']
+            },
+            'handler': delete_container_instance
+        },
+        {
+            'name': 'restart_container_instance',
+            'description': 'Restart an Azure Container Instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'container_group_name': {'type': 'string', 'description': 'Container group name'}
+                },
+                'required': ['resource_group', 'container_group_name']
+            },
+            'handler': restart_container_instance
+        },
+        # ---- Disk Management ----
+        {
+            'name': 'list_managed_disks',
+            'description': 'List managed disks in a resource group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'}
+                },
+                'required': ['resource_group']
+            },
+            'handler': list_managed_disks
+        },
+        {
+            'name': 'create_managed_disk',
+            'description': 'Create an Azure managed disk.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'disk_name': {'type': 'string', 'description': 'Disk name'},
+                    'location': {'type': 'string', 'description': 'Azure region'},
+                    'size_gb': {'type': 'integer', 'description': 'Disk size in GB (default: 32)', 'default': 32},
+                    'sku_name': {'type': 'string', 'enum': ['Standard_LRS', 'Premium_LRS', 'StandardSSD_LRS'], 'default': 'Standard_LRS'},
+                    'tags': {'type': 'object', 'description': 'Optional tags'}
+                },
+                'required': ['resource_group', 'disk_name', 'location']
+            },
+            'handler': create_managed_disk
+        },
+        {
+            'name': 'delete_managed_disk',
+            'description': 'Delete an Azure managed disk.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'disk_name': {'type': 'string', 'description': 'Disk name'}
+                },
+                'required': ['resource_group', 'disk_name']
+            },
+            'handler': delete_managed_disk
+        },
+        # ---- Virtual Network ----
+        {
+            'name': 'list_virtual_networks',
+            'description': 'List Azure Virtual Networks with subnets and address spaces.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group (optional, lists all if omitted)'}
+                }
+            },
+            'handler': list_virtual_networks
+        },
+        {
+            'name': 'create_virtual_network',
+            'description': 'Create an Azure Virtual Network with optional subnet.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'vnet_name': {'type': 'string', 'description': 'VNet name'},
+                    'location': {'type': 'string', 'description': 'Azure region'},
+                    'address_prefix': {'type': 'string', 'description': 'Address space CIDR (default: 10.0.0.0/16)', 'default': '10.0.0.0/16'},
+                    'subnet_name': {'type': 'string', 'description': 'Subnet name (optional)'},
+                    'subnet_prefix': {'type': 'string', 'description': 'Subnet CIDR (e.g., 10.0.1.0/24)'},
+                    'tags': {'type': 'object', 'description': 'Optional tags'}
+                },
+                'required': ['resource_group', 'vnet_name', 'location']
+            },
+            'handler': create_virtual_network
+        },
+        # ---- Public IP ----
+        {
+            'name': 'list_public_ips',
+            'description': 'List Azure Public IP addresses.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group (optional, lists all if omitted)'}
+                }
+            },
+            'handler': list_public_ips
+        },
+        {
+            'name': 'delete_public_ip',
+            'description': 'Delete an Azure Public IP address.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_group': {'type': 'string', 'description': 'Resource group name'},
+                    'public_ip_name': {'type': 'string', 'description': 'Public IP name'}
+                },
+                'required': ['resource_group', 'public_ip_name']
+            },
+            'handler': delete_public_ip
         }
     ]

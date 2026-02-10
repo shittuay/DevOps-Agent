@@ -1099,6 +1099,555 @@ def list_cloud_logs(
         return {'success': False, 'error': str(e)}
 
 
+# ==================== CLOUD SQL LIFECYCLE ====================
+
+
+def delete_cloud_sql_instance(instance_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a Cloud SQL instance."""
+    try:
+        from google.cloud.sql_v1 import SqlInstancesServiceClient
+        from google.cloud.sql_v1.types import SqlInstancesDeleteRequest
+
+        proj_id = _resolve_project_id(project_id)
+        client = SqlInstancesServiceClient()
+        operation = client.delete(request=SqlInstancesDeleteRequest(project=proj_id, instance=instance_name))
+        return {
+            'success': True, 'instance_name': instance_name, 'project': proj_id,
+            'message': f'Successfully deleted Cloud SQL instance {instance_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Cloud SQL instance: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def restart_cloud_sql_instance(instance_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Restart a Cloud SQL instance."""
+    try:
+        from google.cloud.sql_v1 import SqlInstancesServiceClient
+        from google.cloud.sql_v1.types import SqlInstancesRestartRequest
+
+        proj_id = _resolve_project_id(project_id)
+        client = SqlInstancesServiceClient()
+        operation = client.restart(request=SqlInstancesRestartRequest(project=proj_id, instance=instance_name))
+        return {
+            'success': True, 'instance_name': instance_name, 'project': proj_id,
+            'message': f'Successfully restarted Cloud SQL instance {instance_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error restarting Cloud SQL instance: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== PUB/SUB MANAGEMENT ====================
+
+
+def create_pubsub_topic(topic_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Create a Pub/Sub topic."""
+    try:
+        from google.cloud import pubsub_v1
+
+        proj_id = _resolve_project_id(project_id)
+        publisher = pubsub_v1.PublisherClient()
+        topic_path = publisher.topic_path(proj_id, topic_name)
+        topic = publisher.create_topic(request={'name': topic_path})
+        return {
+            'success': True, 'topic_name': topic.name, 'project': proj_id,
+            'message': f'Successfully created Pub/Sub topic {topic_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating Pub/Sub topic: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_pubsub_topic(topic_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a Pub/Sub topic."""
+    try:
+        from google.cloud import pubsub_v1
+
+        proj_id = _resolve_project_id(project_id)
+        publisher = pubsub_v1.PublisherClient()
+        topic_path = publisher.topic_path(proj_id, topic_name)
+        publisher.delete_topic(request={'topic': topic_path})
+        return {
+            'success': True, 'topic_name': topic_name, 'project': proj_id,
+            'message': f'Successfully deleted Pub/Sub topic {topic_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Pub/Sub topic: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_pubsub_subscription(
+    subscription_name: str,
+    topic_name: str,
+    ack_deadline_seconds: int = 10,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a Pub/Sub subscription."""
+    try:
+        from google.cloud import pubsub_v1
+
+        proj_id = _resolve_project_id(project_id)
+        subscriber = pubsub_v1.SubscriberClient()
+        topic_path = subscriber.topic_path(proj_id, topic_name)
+        subscription_path = subscriber.subscription_path(proj_id, subscription_name)
+
+        subscription = subscriber.create_subscription(request={
+            'name': subscription_path,
+            'topic': topic_path,
+            'ack_deadline_seconds': ack_deadline_seconds,
+        })
+        return {
+            'success': True, 'subscription_name': subscription.name,
+            'topic': subscription.topic, 'project': proj_id,
+            'message': f'Successfully created subscription {subscription_name} on topic {topic_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating Pub/Sub subscription: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== SECRET MANAGER ====================
+
+
+def create_gcp_secret(
+    secret_id: str,
+    secret_value: Optional[str] = None,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a secret in Secret Manager, optionally with an initial value."""
+    try:
+        from google.cloud import secretmanager_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = secretmanager_v1.SecretManagerServiceClient()
+        parent = f'projects/{proj_id}'
+
+        secret = client.create_secret(request={
+            'parent': parent,
+            'secret_id': secret_id,
+            'secret': {'replication': {'automatic': {}}},
+        })
+
+        version = None
+        if secret_value:
+            ver = client.add_secret_version(request={
+                'parent': secret.name,
+                'payload': {'data': secret_value.encode('UTF-8')},
+            })
+            version = ver.name
+
+        return {
+            'success': True, 'secret_name': secret.name, 'project': proj_id,
+            'version': version,
+            'message': f'Successfully created secret {secret_id}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating secret: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_gcp_secret(secret_id: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a secret from Secret Manager."""
+    try:
+        from google.cloud import secretmanager_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = secretmanager_v1.SecretManagerServiceClient()
+        name = f'projects/{proj_id}/secrets/{secret_id}'
+        client.delete_secret(request={'name': name})
+        return {
+            'success': True, 'secret_id': secret_id, 'project': proj_id,
+            'message': f'Successfully deleted secret {secret_id}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting secret: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def add_secret_version(
+    secret_id: str,
+    secret_value: str,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Add a new version to an existing secret."""
+    try:
+        from google.cloud import secretmanager_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = secretmanager_v1.SecretManagerServiceClient()
+        parent = f'projects/{proj_id}/secrets/{secret_id}'
+
+        version = client.add_secret_version(request={
+            'parent': parent,
+            'payload': {'data': secret_value.encode('UTF-8')},
+        })
+        return {
+            'success': True, 'version_name': version.name, 'secret_id': secret_id,
+            'project': proj_id,
+            'message': f'Successfully added new version to secret {secret_id}'
+        }
+    except Exception as e:
+        logger.error(f"Error adding secret version: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== CLOUD RUN ====================
+
+
+def deploy_cloud_run_service(
+    service_name: str,
+    image: str,
+    region: str = 'us-central1',
+    port: int = 8080,
+    memory: str = '512Mi',
+    cpu: str = '1',
+    max_instances: int = 10,
+    env_vars: Optional[Dict[str, str]] = None,
+    allow_unauthenticated: bool = False,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Deploy a Cloud Run service."""
+    try:
+        from google.cloud import run_v2
+
+        proj_id = _resolve_project_id(project_id)
+        client = run_v2.ServicesClient()
+        parent = f'projects/{proj_id}/locations/{region}'
+
+        env_list = []
+        if env_vars:
+            env_list = [run_v2.EnvVar(name=k, value=v) for k, v in env_vars.items()]
+
+        container = run_v2.Container(
+            image=image,
+            ports=[run_v2.ContainerPort(container_port=port)],
+            resources=run_v2.ResourceRequirements(
+                limits={'memory': memory, 'cpu': cpu}
+            ),
+            env=env_list or None,
+        )
+
+        service = run_v2.Service(
+            template=run_v2.RevisionTemplate(
+                containers=[container],
+                scaling=run_v2.RevisionScaling(max_instance_count=max_instances),
+            ),
+        )
+
+        operation = client.create_service(request={
+            'parent': parent,
+            'service': service,
+            'service_id': service_name,
+        })
+        result = operation.result()
+
+        return {
+            'success': True, 'service_name': result.name, 'uri': result.uri,
+            'project': proj_id, 'region': region, 'image': image,
+            'message': f'Successfully deployed Cloud Run service {service_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deploying Cloud Run service: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_cloud_run_service(
+    service_name: str,
+    region: str = 'us-central1',
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a Cloud Run service."""
+    try:
+        from google.cloud import run_v2
+
+        proj_id = _resolve_project_id(project_id)
+        client = run_v2.ServicesClient()
+        name = f'projects/{proj_id}/locations/{region}/services/{service_name}'
+        operation = client.delete_service(request={'name': name})
+        operation.result()
+        return {
+            'success': True, 'service_name': service_name, 'project': proj_id, 'region': region,
+            'message': f'Successfully deleted Cloud Run service {service_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Cloud Run service: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== GKE CLUSTER MANAGEMENT ====================
+
+
+def resize_gke_cluster(
+    cluster_name: str,
+    node_pool_name: str,
+    node_count: int,
+    zone: str,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Resize a GKE cluster node pool."""
+    try:
+        from google.cloud import container_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = container_v1.ClusterManagerClient()
+        name = f'projects/{proj_id}/locations/{zone}/clusters/{cluster_name}/nodePools/{node_pool_name}'
+
+        operation = client.set_node_pool_size(request={
+            'name': name,
+            'node_count': node_count,
+        })
+        return {
+            'success': True, 'cluster': cluster_name, 'node_pool': node_pool_name,
+            'node_count': node_count, 'zone': zone, 'project': proj_id,
+            'operation': operation.name,
+            'message': f'Successfully resized {node_pool_name} to {node_count} nodes'
+        }
+    except Exception as e:
+        logger.error(f"Error resizing GKE cluster: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_gke_cluster(
+    cluster_name: str,
+    zone: str,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a GKE cluster."""
+    try:
+        from google.cloud import container_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = container_v1.ClusterManagerClient()
+        name = f'projects/{proj_id}/locations/{zone}/clusters/{cluster_name}'
+
+        operation = client.delete_cluster(request={'name': name})
+        return {
+            'success': True, 'cluster': cluster_name, 'zone': zone, 'project': proj_id,
+            'operation': operation.name,
+            'message': f'Successfully initiated deletion of GKE cluster {cluster_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting GKE cluster: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== VPC FIREWALL RULES ====================
+
+
+def list_firewall_rules(project_id: Optional[str] = None) -> Dict[str, Any]:
+    """List GCP VPC firewall rules."""
+    try:
+        from google.cloud import compute_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = compute_v1.FirewallsClient()
+        request = compute_v1.ListFirewallsRequest(project=proj_id)
+
+        rules = []
+        for rule in client.list(request=request):
+            rules.append({
+                'name': rule.name,
+                'network': rule.network.split('/')[-1] if rule.network else None,
+                'direction': rule.direction,
+                'priority': rule.priority,
+                'source_ranges': list(rule.source_ranges) if rule.source_ranges else [],
+                'target_tags': list(rule.target_tags) if rule.target_tags else [],
+                'allowed': [{'protocol': a.I_p_protocol, 'ports': list(a.ports)} for a in rule.allowed] if rule.allowed else [],
+                'denied': [{'protocol': d.I_p_protocol, 'ports': list(d.ports)} for d in rule.denied] if rule.denied else [],
+                'disabled': rule.disabled,
+            })
+
+        return {'success': True, 'count': len(rules), 'firewall_rules': rules, 'project': proj_id}
+    except Exception as e:
+        logger.error(f"Error listing firewall rules: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_firewall_rule(
+    rule_name: str,
+    network: str = 'default',
+    direction: str = 'INGRESS',
+    priority: int = 1000,
+    protocol: str = 'tcp',
+    ports: Optional[List[str]] = None,
+    source_ranges: Optional[List[str]] = None,
+    target_tags: Optional[List[str]] = None,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a GCP VPC firewall rule."""
+    try:
+        from google.cloud import compute_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = compute_v1.FirewallsClient()
+
+        firewall = compute_v1.Firewall(
+            name=rule_name,
+            network=f'projects/{proj_id}/global/networks/{network}',
+            direction=direction,
+            priority=priority,
+            allowed=[compute_v1.Allowed(I_p_protocol=protocol, ports=ports or ['80'])],
+            source_ranges=source_ranges or ['0.0.0.0/0'],
+            target_tags=target_tags or [],
+        )
+
+        operation = client.insert(project=proj_id, firewall_resource=firewall)
+        return {
+            'success': True, 'rule_name': rule_name, 'network': network,
+            'direction': direction, 'protocol': protocol, 'ports': ports or ['80'],
+            'project': proj_id,
+            'message': f'Successfully created firewall rule {rule_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating firewall rule: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_firewall_rule(rule_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a GCP VPC firewall rule."""
+    try:
+        from google.cloud import compute_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = compute_v1.FirewallsClient()
+        operation = client.delete(project=proj_id, firewall=rule_name)
+        return {
+            'success': True, 'rule_name': rule_name, 'project': proj_id,
+            'message': f'Successfully deleted firewall rule {rule_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting firewall rule: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== BIGQUERY ====================
+
+
+def create_bigquery_dataset(
+    dataset_id: str,
+    location: str = 'US',
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a BigQuery dataset."""
+    try:
+        from google.cloud import bigquery
+
+        proj_id = _resolve_project_id(project_id)
+        client = bigquery.Client(project=proj_id)
+
+        dataset_ref = bigquery.DatasetReference(proj_id, dataset_id)
+        dataset = bigquery.Dataset(dataset_ref)
+        dataset.location = location
+
+        result = client.create_dataset(dataset)
+        return {
+            'success': True, 'dataset_id': result.dataset_id,
+            'location': result.location, 'project': result.project,
+            'message': f'Successfully created BigQuery dataset {dataset_id}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating BigQuery dataset: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_bigquery_dataset(
+    dataset_id: str,
+    delete_contents: bool = False,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a BigQuery dataset."""
+    try:
+        from google.cloud import bigquery
+
+        proj_id = _resolve_project_id(project_id)
+        client = bigquery.Client(project=proj_id)
+        client.delete_dataset(dataset_id, delete_contents=delete_contents)
+        return {
+            'success': True, 'dataset_id': dataset_id, 'project': proj_id,
+            'message': f'Successfully deleted BigQuery dataset {dataset_id}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting BigQuery dataset: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== CLOUD FUNCTIONS ====================
+
+
+def delete_cloud_function(
+    function_name: str,
+    region: str = 'us-central1',
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a Cloud Function."""
+    try:
+        from google.cloud.functions_v2 import FunctionServiceClient
+
+        proj_id = _resolve_project_id(project_id)
+        client = FunctionServiceClient()
+        name = f'projects/{proj_id}/locations/{region}/functions/{function_name}'
+        operation = client.delete_function(request={'name': name})
+        operation.result()
+        return {
+            'success': True, 'function_name': function_name, 'region': region, 'project': proj_id,
+            'message': f'Successfully deleted Cloud Function {function_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting Cloud Function: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== COMPUTE SNAPSHOTS ====================
+
+
+def create_disk_snapshot(
+    disk_name: str,
+    snapshot_name: str,
+    zone: str,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a snapshot of a Compute Engine disk."""
+    try:
+        from google.cloud import compute_v1
+
+        proj_id = _resolve_project_id(project_id)
+        snapshots_client = compute_v1.SnapshotsClient()
+        disks_client = compute_v1.DisksClient()
+
+        snapshot = compute_v1.Snapshot(
+            name=snapshot_name,
+            source_disk=f'projects/{proj_id}/zones/{zone}/disks/{disk_name}',
+        )
+
+        operation = snapshots_client.insert(project=proj_id, snapshot_resource=snapshot)
+        return {
+            'success': True, 'snapshot_name': snapshot_name, 'disk_name': disk_name,
+            'zone': zone, 'project': proj_id,
+            'message': f'Successfully created snapshot {snapshot_name} of disk {disk_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error creating disk snapshot: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def delete_disk_snapshot(snapshot_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a Compute Engine disk snapshot."""
+    try:
+        from google.cloud import compute_v1
+
+        proj_id = _resolve_project_id(project_id)
+        client = compute_v1.SnapshotsClient()
+        operation = client.delete(project=proj_id, snapshot=snapshot_name)
+        return {
+            'success': True, 'snapshot_name': snapshot_name, 'project': proj_id,
+            'message': f'Successfully deleted snapshot {snapshot_name}'
+        }
+    except Exception as e:
+        logger.error(f"Error deleting disk snapshot: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
 # ==================== TOOL REGISTRATION ====================
 
 
@@ -1387,5 +1936,301 @@ def get_tools() -> List[Dict[str, Any]]:
                 }
             },
             'handler': list_cloud_logs
+        },
+        # ---- Cloud SQL Lifecycle ----
+        {
+            'name': 'delete_cloud_sql_instance',
+            'description': 'Delete a Google Cloud SQL instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'instance_name': {'type': 'string', 'description': 'Cloud SQL instance name'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['instance_name']
+            },
+            'handler': delete_cloud_sql_instance
+        },
+        {
+            'name': 'restart_cloud_sql_instance',
+            'description': 'Restart a Google Cloud SQL instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'instance_name': {'type': 'string', 'description': 'Cloud SQL instance name'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['instance_name']
+            },
+            'handler': restart_cloud_sql_instance
+        },
+        # ---- Pub/Sub Management ----
+        {
+            'name': 'create_pubsub_topic',
+            'description': 'Create a Google Cloud Pub/Sub topic.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'topic_name': {'type': 'string', 'description': 'Topic name'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['topic_name']
+            },
+            'handler': create_pubsub_topic
+        },
+        {
+            'name': 'delete_pubsub_topic',
+            'description': 'Delete a Google Cloud Pub/Sub topic.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'topic_name': {'type': 'string', 'description': 'Topic name'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['topic_name']
+            },
+            'handler': delete_pubsub_topic
+        },
+        {
+            'name': 'create_pubsub_subscription',
+            'description': 'Create a Pub/Sub subscription on a topic.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'subscription_name': {'type': 'string', 'description': 'Subscription name'},
+                    'topic_name': {'type': 'string', 'description': 'Topic to subscribe to'},
+                    'ack_deadline_seconds': {'type': 'integer', 'description': 'Ack deadline in seconds (default: 10)', 'default': 10},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['subscription_name', 'topic_name']
+            },
+            'handler': create_pubsub_subscription
+        },
+        # ---- Secret Manager ----
+        {
+            'name': 'create_gcp_secret',
+            'description': 'Create a secret in Google Secret Manager, optionally with an initial value.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'secret_id': {'type': 'string', 'description': 'Secret ID'},
+                    'secret_value': {'type': 'string', 'description': 'Initial secret value (optional)'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['secret_id']
+            },
+            'handler': create_gcp_secret
+        },
+        {
+            'name': 'delete_gcp_secret',
+            'description': 'Delete a secret from Google Secret Manager.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'secret_id': {'type': 'string', 'description': 'Secret ID'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['secret_id']
+            },
+            'handler': delete_gcp_secret
+        },
+        {
+            'name': 'add_secret_version',
+            'description': 'Add a new version to an existing secret in Secret Manager.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'secret_id': {'type': 'string', 'description': 'Secret ID'},
+                    'secret_value': {'type': 'string', 'description': 'New secret value'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['secret_id', 'secret_value']
+            },
+            'handler': add_secret_version
+        },
+        # ---- Cloud Run ----
+        {
+            'name': 'deploy_cloud_run_service',
+            'description': 'Deploy a Cloud Run service from a container image.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'service_name': {'type': 'string', 'description': 'Service name'},
+                    'image': {'type': 'string', 'description': 'Container image (e.g., "gcr.io/project/image:tag")'},
+                    'region': {'type': 'string', 'description': 'GCP region (default: us-central1)', 'default': 'us-central1'},
+                    'port': {'type': 'integer', 'description': 'Container port (default: 8080)', 'default': 8080},
+                    'memory': {'type': 'string', 'description': 'Memory limit (default: 512Mi)', 'default': '512Mi'},
+                    'cpu': {'type': 'string', 'description': 'CPU limit (default: 1)', 'default': '1'},
+                    'max_instances': {'type': 'integer', 'description': 'Max instances (default: 10)', 'default': 10},
+                    'env_vars': {'type': 'object', 'description': 'Environment variables as key-value pairs'},
+                    'allow_unauthenticated': {'type': 'boolean', 'description': 'Allow public access', 'default': False},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['service_name', 'image']
+            },
+            'handler': deploy_cloud_run_service
+        },
+        {
+            'name': 'delete_cloud_run_service',
+            'description': 'Delete a Cloud Run service.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'service_name': {'type': 'string', 'description': 'Service name'},
+                    'region': {'type': 'string', 'description': 'GCP region (default: us-central1)', 'default': 'us-central1'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['service_name']
+            },
+            'handler': delete_cloud_run_service
+        },
+        # ---- GKE Cluster Management ----
+        {
+            'name': 'resize_gke_cluster',
+            'description': 'Resize a GKE cluster node pool (scale up or down).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'GKE cluster name'},
+                    'node_pool_name': {'type': 'string', 'description': 'Node pool name (e.g., "default-pool")'},
+                    'node_count': {'type': 'integer', 'description': 'Desired number of nodes'},
+                    'zone': {'type': 'string', 'description': 'GCP zone (e.g., "us-central1-a")'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['cluster_name', 'node_pool_name', 'node_count', 'zone']
+            },
+            'handler': resize_gke_cluster
+        },
+        {
+            'name': 'delete_gke_cluster',
+            'description': 'Delete a GKE cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'GKE cluster name'},
+                    'zone': {'type': 'string', 'description': 'GCP zone'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['cluster_name', 'zone']
+            },
+            'handler': delete_gke_cluster
+        },
+        # ---- VPC Firewall Rules ----
+        {
+            'name': 'list_firewall_rules',
+            'description': 'List GCP VPC firewall rules.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                }
+            },
+            'handler': list_firewall_rules
+        },
+        {
+            'name': 'create_firewall_rule',
+            'description': 'Create a GCP VPC firewall rule.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'rule_name': {'type': 'string', 'description': 'Firewall rule name'},
+                    'network': {'type': 'string', 'description': 'VPC network name (default: default)', 'default': 'default'},
+                    'direction': {'type': 'string', 'enum': ['INGRESS', 'EGRESS'], 'default': 'INGRESS'},
+                    'priority': {'type': 'integer', 'description': 'Priority (0-65535, lower = higher)', 'default': 1000},
+                    'protocol': {'type': 'string', 'description': 'Protocol (tcp, udp, icmp)', 'default': 'tcp'},
+                    'ports': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Ports to allow (e.g., ["80", "443"])'},
+                    'source_ranges': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Source IP ranges (e.g., ["0.0.0.0/0"])'},
+                    'target_tags': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Target instance tags'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['rule_name']
+            },
+            'handler': create_firewall_rule
+        },
+        {
+            'name': 'delete_firewall_rule',
+            'description': 'Delete a GCP VPC firewall rule.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'rule_name': {'type': 'string', 'description': 'Firewall rule name'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['rule_name']
+            },
+            'handler': delete_firewall_rule
+        },
+        # ---- BigQuery ----
+        {
+            'name': 'create_bigquery_dataset',
+            'description': 'Create a BigQuery dataset.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'dataset_id': {'type': 'string', 'description': 'Dataset ID'},
+                    'location': {'type': 'string', 'description': 'Location (default: US)', 'default': 'US'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['dataset_id']
+            },
+            'handler': create_bigquery_dataset
+        },
+        {
+            'name': 'delete_bigquery_dataset',
+            'description': 'Delete a BigQuery dataset.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'dataset_id': {'type': 'string', 'description': 'Dataset ID'},
+                    'delete_contents': {'type': 'boolean', 'description': 'Delete all tables in dataset', 'default': False},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['dataset_id']
+            },
+            'handler': delete_bigquery_dataset
+        },
+        # ---- Cloud Functions ----
+        {
+            'name': 'delete_cloud_function',
+            'description': 'Delete a Google Cloud Function.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'function_name': {'type': 'string', 'description': 'Function name'},
+                    'region': {'type': 'string', 'description': 'GCP region (default: us-central1)', 'default': 'us-central1'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['function_name']
+            },
+            'handler': delete_cloud_function
+        },
+        # ---- Compute Snapshots ----
+        {
+            'name': 'create_disk_snapshot',
+            'description': 'Create a snapshot of a Compute Engine disk for backup.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'disk_name': {'type': 'string', 'description': 'Disk name'},
+                    'snapshot_name': {'type': 'string', 'description': 'Snapshot name'},
+                    'zone': {'type': 'string', 'description': 'Zone where disk is located'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['disk_name', 'snapshot_name', 'zone']
+            },
+            'handler': create_disk_snapshot
+        },
+        {
+            'name': 'delete_disk_snapshot',
+            'description': 'Delete a Compute Engine disk snapshot.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'snapshot_name': {'type': 'string', 'description': 'Snapshot name'},
+                    'project_id': {'type': 'string', 'description': 'GCP project ID (optional)'}
+                },
+                'required': ['snapshot_name']
+            },
+            'handler': delete_disk_snapshot
         }
     ]
