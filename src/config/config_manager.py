@@ -81,11 +81,17 @@ class ConfigManager:
         self._validate_config()
 
     def _load_env(self) -> None:
-        """Load environment variables from .env file and AWS Secrets Manager."""
+        """Load environment variables from .env file and AWS Secrets Manager.
+
+        If secrets are already loaded (e.g. by app.py init_secrets()), skip
+        dotenv loading and the single-secret AWS fallback entirely.
+        """
+        if os.environ.get('ANTHROPIC_API_KEY'):
+            return
+
         if self.env_path and os.path.exists(self.env_path):
             load_dotenv(self.env_path)
         else:
-            # Try to load from default locations
             env_locations = [
                 Path.cwd() / '.env',
                 Path.cwd() / 'config' / '.env',
@@ -96,13 +102,11 @@ class ConfigManager:
                     load_dotenv(env_file)
                     break
 
-        # Try to fetch ANTHROPIC_API_KEY from AWS Secrets Manager if not already set
         if not os.getenv('ANTHROPIC_API_KEY'):
             aws_region = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
             secret_value = get_secret_from_aws('ANTHROPIC_API_KEY', aws_region)
             if secret_value:
                 os.environ['ANTHROPIC_API_KEY'] = secret_value
-                print("Successfully loaded ANTHROPIC_API_KEY from AWS Secrets Manager.")
 
     def _load_yaml(self) -> None:
         """Load configuration from YAML file."""

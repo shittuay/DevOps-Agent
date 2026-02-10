@@ -5,12 +5,8 @@ Handles subscriptions and one-time credit pack purchases
 import os
 import stripe
 from datetime import datetime
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv('config/.env')
-
-# Initialize Stripe
+# Initialize Stripe (env vars loaded centrally by app.py / celery_app.py)
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 
 # Stripe Price IDs from environment

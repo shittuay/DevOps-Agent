@@ -3,6 +3,20 @@ Flask Web Interface for DevOps Agent with API Key Configuration and Authenticati
 """
 import os
 import sys
+
+# --- Early secrets initialization (before any module reads os.environ) ---
+_flask_env = os.environ.get('FLASK_ENV', 'development')
+if _flask_env == 'production' or os.environ.get('USE_AWS_SECRETS', '').lower() == 'true':
+    from services.secrets_manager import init_secrets
+    init_secrets()
+else:
+    from dotenv import load_dotenv
+    for _env_path in ['config/.env', '.env']:
+        if os.path.exists(_env_path):
+            load_dotenv(_env_path)
+            break
+# --- End early secrets initialization ---
+
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
@@ -1029,7 +1043,8 @@ def billing():
     if subscription and subscription.should_reset_credits():
         subscription.reset_monthly_credits()
     tiers = SubscriptionTier.query.filter_by(is_active=True).order_by(SubscriptionTier.monthly_price).all()
-    return render_template('billing.html', user=current_user, subscription=subscription, tiers=tiers)
+    stripe_pub_key = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+    return render_template('billing.html', user=current_user, subscription=subscription, tiers=tiers, stripe_enabled=STRIPE_ENABLED, stripe_publishable_key=stripe_pub_key)
 
 
 @app.route('/usage-policy')
