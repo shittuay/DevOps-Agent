@@ -6,9 +6,19 @@ import sys
 
 # --- Early secrets initialization (before any module reads os.environ) ---
 _flask_env = os.environ.get('FLASK_ENV', 'development')
-if _flask_env == 'production' or os.environ.get('USE_AWS_SECRETS', '').lower() == 'true':
+_use_aws = os.environ.get('USE_AWS_SECRETS', '').lower() == 'true'
+_secrets_loaded = False
+if _flask_env == 'production' or _use_aws:
     from services.secrets_manager import init_secrets
-    init_secrets()
+    _secrets_loaded = init_secrets()
+    if not _secrets_loaded:
+        # Fall back to .env file if AWS Secrets Manager failed
+        print("WARNING: AWS Secrets Manager failed, falling back to .env file")
+        from dotenv import load_dotenv
+        for _env_path in ['config/.env', '.env']:
+            if os.path.exists(_env_path):
+                load_dotenv(_env_path)
+                break
 else:
     from dotenv import load_dotenv
     for _env_path in ['config/.env', '.env']:
@@ -3662,7 +3672,7 @@ def health():
         'agent_initialized': agent is not None,
         'api_key_configured': check_api_key_configured(),
         'timestamp': datetime.now().isoformat(),
-        'version': '2026-02-11-v4',
+        'version': '2026-02-11-v5',
         'stripe_enabled': STRIPE_ENABLED
     })
 
