@@ -3045,57 +3045,10 @@ def get_subscription_tiers():
 @app.route('/api/subscription/upgrade', methods=['POST'])
 @login_required
 def upgrade_subscription():
-    """Upgrade user's subscription tier."""
-    try:
-        data = request.get_json()
-        tier_id = data.get('tier_id')
-
-        if not tier_id:
-            return jsonify({'error': 'Tier ID is required'}), 400
-
-        # Get the new tier
-        new_tier = SubscriptionTier.query.get(tier_id)
-        if not new_tier or not new_tier.is_active:
-            return jsonify({'error': 'Invalid tier'}), 400
-
-        # Get or create subscription
-        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-
-        if not subscription:
-            # Create new subscription
-            from dateutil.relativedelta import relativedelta
-            subscription = UserSubscription(
-                user_id=current_user.id,
-                tier_id=new_tier.id,
-                credits_remaining=new_tier.monthly_credits,
-                current_period_end=datetime.utcnow() + relativedelta(months=1)
-            )
-            db.session.add(subscription)
-        else:
-            # Upgrade existing subscription
-            old_tier = subscription.tier
-
-            # Update tier
-            subscription.tier_id = new_tier.id
-
-            # Add the difference in credits (upgrade bonus)
-            credit_difference = new_tier.monthly_credits - old_tier.monthly_credits
-            if credit_difference > 0:
-                subscription.add_credits(credit_difference)
-
-        db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'subscription': subscription.to_dict(),
-            'message': f'Successfully upgraded to {new_tier.display_name}!'
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        logger = get_logger(__name__)
-        logger.error(f"Error upgrading subscription: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+    """Upgrade user's subscription tier. Requires Stripe payment."""
+    return jsonify({
+        'error': 'Direct subscription upgrade is disabled. Please use the billing page to subscribe via Stripe checkout.'
+    }), 403
 
 
 @app.route('/api/language/available', methods=['GET'])
@@ -3200,62 +3153,10 @@ def create_subscription_checkout_session():
 @app.route('/api/credits/purchase', methods=['POST'])
 @login_required
 def purchase_credits():
-    """Purchase additional credit packs."""
-    try:
-        data = request.get_json()
-        pack_size = data.get('pack_size', 100)  # Default 100 credits
-
-        # Define credit pack pricing
-        credit_packs = {
-            100: 10.0,   # $10 for 100 credits
-            250: 20.0,   # $20 for 250 credits
-            500: 35.0,   # $35 for 500 credits
-            1000: 60.0   # $60 for 1000 credits
-        }
-
-        if pack_size not in credit_packs:
-            return jsonify({'error': 'Invalid pack size. Available: 100, 250, 500, 1000'}), 400
-
-        price = credit_packs[pack_size]
-
-        # For now, we'll create the purchase record (Stripe integration to be added)
-        purchase = CreditPurchase(
-            user_id=current_user.id,
-            credits_amount=pack_size,
-            price_paid=price,
-            payment_status='completed',  # Would be 'pending' with real Stripe
-            completed_at=datetime.utcnow()
-        )
-        db.session.add(purchase)
-
-        # Add credits to user's account
-        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-        if subscription:
-            subscription.add_credits(pack_size)
-        else:
-            # Create subscription if doesn't exist
-            free_tier = SubscriptionTier.query.filter_by(name='free').first()
-            subscription = UserSubscription(
-                user_id=current_user.id,
-                tier_id=free_tier.id,
-                credits_remaining=pack_size
-            )
-            db.session.add(subscription)
-
-        db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'purchase': purchase.to_dict(),
-            'credits_remaining': subscription.credits_remaining,
-            'message': f'Successfully purchased {pack_size} credits for ${price}!'
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        logger = get_logger(__name__)
-        logger.error(f"Error purchasing credits: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+    """Purchase additional credit packs. Requires Stripe payment."""
+    return jsonify({
+        'error': 'Direct credit purchase is disabled. Please use the billing page to purchase via Stripe checkout.'
+    }), 403
 
 
 @app.route('/api/credits/create-checkout', methods=['POST'])
