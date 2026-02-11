@@ -1,4 +1,4 @@
-name: Deploy to EC2
+name: Deploy to Ubuntu Server
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Deploy to EC2
+    - name: Deploy to Server
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.EC2_HOST }}
@@ -33,22 +33,32 @@ jobs:
           mkdir -p "$APP_DIR"
 
           # ============================================
-          # STEP 1: Completely remove PM2 (it has bugs with Python)
+          # STEP 1: Stop old processes and clean up PM2
           # ============================================
-          echo "[1/7] Removing PM2 and killing old processes..."
-          pm2 unstartup systemd 2>/dev/null || true
+          echo "[1/7] Stopping old processes..."
+
+          # Disable PM2 systemd startup service (prevents PM2 from resurrecting old processes)
+          sudo systemctl stop pm2-ubuntu 2>/dev/null || true
+          sudo systemctl disable pm2-ubuntu 2>/dev/null || true
+          sudo systemctl stop pm2-root 2>/dev/null || true
+          sudo systemctl disable pm2-root 2>/dev/null || true
+
+          # Stop our systemd service if it exists from a previous deploy
+          sudo systemctl stop devops-agent 2>/dev/null || true
+
+          # Clean up PM2 completely
+          rm -f /home/ubuntu/.pm2/dump.pm2 2>/dev/null || true
           pm2 stop all 2>/dev/null || true
           pm2 delete all 2>/dev/null || true
           pm2 kill 2>/dev/null || true
-          rm -f /home/ubuntu/.pm2/dump.pm2 2>/dev/null || true
-          # Kill ANY process on port 5000 regardless of what manages it
+
+          # Kill anything still on port 5000
           sudo fuser -k 5000/tcp 2>/dev/null || true
-          # Also kill any leftover python app.py processes
-          pkill -f "python.*app.py" 2>/dev/null || true
-          sleep 3
-          # Verify port 5000 is free
+          sleep 2
+
+          # Verify port is free
           if sudo fuser 5000/tcp 2>/dev/null; then
-            echo "WARNING: Port 5000 still in use after cleanup!"
+            echo "WARNING: Port 5000 still in use!"
             sudo fuser -v 5000/tcp || true
           else
             echo "Port 5000 is free."
@@ -98,7 +108,7 @@ jobs:
             python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
 
           # ============================================
-          # STEP 6: Create systemd service (replaces PM2)
+          # STEP 6: Create and start systemd service
           # ============================================
           echo "[6/7] Setting up systemd service..."
           sudo tee /etc/systemd/system/devops-agent.service > /dev/null << SVCEOF
@@ -137,14 +147,14 @@ jobs:
           # STEP 7: Verify deployment
           # ============================================
           echo "[7/7] Verifying deployment..."
-          sleep 5
+          sleep 8
 
           echo "=== Service Status ==="
           sudo systemctl status devops-agent --no-pager -l || true
 
           echo ""
           echo "=== Health Check ==="
-          curl -s http://localhost:5000/health || echo "Health check failed - checking logs..."
+          curl -s http://localhost:5000/health || echo "Health check failed!"
 
           echo ""
           echo "=== Recent Logs ==="
