@@ -87,7 +87,7 @@ jobs:
           # STEP 4: Configure environment
           # ============================================
           echo "[4/7] Configuring environment..."
-          mkdir -p logs instance config
+          mkdir -p logs instance config "$APP_DIR/data"
 
           # .env fallback (in case AWS Secrets Manager fails)
           printf '%s\n' \

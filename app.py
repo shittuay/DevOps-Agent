@@ -164,8 +164,15 @@ if database_url:
         'pool_recycle': 300,
     }
 else:
-    # Development: use SQLite with optimizations for concurrency
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///devops_agent.db'
+    # Production: store SQLite outside the code directory so deploys don't wipe it
+    # Development: use default instance/ folder
+    _flask_env_db = os.environ.get('FLASK_ENV', 'development')
+    if _flask_env_db == 'production':
+        _db_dir = '/home/ubuntu/app/data'
+        os.makedirs(_db_dir, exist_ok=True)
+        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{_db_dir}/devops_agent.db'
+    else:
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///devops_agent.db'
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'connect_args': {
             'timeout': 30,  # 30 second timeout for database locks
