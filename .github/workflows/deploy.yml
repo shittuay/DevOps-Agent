@@ -144,21 +144,111 @@ jobs:
           sudo systemctl restart devops-agent
 
           # ============================================
-          # STEP 7: Verify deployment
+          # STEP 7: Configure nginx reverse proxy
           # ============================================
-          echo "[7/7] Verifying deployment..."
-          sleep 8
+          echo "[7/8] Configuring nginx..."
+
+          # Show current nginx config for debugging
+          echo "=== Current nginx config ==="
+          sudo nginx -T 2>&1 | head -80 || true
+          echo "=== End current config ==="
+
+          # Install nginx if not present
+          if ! command -v nginx &> /dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y nginx
+          fi
+
+          # Determine SSL cert paths (certbot/Let's Encrypt)
+          SSL_CERT=""
+          SSL_KEY=""
+          if [ -f /etc/letsencrypt/live/devopsagent.io/fullchain.pem ]; then
+            SSL_CERT="/etc/letsencrypt/live/devopsagent.io/fullchain.pem"
+            SSL_KEY="/etc/letsencrypt/live/devopsagent.io/privkey.pem"
+            echo "Found SSL certs at $SSL_CERT"
+          fi
+
+          # Create nginx config
+          if [ -n "$SSL_CERT" ]; then
+            # HTTPS config with SSL
+            sudo tee /etc/nginx/sites-available/devops-agent > /dev/null << 'NGEOF'
+          server {
+              listen 80;
+              server_name devopsagent.io www.devopsagent.io;
+              return 301 https://$host$request_uri;
+          }
+
+          server {
+              listen 443 ssl;
+              server_name devopsagent.io www.devopsagent.io;
+
+              ssl_certificate /etc/letsencrypt/live/devopsagent.io/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/devopsagent.io/privkey.pem;
+              ssl_protocols TLSv1.2 TLSv1.3;
+
+              location / {
+                  proxy_pass http://127.0.0.1:5000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 300s;
+                  proxy_connect_timeout 75s;
+              }
+          }
+          NGEOF
+          else
+            # HTTP-only config (no SSL certs found)
+            sudo tee /etc/nginx/sites-available/devops-agent > /dev/null << 'NGEOF'
+          server {
+              listen 80;
+              server_name devopsagent.io www.devopsagent.io _;
+
+              location / {
+                  proxy_pass http://127.0.0.1:5000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 300s;
+                  proxy_connect_timeout 75s;
+              }
+          }
+          NGEOF
+          fi
+
+          # Strip leading whitespace from YAML heredoc
+          sudo sed -i 's/^[[:space:]]*//' /etc/nginx/sites-available/devops-agent
+
+          # Enable the site and remove default
+          sudo ln -sf /etc/nginx/sites-available/devops-agent /etc/nginx/sites-enabled/devops-agent
+          sudo rm -f /etc/nginx/sites-enabled/default
+
+          # Test and reload nginx
+          echo "Testing nginx config..."
+          sudo nginx -t
+          sudo systemctl reload nginx
+
+          # ============================================
+          # STEP 8: Verify deployment
+          # ============================================
+          echo "[8/8] Verifying deployment..."
+          sleep 5
 
           echo "=== Service Status ==="
           sudo systemctl status devops-agent --no-pager -l || true
 
           echo ""
-          echo "=== Health Check ==="
-          curl -s http://localhost:5000/health || echo "Health check failed!"
+          echo "=== Health Check (direct) ==="
+          curl -s http://localhost:5000/health || echo "Direct health check failed!"
+
+          echo ""
+          echo "=== Health Check (via nginx) ==="
+          curl -s http://localhost/health || echo "Nginx health check failed!"
 
           echo ""
           echo "=== Recent Logs ==="
-          tail -30 "$CODE_DIR/logs/app.log" 2>/dev/null || true
+          tail -20 "$CODE_DIR/logs/app.log" 2>/dev/null || true
           tail -10 "$CODE_DIR/logs/app-error.log" 2>/dev/null || true
 
           echo ""
