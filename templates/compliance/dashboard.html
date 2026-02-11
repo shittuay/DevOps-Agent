@@ -108,7 +108,7 @@
         .btn-primary:hover { filter: brightness(1.1); }
         .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-subtle); }
         .btn-secondary:hover { background: var(--border-subtle); }
-        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-sm { padding: 5px 10px; font-size: 14px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .spinner {
@@ -145,7 +145,7 @@
         }
 
         .fw-name {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.8px;
@@ -182,7 +182,7 @@
             display: flex;
             gap: 16px;
             margin-top: 12px;
-            font-size: 12px;
+            font-size: 14px;
         }
 
         .fw-ctrl-item {
@@ -197,7 +197,7 @@
         .fw-ctrl-dot.fail { background: var(--accent-danger); }
 
         .fw-last-scan {
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-tertiary);
             margin-top: 10px;
             display: flex;
@@ -207,7 +207,7 @@
 
         .scan-btn {
             padding: 4px 10px;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             font-family: 'Outfit', sans-serif;
             background: rgba(255,255,255,0.05);
@@ -255,7 +255,7 @@
         .sev-icon.low { background: rgba(16,185,129,0.15); color: var(--accent-success); }
 
         .sev-label {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.6px;
@@ -302,7 +302,7 @@
         .findings-table th {
             text-align: left;
             padding: 10px 16px;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.6px;
@@ -326,7 +326,7 @@
             display: inline-block;
             padding: 3px 8px;
             border-radius: 4px;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.4px;
@@ -343,14 +343,14 @@
         .finding-title { font-weight: 500; color: var(--text-primary); }
 
         .finding-resource {
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-tertiary);
             font-family: 'JetBrains Mono', monospace;
             margin-top: 2px;
         }
 
         .fw-tag {
-            font-size: 10px;
+            font-size: 13px;
             font-weight: 600;
             padding: 2px 6px;
             border-radius: 3px;
@@ -391,7 +391,7 @@
         }
 
         .detail-label {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -411,7 +411,7 @@
             background: rgba(16,185,129,0.06);
             border: 1px solid rgba(16,185,129,0.15);
             border-radius: 6px;
-            font-size: 12px;
+            font-size: 14px;
             color: var(--text-secondary);
             font-family: 'JetBrains Mono', monospace;
             line-height: 1.5;
@@ -446,7 +446,7 @@
 
         .control-id {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-tertiary);
             min-width: 110px;
         }
@@ -455,7 +455,7 @@
 
         .control-findings {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
+            font-size: 14px;
             color: var(--text-tertiary);
         }
 
@@ -568,7 +568,7 @@
             <div class="panel">
                 <div class="panel-header">
                     <span class="panel-title">Security Findings</span>
-                    <span style="font-size:12px;color:var(--text-tertiary);" id="findingsCount"></span>
+                    <span style="font-size:14px;color:var(--text-tertiary);" id="findingsCount"></span>
                 </div>
                 <div id="findingsBody">
                     <div class="loading-state"><div class="spinner"></div></div>
@@ -578,7 +578,7 @@
             <div class="panel">
                 <div class="panel-header">
                     <span class="panel-title">Compliance Controls</span>
-                    <select id="fwSelect" style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-size:12px;color:var(--text-primary);font-family:'Outfit',sans-serif;" onchange="loadControls()">
+                    <select id="fwSelect" style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-size:14px;color:var(--text-primary);font-family:'Outfit',sans-serif;" onchange="loadControls()">
                         <option value="">Select framework...</option>
                     </select>
                 </div>
@@ -692,7 +692,7 @@
                 html += '<tr><td colspan="5" style="padding:0;"><div class="finding-expand' + (isExp ? ' open' : '') + '" id="fd-' + f.id + '">' +
                     '<div class="finding-detail-grid"><div>' +
                     '<div class="detail-label">Description</div><div class="detail-value">' + esc(f.description || 'N/A') + '</div></div><div>' +
-                    '<div class="detail-label">Resource ID</div><div class="detail-value" style="font-family:\'JetBrains Mono\',monospace;font-size:12px;">' + esc(f.resource_id || 'N/A') + '</div>' +
+                    '<div class="detail-label">Resource ID</div><div class="detail-value" style="font-family:\'JetBrains Mono\',monospace;font-size:14px;">' + esc(f.resource_id || 'N/A') + '</div>' +
                     '<div class="detail-label" style="margin-top:10px;">First Detected</div><div class="detail-value">' + fmtTime(f.first_detected) + '</div></div></div>' +
                     (f.remediation ? '<div class="remediation-box">' + esc(f.remediation) + '</div>' : '') +
                     '<div class="finding-actions"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();resolveFinding(' + f.id + ')">Mark Resolved</button></div>' +
