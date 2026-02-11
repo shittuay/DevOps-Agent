@@ -3,26 +3,53 @@ Stripe Payment Integration for DevOps Agent
 Handles subscriptions and one-time credit pack purchases
 """
 import os
+import logging
 import stripe
 from datetime import datetime
 
-# Initialize Stripe (env vars loaded centrally by app.py / celery_app.py)
-stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
+logger = logging.getLogger(__name__)
 
-# Stripe Price IDs from environment
-STRIPE_PRICES = {
-    'subscriptions': {
+
+def _ensure_stripe_configured():
+    """Ensure stripe.api_key is set from env. Called before every Stripe API call."""
+    if not stripe.api_key:
+        stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
+    if not stripe.api_key:
+        raise RuntimeError('STRIPE_SECRET_KEY is not set in environment')
+
+
+def _get_subscription_prices():
+    """Get subscription price IDs from env at call time (not import time)."""
+    return {
         'starter': os.getenv('STRIPE_PRICE_STARTER'),
         'professional': os.getenv('STRIPE_PRICE_PROFESSIONAL'),
         'business': os.getenv('STRIPE_PRICE_BUSINESS'),
-    },
-    'credit_packs': {
+    }
+
+
+def _get_credit_pack_prices():
+    """Get credit pack price IDs from env at call time (not import time)."""
+    return {
         100: os.getenv('STRIPE_PRICE_PACK_100'),
         250: os.getenv('STRIPE_PRICE_PACK_250'),
         500: os.getenv('STRIPE_PRICE_PACK_500'),
         1000: os.getenv('STRIPE_PRICE_PACK_1000'),
     }
-}
+
+
+# Keep STRIPE_PRICES as a property-like accessor for backward compat with app.py debug logging
+class _StripePricesAccessor:
+    @property
+    def data(self):
+        return {
+            'subscriptions': _get_subscription_prices(),
+            'credit_packs': _get_credit_pack_prices(),
+        }
+
+    def __getitem__(self, key):
+        return self.data[key]
+
+STRIPE_PRICES = _StripePricesAccessor()
 
 
 class StripePaymentService:
@@ -30,20 +57,9 @@ class StripePaymentService:
 
     @staticmethod
     def create_checkout_session_subscription(user_email, tier_name, tier_price_id, success_url, cancel_url):
-        """
-        Create a Stripe Checkout session for subscription
-
-        Args:
-            user_email: User's email address
-            tier_name: Name of the subscription tier (starter, professional, business)
-            tier_price_id: Stripe price ID for the tier
-            success_url: URL to redirect after successful payment
-            cancel_url: URL to redirect if payment is cancelled
-
-        Returns:
-            dict: Session details with checkout URL
-        """
+        """Create a Stripe Checkout session for subscription."""
         try:
+            _ensure_stripe_configured()
             session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=[{
@@ -67,6 +83,7 @@ class StripePaymentService:
             }
 
         except Exception as e:
+            logger.error(f"Stripe checkout session error: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
@@ -74,27 +91,16 @@ class StripePaymentService:
 
     @staticmethod
     def create_checkout_session_credits(user_email, pack_size, pack_price_id, success_url, cancel_url):
-        """
-        Create a Stripe Checkout session for one-time credit purchase
-
-        Args:
-            user_email: User's email address
-            pack_size: Number of credits (100, 250, 500, 1000)
-            pack_price_id: Stripe price ID for the credit pack
-            success_url: URL to redirect after successful payment
-            cancel_url: URL to redirect if payment is cancelled
-
-        Returns:
-            dict: Session details with checkout URL
-        """
+        """Create a Stripe Checkout session for one-time credit purchase."""
         try:
+            _ensure_stripe_configured()
             session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=[{
                     'price': pack_price_id,
                     'quantity': 1,
                 }],
-                mode='payment',  # One-time payment
+                mode='payment',
                 success_url=success_url + '?session_id={CHECKOUT_SESSION_ID}',
                 cancel_url=cancel_url,
                 customer_email=user_email,
@@ -111,6 +117,7 @@ class StripePaymentService:
             }
 
         except Exception as e:
+            logger.error(f"Stripe credit checkout error: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
@@ -118,16 +125,9 @@ class StripePaymentService:
 
     @staticmethod
     def retrieve_session(session_id):
-        """
-        Retrieve a checkout session
-
-        Args:
-            session_id: Stripe session ID
-
-        Returns:
-            dict: Session object or error
-        """
+        """Retrieve a checkout session."""
         try:
+            _ensure_stripe_configured()
             session = stripe.checkout.Session.retrieve(session_id)
             return {
                 'success': True,
@@ -141,17 +141,9 @@ class StripePaymentService:
 
     @staticmethod
     def create_customer(email, name=None):
-        """
-        Create a Stripe customer
-
-        Args:
-            email: Customer email
-            name: Customer name (optional)
-
-        Returns:
-            dict: Customer object or error
-        """
+        """Create a Stripe customer."""
         try:
+            _ensure_stripe_configured()
             customer = stripe.Customer.create(
                 email=email,
                 name=name
@@ -168,16 +160,9 @@ class StripePaymentService:
 
     @staticmethod
     def cancel_subscription(subscription_id):
-        """
-        Cancel a subscription
-
-        Args:
-            subscription_id: Stripe subscription ID
-
-        Returns:
-            dict: Cancellation result
-        """
+        """Cancel a subscription."""
         try:
+            _ensure_stripe_configured()
             subscription = stripe.Subscription.delete(subscription_id)
             return {
                 'success': True,
@@ -191,17 +176,10 @@ class StripePaymentService:
 
     @staticmethod
     def construct_webhook_event(payload, sig_header):
-        """
-        Construct and verify webhook event
-
-        Args:
-            payload: Request body
-            sig_header: Stripe signature header
-
-        Returns:
-            stripe.Event: Verified event object
-        """
+        """Construct and verify webhook event."""
         webhook_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
+        if not webhook_secret:
+            raise ValueError('STRIPE_WEBHOOK_SECRET is not set')
 
         try:
             event = stripe.Webhook.construct_event(
@@ -209,48 +187,36 @@ class StripePaymentService:
             )
             return event
         except ValueError:
-            # Invalid payload
             raise ValueError('Invalid payload')
         except Exception:
-            # Invalid signature
             raise ValueError('Invalid signature')
 
     @staticmethod
     def get_price_id(tier_name=None, pack_size=None):
-        """
-        Get Stripe price ID for a tier or credit pack
-
-        Args:
-            tier_name: Subscription tier name (starter, professional, business)
-            pack_size: Credit pack size (100, 250, 500, 1000)
-
-        Returns:
-            str: Stripe price ID or None
-        """
+        """Get Stripe price ID for a tier or credit pack (reads env at call time)."""
         if tier_name:
-            return STRIPE_PRICES['subscriptions'].get(tier_name.lower())
+            prices = _get_subscription_prices()
+            price_id = prices.get(tier_name.lower())
+            if not price_id:
+                logger.warning(f"No price ID for tier '{tier_name}'. Env values: {prices}")
+            return price_id
         elif pack_size:
-            return STRIPE_PRICES['credit_packs'].get(int(pack_size))
+            prices = _get_credit_pack_prices()
+            price_id = prices.get(int(pack_size))
+            if not price_id:
+                logger.warning(f"No price ID for pack size {pack_size}. Env values: {prices}")
+            return price_id
         return None
 
 
 # Helper functions for common operations
 
 def create_subscription_checkout(user, tier_name):
-    """
-    Create a subscription checkout session for a user
-
-    Args:
-        user: User model instance
-        tier_name: Tier name (starter, professional, business)
-
-    Returns:
-        dict: Checkout session details
-    """
+    """Create a subscription checkout session for a user."""
     price_id = StripePaymentService.get_price_id(tier_name=tier_name)
 
     if not price_id:
-        return {'success': False, 'error': f'Invalid tier: {tier_name}'}
+        return {'success': False, 'error': f'Stripe price not configured for tier: {tier_name}. Check STRIPE_PRICE_{tier_name.upper()} env var.'}
 
     base_url = os.getenv('BASE_URL', 'https://devopsagent.io')
     success_url = f'{base_url}/billing/success'
@@ -266,20 +232,11 @@ def create_subscription_checkout(user, tier_name):
 
 
 def create_credit_pack_checkout(user, pack_size):
-    """
-    Create a credit pack checkout session for a user
-
-    Args:
-        user: User model instance
-        pack_size: Number of credits (100, 250, 500, 1000)
-
-    Returns:
-        dict: Checkout session details
-    """
+    """Create a credit pack checkout session for a user."""
     price_id = StripePaymentService.get_price_id(pack_size=pack_size)
 
     if not price_id:
-        return {'success': False, 'error': f'Invalid pack size: {pack_size}'}
+        return {'success': False, 'error': f'Stripe price not configured for pack size: {pack_size}. Check STRIPE_PRICE_PACK_{pack_size} env var.'}
 
     base_url = os.getenv('BASE_URL', 'https://devopsagent.io')
     success_url = f'{base_url}/billing/success'
