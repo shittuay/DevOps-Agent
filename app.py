@@ -3180,7 +3180,6 @@ def purchase_credits():
 
 
 @app.route('/api/stripe/status', methods=['GET'])
-@login_required
 def stripe_status():
     """Diagnostic endpoint to check Stripe configuration (no secrets exposed)."""
     try:
@@ -3662,7 +3661,9 @@ def health():
         'status': 'healthy',
         'agent_initialized': agent is not None,
         'api_key_configured': check_api_key_configured(),
-        'timestamp': datetime.now().isoformat()
+        'timestamp': datetime.now().isoformat(),
+        'version': '2026-02-11-v4',
+        'stripe_enabled': STRIPE_ENABLED
     })
 
 
