@@ -152,55 +152,19 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['REMEMBER_COOKIE_DURATION'] = 86400  # 24 hours
 
 # Database configuration
-# Support both SQLite (dev) and PostgreSQL (production)
-database_url = os.environ.get('DATABASE_URL')
-if database_url:
-    # Railway/Render provide DATABASE_URL with postgres:// which needs to be postgresql://
-    if database_url.startswith('postgres://'):
-        database_url = database_url.replace('postgres://', 'postgresql://', 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True,
-        'pool_recycle': 300,
-    }
-else:
-    # Production: store SQLite outside the code directory so deploys don't wipe it
-    # Development: use default instance/ folder
-    _flask_env_db = os.environ.get('FLASK_ENV', 'development')
-    if _flask_env_db == 'production':
-        _db_dir = '/home/ubuntu/app/data'
-        os.makedirs(_db_dir, exist_ok=True)
-        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{_db_dir}/devops_agent.db'
-    else:
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///devops_agent.db'
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'connect_args': {
-            'timeout': 30,  # 30 second timeout for database locks
-            'check_same_thread': False,  # Allow multiple threads
-        },
-        'pool_pre_ping': True,
-        'pool_size': 10,
-        'max_overflow': 20,
-    }
-
+# PostgreSQL for both local dev and production
+database_url = os.environ.get('DATABASE_URL', 'postgresql://devops:devops_local@localhost:5432/devops_agent')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 300,
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize database
 db.init_app(app)
-
-# Configure SQLite for better concurrency (WAL mode)
-if not database_url:  # Only for SQLite
-    from sqlalchemy import event
-    from sqlalchemy.engine import Engine
-
-    @event.listens_for(Engine, "connect")
-    def set_sqlite_pragma(dbapi_conn, connection_record):
-        """Enable Write-Ahead Logging mode for SQLite to reduce lock contention."""
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.close()
 
 # Initialize Flask-Login
 login_manager = LoginManager()
