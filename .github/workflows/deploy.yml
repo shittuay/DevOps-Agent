@@ -32,10 +32,13 @@ jobs:
           mkdir -p "$APP_DIR"
           cd "$APP_DIR"
 
-          # Stop existing PM2 processes
+          # Kill ALL existing processes on port 5000 and reset PM2
           echo "Stopping existing processes..."
-          pm2 stop devops-agent 2>/dev/null || true
-          pm2 delete devops-agent 2>/dev/null || true
+          pm2 stop all 2>/dev/null || true
+          pm2 delete all 2>/dev/null || true
+          pm2 kill 2>/dev/null || true
+          sudo fuser -k 5000/tcp 2>/dev/null || true
+          sleep 2
 
           # Remove old code
           echo "Removing old code..."
@@ -102,6 +105,9 @@ jobs:
           echo "Initializing database..."
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
             python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
+
+          # Clear old PM2 logs before starting
+          pm2 flush 2>/dev/null || true
 
           echo "Starting application..."
           pm2 start start.sh --name devops-agent --interpreter bash
