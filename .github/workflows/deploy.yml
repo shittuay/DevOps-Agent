@@ -24,107 +24,133 @@ jobs:
         script: |
           set -e
 
-          echo "Starting DevOps Agent Deployment..."
+          echo "=== DevOps Agent Deployment ==="
 
           APP_DIR="/home/ubuntu/app"
+          CODE_DIR="$APP_DIR/DevOps-Agent"
           VENV_DIR="$APP_DIR/venv"
 
           mkdir -p "$APP_DIR"
-          cd "$APP_DIR"
 
-          # Kill ALL existing processes on port 5000 and reset PM2
-          echo "Stopping existing processes..."
+          # ============================================
+          # STEP 1: Completely remove PM2 (it has bugs with Python)
+          # ============================================
+          echo "[1/7] Removing PM2 and killing old processes..."
+          pm2 unstartup systemd 2>/dev/null || true
           pm2 stop all 2>/dev/null || true
           pm2 delete all 2>/dev/null || true
           pm2 kill 2>/dev/null || true
+          rm -f /home/ubuntu/.pm2/dump.pm2 2>/dev/null || true
+          # Kill ANY process on port 5000 regardless of what manages it
           sudo fuser -k 5000/tcp 2>/dev/null || true
-          sleep 2
-
-          # Remove old code
-          echo "Removing old code..."
-          rm -rf DevOps-Agent
-
-          # Clone fresh code
-          echo "Cloning latest code..."
-          git clone https://github.com/shittuay/DevOps-Agent.git
-          cd DevOps-Agent
-
-          # Ensure Node.js and PM2 are available
-          echo "Checking PM2..."
-          if ! command -v pm2 &> /dev/null; then
-            echo "Installing Node.js and PM2..."
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            sudo npm install -g pm2
+          # Also kill any leftover python app.py processes
+          pkill -f "python.*app.py" 2>/dev/null || true
+          sleep 3
+          # Verify port 5000 is free
+          if sudo fuser 5000/tcp 2>/dev/null; then
+            echo "WARNING: Port 5000 still in use after cleanup!"
+            sudo fuser -v 5000/tcp || true
+          else
+            echo "Port 5000 is free."
           fi
 
-          # Set up virtual environment
-          echo "Setting up Python virtual environment..."
+          # ============================================
+          # STEP 2: Clone fresh code
+          # ============================================
+          echo "[2/7] Cloning latest code..."
+          cd "$APP_DIR"
+          rm -rf DevOps-Agent
+          git clone https://github.com/shittuay/DevOps-Agent.git
+          cd DevOps-Agent
+          echo "Cloned commit: $(git rev-parse --short HEAD)"
+
+          # ============================================
+          # STEP 3: Set up Python virtual environment
+          # ============================================
+          echo "[3/7] Setting up Python environment..."
           python3 -m venv "$VENV_DIR" 2>/dev/null || true
           source "$VENV_DIR/bin/activate"
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
 
-          # Install Python dependencies
-          echo "Installing dependencies..."
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-          # Create necessary directories
+          # ============================================
+          # STEP 4: Configure environment
+          # ============================================
+          echo "[4/7] Configuring environment..."
           mkdir -p logs instance config
 
-          # Write .env file (strip leading whitespace from YAML heredoc)
-          echo "Configuring environment..."
-          cat > config/.env << 'ENVEOF'
-          FLASK_ENV=production
-          USE_AWS_SECRETS=true
-          AWS_DEFAULT_REGION=us-east-1
-          BASE_URL=https://devopsagent.io
-          PORT=5000
-          HOST=0.0.0.0
-          LOG_LEVEL=INFO
-          ENVEOF
-          sed -i 's/^[[:space:]]*//' config/.env
+          # .env fallback (in case AWS Secrets Manager fails)
+          printf '%s\n' \
+            'FLASK_ENV=production' \
+            'USE_AWS_SECRETS=true' \
+            'AWS_DEFAULT_REGION=us-east-1' \
+            'BASE_URL=https://devopsagent.io' \
+            'PORT=5000' \
+            'HOST=0.0.0.0' \
+            'LOG_LEVEL=INFO' \
+            > config/.env
 
-          # Create a launcher script that sets env vars and runs the app
-          # PM2 ecosystem config doesn't work with Python interpreter (ProcessContainerForkBun.js conflict)
-          cat > start.sh << 'SHEOF'
-          #!/bin/bash
-          export FLASK_ENV=production
-          export USE_AWS_SECRETS=true
-          export AWS_DEFAULT_REGION=us-east-1
-          export BASE_URL=https://devopsagent.io
-          export PORT=5000
-          export HOST=0.0.0.0
-          SHEOF
-          sed -i 's/^[[:space:]]*//' start.sh
-          echo "cd $APP_DIR/DevOps-Agent" >> start.sh
-          echo "source $VENV_DIR/bin/activate" >> start.sh
-          echo "exec python app.py" >> start.sh
-          chmod +x start.sh
-
-          # Initialize database
-          echo "Initializing database..."
+          # ============================================
+          # STEP 5: Initialize database
+          # ============================================
+          echo "[5/7] Initializing database..."
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
             python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
 
-          # Clear old PM2 logs before starting
-          pm2 flush 2>/dev/null || true
+          # ============================================
+          # STEP 6: Create systemd service (replaces PM2)
+          # ============================================
+          echo "[6/7] Setting up systemd service..."
+          sudo tee /etc/systemd/system/devops-agent.service > /dev/null << SVCEOF
+          [Unit]
+          Description=DevOps Agent Flask Application
+          After=network.target
 
-          echo "Starting application..."
-          pm2 start start.sh --name devops-agent --interpreter bash
+          [Service]
+          Type=simple
+          User=ubuntu
+          WorkingDirectory=$CODE_DIR
+          Environment=FLASK_ENV=production
+          Environment=USE_AWS_SECRETS=true
+          Environment=AWS_DEFAULT_REGION=us-east-1
+          Environment=BASE_URL=https://devopsagent.io
+          Environment=PORT=5000
+          Environment=HOST=0.0.0.0
+          ExecStart=$VENV_DIR/bin/python app.py
+          Restart=on-failure
+          RestartSec=5
+          StandardOutput=append:$CODE_DIR/logs/app.log
+          StandardError=append:$CODE_DIR/logs/app-error.log
 
-          # Save PM2 configuration
-          pm2 save
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
 
-          # Wait for app to stabilize
+          # Strip leading whitespace from YAML heredoc indentation
+          sudo sed -i 's/^[[:space:]]*//' /etc/systemd/system/devops-agent.service
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable devops-agent
+          sudo systemctl restart devops-agent
+
+          # ============================================
+          # STEP 7: Verify deployment
+          # ============================================
+          echo "[7/7] Verifying deployment..."
           sleep 5
 
-          # Check status and show logs for debugging
-          echo "=== PM2 Status ==="
-          pm2 status devops-agent
-          echo ""
-          echo "=== Recent PM2 Logs ==="
-          pm2 logs devops-agent --lines 30 --nostream || true
+          echo "=== Service Status ==="
+          sudo systemctl status devops-agent --no-pager -l || true
 
           echo ""
-          echo "Deployment completed successfully!"
-          echo "App accessible at: https://devopsagent.io"
+          echo "=== Health Check ==="
+          curl -s http://localhost:5000/health || echo "Health check failed - checking logs..."
+
+          echo ""
+          echo "=== Recent Logs ==="
+          tail -30 "$CODE_DIR/logs/app.log" 2>/dev/null || true
+          tail -10 "$CODE_DIR/logs/app-error.log" 2>/dev/null || true
+
+          echo ""
+          echo "=== Deployment Complete ==="
+          echo "App: https://devopsagent.io"
