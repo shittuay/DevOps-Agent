@@ -3849,6 +3849,49 @@ if __name__ == '__main__':
         db.create_all()
         print("\nDatabase initialized")
 
+        # Seed subscription tiers if they don't exist
+        if SubscriptionTier.query.count() == 0:
+            print("\nSeeding subscription tiers...")
+            tiers = [
+                SubscriptionTier(
+                    name='free', display_name='Free', monthly_credits=20, monthly_price=0.0,
+                    description='Try the DevOps Agent with limited features',
+                    features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
+                    max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
+                    is_active=True
+                ),
+                SubscriptionTier(
+                    name='starter', display_name='Starter', monthly_credits=200, monthly_price=49.0,
+                    description='For individual developers and solo operators',
+                    features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
+                    max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
+                    compliance_frameworks=['soc2'], is_active=True
+                ),
+                SubscriptionTier(
+                    name='professional', display_name='Pro', monthly_credits=2000, monthly_price=199.0,
+                    description='For growing teams with multi-cloud needs',
+                    features=['2,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
+                              'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
+                              'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
+                    max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
+                    compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, is_active=True
+                ),
+                SubscriptionTier(
+                    name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=799.0,
+                    description='Unlimited automation for large organizations',
+                    features=['Unlimited AI messages', 'Unlimited cloud accounts', 'Unlimited resources',
+                              'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
+                              'Auto-remediation + custom rules', 'Auto-sync every 15 minutes',
+                              'SSO / SAML', 'Audit log export', 'Dedicated support + SLA'],
+                    max_cloud_accounts=99, max_resources=99999, max_team_members=99, sync_interval_minutes=15,
+                    compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
+                    has_pdf_export=True, has_auto_remediation=True, has_sso=True, has_audit_export=True, is_active=True
+                ),
+            ]
+            db.session.add_all(tiers)
+            db.session.commit()
+            print(f"Created {len(tiers)} subscription tiers")
+
     # Check if API key is already configured
     if check_api_key_configured():
         print("\nInitializing agent...")
