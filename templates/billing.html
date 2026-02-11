@@ -1190,7 +1190,14 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tier_name: tierName })
             })
-            .then(function(res) { return res.json(); })
+            .then(function(res) {
+                if (!res.ok) {
+                    return res.json().then(function(errData) {
+                        throw new Error(errData.error || 'Server error: ' + res.status);
+                    });
+                }
+                return res.json();
+            })
             .then(function(data) {
                 if (data.success && data.checkout_url) {
                     window.location.href = data.checkout_url;
@@ -1200,8 +1207,9 @@
                     btn.textContent = 'Upgrade';
                 }
             })
-            .catch(function() {
-                showToast('Network error. Please try again.', 'error');
+            .catch(function(err) {
+                console.error('Checkout error:', err);
+                showToast(err.message || 'Network error. Please try again.', 'error');
                 btn.disabled = false;
                 btn.textContent = 'Upgrade';
             });

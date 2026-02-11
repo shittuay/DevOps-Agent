@@ -3122,30 +3122,46 @@ def get_translations():
 @login_required
 def create_subscription_checkout_session():
     """Create Stripe checkout session for subscription upgrade."""
+    logger = get_logger(__name__)
+
     if not STRIPE_ENABLED:
+        logger.error("Stripe not enabled - stripe_integration import failed")
         return jsonify({'error': 'Payment processing is not enabled'}), 503
 
     try:
+        import stripe as stripe_mod
         data = request.get_json()
-        tier_name = data.get('tier_name')  # starter, professional, business
+        tier_name = data.get('tier_name')
 
         if not tier_name:
             return jsonify({'error': 'Tier name is required'}), 400
 
-        # Create checkout session
+        # Debug: log Stripe config state
+        api_key = stripe_mod.api_key
+        logger.info(f"Stripe checkout: tier={tier_name}, api_key_set={bool(api_key)}, api_key_prefix={api_key[:12] + '...' if api_key else 'None'}")
+
+        from stripe_integration import STRIPE_PRICES
+        price_id = STRIPE_PRICES['subscriptions'].get(tier_name.lower())
+        logger.info(f"Stripe price_id for {tier_name}: {price_id}")
+
+        if not price_id:
+            logger.error(f"No Stripe price ID found for tier '{tier_name}'. Available: {list(STRIPE_PRICES['subscriptions'].keys())} -> {list(STRIPE_PRICES['subscriptions'].values())}")
+            return jsonify({'error': f'Stripe price not configured for tier: {tier_name}'}), 500
+
         result = create_subscription_checkout(current_user, tier_name)
 
         if result['success']:
+            logger.info(f"Checkout session created: {result['session_id']}")
             return jsonify({
                 'success': True,
                 'checkout_url': result['checkout_url'],
                 'session_id': result['session_id']
             })
         else:
+            logger.error(f"Checkout creation failed: {result.get('error')}")
             return jsonify({'error': result.get('error', 'Failed to create checkout')}), 500
 
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error creating checkout: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
