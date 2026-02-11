@@ -239,6 +239,35 @@ Tips and recommendations
 These skills were inspired by the Anthropic skills repository:
 https://github.com/anthropics/skills
 
+### 7. update-context
+**Purpose:** Keep CLAUDE.md up to date with codebase changes
+
+**Use when:**
+- After adding new tools, routes, or features
+- After fixing bugs or discovering gotchas
+- After architecture or configuration changes
+- After adding new environment variables
+
+**Example usage:**
+```
+You: /update-context
+You: Update CLAUDE.md with the changes I just made
+```
+
+### 8. resume-work
+**Purpose:** Recover context after rate limit or token reset disruptions
+
+**Use when:**
+- Starting a new session after a rate limit disruption
+- Context was compressed and you lost track
+- Need to pick up where you left off
+
+**Example usage:**
+```
+You: /resume-work
+You: What was I working on before the reset?
+```
+
 ## Need Help?
 
 If you need assistance with skills:

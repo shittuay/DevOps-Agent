@@ -168,6 +168,9 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 | **Safety.py must be updated** | Every new delete tool MUST be added to `high_risk_tools` in `safety.py`. Forgetting this silently defaults to low risk with no confirmation. |
 | **Test fixtures flaky** | Existing test suite has pre-existing SQLite unique constraint failures in `conftest.py`. These are unrelated to tool changes. |
 | **IAM role deletion** | AWS `delete_iam_role` requires cleanup: detach managed policies, delete inline policies, remove from instance profiles — all before the role itself can be deleted. |
+| **Billing payment bypass (FIXED)** | Legacy endpoints `/api/subscription/upgrade` and `/api/credits/purchase` granted free credits without Stripe payment. Now return 403. All credit granting goes through Stripe webhook `handle_checkout_completed()`. |
+| **Stripe price IDs not loading in production** | `MANAGED_SECRET_KEYS` in `secrets_manager.py` was missing Stripe price IDs. Added all `STRIPE_PRICE_*` and `STRIPE_PUBLISHABLE_KEY` to the list. Must also be added to AWS Secrets Manager JSON. |
+| **Credit pack size mismatch** | Billing page showed packs of 50/200 but Stripe config has 100/250. Fixed billing.html to match Stripe: 100/$10, 250/$20, 500/$35, 1000/$60. |
 
 ## Verification Commands
 
@@ -201,6 +204,43 @@ for name, mod in [('AWS', aws_tools), ('K8s', kubernetes_tools), ('Azure', azure
 "
 ```
 
+## Billing & Stripe Payment Flow
+
+### Architecture
+- **Frontend:** `templates/billing.html` — subscription tiers + credit pack purchase buttons
+- **Stripe Checkout:** `stripe_integration.py` — `StripePaymentService` handles session creation
+- **Webhook:** `/api/stripe/webhook` in `app.py` — receives Stripe events, grants credits/subscriptions
+- **Models:** `UserSubscription`, `CreditPurchase`, `SubscriptionTier`, `StripeWebhookEvent` in `models.py`
+
+### Payment Flow (MUST follow this pattern)
+1. User clicks upgrade/purchase on billing page
+2. JS calls `/api/subscription/create-checkout` or `/api/credits/create-checkout`
+3. Backend creates Stripe Checkout session, returns `checkout_url`
+4. User redirected to Stripe's hosted payment page
+5. After payment, Stripe sends `checkout.session.completed` webhook
+6. `handle_checkout_completed()` verifies and grants subscription/credits
+7. User redirected to `/billing/success` which shows billing page
+
+### CRITICAL: Never grant credits without Stripe verification
+- `/api/subscription/upgrade` — DISABLED (returns 403). Was a legacy endpoint that granted free subscriptions.
+- `/api/credits/purchase` — DISABLED (returns 403). Was a legacy endpoint that granted free credits.
+- Credits/subscriptions MUST only be granted via `handle_checkout_completed()` after Stripe webhook verification.
+
+### Stripe Environment Variables (all required for payments)
+- `STRIPE_SECRET_KEY` — Stripe API secret key
+- `STRIPE_PUBLISHABLE_KEY` — Stripe publishable key (passed to billing template)
+- `STRIPE_WEBHOOK_SECRET` — Webhook signature verification secret
+- `STRIPE_PRICE_STARTER` — Stripe Price ID for Starter tier
+- `STRIPE_PRICE_PROFESSIONAL` — Stripe Price ID for Professional tier
+- `STRIPE_PRICE_BUSINESS` — Stripe Price ID for Business tier
+- `STRIPE_PRICE_PACK_100` — Price ID for 100-credit pack ($10)
+- `STRIPE_PRICE_PACK_250` — Price ID for 250-credit pack ($20)
+- `STRIPE_PRICE_PACK_500` — Price ID for 500-credit pack ($35)
+- `STRIPE_PRICE_PACK_1000` — Price ID for 1000-credit pack ($60)
+
+All Stripe env vars must be in AWS Secrets Manager (`devops-agent/production` JSON) for production.
+They are listed in `services/secrets_manager.py` `MANAGED_SECRET_KEYS`.
+
 ## Environment Variables
 
 Required:
@@ -210,6 +250,8 @@ Required:
 Optional:
 - `CREDENTIAL_ENCRYPTION_KEY` - For credential encryption
 - `DATABASE_URL` - Database connection string
+- `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
+- `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 
 ## Running the App
 
@@ -249,6 +291,8 @@ Use `/skill-name` or mention the skill:
 - `/cloud-debug` - Cloud troubleshooting
 - `/devops-agent-dev` - Development guide
 - `/secrets-mgmt` - Secrets management
+- `/update-context` - Update CLAUDE.md after significant codebase changes
+- `/resume-work` - Recover context and resume after rate limit or token reset
 
 ## Code Style
 
