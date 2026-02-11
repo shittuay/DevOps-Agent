@@ -3175,6 +3175,38 @@ def purchase_credits():
     }), 403
 
 
+@app.route('/api/stripe/status', methods=['GET'])
+@login_required
+def stripe_status():
+    """Diagnostic endpoint to check Stripe configuration (no secrets exposed)."""
+    import stripe as stripe_mod
+    status = {
+        'stripe_enabled': STRIPE_ENABLED,
+        'api_key_set': bool(stripe_mod.api_key or os.getenv('STRIPE_SECRET_KEY')),
+        'api_key_prefix': (stripe_mod.api_key or os.getenv('STRIPE_SECRET_KEY', ''))[:7] + '...' if (stripe_mod.api_key or os.getenv('STRIPE_SECRET_KEY')) else None,
+        'webhook_secret_set': bool(os.getenv('STRIPE_WEBHOOK_SECRET')),
+        'publishable_key_set': bool(os.getenv('STRIPE_PUBLISHABLE_KEY')),
+        'base_url': os.getenv('BASE_URL', 'https://devopsagent.io'),
+        'price_ids': {
+            'starter': bool(os.getenv('STRIPE_PRICE_STARTER')),
+            'professional': bool(os.getenv('STRIPE_PRICE_PROFESSIONAL')),
+            'business': bool(os.getenv('STRIPE_PRICE_BUSINESS')),
+            'pack_100': bool(os.getenv('STRIPE_PRICE_PACK_100')),
+            'pack_250': bool(os.getenv('STRIPE_PRICE_PACK_250')),
+            'pack_500': bool(os.getenv('STRIPE_PRICE_PACK_500')),
+            'pack_1000': bool(os.getenv('STRIPE_PRICE_PACK_1000')),
+        }
+    }
+    all_configured = (
+        status['stripe_enabled'] and
+        status['api_key_set'] and
+        status['webhook_secret_set'] and
+        all(status['price_ids'].values())
+    )
+    status['all_configured'] = all_configured
+    return jsonify(status)
+
+
 @app.route('/api/credits/create-checkout', methods=['POST'])
 @login_required
 def create_credits_checkout_session():
