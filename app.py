@@ -3672,7 +3672,7 @@ def health():
         'agent_initialized': agent is not None,
         'api_key_configured': check_api_key_configured(),
         'timestamp': datetime.now().isoformat(),
-        'version': '2026-02-11-v5',
+        'version': '2026-02-11-v6',
         'stripe_enabled': STRIPE_ENABLED
     })
 
