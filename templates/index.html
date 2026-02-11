@@ -280,7 +280,7 @@
 
         .logo-subtitle {
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-tertiary);
             letter-spacing: 1px;
             text-transform: uppercase;
@@ -359,7 +359,7 @@
         .conversations-header {
             padding: 12px 12px 8px;
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             color: var(--text-tertiary);
             text-transform: uppercase;
@@ -447,7 +447,7 @@
             position: absolute;
             top: 14px;
             right: 14px;
-            font-size: 10px;
+            font-size: 13px;
             color: var(--text-muted);
             font-family: 'IBM Plex Mono', monospace;
         }
@@ -462,7 +462,7 @@
             border: none;
             border-radius: 4px;
             padding: 4px 8px;
-            font-size: 11px;
+            font-size: 13px;
             cursor: pointer;
             opacity: 0;
             transition: opacity 0.15s;
@@ -753,7 +753,7 @@
             position: absolute;
             top: 12px;
             left: 20px;
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-tertiary);
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -1038,7 +1038,7 @@
         .dropdown-header {
             padding: 16px;
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 600;
             color: var(--text-tertiary);
             text-transform: uppercase;
@@ -1139,7 +1139,7 @@
 
             #credits-badge {
                 padding: 8px 12px;
-                font-size: 12px;
+                font-size: 14px;
             }
 
             .chat-outer-container {
@@ -2024,7 +2024,7 @@
                         totalTools += tools.length;
                         const icon = categoryIcons[category] || '🔧';
                         const toolsHtml = tools.map(tool =>
-                            `<div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(255,255,255,0.02); border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+                            `<div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(255,255,255,0.02); border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">
                                 <span style="color: var(--accent-primary);">›</span> ${tool}
                             </div>`
                         ).join('');
@@ -2034,7 +2034,7 @@
                                 <div style="padding: 14px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 10px;">
                                     <span style="font-size: 18px;">${icon}</span>
                                     <span style="font-weight: 600; color: var(--text-primary);">${category}</span>
-                                    <span style="margin-left: auto; background: rgba(255, 107, 53, 0.15); color: var(--accent-primary); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">${tools.length}</span>
+                                    <span style="margin-left: auto; background: rgba(255, 107, 53, 0.15); color: var(--accent-primary); padding: 2px 8px; border-radius: 10px; font-size: 13px; font-weight: 600;">${tools.length}</span>
                                 </div>
                                 <div style="padding: 12px; display: flex; flex-direction: column; gap: 6px;">
                                     ${toolsHtml}
@@ -2097,21 +2097,21 @@
                                     <div style="width: 44px; height: 44px; background: var(--gradient-primary); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);">📊</div>
                                     <div>
                                         <div style="font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; color: var(--text-primary);">Session Statistics</div>
-                                        <div style="font-size: 12px; color: var(--text-tertiary);">Current conversation metrics</div>
+                                        <div style="font-size: 14px; color: var(--text-tertiary);">Current conversation metrics</div>
                                     </div>
                                 </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
                                     <div style="background: rgba(255,255,255,0.03); padding: 16px 12px; border-radius: 10px; border: 1px solid var(--border-subtle); text-align: center;">
                                         <div style="font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 700; color: var(--accent-primary);">${data.total_messages}</div>
-                                        <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Total</div>
+                                        <div style="font-size: 13px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Total</div>
                                     </div>
                                     <div style="background: rgba(255,255,255,0.03); padding: 16px 12px; border-radius: 10px; border: 1px solid var(--border-subtle); text-align: center;">
                                         <div style="font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 700; color: #667eea;">${data.user_messages}</div>
-                                        <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">You</div>
+                                        <div style="font-size: 13px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">You</div>
                                     </div>
                                     <div style="background: rgba(255,255,255,0.03); padding: 16px 12px; border-radius: 10px; border: 1px solid var(--border-subtle); text-align: center;">
                                         <div style="font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 700; color: #10b981;">${data.assistant_messages}</div>
-                                        <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Agent</div>
+                                        <div style="font-size: 13px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Agent</div>
                                     </div>
                                 </div>
                             </div>
@@ -2141,30 +2141,30 @@
                                 <div style="width: 56px; height: 56px; background: var(--gradient-primary); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 28px; color: white; box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);">D</div>
                                 <div>
                                     <div style="font-family: 'Syne', sans-serif; font-size: 24px; font-weight: 800; background: linear-gradient(135deg, var(--accent-primary), var(--accent-electric)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">DevOps Agent</div>
-                                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-tertiary); letter-spacing: 1px;">AI-POWERED AUTOMATION</div>
+                                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: var(--text-tertiary); letter-spacing: 1px;">AI-POWERED AUTOMATION</div>
                                 </div>
                             </div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
                                 <div style="background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid var(--border-subtle);">
-                                    <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Version</div>
+                                    <div style="font-size: 13px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Version</div>
                                     <div style="font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; color: var(--text-primary);">2.0.0</div>
                                 </div>
                                 <div style="background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid var(--border-subtle);">
-                                    <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">AI Engine</div>
+                                    <div style="font-size: 13px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">AI Engine</div>
                                     <div style="font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; color: var(--text-primary);">Claude</div>
                                 </div>
                             </div>
                             <div style="background: rgba(255, 107, 53, 0.1); padding: 14px; border-radius: 10px; border: 1px solid rgba(255, 107, 53, 0.2); margin-bottom: 20px;">
-                                <div style="font-size: 11px; color: var(--accent-primary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Integrations</div>
+                                <div style="font-size: 13px; color: var(--accent-primary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Integrations</div>
                                 <div style="font-size: 15px; font-weight: 600; color: var(--text-primary);">36+ DevOps Tools</div>
                             </div>
                             <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;">
-                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">AWS</span>
-                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Azure</span>
-                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">GCP</span>
-                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Kubernetes</span>
-                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Docker</span>
-                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">CI/CD</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 14px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">AWS</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 14px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Azure</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 14px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">GCP</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 14px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Kubernetes</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 14px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">Docker</span>
+                                <span style="background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; font-size: 14px; color: var(--text-secondary); border: 1px solid var(--border-subtle);">CI/CD</span>
                             </div>
                             <p style="font-size: 13px; color: var(--text-tertiary); line-height: 1.6; margin: 0;">Enterprise-grade infrastructure automation with intelligent orchestration, real-time monitoring, and predictive insights.</p>
                         </div>
