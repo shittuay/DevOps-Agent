@@ -209,32 +209,39 @@ def init_secrets():
 
     In production (FLASK_ENV=production or USE_AWS_SECRETS=true):
       - Loads all secrets from AWS Secrets Manager into os.environ
-      - Fails fast if secrets cannot be loaded
+      - On failure, logs warning and returns False (does NOT crash the app)
 
     In development:
       - No-op (secrets come from .env via dotenv)
+
+    Returns:
+        True if secrets loaded successfully, False otherwise
     """
     flask_env = os.environ.get('FLASK_ENV', 'development')
     use_aws = os.environ.get('USE_AWS_SECRETS', '').lower() == 'true'
 
     if flask_env != 'production' and not use_aws:
-        return
+        return False
 
     logger.info("Loading secrets from AWS Secrets Manager...")
     try:
         secrets = get_all_secrets()
     except Exception as e:
-        raise RuntimeError(
-            f"FATAL: Failed to load secrets from AWS Secrets Manager: {e}\n"
+        logger.error(
+            "Failed to load secrets from AWS Secrets Manager: %s. "
             "Ensure the EC2 instance has an IAM role with secretsmanager:GetSecretValue permission "
-            f"on arn:aws:secretsmanager:us-east-1:*:secret:devops-agent/*"
-        ) from e
+            "on arn:aws:secretsmanager:us-east-1:*:secret:devops-agent/*",
+            e
+        )
+        return False
 
     if not secrets:
-        raise RuntimeError(
-            "FATAL: No secrets returned from AWS Secrets Manager.\n"
-            f"Ensure secret '{PRIMARY_SECRET_NAME}' exists in us-east-1 and contains the required keys."
+        logger.error(
+            "No secrets returned from AWS Secrets Manager. "
+            "Ensure secret '%s' exists in us-east-1 and contains the required keys.",
+            PRIMARY_SECRET_NAME
         )
+        return False
 
     loaded = 0
     for key in MANAGED_SECRET_KEYS:
@@ -244,12 +251,14 @@ def init_secrets():
             loaded += 1
 
     if loaded == 0:
-        raise RuntimeError(
-            "FATAL: Secrets JSON was returned but contained none of the expected keys.\n"
-            f"Expected keys: {MANAGED_SECRET_KEYS}"
+        logger.error(
+            "Secrets JSON was returned but contained none of the expected keys. "
+            "Expected keys: %s", MANAGED_SECRET_KEYS
         )
+        return False
 
     logger.info("Loaded %d secrets from AWS Secrets Manager", loaded)
+    return True
 
 
 if __name__ == '__main__':
