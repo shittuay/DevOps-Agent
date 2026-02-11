@@ -84,8 +84,13 @@ jobs:
           echo "Initializing database..."
           python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
 
-          # Start the application with PM2 using venv python
+          # FLASK_ENV and USE_AWS_SECRETS must be real env vars so init_secrets()
+          # runs before load_dotenv() — the app checks os.environ before loading .env
           echo "Starting application..."
+          export FLASK_ENV=production
+          export USE_AWS_SECRETS=true
+          export AWS_DEFAULT_REGION=us-east-1
+          export BASE_URL=https://devopsagent.io
           pm2 start app.py --name devops-agent --interpreter "$VENV_DIR/bin/python"
 
           # Save PM2 configuration
