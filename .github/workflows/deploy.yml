@@ -148,57 +148,75 @@ jobs:
           # ============================================
           echo "[7/8] Configuring nginx..."
 
-          # Show current nginx config for debugging
-          echo "=== Current nginx config ==="
-          sudo nginx -T 2>&1 | head -80 || true
-          echo "=== End current config ==="
-
           # Install nginx if not present
           if ! command -v nginx &> /dev/null; then
             sudo apt-get update -qq
             sudo apt-get install -y nginx
           fi
 
-          # Determine SSL cert paths (certbot/Let's Encrypt)
+          # Debug: show existing nginx site configs and SSL certs
+          echo "=== Existing site configs ==="
+          ls -la /etc/nginx/sites-enabled/ 2>/dev/null || true
+          ls -la /etc/nginx/conf.d/ 2>/dev/null || true
+          echo "=== SSL cert search ==="
+          sudo find /etc/letsencrypt/live/ -name "*.pem" 2>/dev/null || echo "No letsencrypt certs"
+          sudo find /etc/ssl/ -name "*.pem" -newer /etc/ssl/openssl.cnf 2>/dev/null | head -10 || true
+          echo "=== Listening ports ==="
+          sudo ss -tlnp | grep -E ':80|:443|:5000' || true
+
+          # Find SSL certs - check multiple possible paths
           SSL_CERT=""
           SSL_KEY=""
-          if [ -f /etc/letsencrypt/live/devopsagent.io/fullchain.pem ]; then
-            SSL_CERT="/etc/letsencrypt/live/devopsagent.io/fullchain.pem"
-            SSL_KEY="/etc/letsencrypt/live/devopsagent.io/privkey.pem"
-            echo "Found SSL certs at $SSL_CERT"
+          for DOMAIN in devopsagent.io www.devopsagent.io; do
+            if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+              SSL_CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+              SSL_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+              echo "Found SSL certs for $DOMAIN"
+              break
+            fi
+          done
+
+          # Also check if certs are in a different letsencrypt directory name
+          if [ -z "$SSL_CERT" ]; then
+            CERT_DIR=$(sudo find /etc/letsencrypt/live/ -name "fullchain.pem" 2>/dev/null | head -1)
+            if [ -n "$CERT_DIR" ]; then
+              SSL_CERT="$CERT_DIR"
+              SSL_KEY="$(dirname "$CERT_DIR")/privkey.pem"
+              echo "Found SSL certs at $SSL_CERT"
+            fi
           fi
 
           # Create nginx config
           if [ -n "$SSL_CERT" ]; then
-            # HTTPS config with SSL
-            sudo tee /etc/nginx/sites-available/devops-agent > /dev/null << 'NGEOF'
+            echo "Using HTTPS config with SSL cert: $SSL_CERT"
+            sudo tee /etc/nginx/sites-available/devops-agent > /dev/null << NGEOF
           server {
               listen 80;
               server_name devopsagent.io www.devopsagent.io;
-              return 301 https://$host$request_uri;
+              return 301 https://\$host\$request_uri;
           }
 
           server {
               listen 443 ssl;
               server_name devopsagent.io www.devopsagent.io;
 
-              ssl_certificate /etc/letsencrypt/live/devopsagent.io/fullchain.pem;
-              ssl_certificate_key /etc/letsencrypt/live/devopsagent.io/privkey.pem;
+              ssl_certificate $SSL_CERT;
+              ssl_certificate_key $SSL_KEY;
               ssl_protocols TLSv1.2 TLSv1.3;
 
               location / {
                   proxy_pass http://127.0.0.1:5000;
-                  proxy_set_header Host $host;
-                  proxy_set_header X-Real-IP $remote_addr;
-                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
                   proxy_read_timeout 300s;
                   proxy_connect_timeout 75s;
               }
           }
           NGEOF
           else
-            # HTTP-only config (no SSL certs found)
+            echo "No SSL certs found - using HTTP-only config on port 80"
             sudo tee /etc/nginx/sites-available/devops-agent > /dev/null << 'NGEOF'
           server {
               listen 80;
@@ -220,14 +238,18 @@ jobs:
           # Strip leading whitespace from YAML heredoc
           sudo sed -i 's/^[[:space:]]*//' /etc/nginx/sites-available/devops-agent
 
-          # Enable the site and remove default
+          # Enable the site
           sudo ln -sf /etc/nginx/sites-available/devops-agent /etc/nginx/sites-enabled/devops-agent
           sudo rm -f /etc/nginx/sites-enabled/default
 
           # Test and reload nginx
-          echo "Testing nginx config..."
+          echo "=== Final nginx config ==="
+          cat /etc/nginx/sites-available/devops-agent
+          echo "=== Testing nginx ==="
           sudo nginx -t
           sudo systemctl reload nginx
+          echo "=== Nginx status ==="
+          sudo systemctl status nginx --no-pager -l || true
 
           # ============================================
           # STEP 8: Verify deployment
