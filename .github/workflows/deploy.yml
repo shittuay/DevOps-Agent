@@ -101,9 +101,27 @@ jobs:
             > config/.env
 
           # ============================================
-          # STEP 5: Initialize database
+          # STEP 5: Initialize PostgreSQL database
           # ============================================
           echo "[5/7] Initializing database..."
+
+          # Ensure PostgreSQL is installed and running
+          if ! command -v psql &> /dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql postgresql-contrib
+          fi
+          sudo systemctl start postgresql
+          sudo systemctl enable postgresql
+
+          # Create database user and database if they don't exist
+          # Password is managed via AWS Secrets Manager (DATABASE_URL), not hardcoded
+          sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='devopsagent'" | grep -q 1 || \
+            sudo -u postgres psql -c "CREATE USER devopsagent WITH PASSWORD '${{ secrets.DB_PASSWORD }}';"
+          sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='devops_agent'" | grep -q 1 || \
+            sudo -u postgres psql -c "CREATE DATABASE devops_agent OWNER devopsagent;"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devops_agent TO devopsagent;"
+
+          # Run SQLAlchemy migrations
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
             python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
 
