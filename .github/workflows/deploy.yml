@@ -68,7 +68,7 @@ jobs:
           # Create necessary directories
           mkdir -p logs instance config
 
-          # Configure .env fallback (no leading spaces!)
+          # Write .env file (strip leading whitespace from YAML heredoc)
           echo "Configuring environment..."
           cat > config/.env << 'ENVEOF'
           FLASK_ENV=production
@@ -79,39 +79,32 @@ jobs:
           HOST=0.0.0.0
           LOG_LEVEL=INFO
           ENVEOF
-          # Strip leading whitespace from .env (YAML heredoc adds indentation)
           sed -i 's/^[[:space:]]*//' config/.env
 
-          # Initialize database (with env vars so init_secrets can run)
+          # Create a launcher script that sets env vars and runs the app
+          # PM2 ecosystem config doesn't work with Python interpreter (ProcessContainerForkBun.js conflict)
+          cat > start.sh << 'SHEOF'
+          #!/bin/bash
+          export FLASK_ENV=production
+          export USE_AWS_SECRETS=true
+          export AWS_DEFAULT_REGION=us-east-1
+          export BASE_URL=https://devopsagent.io
+          export PORT=5000
+          export HOST=0.0.0.0
+          SHEOF
+          sed -i 's/^[[:space:]]*//' start.sh
+          echo "cd $APP_DIR/DevOps-Agent" >> start.sh
+          echo "source $VENV_DIR/bin/activate" >> start.sh
+          echo "exec python app.py" >> start.sh
+          chmod +x start.sh
+
+          # Initialize database
           echo "Initializing database..."
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
             python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
 
-          # Create PM2 ecosystem config for persistent env vars
-          # This ensures env vars survive PM2 restarts and reboots
-          cat > ecosystem.config.js << JSEOF
-          module.exports = {
-            apps: [{
-              name: 'devops-agent',
-              script: 'app.py',
-              interpreter: '$VENV_DIR/bin/python',
-              cwd: '$APP_DIR/DevOps-Agent',
-              env: {
-                FLASK_ENV: 'production',
-                USE_AWS_SECRETS: 'true',
-                AWS_DEFAULT_REGION: 'us-east-1',
-                BASE_URL: 'https://devopsagent.io',
-                PORT: '5000',
-                HOST: '0.0.0.0'
-              },
-              max_restarts: 5,
-              restart_delay: 5000
-            }]
-          };
-          JSEOF
-
-          echo "Starting application with PM2 ecosystem config..."
-          pm2 start ecosystem.config.js
+          echo "Starting application..."
+          pm2 start start.sh --name devops-agent --interpreter bash
 
           # Save PM2 configuration
           pm2 save
