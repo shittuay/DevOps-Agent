@@ -268,6 +268,22 @@ You: /resume-work
 You: What was I working on before the reset?
 ```
 
+### 9. memory
+**Purpose:** Maintain a persistent work log (WORKLOG.md) across sessions
+
+**Use when:**
+- End of a work session to save progress
+- Start of a new session to reload context
+- After token resets or rate limit disruptions
+- When the user says "remember this"
+
+**Example usage:**
+```
+You: /memory
+You: Save what we did today
+You: What were we working on?
+```
+
 ## Need Help?
 
 If you need assistance with skills:
