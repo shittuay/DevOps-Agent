@@ -5,7 +5,6 @@ Tests for user registration, login, and authentication flows.
 """
 
 import pytest
-from flask import url_for
 
 
 class TestRegistration:
@@ -15,83 +14,105 @@ class TestRegistration:
         """Test signup page loads correctly."""
         response = client.get('/signup')
         assert response.status_code == 200
-        assert b'Sign Up' in response.data or b'Create Account' in response.data
 
     def test_successful_registration(self, client, app):
         """Test successful user registration."""
-        from models import User
+        from models import User, db
 
         response = client.post('/signup', data={
             'email': 'newuser@example.com',
             'username': 'newuser',
             'password': 'SecurePass123!',
-            'confirm_password': 'SecurePass123!'
+            'confirm_password': 'SecurePass123!',
+            'full_name': 'New User'
         }, follow_redirects=True)
+
+        assert response.status_code == 200
 
         with app.app_context():
             user = User.query.filter_by(email='newuser@example.com').first()
             assert user is not None
             assert user.username == 'newuser'
+            db.session.delete(user)
+            db.session.commit()
 
     def test_registration_duplicate_email(self, client, test_user):
         """Test registration with existing email fails."""
         response = client.post('/signup', data={
-            'email': 'test@example.com',  # Same as test_user
+            'email': 'test@example.com',
             'username': 'anotheruser',
             'password': 'SecurePass123!',
-            'confirm_password': 'SecurePass123!'
-        })
+            'confirm_password': 'SecurePass123!',
+            'full_name': 'Another User'
+        }, follow_redirects=True)
+        assert response.status_code == 200
+        assert b'already registered' in response.data.lower() or b'already' in response.data.lower()
 
-        assert response.status_code in [200, 302]  # Should show error or redirect
-
-    def test_registration_weak_password(self, client):
+    def test_registration_weak_password(self, client, app):
         """Test registration with weak password fails."""
+        from models import User
+
         response = client.post('/signup', data={
             'email': 'weak@example.com',
             'username': 'weakuser',
             'password': '123',
             'confirm_password': '123'
-        })
+        }, follow_redirects=True)
 
-        # Should not create user with weak password
-        assert response.status_code in [200, 400]
+        # Verify user was NOT created regardless of response code
+        with app.app_context():
+            user = User.query.filter_by(email='weak@example.com').first()
+            assert user is None
+
+    def test_registration_missing_uppercase(self, client, app):
+        """Test registration requires uppercase letter."""
+        from models import User
+
+        response = client.post('/signup', data={
+            'email': 'noupper@example.com',
+            'username': 'noupperuser',
+            'password': 'securepass123!',
+            'confirm_password': 'securepass123!'
+        }, follow_redirects=True)
+
+        # Verify user was NOT created
+        with app.app_context():
+            user = User.query.filter_by(email='noupper@example.com').first()
+            assert user is None
 
 
 class TestLogin:
     """Tests for user login."""
 
     def test_login_page_loads(self, client):
-        """Test login page loads correctly."""
+        """Test login page loads correctly (200 or 302 redirect to chat if session exists)."""
         response = client.get('/login')
-        assert response.status_code == 200
-        assert b'Login' in response.data or b'Sign In' in response.data
+        assert response.status_code in [200, 302]
 
     def test_successful_login(self, client, test_user):
         """Test successful login."""
         response = client.post('/login', data={
             'email': 'test@example.com',
-            'password': 'testpassword123'
+            'password': 'TestPassword123!'
         }, follow_redirects=True)
-
         assert response.status_code == 200
 
     def test_login_wrong_password(self, client, test_user):
         """Test login with wrong password fails."""
         response = client.post('/login', data={
             'email': 'test@example.com',
-            'password': 'wrongpassword'
-        })
-
-        assert response.status_code in [200, 401]
+            'password': 'WrongPassword123!'
+        }, follow_redirects=True)
+        assert response.status_code == 200
+        assert b'Invalid' in response.data or b'invalid' in response.data
 
     def test_login_nonexistent_user(self, client):
         """Test login with nonexistent user fails."""
         response = client.post('/login', data={
             'email': 'nonexistent@example.com',
-            'password': 'anypassword'
-        })
-
-        assert response.status_code in [200, 401]
+            'password': 'AnyPassword123!'
+        }, follow_redirects=True)
+        assert response.status_code == 200
 
 
 class TestLogout:

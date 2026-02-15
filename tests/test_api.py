@@ -1,7 +1,7 @@
 """
 API Tests
 
-Tests for REST API endpoints.
+Tests for REST API endpoints matching actual app routes.
 """
 
 import pytest
@@ -9,175 +9,124 @@ import json
 
 
 class TestHealthEndpoints:
-    """Tests for health check endpoints."""
+    """Tests for health check endpoint."""
 
     def test_health_check(self, client):
         """Test basic health check endpoint."""
-        response = client.get('/api/v1/health')
+        response = client.get('/health')
         assert response.status_code == 200
 
         data = json.loads(response.data)
         assert data['status'] == 'healthy'
         assert 'timestamp' in data
 
-    def test_detailed_health_check(self, client):
-        """Test detailed health check endpoint."""
-        response = client.get('/api/v1/health/detailed')
-        assert response.status_code in [200, 503]
-
-        data = json.loads(response.data)
-        assert 'status' in data
-        assert 'components' in data
-
-
-class TestAuthEndpoints:
-    """Tests for authentication API endpoints."""
-
-    def test_validate_token(self, client, api_headers):
-        """Test API key validation endpoint."""
-        response = client.get('/api/v1/auth/validate', headers=api_headers)
-        assert response.status_code == 200
-
-        data = json.loads(response.data)
-        assert data['valid'] == True
-
-    def test_validate_token_invalid_key(self, client):
-        """Test validation with invalid API key."""
-        headers = {
-            'Authorization': 'Bearer invalid_key',
-            'Content-Type': 'application/json'
-        }
-        response = client.get('/api/v1/auth/validate', headers=headers)
-        assert response.status_code == 401
-
-    def test_get_current_user(self, client, api_headers, test_user):
-        """Test getting current user info."""
-        response = client.get('/api/v1/auth/me', headers=api_headers)
-        assert response.status_code == 200
-
-        data = json.loads(response.data)
-        assert data['user']['email'] == test_user.email
-
-
-class TestUserEndpoints:
-    """Tests for user API endpoints."""
-
-    def test_get_user_profile(self, client, api_headers, test_user):
-        """Test getting user profile."""
-        response = client.get('/api/v1/users/me', headers=api_headers)
-        assert response.status_code == 200
-
-        data = json.loads(response.data)
-        assert data['user']['username'] == test_user.username
-
-    def test_update_user_profile(self, client, api_headers):
-        """Test updating user profile."""
-        response = client.patch(
-            '/api/v1/users/me',
-            headers=api_headers,
-            data=json.dumps({'full_name': 'Updated Name'}),
-            content_type='application/json'
-        )
-        assert response.status_code == 200
-
-        data = json.loads(response.data)
-        assert data['user']['full_name'] == 'Updated Name'
-
 
 class TestConversationEndpoints:
     """Tests for conversation API endpoints."""
 
-    def test_list_conversations(self, client, api_headers):
-        """Test listing conversations."""
-        response = client.get('/api/v1/conversations', headers=api_headers)
+    def test_list_conversations_requires_auth(self, client):
+        """Test listing conversations requires login."""
+        response = client.get('/api/conversations')
+        assert response.status_code in [302, 401]
+
+    def test_list_conversations(self, authenticated_client):
+        """Test listing conversations when authenticated."""
+        response = authenticated_client.get('/api/conversations')
         assert response.status_code == 200
 
         data = json.loads(response.data)
         assert 'conversations' in data
-        assert 'pagination' in data
 
-    def test_create_conversation(self, client, api_headers):
-        """Test creating a conversation."""
-        response = client.post(
-            '/api/v1/conversations',
-            headers=api_headers,
-            data=json.dumps({'title': 'Test Conversation'}),
+    def test_new_conversation(self, authenticated_client):
+        """Test creating a new conversation."""
+        response = authenticated_client.post('/api/conversations/new')
+        # May return 200/503 depending on agent init
+        assert response.status_code in [200, 503]
+
+
+class TestSubscriptionEndpoints:
+    """Tests for subscription API endpoints."""
+
+    def test_get_subscription_tiers(self, client):
+        """Test getting subscription tiers (public endpoint)."""
+        response = client.get('/api/subscription/tiers')
+        assert response.status_code == 200
+
+        data = json.loads(response.data)
+        assert 'tiers' in data
+
+    def test_get_subscription_requires_auth(self, client):
+        """Test getting subscription details requires login."""
+        response = client.get('/api/subscription')
+        assert response.status_code in [302, 401]
+
+    def test_upgrade_disabled(self, authenticated_client):
+        """Test direct upgrade endpoint is disabled (returns 403)."""
+        response = authenticated_client.post('/api/subscription/upgrade',
+            data=json.dumps({'tier': 'starter'}),
             content_type='application/json'
         )
-        assert response.status_code == 201
-
-        data = json.loads(response.data)
-        assert data['conversation']['title'] == 'Test Conversation'
+        assert response.status_code == 403
 
 
-class TestResourceEndpoints:
-    """Tests for resource API endpoints."""
+class TestStatsEndpoints:
+    """Tests for statistics endpoints."""
 
-    def test_list_resources(self, client, api_headers):
-        """Test listing cloud resources."""
-        response = client.get('/api/v1/resources', headers=api_headers)
+    def test_stats_requires_auth(self, client):
+        """Test stats endpoint requires login."""
+        response = client.get('/api/stats')
+        assert response.status_code in [302, 401]
+
+    def test_stats(self, authenticated_client):
+        """Test getting conversation stats when authenticated."""
+        response = authenticated_client.get('/api/stats')
         assert response.status_code == 200
 
         data = json.loads(response.data)
-        assert 'resources' in data
-        assert 'pagination' in data
+        assert 'total_messages' in data
 
-    def test_get_resource_stats(self, client, api_headers):
-        """Test getting resource statistics."""
-        response = client.get('/api/v1/resources/stats', headers=api_headers)
+
+class TestHistoryEndpoints:
+    """Tests for chat history endpoints."""
+
+    def test_history_requires_auth(self, client):
+        """Test history endpoint requires login."""
+        response = client.get('/api/history')
+        assert response.status_code in [302, 401]
+
+    def test_history(self, authenticated_client):
+        """Test getting chat history when authenticated."""
+        response = authenticated_client.get('/api/history')
         assert response.status_code == 200
 
+
+class TestToolsEndpoint:
+    """Tests for tools listing endpoint."""
+
+    def test_tools_requires_auth(self, client):
+        """Test tools endpoint requires login."""
+        response = client.get('/api/tools')
+        assert response.status_code in [302, 401]
+
+    def test_tools(self, authenticated_client):
+        """Test listing available tools (503 if agent not initialized without real API key)."""
+        response = authenticated_client.get('/api/tools')
+        assert response.status_code in [200, 503]
+
         data = json.loads(response.data)
-        assert 'total_resources' in data
+        if response.status_code == 200:
+            assert 'categories' in data
+        else:
+            assert 'error' in data
 
 
-class TestAPIKeyEndpoints:
-    """Tests for API key management endpoints."""
+class TestCreditsPurchaseDisabled:
+    """Tests for disabled legacy payment endpoints."""
 
-    def test_list_api_keys(self, client, api_headers):
-        """Test listing API keys."""
-        response = client.get('/api/v1/api-keys', headers=api_headers)
-        assert response.status_code == 200
-
-        data = json.loads(response.data)
-        assert 'api_keys' in data
-
-    def test_create_api_key(self, client, api_headers):
-        """Test creating an API key."""
-        response = client.post(
-            '/api/v1/api-keys',
-            headers=api_headers,
-            data=json.dumps({
-                'name': 'New Test Key',
-                'scopes': ['read']
-            }),
+    def test_credits_purchase_disabled(self, authenticated_client):
+        """Test direct credit purchase endpoint is disabled (returns 403)."""
+        response = authenticated_client.post('/api/credits/purchase',
+            data=json.dumps({'pack': '100'}),
             content_type='application/json'
         )
-        assert response.status_code == 201
-
-        data = json.loads(response.data)
-        assert 'key' in data
-        assert data['api_key']['name'] == 'New Test Key'
-
-    def test_create_api_key_without_name(self, client, api_headers):
-        """Test creating API key without name fails."""
-        response = client.post(
-            '/api/v1/api-keys',
-            headers=api_headers,
-            data=json.dumps({'scopes': ['read']}),
-            content_type='application/json'
-        )
-        assert response.status_code == 400
-
-
-class TestRateLimiting:
-    """Tests for API rate limiting."""
-
-    def test_rate_limit_headers(self, client, api_headers):
-        """Test rate limit headers are present."""
-        response = client.get('/api/v1/auth/usage', headers=api_headers)
-        assert response.status_code == 200
-
-        data = json.loads(response.data)
-        assert 'rate_limit' in data['api_key']
-        assert 'rate_limit_remaining' in data['api_key']
+        assert response.status_code == 403

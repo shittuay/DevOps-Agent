@@ -2,16 +2,19 @@
 Pytest Configuration and Fixtures
 
 Provides shared fixtures for all tests.
+Uses PostgreSQL test database for consistency with production.
 """
 
 import os
 import pytest
-import tempfile
 from datetime import datetime
 
 # Set test environment before importing app
 os.environ['FLASK_ENV'] = 'testing'
 os.environ['TESTING'] = 'true'
+
+# Use PostgreSQL test database — same engine as production for consistency
+os.environ['DATABASE_URL'] = 'postgresql://devops:devops_local@localhost:5432/devops_agent_test'
 
 
 @pytest.fixture(scope='session')
@@ -20,25 +23,25 @@ def app():
     from app import app as flask_app
     from models import db
 
-    # Use a temporary database
-    db_fd, db_path = tempfile.mkstemp(suffix='.db')
     flask_app.config.update({
         'TESTING': True,
         'WTF_CSRF_ENABLED': False,
-        'SQLALCHEMY_DATABASE_URI': f'sqlite:///{db_path}',
         'SECRET_KEY': 'test-secret-key',
-        'ANTHROPIC_API_KEY': 'test-api-key'
+        'ANTHROPIC_API_KEY': 'test-api-key',
+        'RATELIMIT_ENABLED': False,
     })
 
-    # Create tables
+    # Disable rate limiter for tests
+    from app import limiter
+    limiter.enabled = False
+
     with flask_app.app_context():
         db.create_all()
         yield flask_app
+        db.session.remove()
         db.drop_all()
-
-    # Cleanup
-    os.close(db_fd)
-    os.unlink(db_path)
+        # Dispose engine to release all PostgreSQL connections
+        db.engine.dispose()
 
 
 @pytest.fixture(scope='function')
@@ -53,13 +56,8 @@ def db_session(app):
     from models import db
 
     with app.app_context():
-        connection = db.engine.connect()
-        transaction = connection.begin()
-
         yield db.session
-
-        transaction.rollback()
-        connection.close()
+        db.session.rollback()
 
 
 @pytest.fixture
@@ -68,29 +66,37 @@ def test_user(app, db_session):
     from models import User, db
 
     with app.app_context():
+        # Clean up any leftover test user from previous runs
+        existing = User.query.filter_by(email='test@example.com').first()
+        if existing:
+            db.session.delete(existing)
+            db.session.commit()
+
         user = User(
             email='test@example.com',
             username='testuser',
             full_name='Test User'
         )
-        user.set_password('testpassword123')
+        user.set_password('TestPassword123!')
         db.session.add(user)
         db.session.commit()
 
         yield user
 
-        # Cleanup
-        db.session.delete(user)
-        db.session.commit()
+        try:
+            db.session.delete(user)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
 
 @pytest.fixture
 def authenticated_client(client, test_user):
-    """Create authenticated test client."""
-    with client.session_transaction() as sess:
-        sess['_user_id'] = str(test_user.id)
-        sess['_fresh'] = True
-
+    """Create authenticated test client by logging in via the actual login route."""
+    client.post('/login', data={
+        'email': 'test@example.com',
+        'password': 'TestPassword123!'
+    })
     return client
 
 
@@ -104,7 +110,7 @@ def test_api_key(app, test_user, db_session):
         api_key = APIKey(
             user_id=test_user.id,
             name='Test API Key',
-            key_prefix='doa_test_a1',
+            key_prefix=key[:8],
             key_hash=APIKey.hash_key(key),
             scopes=['read', 'write', 'admin']
         )
@@ -113,9 +119,11 @@ def test_api_key(app, test_user, db_session):
 
         yield {'model': api_key, 'key': key}
 
-        # Cleanup
-        db.session.delete(api_key)
-        db.session.commit()
+        try:
+            db.session.delete(api_key)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
 
 @pytest.fixture
@@ -133,7 +141,6 @@ def test_subscription(app, test_user, db_session):
     from models import SubscriptionTier, UserSubscription, db
 
     with app.app_context():
-        # Create tier if not exists
         tier = SubscriptionTier.query.filter_by(name='test_tier').first()
         if not tier:
             tier = SubscriptionTier(
@@ -155,6 +162,8 @@ def test_subscription(app, test_user, db_session):
 
         yield subscription
 
-        # Cleanup
-        db.session.delete(subscription)
-        db.session.commit()
+        try:
+            db.session.delete(subscription)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()

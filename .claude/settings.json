@@ -2,26 +2,26 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": {"tools": "Bash"},
+        "matcher": "Bash",
         "hooks": [{"type": "command", "command": "python scripts/hooks/security_check.py"}]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": {},
+        "matcher": "",
         "hooks": [{"type": "command", "command": "python scripts/hooks/audit_log.py"}]
       }
     ]
   },
   "permissions": {
     "allow": [
-      "Bash(python app.py:*)",
-      "Bash(python main.py:*)",
-      "Bash(pytest:*)",
-      "Bash(pip install:*)",
+      "Bash(python app.py *)",
+      "Bash(python main.py *)",
+      "Bash(pytest *)",
+      "Bash(pip install *)",
       "Bash(git status)",
       "Bash(git diff)",
-      "Bash(git log*)",
+      "Bash(git log *)",
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git push *)",
@@ -45,21 +45,11 @@
       "Write(*credentials*)"
     ],
     "ask": [
-      "Bash(pip uninstall*)",
-      "Bash(git reset --hard*)",
-      "Bash(git push --force*)",
+      "Bash(pip uninstall *)",
+      "Bash(git reset --hard *)",
+      "Bash(git push --force *)",
       "Bash(*migrate*)",
       "Bash(*production*)"
     ]
-  },
-  "context": {
-    "alwaysInclude": [
-      "CLAUDE.md",
-      ".github/copilot-instructions.md"
-    ],
-    "maxTokens": 8000
-  },
-  "mcp": {
-    "servers": []
   }
 }

@@ -69,7 +69,7 @@ class APIKeyService:
 
     def get_key_prefix(self, key: str) -> str:
         """Extract the prefix portion of the key for identification."""
-        return key[:12] if len(key) >= 12 else key
+        return key[:8] if len(key) >= 8 else key
 
     def create_key(self, user_id: int, name: str, scopes: List[str] = None,
                    expires_days: int = None, allowed_ips: List[str] = None,
