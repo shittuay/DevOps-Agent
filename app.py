@@ -3671,135 +3671,63 @@ def init_database():
     try:
         db.create_all()
 
-        # Also initialize subscription tiers if they don't exist
+        # Upsert subscription tiers — create if missing, update if prices/features changed
         from models import SubscriptionTier
 
-        if SubscriptionTier.query.count() == 0:
-            # Create default subscription tiers
-            free_tier = SubscriptionTier(
-                name='free',
-                display_name='Free',
-                monthly_credits=20,
-                monthly_price=0.0,
-                description='Try the DevOps Agent with limited features',
-                features=[
-                    '20 AI messages per month',
-                    '1 cloud account',
-                    '25 resources tracked',
-                    'Manual sync only',
-                ],
-                max_cloud_accounts=1,
-                max_resources=25,
-                max_team_members=1,
-                sync_interval_minutes=0,
-                compliance_frameworks=[],
-                has_pdf_export=False,
-                has_auto_remediation=False,
-                has_sso=False,
-                has_audit_export=False,
-                is_active=True
-            )
-
-            starter_tier = SubscriptionTier(
-                name='starter',
-                display_name='Starter',
-                monthly_credits=200,
-                monthly_price=49.0,
-                description='For individual developers and solo operators',
-                features=[
-                    '200 AI messages per month',
-                    '1 cloud account',
-                    '50 resources tracked',
-                    'SOC 2 compliance scans',
-                    'Email support',
-                ],
-                max_cloud_accounts=1,
-                max_resources=50,
-                max_team_members=1,
-                sync_interval_minutes=0,
-                compliance_frameworks=['soc2'],
-                has_pdf_export=False,
-                has_auto_remediation=False,
-                has_sso=False,
-                has_audit_export=False,
-                is_active=True
-            )
-
-            pro_tier = SubscriptionTier(
-                name='professional',
-                display_name='Pro',
-                monthly_credits=2000,
-                monthly_price=199.0,
-                description='For growing teams with multi-cloud needs',
-                features=[
-                    '2,000 AI messages per month',
-                    '3 cloud accounts (AWS + Azure + GCP)',
-                    '500 resources tracked',
-                    'Up to 10 team members',
-                    'SOC 2 + HIPAA compliance',
-                    'PDF compliance reports',
-                    'Auto-remediation',
-                    'Auto-sync every 6 hours',
-                    'Priority support',
-                ],
-                max_cloud_accounts=3,
-                max_resources=500,
-                max_team_members=10,
-                sync_interval_minutes=360,
-                compliance_frameworks=['soc2', 'hipaa'],
-                has_pdf_export=True,
-                has_auto_remediation=True,
-                has_sso=False,
-                has_audit_export=False,
-                is_active=True
-            )
-
-            business_tier = SubscriptionTier(
-                name='business',
-                display_name='Enterprise',
-                monthly_credits=99999,
-                monthly_price=799.0,
-                description='Unlimited automation for large organizations',
-                features=[
-                    'Unlimited AI messages',
-                    'Unlimited cloud accounts',
-                    'Unlimited resources',
-                    'Unlimited team members',
-                    'All compliance frameworks',
-                    'PDF compliance reports',
-                    'Auto-remediation + custom rules',
-                    'Auto-sync every 15 minutes',
-                    'SSO / SAML',
-                    'Audit log export',
-                    'Dedicated support + SLA',
-                ],
-                max_cloud_accounts=99,
-                max_resources=99999,
-                max_team_members=99,
-                sync_interval_minutes=15,
-                compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
-                has_pdf_export=True,
-                has_auto_remediation=True,
-                has_sso=True,
-                has_audit_export=True,
-                is_active=True
-            )
-
-            db.session.add_all([free_tier, starter_tier, pro_tier, business_tier])
-            db.session.commit()
-
-            return jsonify({
-                'success': True,
-                'message': 'Database initialized successfully with subscription tiers!',
-                'tables_created': True,
-                'tiers_created': 4
-            })
+        tier_definitions = [
+            dict(name='free', display_name='Free', monthly_credits=20, monthly_price=0.0,
+                 description='Try the DevOps Agent with limited features',
+                 features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
+                 max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
+                 compliance_frameworks=[], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
+            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=49.0,
+                 description='For individual developers and solo operators',
+                 features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
+                 max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
+                 compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
+            dict(name='professional', display_name='Pro', monthly_credits=2000, monthly_price=199.0,
+                 description='For growing teams with multi-cloud needs',
+                 features=['2,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
+                           'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
+                           'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
+                 max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
+                 compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
+            dict(name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=799.0,
+                 description='Unlimited automation for large organizations',
+                 features=['Unlimited AI messages', 'Unlimited cloud accounts', 'Unlimited resources',
+                           'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
+                           'Auto-remediation + custom rules', 'Auto-sync every 15 minutes',
+                           'SSO / SAML', 'Audit log export', 'Dedicated support + SLA'],
+                 max_cloud_accounts=99, max_resources=99999, max_team_members=99, sync_interval_minutes=15,
+                 compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
+                 has_pdf_export=True, has_auto_remediation=True, has_sso=True, has_audit_export=True),
+        ]
+        created = 0
+        updated = 0
+        for defn in tier_definitions:
+            tier = SubscriptionTier.query.filter_by(name=defn['name']).first()
+            if tier:
+                changed = False
+                for key, val in defn.items():
+                    if key == 'name':
+                        continue
+                    if getattr(tier, key) != val:
+                        setattr(tier, key, val)
+                        changed = True
+                if changed:
+                    updated += 1
+            else:
+                tier = SubscriptionTier(**defn, is_active=True)
+                db.session.add(tier)
+                created += 1
+        db.session.commit()
 
         return jsonify({
             'success': True,
-            'message': 'Database tables initialized!',
+            'message': f'Database initialized. Tiers: {created} created, {updated} updated.',
             'tables_created': True,
-            'tiers_already_exist': True
+            'tiers_created': created,
+            'tiers_updated': updated
         })
 
     except Exception as e:
@@ -3820,48 +3748,53 @@ if __name__ == '__main__':
         db.create_all()
         print("\nDatabase initialized")
 
-        # Seed subscription tiers if they don't exist
-        if SubscriptionTier.query.count() == 0:
-            print("\nSeeding subscription tiers...")
-            tiers = [
-                SubscriptionTier(
-                    name='free', display_name='Free', monthly_credits=20, monthly_price=0.0,
-                    description='Try the DevOps Agent with limited features',
-                    features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
-                    max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
-                    is_active=True
-                ),
-                SubscriptionTier(
-                    name='starter', display_name='Starter', monthly_credits=200, monthly_price=49.0,
-                    description='For individual developers and solo operators',
-                    features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
-                    max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
-                    compliance_frameworks=['soc2'], is_active=True
-                ),
-                SubscriptionTier(
-                    name='professional', display_name='Pro', monthly_credits=2000, monthly_price=199.0,
-                    description='For growing teams with multi-cloud needs',
-                    features=['2,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
-                              'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
-                              'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
-                    max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
-                    compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, is_active=True
-                ),
-                SubscriptionTier(
-                    name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=799.0,
-                    description='Unlimited automation for large organizations',
-                    features=['Unlimited AI messages', 'Unlimited cloud accounts', 'Unlimited resources',
-                              'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
-                              'Auto-remediation + custom rules', 'Auto-sync every 15 minutes',
-                              'SSO / SAML', 'Audit log export', 'Dedicated support + SLA'],
-                    max_cloud_accounts=99, max_resources=99999, max_team_members=99, sync_interval_minutes=15,
-                    compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
-                    has_pdf_export=True, has_auto_remediation=True, has_sso=True, has_audit_export=True, is_active=True
-                ),
-            ]
-            db.session.add_all(tiers)
-            db.session.commit()
-            print(f"Created {len(tiers)} subscription tiers")
+        # Upsert subscription tiers — create if missing, update if prices/features changed
+        tier_definitions = [
+            dict(name='free', display_name='Free', monthly_credits=20, monthly_price=0.0,
+                 description='Try the DevOps Agent with limited features',
+                 features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
+                 max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
+                 compliance_frameworks=[], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
+            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=49.0,
+                 description='For individual developers and solo operators',
+                 features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
+                 max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
+                 compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
+            dict(name='professional', display_name='Pro', monthly_credits=2000, monthly_price=199.0,
+                 description='For growing teams with multi-cloud needs',
+                 features=['2,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
+                           'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
+                           'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
+                 max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
+                 compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
+            dict(name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=799.0,
+                 description='Unlimited automation for large organizations',
+                 features=['Unlimited AI messages', 'Unlimited cloud accounts', 'Unlimited resources',
+                           'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
+                           'Auto-remediation + custom rules', 'Auto-sync every 15 minutes',
+                           'SSO / SAML', 'Audit log export', 'Dedicated support + SLA'],
+                 max_cloud_accounts=99, max_resources=99999, max_team_members=99, sync_interval_minutes=15,
+                 compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
+                 has_pdf_export=True, has_auto_remediation=True, has_sso=True, has_audit_export=True),
+        ]
+        for defn in tier_definitions:
+            tier = SubscriptionTier.query.filter_by(name=defn['name']).first()
+            if tier:
+                updated = False
+                for key, val in defn.items():
+                    if key == 'name':
+                        continue
+                    if getattr(tier, key) != val:
+                        setattr(tier, key, val)
+                        updated = True
+                if updated:
+                    print(f"  Updated tier: {defn['name']} (price=${defn['monthly_price']})")
+            else:
+                tier = SubscriptionTier(**defn, is_active=True)
+                db.session.add(tier)
+                print(f"  Created tier: {defn['name']} (price=${defn['monthly_price']})")
+        db.session.commit()
+        print("Subscription tiers synced")
 
     # Check if API key is already configured
     if check_api_key_configured():
