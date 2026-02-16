@@ -352,6 +352,26 @@ def handle_exception(e):
     return render_template('500.html'), 500
 
 
+# Enforce 2FA setup for all authenticated users
+_2FA_EXEMPT_ROUTES = {
+    'login', 'signup', 'logout', 'static', 'verify_2fa', 'setup_2fa_page',
+    'api_2fa_setup', 'api_2fa_verify_setup', 'page_not_found', 'handle_exception',
+    'ensure_clean_transaction',
+}
+
+@app.before_request
+def enforce_two_factor():
+    """Require all logged-in users to set up 2FA before accessing the app."""
+    if not current_user.is_authenticated:
+        return
+    if request.endpoint in _2FA_EXEMPT_ROUTES:
+        return
+    if request.endpoint and request.endpoint.startswith('static'):
+        return
+    if not current_user.two_factor_enabled:
+        return redirect(url_for('setup_2fa_page'))
+
+
 @app.errorhandler(404)
 def page_not_found(e):
     """Handle 404 errors."""
