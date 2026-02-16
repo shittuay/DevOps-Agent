@@ -133,12 +133,7 @@ jobs:
           # ============================================
           echo "[5b] Creating Stripe prices..."
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-            python -c "
-import os, sys
-sys.path.insert(0, '.')
-from services.secrets_manager import init_secrets
-init_secrets()
-" 2>/dev/null || true
+            python -c "import os,sys; sys.path.insert(0,'.'); from services.secrets_manager import init_secrets; init_secrets()" 2>/dev/null || true
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
             python scripts/create_stripe_prices.py || echo "Stripe price creation failed (may already exist)"
 
