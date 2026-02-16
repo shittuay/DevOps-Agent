@@ -392,7 +392,11 @@
                 <div class="logo-icon">D</div>
                 <span class="logo-text">DevOps Agent</span>
             </div>
+            {% if user.two_factor_enabled %}
             <a href="/profile" class="back-button">&#8592; Back to Profile</a>
+            {% else %}
+            <span class="back-button" style="cursor:default; opacity:0.5;">2FA Setup Required</span>
+            {% endif %}
         </div>
 
         <div class="container">
@@ -412,6 +416,7 @@
                     Scan QR Code
                 </h2>
                 <p class="step-desc">
+                    Two-factor authentication is required for all accounts.
                     Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.)
                     or manually enter the secret key below.
                 </p>
