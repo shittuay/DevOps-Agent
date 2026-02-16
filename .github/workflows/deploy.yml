@@ -125,6 +125,24 @@ jobs:
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
             python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
 
+          # Add missing columns to subscription_tiers if they don't exist (db.create_all doesn't alter existing tables)
+          echo "Ensuring subscription_tiers schema is up to date..."
+          sudo -u postgres psql -d devops_agent -c "
+            DO \$\$
+            BEGIN
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS max_cloud_accounts INTEGER DEFAULT 1;
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS max_resources INTEGER DEFAULT 50;
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS max_team_members INTEGER DEFAULT 1;
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS sync_interval_minutes INTEGER DEFAULT 0;
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS compliance_frameworks JSON DEFAULT '[]';
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_pdf_export BOOLEAN DEFAULT false;
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_auto_remediation BOOLEAN DEFAULT false;
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_sso BOOLEAN DEFAULT false;
+              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_audit_export BOOLEAN DEFAULT false;
+            END
+            \$\$;
+          " || echo "Column migration skipped"
+
           # ============================================
           # STEP 6: Create and start systemd service
           # ============================================
