@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Factor Verification - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 460px;
+            padding: 20px;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(40px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 48px 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 40px;
+        }
+
+        .brand-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 700;
+            font-size: 24px;
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+        }
+
+        .brand-name {
+            font-family: 'Syne', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-electric));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .shield-icon {
+            text-align: center;
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--text-primary);
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 15px;
+            margin-bottom: 32px;
+            line-height: 1.5;
+        }
+
+        .alert {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            font-weight: 500;
+            animation: slideDown 0.3s ease;
+            border: 1px solid;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .form-group { margin-bottom: 24px; }
+
+        label {
+            display: block;
+            color: var(--text-primary);
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        input {
+            width: 100%;
+            padding: 16px 18px;
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-subtle);
+            border-radius: 12px;
+            font-size: 24px;
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+            font-family: 'IBM Plex Mono', monospace;
+            text-align: center;
+            letter-spacing: 8px;
+        }
+
+        input::placeholder {
+            color: var(--text-tertiary);
+            letter-spacing: 4px;
+            font-size: 16px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            background: var(--bg-elevated);
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.1),
+                        0 8px 24px rgba(255, 107, 53, 0.2);
+        }
+
+        .backup-input {
+            font-size: 16px;
+            letter-spacing: 2px;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(255, 107, 53, 0.6);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .toggle-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .toggle-link a {
+            color: var(--accent-electric);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+
+        .toggle-link a:hover {
+            color: var(--accent-primary);
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 24px;
+        }
+
+        .back-link a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.2s ease;
+        }
+
+        .back-link a:hover {
+            color: var(--text-primary);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #backupSection { display: none; }
+        #totpSection { display: block; }
+
+        @media (max-width: 480px) {
+            .card { padding: 32px 24px; }
+            h1 { font-size: 24px; }
+            input { font-size: 20px; letter-spacing: 6px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="brand-logo">
+                <div class="brand-icon">D</div>
+                <div class="brand-name">DevOps Agent</div>
+            </div>
+
+            <div class="shield-icon">&#x1f510;</div>
+            <h1>Two-Factor Authentication</h1>
+            <p class="subtitle">Enter the 6-digit code from your authenticator app to continue.</p>
+
+            {% if error %}
+            <div class="alert alert-error">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/verify-2fa" id="verifyForm">
+                <div id="totpSection">
+                    <div class="form-group">
+                        <label for="totpCode">Authentication Code</label>
+                        <input
+                            type="text"
+                            id="totpCode"
+                            name="code"
+                            placeholder="000000"
+                            maxlength="6"
+                            pattern="[0-9]{6}"
+                            inputmode="numeric"
+                            autocomplete="one-time-code"
+                            autofocus
+                        />
+                    </div>
+                </div>
+
+                <div id="backupSection">
+                    <div class="form-group">
+                        <label for="backupCode">Backup Code</label>
+                        <input
+                            type="text"
+                            id="backupCode"
+                            class="backup-input"
+                            placeholder="XXXX-XXXX"
+                            maxlength="9"
+                            autocomplete="off"
+                        />
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary" id="submitBtn">Verify</button>
+            </form>
+
+            <div class="toggle-link">
+                <a id="toggleBackup" onclick="toggleMode()">Use a backup code instead</a>
+            </div>
+
+            <div class="back-link">
+                <a href="/login">Back to login</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let usingBackup = false;
+
+        function toggleMode() {
+            usingBackup = !usingBackup;
+            const totpSection = document.getElementById('totpSection');
+            const backupSection = document.getElementById('backupSection');
+            const toggleLink = document.getElementById('toggleBackup');
+            const totpInput = document.getElementById('totpCode');
+            const backupInput = document.getElementById('backupCode');
+
+            if (usingBackup) {
+                totpSection.style.display = 'none';
+                backupSection.style.display = 'block';
+                toggleLink.textContent = 'Use authenticator app instead';
+                totpInput.name = '';
+                backupInput.name = 'code';
+                backupInput.focus();
+            } else {
+                totpSection.style.display = 'block';
+                backupSection.style.display = 'none';
+                toggleLink.textContent = 'Use a backup code instead';
+                totpInput.name = 'code';
+                backupInput.name = '';
+                totpInput.focus();
+            }
+        }
+
+        document.getElementById('verifyForm').addEventListener('submit', function(e) {
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Verifying...';
+        });
+
+        // Auto-submit when 6 digits are entered for TOTP
+        document.getElementById('totpCode').addEventListener('input', function(e) {
+            this.value = this.value.replace(/\D/g, '');
+            if (this.value.length === 6) {
+                document.getElementById('verifyForm').submit();
+            }
+        });
+
+        // Format backup code with dash
+        document.getElementById('backupCode').addEventListener('input', function(e) {
+            let val = this.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            if (val.length > 4) {
+                val = val.slice(0, 4) + '-' + val.slice(4, 8);
+            }
+            this.value = val;
+        });
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>
