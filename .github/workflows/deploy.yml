@@ -121,14 +121,26 @@ jobs:
             sudo -u postgres psql -c "CREATE DATABASE devops_agent OWNER devopsagent;"
           sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devops_agent TO devopsagent;"
 
-          # Drop and recreate all tables to ensure schema matches models
-          # This is needed because db.create_all() doesn't alter existing tables
-          echo "Recreating database schema (drop + create)..."
-          sudo -u postgres psql -d devops_agent -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO devopsagent; GRANT ALL ON SCHEMA public TO public;"
-
-          # Now create all tables fresh from SQLAlchemy models
+          # Create any new tables without dropping existing ones (preserves user data)
+          # db.create_all() is safe: it only creates tables that don't already exist
+          echo "Creating any new tables (preserving existing data)..."
+          sudo -u postgres psql -d devops_agent -c "GRANT ALL ON SCHEMA public TO devopsagent; GRANT ALL ON SCHEMA public TO public;"
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-            python -c "from app import app, db; app.app_context().push(); db.create_all(); print('All tables created fresh')"
+            python -c "from app import app, db; app.app_context().push(); db.create_all(); print('Tables synced (existing data preserved)')"
+
+          # ============================================
+          # STEP 5b: Create Stripe prices and update AWS Secrets Manager (one-time)
+          # ============================================
+          echo "[5b] Creating Stripe prices..."
+          FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
+            python -c "
+import os, sys
+sys.path.insert(0, '.')
+from services.secrets_manager import init_secrets
+init_secrets()
+" 2>/dev/null || true
+          FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
+            python scripts/create_stripe_prices.py || echo "Stripe price creation failed (may already exist)"
 
           # ============================================
           # STEP 6: Create and start systemd service
