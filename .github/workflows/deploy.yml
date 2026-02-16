@@ -121,27 +121,14 @@ jobs:
             sudo -u postgres psql -c "CREATE DATABASE devops_agent OWNER devopsagent;"
           sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devops_agent TO devopsagent;"
 
-          # Run SQLAlchemy migrations
-          FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-            python -c "from app import app, db; app.app_context().push(); db.create_all()" || echo "Database already initialized"
+          # Drop and recreate all tables to ensure schema matches models
+          # This is needed because db.create_all() doesn't alter existing tables
+          echo "Recreating database schema (drop + create)..."
+          sudo -u postgres psql -d devops_agent -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO devopsagent; GRANT ALL ON SCHEMA public TO public;"
 
-          # Add missing columns to subscription_tiers if they don't exist (db.create_all doesn't alter existing tables)
-          echo "Ensuring subscription_tiers schema is up to date..."
-          sudo -u postgres psql -d devops_agent -c "
-            DO \$\$
-            BEGIN
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS max_cloud_accounts INTEGER DEFAULT 1;
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS max_resources INTEGER DEFAULT 50;
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS max_team_members INTEGER DEFAULT 1;
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS sync_interval_minutes INTEGER DEFAULT 0;
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS compliance_frameworks JSON DEFAULT '[]';
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_pdf_export BOOLEAN DEFAULT false;
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_auto_remediation BOOLEAN DEFAULT false;
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_sso BOOLEAN DEFAULT false;
-              ALTER TABLE subscription_tiers ADD COLUMN IF NOT EXISTS has_audit_export BOOLEAN DEFAULT false;
-            END
-            \$\$;
-          " || echo "Column migration skipped"
+          # Now create all tables fresh from SQLAlchemy models
+          FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
+            python -c "from app import app, db; app.app_context().push(); db.create_all(); print('All tables created fresh')"
 
           # ============================================
           # STEP 6: Create and start systemd service
