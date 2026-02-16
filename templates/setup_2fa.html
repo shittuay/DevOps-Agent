@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Two-Factor Authentication - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+            z-index: 0;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .page-container { position: relative; z-index: 1; }
+
+        .header {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-section { display: flex; align-items: center; gap: 12px; }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--gradient-primary);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 800;
+            font-size: 20px;
+            font-family: 'Syne', sans-serif;
+        }
+
+        .logo-text {
+            font-size: 20px;
+            font-weight: 700;
+            font-family: 'Syne', sans-serif;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .back-button {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .back-button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .container {
+            max-width: 640px;
+            margin: 0 auto;
+            padding: 60px 32px;
+        }
+
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .step-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(40px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 40px;
+            margin-bottom: 24px;
+            animation: fadeSlideUp 0.6s ease;
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: var(--gradient-primary);
+            color: white;
+            border-radius: 50%;
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 16px;
+            margin-right: 12px;
+        }
+
+        .step-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+        }
+
+        .step-desc {
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .qr-container {
+            text-align: center;
+            padding: 24px;
+            background: white;
+            border-radius: 16px;
+            display: inline-block;
+            margin: 0 auto;
+        }
+
+        .qr-wrapper {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .qr-container img {
+            width: 200px;
+            height: 200px;
+        }
+
+        .secret-key {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 14px 18px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 15px;
+            color: var(--accent-electric);
+            text-align: center;
+            letter-spacing: 2px;
+            word-break: break-all;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .secret-key:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .copy-hint {
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-tertiary);
+        }
+
+        .form-group { margin-bottom: 20px; }
+
+        label {
+            display: block;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            margin-bottom: 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 18px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px solid var(--glass-border);
+            border-radius: 10px;
+            font-size: 22px;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+            text-align: center;
+            letter-spacing: 6px;
+        }
+
+        input::placeholder {
+            color: var(--text-tertiary);
+            letter-spacing: 3px;
+            font-size: 16px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            background: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.1);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(255, 107, 53, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            width: 100%;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--glass-border);
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .alert {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            border: 1px solid;
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent-success);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        /* Backup Codes */
+        .backup-codes-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+
+        .backup-code {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 15px;
+            color: var(--accent-electric);
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        .backup-warning {
+            background: rgba(247, 147, 30, 0.1);
+            border: 1px solid rgba(247, 147, 30, 0.3);
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            color: var(--accent-warning);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        .button-group button, .button-group a {
+            flex: 1;
+        }
+
+        .button-group a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .hidden { display: none !important; }
+
+        @media (max-width: 480px) {
+            .container { padding: 32px 20px; }
+            .step-card { padding: 28px 24px; }
+            .backup-codes-grid { grid-template-columns: 1fr; }
+            .button-group { flex-direction: column; }
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <div class="page-container page-content">
+        <div class="header">
+            <div class="logo-section">
+                <div class="logo-icon">D</div>
+                <span class="logo-text">DevOps Agent</span>
+            </div>
+            <a href="/profile" class="back-button">&#8592; Back to Profile</a>
+        </div>
+
+        <div class="container">
+            <!-- Already enabled message -->
+            {% if user.two_factor_enabled %}
+            <div class="step-card">
+                <h2 class="step-title">2FA Already Enabled</h2>
+                <p class="step-desc">Two-factor authentication is already enabled on your account. You can manage it from your profile page.</p>
+                <a href="/profile" class="btn-secondary" style="display:block; text-align:center; text-decoration:none;">Go to Profile</a>
+            </div>
+            {% else %}
+
+            <!-- Step 1: Scan QR Code -->
+            <div class="step-card" id="step1">
+                <h2 class="step-title">
+                    <span class="step-number">1</span>
+                    Scan QR Code
+                </h2>
+                <p class="step-desc">
+                    Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.)
+                    or manually enter the secret key below.
+                </p>
+
+                <div id="qrLoading" style="text-align:center; padding:40px;">
+                    <span class="spinner" style="width:32px; height:32px; border-width:3px;"></span>
+                    <p style="color: var(--text-secondary); margin-top:12px;">Generating your secret key...</p>
+                </div>
+
+                <div id="qrContent" class="hidden">
+                    <div class="qr-wrapper">
+                        <div class="qr-container">
+                            <img id="qrImage" src="" alt="2FA QR Code" />
+                        </div>
+                    </div>
+
+                    <p style="text-align:center; color:var(--text-tertiary); font-size:13px; margin-bottom:12px; font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:0.5px;">
+                        Manual Entry Key
+                    </p>
+                    <div class="secret-key" id="secretKey" onclick="copySecret()" title="Click to copy"></div>
+                    <p class="copy-hint" id="copyHint">Click to copy</p>
+                </div>
+
+                <div id="step1Error" class="alert alert-error hidden"></div>
+
+                <div style="margin-top:24px;">
+                    <button class="btn-primary" id="continueBtn" onclick="showStep2()" disabled>
+                        Continue to Verification
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2: Verify Code -->
+            <div class="step-card hidden" id="step2">
+                <h2 class="step-title">
+                    <span class="step-number">2</span>
+                    Verify Code
+                </h2>
+                <p class="step-desc">
+                    Enter the 6-digit code from your authenticator app to confirm setup.
+                </p>
+
+                <div id="step2Error" class="alert alert-error hidden"></div>
+
+                <div class="form-group">
+                    <label for="verifyCode">Verification Code</label>
+                    <input
+                        type="text"
+                        id="verifyCode"
+                        placeholder="000000"
+                        maxlength="6"
+                        pattern="[0-9]{6}"
+                        inputmode="numeric"
+                        autocomplete="one-time-code"
+                    />
+                </div>
+
+                <button class="btn-primary" id="verifyBtn" onclick="verifyCode()">
+                    Enable Two-Factor Authentication
+                </button>
+            </div>
+
+            <!-- Step 3: Backup Codes -->
+            <div class="step-card hidden" id="step3">
+                <h2 class="step-title">
+                    <span class="step-number">3</span>
+                    Save Backup Codes
+                </h2>
+                <p class="step-desc">
+                    Save these backup codes in a safe place. Each code can only be used once.
+                    If you lose your authenticator device, you can use these codes to sign in.
+                </p>
+
+                <div class="backup-warning">
+                    These codes will only be shown once. Store them securely (e.g., password manager, printed copy in a safe).
+                </div>
+
+                <div class="backup-codes-grid" id="backupCodesGrid"></div>
+
+                <div class="button-group">
+                    <button class="btn-secondary" onclick="copyBackupCodes()">Copy Codes</button>
+                    <button class="btn-secondary" onclick="downloadBackupCodes()">Download</button>
+                </div>
+
+                <div style="margin-top:20px;">
+                    <a href="/profile" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">
+                        Done - Return to Profile
+                    </a>
+                </div>
+            </div>
+
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        let secretKey = '';
+        let backupCodes = [];
+
+        // Start setup on page load
+        {% if not user.two_factor_enabled %}
+        window.addEventListener('DOMContentLoaded', startSetup);
+        {% endif %}
+
+        function startSetup() {
+            fetch('/api/2fa/setup', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        secretKey = data.secret;
+                        document.getElementById('qrImage').src = data.qr_code;
+                        document.getElementById('secretKey').textContent = data.secret;
+                        document.getElementById('qrLoading').classList.add('hidden');
+                        document.getElementById('qrContent').classList.remove('hidden');
+                        document.getElementById('continueBtn').disabled = false;
+                    } else {
+                        document.getElementById('qrLoading').classList.add('hidden');
+                        const err = document.getElementById('step1Error');
+                        err.textContent = data.error || 'Failed to generate 2FA secret.';
+                        err.classList.remove('hidden');
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('qrLoading').classList.add('hidden');
+                    const errEl = document.getElementById('step1Error');
+                    errEl.textContent = 'Network error. Please try again.';
+                    errEl.classList.remove('hidden');
+                });
+        }
+
+        function copySecret() {
+            navigator.clipboard.writeText(secretKey).then(() => {
+                document.getElementById('copyHint').textContent = 'Copied!';
+                setTimeout(() => {
+                    document.getElementById('copyHint').textContent = 'Click to copy';
+                }, 2000);
+            });
+        }
+
+        function showStep2() {
+            document.getElementById('step1').classList.add('hidden');
+            document.getElementById('step2').classList.remove('hidden');
+            document.getElementById('verifyCode').focus();
+        }
+
+        function verifyCode() {
+            const code = document.getElementById('verifyCode').value.trim();
+            if (!code || code.length !== 6) {
+                const err = document.getElementById('step2Error');
+                err.textContent = 'Please enter a 6-digit code.';
+                err.classList.remove('hidden');
+                return;
+            }
+
+            const btn = document.getElementById('verifyBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Verifying...';
+
+            fetch('/api/2fa/verify-setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    backupCodes = data.backup_codes;
+
+                    // Render backup codes
+                    const grid = document.getElementById('backupCodesGrid');
+                    grid.innerHTML = backupCodes.map(c =>
+                        '<div class="backup-code">' + c + '</div>'
+                    ).join('');
+
+                    document.getElementById('step2').classList.add('hidden');
+                    document.getElementById('step3').classList.remove('hidden');
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Enable Two-Factor Authentication';
+                    const err = document.getElementById('step2Error');
+                    err.textContent = data.error || 'Verification failed.';
+                    err.classList.remove('hidden');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.textContent = 'Enable Two-Factor Authentication';
+                const err = document.getElementById('step2Error');
+                err.textContent = 'Network error. Please try again.';
+                err.classList.remove('hidden');
+            });
+        }
+
+        // Auto-submit verify on 6 digits
+        document.getElementById('verifyCode')?.addEventListener('input', function() {
+            this.value = this.value.replace(/\D/g, '');
+        });
+
+        function copyBackupCodes() {
+            const text = backupCodes.join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                const btns = document.querySelectorAll('.button-group .btn-secondary');
+                btns[0].textContent = 'Copied!';
+                setTimeout(() => { btns[0].textContent = 'Copy Codes'; }, 2000);
+            });
+        }
+
+        function downloadBackupCodes() {
+            const text = 'DevOps Agent - 2FA Backup Codes\n'
+                + '================================\n\n'
+                + 'Each code can only be used once.\n'
+                + 'Store these codes in a safe place.\n\n'
+                + backupCodes.join('\n') + '\n';
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'devops-agent-backup-codes.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

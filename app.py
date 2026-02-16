@@ -808,7 +808,15 @@ def login():
 
         # Verify password
         if user.check_password(password):
-            # Successful login
+            # Check if 2FA is enabled
+            if user.two_factor_enabled:
+                session['2fa_pending_user'] = user.id
+                session['2fa_pending_time'] = datetime.utcnow().isoformat()
+                session['2fa_next'] = request.args.get('next', '')
+                security_logger.info(f"2FA required for {user.email} from {ip_address}")
+                return redirect(url_for('verify_2fa'))
+
+            # Successful login (no 2FA)
             login_user(user, remember=True)
             user.update_last_login(ip_address=ip_address)
 
@@ -973,6 +981,230 @@ def profile():
             return render_template('profile.html', user=current_user, error=f'Error updating profile: {str(e)}')
 
     return render_template('profile.html', user=current_user)
+
+
+# ==========================================
+# Two-Factor Authentication Routes
+# ==========================================
+
+@app.route('/verify-2fa', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
+def verify_2fa():
+    """Verify 2FA code after password authentication."""
+    from services.two_factor_service import two_factor_service
+
+    # Must have a pending 2FA session
+    pending_user_id = session.get('2fa_pending_user')
+    pending_time = session.get('2fa_pending_time')
+
+    if not pending_user_id or not pending_time:
+        return redirect(url_for('login'))
+
+    # Check 5-minute expiry
+    pending_dt = datetime.fromisoformat(pending_time)
+    if datetime.utcnow() - pending_dt > timedelta(minutes=5):
+        session.pop('2fa_pending_user', None)
+        session.pop('2fa_pending_time', None)
+        session.pop('2fa_next', None)
+        return redirect(url_for('login'))
+
+    user = User.query.get(pending_user_id)
+    if not user:
+        session.pop('2fa_pending_user', None)
+        session.pop('2fa_pending_time', None)
+        session.pop('2fa_next', None)
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        ip_address = request.remote_addr
+
+        if not code:
+            return render_template('verify_2fa.html', error='Please enter a verification code.')
+
+        # Check lockout
+        if user.two_factor_locked_until and datetime.utcnow() < user.two_factor_locked_until:
+            remaining = int((user.two_factor_locked_until - datetime.utcnow()).total_seconds() / 60) + 1
+            return render_template('verify_2fa.html',
+                                   error=f'Too many failed attempts. Try again in {remaining} minutes.')
+
+        # Reset lockout if expired
+        if user.two_factor_locked_until and datetime.utcnow() >= user.two_factor_locked_until:
+            user.two_factor_locked_until = None
+            user.two_factor_attempts = 0
+
+        # Try TOTP verification
+        verified = two_factor_service.verify_totp(user.two_factor_secret, code)
+
+        # If TOTP failed, try backup code
+        if not verified and user.backup_codes:
+            is_backup_valid, matched_hash = two_factor_service.verify_backup_code(
+                code, user.backup_codes
+            )
+            if is_backup_valid:
+                verified = True
+                # Remove used backup code
+                user.backup_codes = [h for h in user.backup_codes if h != matched_hash]
+
+        if verified:
+            user.two_factor_attempts = 0
+            db.session.commit()
+
+            # Complete login
+            login_user(user, remember=True)
+            user.update_last_login(ip_address=ip_address)
+            session.permanent = True
+
+            # Clean up 2FA session data
+            next_page = session.pop('2fa_next', '')
+            session.pop('2fa_pending_user', None)
+            session.pop('2fa_pending_time', None)
+
+            security_logger.info(f"2FA verified for {user.email} from {ip_address}")
+            return redirect(next_page if next_page else url_for('chat'))
+        else:
+            # Record failed attempt
+            user.two_factor_attempts = (user.two_factor_attempts or 0) + 1
+            if user.two_factor_attempts >= 5:
+                user.two_factor_locked_until = datetime.utcnow() + timedelta(minutes=15)
+                security_logger.warning(f"2FA locked for {user.email} from {ip_address}")
+            db.session.commit()
+
+            attempts_remaining = max(0, 5 - (user.two_factor_attempts or 0))
+            security_logger.warning(f"Failed 2FA for {user.email} from {ip_address}. Remaining: {attempts_remaining}")
+
+            if attempts_remaining == 0:
+                return render_template('verify_2fa.html',
+                                       error='Too many failed attempts. Account locked for 15 minutes.')
+            return render_template('verify_2fa.html',
+                                   error=f'Invalid code. {attempts_remaining} attempts remaining.')
+
+    return render_template('verify_2fa.html')
+
+
+@app.route('/setup-2fa')
+@login_required
+def setup_2fa_page():
+    """Render the 2FA setup page."""
+    return render_template('setup_2fa.html', user=current_user)
+
+
+@app.route('/api/2fa/setup', methods=['POST'])
+@login_required
+def api_2fa_setup():
+    """Generate 2FA secret and QR code."""
+    from services.two_factor_service import two_factor_service
+
+    if current_user.two_factor_enabled:
+        return jsonify({'error': '2FA is already enabled'}), 400
+
+    secret = two_factor_service.generate_secret()
+    qr_code = two_factor_service.generate_qr_code(secret, current_user.email)
+
+    # Store secret temporarily (not enabled yet)
+    current_user.two_factor_secret = secret
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'secret': secret,
+        'qr_code': qr_code
+    })
+
+
+@app.route('/api/2fa/verify-setup', methods=['POST'])
+@login_required
+def api_2fa_verify_setup():
+    """Verify TOTP code to complete 2FA setup."""
+    from services.two_factor_service import two_factor_service
+
+    data = request.get_json()
+    if not data or not data.get('code'):
+        return jsonify({'error': 'Verification code is required'}), 400
+
+    code = data['code'].strip()
+
+    if not current_user.two_factor_secret:
+        return jsonify({'error': 'Please start 2FA setup first'}), 400
+
+    if current_user.two_factor_enabled:
+        return jsonify({'error': '2FA is already enabled'}), 400
+
+    if two_factor_service.verify_totp(current_user.two_factor_secret, code):
+        # Enable 2FA
+        current_user.two_factor_enabled = True
+        current_user.two_factor_verified_at = datetime.utcnow()
+        current_user.two_factor_attempts = 0
+
+        # Generate backup codes
+        backup_codes = two_factor_service.generate_backup_codes()
+        current_user.backup_codes = [
+            two_factor_service.hash_backup_code(c) for c in backup_codes
+        ]
+        db.session.commit()
+
+        security_logger.info(f"2FA enabled for {current_user.email}")
+
+        return jsonify({
+            'success': True,
+            'backup_codes': backup_codes
+        })
+    else:
+        return jsonify({'error': 'Invalid verification code. Please try again.'}), 400
+
+
+@app.route('/api/2fa/disable', methods=['POST'])
+@login_required
+def api_2fa_disable():
+    """Disable 2FA (requires password confirmation)."""
+    data = request.get_json()
+    if not data or not data.get('password'):
+        return jsonify({'error': 'Password is required to disable 2FA'}), 400
+
+    if not current_user.check_password(data['password']):
+        return jsonify({'error': 'Incorrect password'}), 403
+
+    current_user.two_factor_enabled = False
+    current_user.two_factor_secret = None
+    current_user.backup_codes = None
+    current_user.two_factor_verified_at = None
+    current_user.two_factor_attempts = 0
+    current_user.two_factor_locked_until = None
+    db.session.commit()
+
+    security_logger.info(f"2FA disabled for {current_user.email}")
+
+    return jsonify({'success': True, 'message': '2FA has been disabled.'})
+
+
+@app.route('/api/2fa/regenerate-backup-codes', methods=['POST'])
+@login_required
+def api_2fa_regenerate_backup_codes():
+    """Generate new backup codes (invalidates old ones)."""
+    from services.two_factor_service import two_factor_service
+
+    if not current_user.two_factor_enabled:
+        return jsonify({'error': '2FA is not enabled'}), 400
+
+    data = request.get_json()
+    if not data or not data.get('password'):
+        return jsonify({'error': 'Password is required'}), 400
+
+    if not current_user.check_password(data['password']):
+        return jsonify({'error': 'Incorrect password'}), 403
+
+    backup_codes = two_factor_service.generate_backup_codes()
+    current_user.backup_codes = [
+        two_factor_service.hash_backup_code(c) for c in backup_codes
+    ]
+    db.session.commit()
+
+    security_logger.info(f"Backup codes regenerated for {current_user.email}")
+
+    return jsonify({
+        'success': True,
+        'backup_codes': backup_codes
+    })
 
 
 @app.route('/setup', methods=['GET', 'POST'])
