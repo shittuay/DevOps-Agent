@@ -23,8 +23,7 @@ else:
     from dotenv import load_dotenv
     for _env_path in ['config/.env', '.env']:
         if os.path.exists(_env_path):
-            load_dotenv(_env_path)
-            break
+            load_dotenv(_env_path, override=False)
 # --- End early secrets initialization ---
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file
@@ -49,6 +48,8 @@ from src.tools import (
     gcp_tools,
     kubernetes_tools,
     git_tools,
+    github_tools,
+    docker_tools,
     cicd_tools,
     pentest_tools,
     terraform_tools,
@@ -356,7 +357,8 @@ def handle_exception(e):
 _2FA_EXEMPT_ROUTES = {
     'login', 'signup', 'logout', 'static', 'verify_2fa', 'setup_2fa_page',
     'api_2fa_setup', 'api_2fa_verify_setup', 'page_not_found', 'handle_exception',
-    'ensure_clean_transaction',
+    'ensure_clean_transaction', 'onboarding_page', 'complete_onboarding',
+    'update_onboarding_step',
 }
 
 @app.before_request
@@ -370,6 +372,10 @@ def enforce_two_factor():
         return
     if not current_user.two_factor_enabled:
         return redirect(url_for('setup_2fa_page'))
+    # Redirect to onboarding if not completed (after 2FA is set up)
+    if not getattr(current_user, 'onboarding_completed', True):
+        if request.endpoint not in ('onboarding_page', 'complete_onboarding', 'update_onboarding_step'):
+            return redirect(url_for('onboarding_page'))
 
 
 @app.errorhandler(404)
@@ -745,6 +751,8 @@ def initialize_agent():
         if config_manager.k8s_enabled:
             agent.register_tools_from_module(kubernetes_tools)
         agent.register_tools_from_module(git_tools)
+        agent.register_tools_from_module(github_tools)
+        agent.register_tools_from_module(docker_tools)
         if config_manager.jenkins_enabled or config_manager.github_enabled:
             agent.register_tools_from_module(cicd_tools)
 
@@ -1225,6 +1233,44 @@ def api_2fa_regenerate_backup_codes():
         'success': True,
         'backup_codes': backup_codes
     })
+
+
+@app.route('/doctor')
+@login_required
+def doctor_page():
+    """System diagnostics page."""
+    from services.doctor import run_diagnostics
+    results = run_diagnostics(app=app, db=db, agent=agent)
+    return render_template('doctor.html', results=results, user=current_user)
+
+
+@app.route('/onboarding', methods=['GET'])
+@login_required
+def onboarding_page():
+    """Onboarding wizard for new users."""
+    return render_template('onboarding.html', user=current_user)
+
+
+@app.route('/api/onboarding/complete', methods=['POST'])
+@login_required
+def complete_onboarding():
+    """Mark onboarding as completed."""
+    data = request.get_json() or {}
+    current_user.onboarding_completed = True
+    current_user.onboarding_step = data.get('step', 0)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/onboarding/step', methods=['POST'])
+@login_required
+def update_onboarding_step():
+    """Update the current onboarding step."""
+    data = request.get_json() or {}
+    step = data.get('step', 0)
+    current_user.onboarding_step = step
+    db.session.commit()
+    return jsonify({'success': True, 'step': step})
 
 
 @app.route('/setup', methods=['GET', 'POST'])
@@ -1910,6 +1956,78 @@ def manage_budget_alert(alert_id):
     return jsonify({'success': True, 'alert': alert.to_dict()})
 
 
+# ============================================
+# Free-tier Groq chat helpers (no tool use)
+# ============================================
+
+FREE_TIER_SYSTEM_PROMPT = """You are a DevOps assistant. You can answer questions about cloud infrastructure, Kubernetes, CI/CD, and DevOps best practices.
+
+Note: You are running on the free tier, which provides AI chat advice only. You cannot execute cloud operations or use tools directly.
+
+To unlock full infrastructure automation (create/manage resources, run security scans, cost optimization, compliance checks), upgrade to a paid plan.
+
+Provide helpful, accurate DevOps guidance based on the user's question."""
+
+# Patterns that indicate the Anthropic API failed (agent catches errors and returns them as text)
+_ANTHROPIC_FAIL_PATTERNS = [
+    'credit balance is too low',
+    'Error communicating with Claude',
+    'Unexpected error',
+    'Rate limit reached',
+    'Temporary API issue',
+    'API error:',
+    'overloaded_error',
+]
+
+
+def _is_anthropic_error(text: str) -> bool:
+    """Check if a response string is actually an Anthropic API error caught by the agent."""
+    if not text:
+        return False
+    for pattern in _ANTHROPIC_FAIL_PATTERNS:
+        if pattern in text:
+            return True
+    return False
+
+
+def _process_free_tier_chat(message: str, conversation_history: list, preferences_context: str = None) -> str:
+    """Process a chat message using Groq for free-tier users (no tool use)."""
+    from services.model_failover import get_groq_provider
+    from services.model_router import resolve_model_for_tier
+
+    model_config = resolve_model_for_tier('free')
+    groq = get_groq_provider()
+
+    system = FREE_TIER_SYSTEM_PROMPT
+    if preferences_context:
+        system += f"\n\nUser context:\n{preferences_context}"
+
+    messages = list(conversation_history)
+    if not messages or messages[-1].get('content') != message:
+        messages.append({'role': 'user', 'content': message})
+
+    return groq.chat(messages, system=system, model=model_config.model, max_tokens=model_config.max_tokens)
+
+
+def _stream_free_tier_chat(message: str, conversation_history: list, preferences_context: str = None):
+    """Stream a chat response using Groq for free-tier users (no tool use)."""
+    from services.model_failover import get_groq_provider
+    from services.model_router import resolve_model_for_tier
+
+    model_config = resolve_model_for_tier('free')
+    groq = get_groq_provider()
+
+    system = FREE_TIER_SYSTEM_PROMPT
+    if preferences_context:
+        system += f"\n\nUser context:\n{preferences_context}"
+
+    messages = list(conversation_history)
+    if not messages or messages[-1].get('content') != message:
+        messages.append({'role': 'user', 'content': message})
+
+    yield from groq.chat_stream(messages, system=system, model=model_config.model, max_tokens=model_config.max_tokens)
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def api_chat():
@@ -1925,8 +2043,11 @@ def api_chat():
             return jsonify({'error': 'Agent not initialized. Please configure API key.'}), 503
 
     try:
+        from services.input_sanitizer import sanitize_input, sanitize_output
+        from services.secret_detector import redact_secrets
+
         data = request.get_json()
-        message = data.get('message', '').strip()
+        message = sanitize_input(data.get('message', ''))
 
         if not message:
             return jsonify({'error': 'Empty message'}), 400
@@ -1968,6 +2089,11 @@ def api_chat():
                 'message': 'Failed to deduct credit. Please try again.',
                 'credits_remaining': subscription.credits_remaining
             }), 402
+
+        # Resolve AI model for user's subscription tier
+        from services.model_router import resolve_model_for_tier
+        tier_name = subscription.tier.name if subscription.tier else 'free'
+        model_config = resolve_model_for_tier(tier_name)
 
         # Get or create conversation ID
         conversation_id = session.get('conversation_id')
@@ -2022,6 +2148,15 @@ def api_chat():
         if prefs:
             preferences_context = prefs.get_context_for_prompt()
 
+        # Inject relevant memory context
+        try:
+            from services.memory_service import get_context_for_conversation
+            memory_ctx = get_context_for_conversation(db, current_user.id, message)
+            if memory_ctx:
+                preferences_context = (preferences_context or '') + '\n\n' + memory_ctx
+        except Exception:
+            pass
+
         # Load prior messages for this user's conversation from database
         prior_messages = ChatMessage.query.filter_by(
             user_id=current_user.id,
@@ -2034,20 +2169,35 @@ def api_chat():
             for msg in prior_messages
         ]
 
-        # Process message with agent using thread-safe isolated context
+        # Process message — route based on tier model
         try:
-            response = agent.process_message_isolated(
-                user_message=message,
-                conversation_history=conversation_history,
-                user_preferences_context=preferences_context,
-                user_id=current_user.id
-            )
+            if model_config.provider != 'anthropic':
+                response = _process_free_tier_chat(message, conversation_history, preferences_context)
+            else:
+                response = agent.process_message_isolated(
+                    user_message=message,
+                    conversation_history=conversation_history,
+                    user_preferences_context=preferences_context,
+                    user_id=current_user.id,
+                    model_override=model_config.model
+                )
             success = True
             error_msg = None
         except Exception as agent_error:
             response = f"Error processing request: {str(agent_error)}"
             success = False
             error_msg = str(agent_error)
+
+        # Auto-fallback: if Anthropic returned an error string, retry with Groq
+        if model_config.provider == 'anthropic' and _is_anthropic_error(response):
+            try:
+                response = _process_free_tier_chat(message, conversation_history, preferences_context)
+                response += "\n\n---\n*Note: Claude is temporarily unavailable. This response was generated by Llama 3.3 (Groq) without tool execution. Your cloud operations will resume when Claude is back online.*"
+                model_config = resolve_model_for_tier('free')
+                success = True
+                error_msg = None
+            except Exception:
+                pass  # Keep the original error response
 
         # Log usage
         usage_log = UsageLog(
@@ -2057,9 +2207,14 @@ def api_chat():
             tool_name=None,
             credits_used=1,
             success=success,
-            error_message=error_msg
+            error_message=error_msg,
+            ai_model=model_config.model
         )
         db.session.add(usage_log)
+
+        # Sanitize and redact secrets from response
+        response = sanitize_output(response)
+        response = redact_secrets(response)
 
         # Save assistant response
         assistant_message = ChatMessage(
@@ -2079,6 +2234,13 @@ def api_chat():
             conversation.title = title
 
         db.session.commit()
+
+        # Auto-extract memorable facts from the conversation
+        try:
+            from services.memory_service import auto_extract_memories
+            auto_extract_memories(db, current_user.id, message, response)
+        except Exception:
+            pass
 
         # Check if there's a pending download from the agent
         download_url = None
@@ -2109,7 +2271,13 @@ def api_chat():
             'timestamp': datetime.now().isoformat(),
             'credits_remaining': subscription.credits_remaining,
             'credits_used_this_month': subscription.credits_used_this_month,
-            'conversation_title': conversation.title if conversation else None
+            'conversation_title': conversation.title if conversation else None,
+            'model_info': {
+                'provider': model_config.provider,
+                'model': model_config.model,
+                'display_name': model_config.display_name,
+                'supports_tools': model_config.supports_tools,
+            }
         }
 
         # Add download URL if available
@@ -2123,6 +2291,253 @@ def api_chat():
         db.session.rollback()
         logger = get_logger(__name__)
         logger.error(f"Error processing chat message: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/stream', methods=['POST'])
+@login_required
+def api_chat_stream():
+    """Handle chat messages with Server-Sent Events streaming."""
+    global agent
+    if agent is None:
+        if check_api_key_configured():
+            success, error = initialize_agent()
+            if not success:
+                return jsonify({'error': f'Failed to initialize agent: {error}'}), 503
+        else:
+            return jsonify({'error': 'Agent not initialized. Please configure API key.'}), 503
+
+    try:
+        from services.input_sanitizer import sanitize_input, sanitize_output
+        from services.secret_detector import redact_secrets
+
+        data = request.get_json()
+        message = sanitize_input(data.get('message', ''))
+
+        if not message:
+            return jsonify({'error': 'Empty message'}), 400
+
+        # Check credits
+        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
+        if not subscription:
+            free_tier = SubscriptionTier.query.filter_by(name='free').first()
+            if not free_tier:
+                return jsonify({'error': 'Subscription system not initialized.'}), 500
+            subscription = UserSubscription(
+                user_id=current_user.id,
+                tier_id=free_tier.id,
+                credits_remaining=free_tier.monthly_credits
+            )
+            db.session.add(subscription)
+            db.session.commit()
+
+        if subscription.should_reset_credits():
+            subscription.reset_monthly_credits()
+
+        if not subscription.has_credits():
+            return jsonify({'error': 'insufficient_credits'}), 402
+
+        if not subscription.use_credit():
+            return jsonify({'error': 'insufficient_credits'}), 402
+
+        # Resolve AI model for user's subscription tier
+        from services.model_router import resolve_model_for_tier
+        tier_name = subscription.tier.name if subscription.tier else 'free'
+        model_config = resolve_model_for_tier(tier_name)
+
+        # Get or create conversation
+        conversation_id = session.get('conversation_id')
+        is_first_message = False
+        if not conversation_id:
+            conversation_id = secrets.token_hex(8)
+            session['conversation_id'] = conversation_id
+            is_first_message = True
+            conversation = Conversation(
+                id=conversation_id,
+                user_id=current_user.id,
+                title='New Chat'
+            )
+            db.session.add(conversation)
+        else:
+            conversation = Conversation.query.filter_by(
+                id=conversation_id,
+                user_id=current_user.id
+            ).first()
+            if conversation:
+                conversation.updated_at = datetime.utcnow()
+                if conversation.title == 'New Chat':
+                    is_first_message = True
+            else:
+                conversation_id = secrets.token_hex(8)
+                session['conversation_id'] = conversation_id
+                is_first_message = True
+                conversation = Conversation(
+                    id=conversation_id,
+                    user_id=current_user.id,
+                    title='New Chat'
+                )
+                db.session.add(conversation)
+
+        # Save user message
+        user_msg = ChatMessage(
+            user_id=current_user.id,
+            conversation_id=conversation_id,
+            role='user',
+            content=message
+        )
+        db.session.add(user_msg)
+
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        preferences_context = prefs.get_context_for_prompt() if prefs else None
+
+        prior_messages = ChatMessage.query.filter_by(
+            user_id=current_user.id,
+            conversation_id=conversation_id
+        ).order_by(ChatMessage.timestamp).all()
+
+        conversation_history = [
+            {'role': msg.role, 'content': msg.content}
+            for msg in prior_messages
+        ]
+
+        # Capture variables for the generator closure
+        uid = current_user.id
+        cid = conversation_id
+        is_first = is_first_message
+        conv = conversation
+        sub = subscription
+        msg_text = message
+        mc = model_config
+
+        db.session.commit()
+
+        def generate():
+            import json as _json
+            from services.model_router import resolve_model_for_tier as _resolve
+            import logging as _logging
+            _log = _logging.getLogger('stream_debug')
+            full_response = []
+            actual_mc = mc
+            _log.warning(f"STREAM DEBUG: tier={getattr(mc, 'provider', '?')}, model={getattr(mc, 'model', '?')}")
+            try:
+                if mc.provider != 'anthropic':
+                    _log.warning("STREAM DEBUG: Using Groq path (non-anthropic)")
+                    stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
+                else:
+                    try:
+                        stream_source = agent.process_message_streaming(
+                            user_message=msg_text,
+                            conversation_history=conversation_history,
+                            user_preferences_context=preferences_context,
+                            user_id=uid,
+                            model_override=mc.model
+                        )
+                        # Collect initial chunks to detect agent-swallowed errors
+                        # The agent catches Anthropic exceptions and yields error text
+                        initial_buf = []
+                        for _c in stream_source:
+                            initial_buf.append(_c)
+                            # Once we have enough text to check, evaluate
+                            combined = ''.join(initial_buf)
+                            if _is_anthropic_error(combined):
+                                # Anthropic failed — switch to Groq
+                                actual_mc = _resolve('free')
+                                stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
+                                break
+                            # If we've accumulated a reasonable first chunk without error, emit and continue
+                            if len(combined) > 20 or not combined.startswith(('\u274c', 'Error', 'API', '{')):
+                                # Looks like a real response, emit buffered chunks
+                                for buf_chunk in initial_buf:
+                                    full_response.append(buf_chunk)
+                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': buf_chunk})}\n\n"
+                                break
+                        else:
+                            # Generator exhausted during initial check
+                            combined = ''.join(initial_buf)
+                            if _is_anthropic_error(combined):
+                                actual_mc = _resolve('free')
+                                stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
+                            else:
+                                # Short but valid response, emit it
+                                for buf_chunk in initial_buf:
+                                    full_response.append(buf_chunk)
+                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': buf_chunk})}\n\n"
+                                stream_source = iter([])  # already consumed
+                    except Exception:
+                        # Actual exception (not swallowed by agent) — fallback to Groq
+                        actual_mc = _resolve('free')
+                        stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
+
+                for chunk in stream_source:
+                    full_response.append(chunk)
+                    yield f"data: {_json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+
+                # Append fallback note if we switched providers
+                if actual_mc.provider != mc.provider:
+                    fallback_msg = "\n\n---\n*Note: Claude is temporarily unavailable. This response was generated by Llama 3.3 (Groq) without tool execution.*"
+                    full_response.append(fallback_msg)
+                    yield f"data: {_json.dumps({'type': 'chunk', 'content': fallback_msg})}\n\n"
+
+                # Assemble full response for DB storage
+                complete = ''.join(full_response)
+                complete = sanitize_output(complete)
+                complete = redact_secrets(complete)
+
+                # Save assistant response in app context
+                with app.app_context():
+                    assistant_msg = ChatMessage(
+                        user_id=uid,
+                        conversation_id=cid,
+                        role='assistant',
+                        content=complete
+                    )
+                    db.session.add(assistant_msg)
+
+                    usage_log = UsageLog(
+                        user_id=uid,
+                        conversation_id=cid,
+                        action_type='agent_message',
+                        tool_name=None,
+                        credits_used=1,
+                        success=True,
+                        error_message=None,
+                        ai_model=actual_mc.model
+                    )
+                    db.session.add(usage_log)
+
+                    if is_first and conv:
+                        title = msg_text.strip()
+                        if len(title) > 50:
+                            title = title[:47] + '...'
+                        c = Conversation.query.filter_by(id=cid, user_id=uid).first()
+                        if c:
+                            c.title = title
+
+                    db.session.commit()
+
+                    # Re-query subscription inside active session to get current credits
+                    fresh_sub = UserSubscription.query.filter_by(user_id=uid).first()
+                    remaining = fresh_sub.credits_remaining if fresh_sub else 0
+
+                yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
+
+            except Exception as e:
+                yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+        return app.response_class(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive',
+            }
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        logger = get_logger(__name__)
+        logger.error(f"Error in streaming chat: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -3871,6 +4286,153 @@ def handle_customer_subscription_updated(stripe_subscription):
         db.session.rollback()
 
 
+@app.route('/api/webhooks/<source>', methods=['POST'])
+def receive_webhook(source):
+    """Receive webhooks from external services (GitHub, PagerDuty, etc.)."""
+    from services.webhook_handler import verify_webhook_signature, process_webhook
+
+    payload_bytes = request.get_data()
+
+    # Verify signature if a secret is configured for this source
+    secret_key = os.environ.get(f'WEBHOOK_SECRET_{source.upper()}', '')
+    if secret_key:
+        sig_header = {
+            'github': 'X-Hub-Signature-256',
+            'pagerduty': 'X-PagerDuty-Signature',
+        }.get(source, 'X-Webhook-Signature')
+        signature = request.headers.get(sig_header, '')
+        if not verify_webhook_signature(payload_bytes, signature, secret_key, source):
+            return jsonify({'error': 'Invalid signature'}), 401
+
+    try:
+        payload = request.get_json(force=True)
+    except Exception:
+        return jsonify({'error': 'Invalid JSON payload'}), 400
+
+    event_type = request.headers.get('X-GitHub-Event', request.headers.get('X-Event-Type', ''))
+    result = process_webhook(source, payload, event_type)
+
+    webhook_logger = logging.getLogger('webhooks')
+    webhook_logger.info(f"[{source}] {result.get('summary', 'webhook received')}")
+
+    return jsonify({
+        'status': 'received',
+        'source': source,
+        'summary': result.get('summary', ''),
+        'suggested_actions': result.get('suggested_actions', []),
+    })
+
+
+@app.route('/api/webhooks', methods=['GET'])
+@login_required
+def list_webhook_endpoints():
+    """List available webhook endpoints."""
+    base = os.environ.get('BASE_URL', request.host_url.rstrip('/'))
+    return jsonify({
+        'endpoints': {
+            'github': f'{base}/api/webhooks/github',
+            'pagerduty': f'{base}/api/webhooks/pagerduty',
+            'generic': f'{base}/api/webhooks/generic',
+        },
+        'setup_instructions': {
+            'github': 'Add as a GitHub webhook URL. Set Content-Type to application/json. Optionally set WEBHOOK_SECRET_GITHUB env var for signature verification.',
+            'pagerduty': 'Add as a PagerDuty webhook endpoint. Set WEBHOOK_SECRET_PAGERDUTY env var for signature verification.',
+            'generic': 'POST JSON payloads with optional X-Webhook-Signature header.',
+        }
+    })
+
+
+@app.route('/api/memory', methods=['GET'])
+@login_required
+def get_memories():
+    """List user's stored memories."""
+    from services.memory_service import list_memories
+    category = request.args.get('category')
+    memories = list_memories(db, current_user.id, category=category)
+    return jsonify({'memories': memories})
+
+
+@app.route('/api/memory', methods=['POST'])
+@login_required
+def add_memory():
+    """Store a new memory entry."""
+    from services.memory_service import store_memory
+    data = request.get_json() or {}
+    content = data.get('content', '').strip()
+    if not content:
+        return jsonify({'error': 'Content required'}), 400
+    memory = store_memory(
+        db, current_user.id, content,
+        category=data.get('category', 'general'),
+        source='user',
+        importance=data.get('importance', 7),
+    )
+    return jsonify({'memory': memory})
+
+
+@app.route('/api/memory/<int:memory_id>', methods=['DELETE'])
+@login_required
+def remove_memory(memory_id):
+    """Delete a memory entry."""
+    from services.memory_service import delete_memory
+    deleted = delete_memory(db, current_user.id, memory_id)
+    if deleted:
+        return jsonify({'success': True})
+    return jsonify({'error': 'Memory not found'}), 404
+
+
+@app.route('/api/sandbox/run', methods=['POST'])
+@login_required
+def run_sandbox_command():
+    """Execute a command in a Docker sandbox."""
+    from services.sandbox import run_sandboxed, run_script_sandboxed, is_docker_available
+
+    if not is_docker_available():
+        return jsonify({'error': 'Docker sandbox not available on this system'}), 503
+
+    data = request.get_json() or {}
+    command = data.get('command', '').strip()
+    script = data.get('script', '').strip()
+
+    if not command and not script:
+        return jsonify({'error': 'command or script required'}), 400
+
+    if script:
+        result = run_script_sandboxed(
+            script=script,
+            language=data.get('language', 'sh'),
+            timeout=min(data.get('timeout', 30), 60),
+        )
+    else:
+        result = run_sandboxed(
+            command=command,
+            timeout=min(data.get('timeout', 30), 60),
+            network=data.get('network', False),
+        )
+
+    return jsonify(result)
+
+
+@app.route('/api/sandbox/status', methods=['GET'])
+@login_required
+def sandbox_status():
+    """Check Docker sandbox availability."""
+    from services.sandbox import get_sandbox_status
+    return jsonify(get_sandbox_status())
+
+
+@app.route('/api/memory/search', methods=['GET'])
+@login_required
+def search_user_memories():
+    """Search memories by query."""
+    from services.memory_service import search_memories
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({'error': 'Query parameter q required'}), 400
+    results = search_memories(db, current_user.id, query)
+    return jsonify({'results': results})
+
+
 @app.route('/billing/success')
 @login_required
 def billing_success():
@@ -4081,6 +4643,14 @@ if __name__ == '__main__':
     print(f"  http://localhost:{port}")
     print("\nPress Ctrl+C to stop the server")
     print("=" * 60 + "\n")
+
+    # Start background scheduler
+    try:
+        from services.scheduler import start_scheduler
+        start_scheduler(app, db)
+        print("  Background scheduler started")
+    except Exception as e:
+        print(f"  Warning: Scheduler failed to start: {e}")
 
     # In production, debug should be False
     debug_mode = os.environ.get('FLASK_ENV') != 'production'

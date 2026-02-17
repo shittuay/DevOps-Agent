@@ -9965,7 +9965,7 @@ def get_tools() -> List[Dict[str, Any]]:
             'handler': list_trusted_advisor_checks
         },
         {
-            'name': 'list_resource_groups',
+            'name': 'list_aws_resource_groups',
             'description': 'List AWS Resource Groups.',
             'input_schema': {
                 'type': 'object',

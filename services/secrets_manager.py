@@ -32,6 +32,7 @@ MANAGED_SECRET_KEYS = [
     'SMTP_USER',
     'SMTP_PASS',
     'CREDENTIAL_ENCRYPTION_KEY',
+    'GROQ_API_KEY',
 ]
 
 # Primary secret name in AWS Secrets Manager (single JSON blob)

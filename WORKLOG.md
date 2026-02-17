@@ -3,7 +3,7 @@
 > Auto-maintained by Claude Code `/memory` skill. Last updated: 2026-02-11
 
 ## Current State
-- **Last Session:** 2026-02-11 - Fixed deploy crash loop (init_secrets non-fatal + PM2 ecosystem config)
+- **Last Session:** 2026-02-16 - Implemented all 10 OpenClaw-inspired features
 - **Deploy Status:** Deploying to devopsagent.io
 - **Branch:** main
 - **Uncommitted Work:** No
@@ -51,6 +51,22 @@
 ### 2026-02-11 - Wire billing to Stripe Checkout
 - What was done: Updated billing.html JS to call Stripe Checkout endpoints instead of legacy free-upgrade endpoints
 - Commit: `2aa4a42`
+
+## OpenClaw Feature Port (2026-02-16)
+Porting 10 features inspired by OpenClaw to DevOps Agent.
+
+1. [x] Input sanitization layer (services/input_sanitizer.py)
+2. [x] Secret detection/redaction in chat (services/secret_detector.py)
+3. [x] /doctor diagnostics page (route + template)
+4. [x] Streaming chat responses (SSE) - /api/chat/stream endpoint + frontend
+5. [x] Scheduled infrastructure checks (services/scheduler.py)
+6. [x] Webhook-triggered actions (services/webhook_handler.py + /api/webhooks/<source>)
+7. [x] Multi-model failover (services/model_failover.py - Anthropic -> OpenAI -> Gemini)
+8. [x] Onboarding wizard (templates/onboarding.html + /onboarding route)
+9. [x] Memory/context persistence (services/memory_service.py + TF-IDF search)
+10. [x] Docker sandboxing (services/sandbox.py + /api/sandbox/run endpoint)
+
+### All 10 features implemented (2026-02-16)
 
 ## Pending / In Progress
 - [ ] VERIFY: Stripe Checkout redirect working after lazy-load fix (user to test when awake)

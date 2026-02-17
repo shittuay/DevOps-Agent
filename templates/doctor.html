@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Diagnostics - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+            z-index: 0;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .page-container { position: relative; z-index: 1; }
+
+        .header {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-section { display: flex; align-items: center; gap: 12px; }
+
+        .logo-icon {
+            width: 40px; height: 40px;
+            background: var(--gradient-primary);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 800; font-size: 20px;
+            font-family: 'Syne', sans-serif;
+            position: relative; overflow: hidden;
+        }
+
+        .logo-icon::before {
+            content: '';
+            position: absolute; top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+        }
+
+        .logo-text {
+            font-size: 20px; font-weight: 700;
+            font-family: 'Syne', sans-serif;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-actions { display: flex; gap: 12px; }
+
+        .btn {
+            padding: 10px 20px; border-radius: 8px;
+            font-size: 14px; font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer; transition: all 0.3s ease;
+            text-decoration: none; border: none;
+            position: relative; overflow: hidden;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--glass-border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 40px 32px;
+        }
+
+        .page-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+
+        .page-subtitle {
+            color: var(--text-secondary);
+            font-size: 15px;
+            margin-bottom: 32px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        /* Overall Status Banner */
+        .status-banner {
+            background: var(--glass-bg);
+            backdrop-filter: blur(40px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 28px 32px;
+            margin-bottom: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .status-banner.healthy { border-left: 4px solid #4ade80; }
+        .status-banner.degraded { border-left: 4px solid #fbbf24; }
+        .status-banner.unhealthy { border-left: 4px solid #f87171; }
+
+        .status-main { display: flex; align-items: center; gap: 16px; }
+
+        .status-icon {
+            width: 48px; height: 48px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px;
+        }
+
+        .status-icon.healthy { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+        .status-icon.degraded { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+        .status-icon.unhealthy { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+        .status-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-value {
+            font-size: 24px;
+            font-weight: 700;
+            font-family: 'Syne', sans-serif;
+            text-transform: capitalize;
+        }
+
+        .status-counters {
+            display: flex;
+            gap: 20px;
+        }
+
+        .counter {
+            text-align: center;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border: 1px solid var(--glass-border);
+        }
+
+        .counter-num {
+            font-size: 22px;
+            font-weight: 700;
+            font-family: 'Syne', sans-serif;
+        }
+
+        .counter-num.ok { color: #4ade80; }
+        .counter-num.warn { color: #fbbf24; }
+        .counter-num.err { color: #f87171; }
+        .counter-num.info-c { color: #60a5fa; }
+
+        .counter-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Category Groups */
+        .category-group {
+            margin-bottom: 24px;
+        }
+
+        .category-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            padding-left: 4px;
+        }
+
+        .checks-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .check-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 20px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .check-card:hover {
+            border-color: rgba(255,255,255,0.15);
+            transform: translateY(-1px);
+        }
+
+        .check-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .check-dot.ok { background: #4ade80; box-shadow: 0 0 8px rgba(74, 222, 128, 0.4); }
+        .check-dot.warning { background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.4); }
+        .check-dot.error { background: #f87171; box-shadow: 0 0 8px rgba(248, 113, 113, 0.4); animation: pulse-dot 2s infinite; }
+        .check-dot.info { background: #60a5fa; box-shadow: 0 0 8px rgba(96, 165, 250, 0.4); }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .check-info { flex: 1; min-width: 0; }
+
+        .check-name {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .check-detail {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .check-badge {
+            font-size: 11px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            padding: 4px 10px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            flex-shrink: 0;
+        }
+
+        .check-badge.ok { background: rgba(74, 222, 128, 0.12); color: #4ade80; }
+        .check-badge.warning { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+        .check-badge.error { background: rgba(248, 113, 113, 0.12); color: #f87171; }
+        .check-badge.info { background: rgba(96, 165, 250, 0.12); color: #60a5fa; }
+
+        .timestamp {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-family: 'IBM Plex Mono', monospace;
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 1px solid var(--glass-border);
+        }
+
+        .btn-refresh {
+            background: var(--gradient-primary);
+            color: white;
+            padding: 10px 24px;
+            font-size: 14px;
+        }
+
+        .btn-refresh:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 24px 16px; }
+            .checks-grid { grid-template-columns: 1fr; }
+            .status-banner { flex-direction: column; align-items: flex-start; }
+            .status-counters { width: 100%; justify-content: space-between; }
+            .page-title { font-size: 24px; }
+        }
+    </style>
+</head>
+<body class="animated-bg">
+    <div class="page-container page-content">
+        <div class="header">
+            <div class="logo-section">
+                <div class="logo-icon">D</div>
+                <span class="logo-text">DevOps Agent</span>
+            </div>
+            <div class="header-actions">
+                <a href="/chat" class="btn btn-secondary">Back to Chat</a>
+                <a href="/doctor" class="btn btn-refresh" onclick="event.preventDefault(); location.reload();">Re-run Checks</a>
+            </div>
+        </div>
+
+        <div class="container">
+            <h1 class="page-title">System Diagnostics</h1>
+            <p class="page-subtitle">$ devops-agent doctor --verbose</p>
+
+            <!-- Overall Status -->
+            <div class="status-banner {{ results.overall }}">
+                <div class="status-main">
+                    <div class="status-icon {{ results.overall }}">
+                        {% if results.overall == 'healthy' %}
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                        {% elif results.overall == 'degraded' %}
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                        {% else %}
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <div class="status-label">System Status</div>
+                        <div class="status-value">{{ results.overall }}</div>
+                    </div>
+                </div>
+                <div class="status-counters">
+                    <div class="counter">
+                        <div class="counter-num ok">{{ results.summary.ok }}</div>
+                        <div class="counter-label">Passed</div>
+                    </div>
+                    <div class="counter">
+                        <div class="counter-num warn">{{ results.summary.warning }}</div>
+                        <div class="counter-label">Warnings</div>
+                    </div>
+                    <div class="counter">
+                        <div class="counter-num err">{{ results.summary.error }}</div>
+                        <div class="counter-label">Errors</div>
+                    </div>
+                    <div class="counter">
+                        <div class="counter-num info-c">{{ results.summary.info }}</div>
+                        <div class="counter-label">Info</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Group checks by category -->
+            {% set categories = {} %}
+            {% for check in results.checks %}
+                {% if check.category not in categories %}
+                    {% if categories.update({check.category: []}) %}{% endif %}
+                {% endif %}
+                {% if categories[check.category].append(check) %}{% endif %}
+            {% endfor %}
+
+            {% set category_labels = {
+                'system': 'System',
+                'database': 'Database',
+                'ai': 'AI / LLM',
+                'payments': 'Payments',
+                'security': 'Security',
+                'infrastructure': 'Infrastructure'
+            } %}
+
+            {% for cat_key in ['system', 'database', 'ai', 'security', 'payments', 'infrastructure'] %}
+                {% if cat_key in categories %}
+                <div class="category-group">
+                    <div class="category-title">{{ category_labels.get(cat_key, cat_key) }}</div>
+                    <div class="checks-grid">
+                        {% for check in categories[cat_key] %}
+                        <div class="check-card">
+                            <div class="check-dot {{ check.status }}"></div>
+                            <div class="check-info">
+                                <div class="check-name">{{ check.name }}</div>
+                                <div class="check-detail" title="{{ check.detail }}">{{ check.detail }}</div>
+                            </div>
+                            <div class="check-badge {{ check.status }}">{{ check.status }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+
+            <div class="timestamp">
+                Diagnostics ran at {{ results.timestamp }} UTC
+            </div>
+        </div>
+    </div>
+</body>
+</html>

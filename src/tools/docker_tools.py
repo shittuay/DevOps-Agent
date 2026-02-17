@@ -1,4 +1,6 @@
 """Docker tools for DevOps Agent."""
+import os
+import subprocess
 from typing import Dict, Any, Optional, List
 from ..utils import get_logger
 
@@ -453,3 +455,485 @@ def docker_compose_down(compose_file: str, project_name: Optional[str] = None, v
     except Exception as e:
         logger.error(f"Error running docker-compose down: {str(e)}")
         return {'success': False, 'error': str(e)}
+
+
+def build_image(path: str, tag: str, dockerfile: str = 'Dockerfile', build_args: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Build a Docker image from a Dockerfile."""
+    try:
+        client = _get_docker_client()
+        buildargs = build_args or {}
+        image, build_logs = client.images.build(
+            path=path,
+            tag=tag,
+            dockerfile=dockerfile,
+            buildargs=buildargs,
+            rm=True
+        )
+        logs = []
+        for chunk in build_logs:
+            if 'stream' in chunk:
+                logs.append(chunk['stream'].strip())
+        return {
+            'success': True,
+            'message': f'Image {tag} built successfully',
+            'image_id': image.id,
+            'tags': image.tags,
+            'build_log': '\n'.join(logs[-20:])
+        }
+    except Exception as e:
+        logger.error(f"Error building image: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_container(image: str, name: Optional[str] = None, ports: Optional[Dict[str, str]] = None,
+                     environment: Optional[Dict[str, str]] = None, volumes: Optional[Dict[str, Dict]] = None,
+                     command: Optional[str] = None, detach: bool = True) -> Dict[str, Any]:
+    """Create and start a new Docker container."""
+    try:
+        client = _get_docker_client()
+        container = client.containers.run(
+            image=image,
+            name=name,
+            ports=ports,
+            environment=environment,
+            volumes=volumes,
+            command=command,
+            detach=detach
+        )
+        return {
+            'success': True,
+            'message': f'Container {container.name} created and started',
+            'container_id': container.id[:12],
+            'name': container.name,
+            'status': container.status
+        }
+    except Exception as e:
+        logger.error(f"Error creating container: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_network(name: str, driver: str = 'bridge', internal: bool = False) -> Dict[str, Any]:
+    """Create a Docker network."""
+    try:
+        client = _get_docker_client()
+        network = client.networks.create(name=name, driver=driver, internal=internal)
+        return {
+            'success': True,
+            'message': f'Network {name} created',
+            'network_id': network.id[:12],
+            'name': network.name,
+            'driver': driver
+        }
+    except Exception as e:
+        logger.error(f"Error creating network: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def remove_network(network_id: str) -> Dict[str, Any]:
+    """Remove a Docker network."""
+    try:
+        client = _get_docker_client()
+        network = client.networks.get(network_id)
+        name = network.name
+        network.remove()
+        return {'success': True, 'message': f'Network {name} removed'}
+    except Exception as e:
+        logger.error(f"Error removing network: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_volume(name: str, driver: str = 'local') -> Dict[str, Any]:
+    """Create a Docker volume."""
+    try:
+        client = _get_docker_client()
+        volume = client.volumes.create(name=name, driver=driver)
+        return {
+            'success': True,
+            'message': f'Volume {name} created',
+            'name': volume.name,
+            'driver': volume.attrs['Driver'],
+            'mountpoint': volume.attrs['Mountpoint']
+        }
+    except Exception as e:
+        logger.error(f"Error creating volume: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def remove_volume(name: str, force: bool = False) -> Dict[str, Any]:
+    """Remove a Docker volume."""
+    try:
+        client = _get_docker_client()
+        volume = client.volumes.get(name)
+        volume.remove(force=force)
+        return {'success': True, 'message': f'Volume {name} removed'}
+    except Exception as e:
+        logger.error(f"Error removing volume: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def exec_in_container(container_id: str, command: str, workdir: Optional[str] = None) -> Dict[str, Any]:
+    """Execute a command inside a running container."""
+    try:
+        client = _get_docker_client()
+        container = client.containers.get(container_id)
+        exit_code, output = container.exec_run(command, workdir=workdir)
+        return {
+            'success': exit_code == 0,
+            'container_id': container_id,
+            'command': command,
+            'exit_code': exit_code,
+            'output': output.decode('utf-8', errors='replace')
+        }
+    except Exception as e:
+        logger.error(f"Error executing in container: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def tag_image(image_id: str, repository: str, tag: str = 'latest') -> Dict[str, Any]:
+    """Tag a Docker image."""
+    try:
+        client = _get_docker_client()
+        image = client.images.get(image_id)
+        image.tag(repository, tag=tag)
+        return {
+            'success': True,
+            'message': f'Image tagged as {repository}:{tag}',
+            'image_id': image_id,
+            'repository': repository,
+            'tag': tag
+        }
+    except Exception as e:
+        logger.error(f"Error tagging image: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def push_image(repository: str, tag: str = 'latest') -> Dict[str, Any]:
+    """Push a Docker image to a registry."""
+    try:
+        client = _get_docker_client()
+        output = client.images.push(repository, tag=tag)
+        return {
+            'success': True,
+            'message': f'Image {repository}:{tag} pushed',
+            'output': output
+        }
+    except Exception as e:
+        logger.error(f"Error pushing image: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def docker_system_prune(volumes: bool = False) -> Dict[str, Any]:
+    """Remove unused Docker data (stopped containers, dangling images, unused networks)."""
+    try:
+        client = _get_docker_client()
+        result = client.containers.prune()
+        containers_deleted = result.get('ContainersDeleted') or []
+        result_images = client.images.prune(filters={'dangling': True})
+        images_deleted = result_images.get('ImagesDeleted') or []
+        result_networks = client.networks.prune()
+        networks_deleted = result_networks.get('NetworksDeleted') or []
+        volumes_deleted = []
+        if volumes:
+            result_volumes = client.volumes.prune()
+            volumes_deleted = result_volumes.get('VolumesDeleted') or []
+        return {
+            'success': True,
+            'message': 'Docker system prune completed',
+            'containers_deleted': len(containers_deleted),
+            'images_deleted': len(images_deleted),
+            'networks_deleted': len(networks_deleted),
+            'volumes_deleted': len(volumes_deleted)
+        }
+    except Exception as e:
+        logger.error(f"Error during docker prune: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def get_tools() -> List[Dict[str, Any]]:
+    """Get Docker tool definitions."""
+    return [
+        {
+            'name': 'docker_list_containers',
+            'description': 'List Docker containers (running or all including stopped)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'all_containers': {'type': 'boolean', 'description': 'Include stopped containers', 'default': False},
+                },
+                'required': []
+            },
+            'handler': list_containers
+        },
+        {
+            'name': 'docker_get_container_details',
+            'description': 'Get detailed information about a Docker container',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'container_id': {'type': 'string', 'description': 'Container ID or name'},
+                },
+                'required': ['container_id']
+            },
+            'handler': get_container_details
+        },
+        {
+            'name': 'docker_manage_container',
+            'description': 'Manage a Docker container: start, stop, restart, pause, unpause, or remove',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'container_id': {'type': 'string', 'description': 'Container ID or name'},
+                    'action': {'type': 'string', 'enum': ['start', 'stop', 'restart', 'pause', 'unpause', 'remove'], 'description': 'Action to perform'},
+                },
+                'required': ['container_id', 'action']
+            },
+            'handler': manage_container
+        },
+        {
+            'name': 'docker_get_container_logs',
+            'description': 'Get logs from a Docker container',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'container_id': {'type': 'string', 'description': 'Container ID or name'},
+                    'tail': {'type': 'integer', 'description': 'Number of lines from the end (default: 100)', 'default': 100},
+                },
+                'required': ['container_id']
+            },
+            'handler': get_container_logs
+        },
+        {
+            'name': 'docker_list_images',
+            'description': 'List Docker images on the system',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'all_images': {'type': 'boolean', 'description': 'Include intermediate images', 'default': False},
+                },
+                'required': []
+            },
+            'handler': list_images
+        },
+        {
+            'name': 'docker_pull_image',
+            'description': 'Pull a Docker image from a registry',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'image_name': {'type': 'string', 'description': 'Image name (e.g. nginx, ubuntu)'},
+                    'tag': {'type': 'string', 'description': 'Image tag (default: latest)', 'default': 'latest'},
+                },
+                'required': ['image_name']
+            },
+            'handler': pull_image
+        },
+        {
+            'name': 'docker_remove_image',
+            'description': 'Remove a Docker image',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'image_id': {'type': 'string', 'description': 'Image ID or name'},
+                    'force': {'type': 'boolean', 'description': 'Force removal', 'default': False},
+                },
+                'required': ['image_id']
+            },
+            'handler': remove_image
+        },
+        {
+            'name': 'docker_list_volumes',
+            'description': 'List Docker volumes',
+            'input_schema': {
+                'type': 'object',
+                'properties': {},
+                'required': []
+            },
+            'handler': list_volumes
+        },
+        {
+            'name': 'docker_list_networks',
+            'description': 'List Docker networks',
+            'input_schema': {
+                'type': 'object',
+                'properties': {},
+                'required': []
+            },
+            'handler': list_networks
+        },
+        {
+            'name': 'docker_get_stats',
+            'description': 'Get CPU, memory, and network stats for a running Docker container',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'container_id': {'type': 'string', 'description': 'Container ID or name'},
+                },
+                'required': ['container_id']
+            },
+            'handler': get_docker_stats
+        },
+        {
+            'name': 'docker_compose_up',
+            'description': 'Run docker-compose up to start services defined in a compose file',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'compose_file': {'type': 'string', 'description': 'Path to docker-compose.yml'},
+                    'project_name': {'type': 'string', 'description': 'Project name'},
+                    'detach': {'type': 'boolean', 'description': 'Run in detached mode', 'default': True},
+                },
+                'required': ['compose_file']
+            },
+            'handler': docker_compose_up
+        },
+        {
+            'name': 'docker_compose_down',
+            'description': 'Run docker-compose down to stop and remove services',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'compose_file': {'type': 'string', 'description': 'Path to docker-compose.yml'},
+                    'project_name': {'type': 'string', 'description': 'Project name'},
+                    'volumes': {'type': 'boolean', 'description': 'Remove volumes', 'default': False},
+                },
+                'required': ['compose_file']
+            },
+            'handler': docker_compose_down
+        },
+        {
+            'name': 'docker_build_image',
+            'description': 'Build a Docker image from a Dockerfile',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'path': {'type': 'string', 'description': 'Path to build context directory'},
+                    'tag': {'type': 'string', 'description': 'Image tag (e.g. myapp:v1)'},
+                    'dockerfile': {'type': 'string', 'description': 'Dockerfile name', 'default': 'Dockerfile'},
+                    'build_args': {'type': 'object', 'description': 'Build arguments as key-value pairs'},
+                },
+                'required': ['path', 'tag']
+            },
+            'handler': build_image
+        },
+        {
+            'name': 'docker_create_container',
+            'description': 'Create and start a new Docker container from an image',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'image': {'type': 'string', 'description': 'Image name to run'},
+                    'name': {'type': 'string', 'description': 'Container name'},
+                    'ports': {'type': 'object', 'description': 'Port mappings (e.g. {"80/tcp": "8080"})'},
+                    'environment': {'type': 'object', 'description': 'Environment variables'},
+                    'command': {'type': 'string', 'description': 'Command to run in container'},
+                },
+                'required': ['image']
+            },
+            'handler': create_container
+        },
+        {
+            'name': 'docker_create_network',
+            'description': 'Create a Docker network',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string', 'description': 'Network name'},
+                    'driver': {'type': 'string', 'description': 'Network driver', 'default': 'bridge'},
+                    'internal': {'type': 'boolean', 'description': 'Restrict external access', 'default': False},
+                },
+                'required': ['name']
+            },
+            'handler': create_network
+        },
+        {
+            'name': 'docker_remove_network',
+            'description': 'Remove a Docker network',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'network_id': {'type': 'string', 'description': 'Network ID or name'},
+                },
+                'required': ['network_id']
+            },
+            'handler': remove_network
+        },
+        {
+            'name': 'docker_create_volume',
+            'description': 'Create a Docker volume for persistent data storage',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string', 'description': 'Volume name'},
+                    'driver': {'type': 'string', 'description': 'Volume driver', 'default': 'local'},
+                },
+                'required': ['name']
+            },
+            'handler': create_volume
+        },
+        {
+            'name': 'docker_remove_volume',
+            'description': 'Remove a Docker volume',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string', 'description': 'Volume name'},
+                    'force': {'type': 'boolean', 'description': 'Force removal', 'default': False},
+                },
+                'required': ['name']
+            },
+            'handler': remove_volume
+        },
+        {
+            'name': 'docker_exec',
+            'description': 'Execute a command inside a running Docker container',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'container_id': {'type': 'string', 'description': 'Container ID or name'},
+                    'command': {'type': 'string', 'description': 'Command to execute'},
+                    'workdir': {'type': 'string', 'description': 'Working directory inside container'},
+                },
+                'required': ['container_id', 'command']
+            },
+            'handler': exec_in_container
+        },
+        {
+            'name': 'docker_tag_image',
+            'description': 'Tag a Docker image with a new repository and tag',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'image_id': {'type': 'string', 'description': 'Image ID or current tag'},
+                    'repository': {'type': 'string', 'description': 'Target repository (e.g. myrepo/myapp)'},
+                    'tag': {'type': 'string', 'description': 'Target tag', 'default': 'latest'},
+                },
+                'required': ['image_id', 'repository']
+            },
+            'handler': tag_image
+        },
+        {
+            'name': 'docker_push_image',
+            'description': 'Push a Docker image to a registry (Docker Hub, ECR, GCR, etc.)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'repository': {'type': 'string', 'description': 'Repository name'},
+                    'tag': {'type': 'string', 'description': 'Image tag', 'default': 'latest'},
+                },
+                'required': ['repository']
+            },
+            'handler': push_image
+        },
+        {
+            'name': 'docker_system_prune',
+            'description': 'Remove unused Docker data (stopped containers, dangling images, unused networks)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'volumes': {'type': 'boolean', 'description': 'Also prune volumes', 'default': False},
+                },
+                'required': []
+            },
+            'handler': docker_system_prune
+        },
+    ]
