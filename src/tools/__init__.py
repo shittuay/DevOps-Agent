@@ -9,6 +9,7 @@ from . import kubernetes_tools
 from . import git_tools
 from . import cicd_tools
 from . import docker_tools
+from . import github_tools
 from . import terraform_tools
 from . import sonarqube_tools
 from . import monitoring_tools
@@ -25,6 +26,7 @@ __all__ = [
     'git_tools',
     'cicd_tools',
     'docker_tools',
+    'github_tools',
     'terraform_tools',
     'sonarqube_tools',
     'monitoring_tools',

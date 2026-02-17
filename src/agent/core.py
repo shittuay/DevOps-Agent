@@ -162,7 +162,8 @@ class DevOpsAgent:
         user_message: str,
         conversation_history: List[Dict[str, str]],
         user_preferences_context: Optional[str] = None,
-        user_id: Optional[int] = None
+        user_id: Optional[int] = None,
+        model_override: Optional[str] = None
     ) -> str:
         """
         Process a user message with isolated conversation context (thread-safe).
@@ -209,7 +210,7 @@ class DevOpsAgent:
                 self.conversation.add_user_message(user_message)
 
                 # Process with Claude API
-                response_text = self._call_claude_api(user_preferences_context)
+                response_text = self._call_claude_api(user_preferences_context, model_override=model_override)
 
                 # Capture pending download before restoring state
                 result_pending_download = self.pending_download
@@ -222,6 +223,104 @@ class DevOpsAgent:
 
                 # Restore original conversation state for backwards compatibility
                 # Note: pending_download is kept from this request if it was set
+                if self.pending_download is None:
+                    self.pending_download = original_pending_download
+                self.conversation = original_conversation
+
+    def process_message_streaming(
+        self,
+        user_message: str,
+        conversation_history: List[Dict[str, str]],
+        user_preferences_context: Optional[str] = None,
+        user_id: Optional[int] = None,
+        model_override: Optional[str] = None
+    ):
+        """
+        Process a user message and yield text chunks as they stream in.
+
+        Yields:
+            str: Text chunks as they arrive from the Claude API
+        """
+        self.logger.info(f"Streaming message for user {user_id}: {user_message[:100]}...")
+
+        self._set_cloud_user_context(user_id)
+
+        with self._conversation_lock:
+            original_conversation = self.conversation
+            original_pending_download = self.pending_download
+
+            try:
+                self.conversation = ConversationManager()
+                self.pending_download = None
+
+                for msg in conversation_history:
+                    if msg['role'] == 'user':
+                        self.conversation.add_user_message(msg['content'])
+                    elif msg['role'] == 'assistant':
+                        self.conversation.add_assistant_message([{
+                            'type': 'text',
+                            'text': msg['content']
+                        }])
+
+                self.conversation.add_user_message(user_message)
+
+                # Streaming loop (handles tool calls)
+                max_iterations = 50
+                for iteration in range(max_iterations):
+                    try:
+                        system_prompt = self._build_system_prompt(user_preferences_context)
+                        api_params = {
+                            'model': model_override or self.config.claude_model,
+                            'max_tokens': self.config.claude_max_tokens,
+                            'temperature': self.config.claude_temperature,
+                            'tools': self.tool_definitions if self.tool_definitions else None,
+                            'messages': self.conversation.get_messages_for_api()
+                        }
+                        if system_prompt:
+                            api_params['system'] = system_prompt
+
+                        collected_content = []
+                        current_text = ""
+
+                        with self.client.messages.stream(**api_params) as stream:
+                            for event in stream:
+                                if hasattr(event, 'type'):
+                                    if event.type == 'content_block_start':
+                                        if hasattr(event, 'content_block') and event.content_block.type == 'text':
+                                            current_text = ""
+                                    elif event.type == 'content_block_delta':
+                                        if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
+                                            chunk = event.delta.text
+                                            current_text += chunk
+                                            yield chunk
+
+                            response = stream.get_final_message()
+
+                        self.conversation.add_assistant_message(response.content)
+
+                        if response.stop_reason == 'end_turn':
+                            return
+                        elif response.stop_reason == 'tool_use':
+                            yield "\n\n_[Executing tool...]_\n\n"
+                            self._handle_tool_uses(response.content)
+                        elif response.stop_reason == 'max_tokens':
+                            yield "\n\n[Response truncated]"
+                            return
+                        else:
+                            return
+
+                    except anthropic.RateLimitError:
+                        yield "\n\nRate limit reached. Please wait a moment."
+                        return
+                    except anthropic.APIError as e:
+                        yield f"\n\nAPI error: {str(e)}"
+                        return
+                    except Exception as e:
+                        yield f"\n\nError: {str(e)}"
+                        return
+
+            finally:
+                self._clear_cloud_user_context()
                 if self.pending_download is None:
                     self.pending_download = original_pending_download
                 self.conversation = original_conversation
@@ -267,7 +366,7 @@ User Preferences and Context:
 
         return base_prompt.format(preferences=user_preferences_context or 'No specific preferences set.')
 
-    def _call_claude_api(self, user_preferences_context: Optional[str] = None) -> str:
+    def _call_claude_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None) -> str:
         """
         Call Claude API with current conversation and handle tool execution.
 
@@ -290,7 +389,7 @@ User Preferences and Context:
 
                 # Call Claude API with streaming to prevent timeouts
                 api_params = {
-                    'model': self.config.claude_model,
+                    'model': model_override or self.config.claude_model,
                     'max_tokens': self.config.claude_max_tokens,
                     'temperature': self.config.claude_temperature,
                     'tools': self.tool_definitions if self.tool_definitions else None,

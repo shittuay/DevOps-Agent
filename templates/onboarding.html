@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+            z-index: 0;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(at 20% 20%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 80% 80%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .wizard-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 680px;
+            padding: 20px;
+        }
+
+        .wizard-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(40px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 48px;
+            text-align: center;
+        }
+
+        .step { display: none; }
+        .step.active { display: block; }
+
+        .step-counter {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 12px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+
+        .progress-bar {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 40px;
+        }
+
+        .progress-dot {
+            width: 40px;
+            height: 4px;
+            border-radius: 2px;
+            background: rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .progress-dot.active {
+            background: var(--gradient-primary);
+            background: linear-gradient(90deg, #ff6b35, #00d4ff);
+        }
+
+        .progress-dot.done {
+            background: #4ade80;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            text-align: left;
+            margin-bottom: 32px;
+        }
+
+        .feature-item {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.2s ease;
+        }
+
+        .feature-item:hover {
+            border-color: rgba(255,255,255,0.15);
+            transform: translateY(-2px);
+        }
+
+        .feature-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+
+        .feature-icon.infra { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
+        .feature-icon.security { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+        .feature-icon.cost { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+        .feature-icon.ai { background: rgba(192, 132, 252, 0.15); color: #c084fc; }
+
+        .feature-name {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
+        .feature-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .cloud-options {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin-bottom: 32px;
+            flex-wrap: wrap;
+        }
+
+        .cloud-option {
+            background: rgba(255,255,255,0.03);
+            border: 2px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 24px 32px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            min-width: 120px;
+        }
+
+        .cloud-option:hover {
+            border-color: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        .cloud-option.selected {
+            border-color: #ff6b35;
+            background: rgba(255, 107, 53, 0.08);
+        }
+
+        .cloud-option .cloud-name {
+            font-weight: 600;
+            font-size: 16px;
+            margin-top: 8px;
+        }
+
+        .cloud-option .cloud-icon {
+            font-size: 28px;
+        }
+
+        .tip-box {
+            background: rgba(96, 165, 250, 0.08);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: left;
+            margin-bottom: 32px;
+        }
+
+        .tip-box .tip-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #60a5fa;
+            margin-bottom: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .tip-box .tip-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .tip-box code {
+            background: rgba(255,255,255,0.08);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            border: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--glass-border);
+            margin-right: 12px;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .btn-group {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        @media (max-width: 640px) {
+            .wizard-card { padding: 32px 24px; }
+            .feature-grid { grid-template-columns: 1fr; }
+            .cloud-options { flex-direction: column; align-items: center; }
+            h1 { font-size: 22px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wizard-container">
+        <div class="wizard-card">
+            <div class="progress-bar">
+                <div class="progress-dot active" id="dot-0"></div>
+                <div class="progress-dot" id="dot-1"></div>
+                <div class="progress-dot" id="dot-2"></div>
+                <div class="progress-dot" id="dot-3"></div>
+            </div>
+
+            <!-- Step 0: Welcome -->
+            <div class="step active" id="step-0">
+                <div class="step-counter">Getting Started</div>
+                <h1>Welcome to DevOps Agent</h1>
+                <p class="subtitle">Your AI-powered infrastructure management assistant. Let's get you set up in under a minute.</p>
+
+                <div class="feature-grid">
+                    <div class="feature-item">
+                        <div class="feature-icon infra">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        </div>
+                        <div class="feature-name">Infrastructure</div>
+                        <div class="feature-desc">Manage AWS, Azure, GCP and Kubernetes from chat</div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon security">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        </div>
+                        <div class="feature-name">Security</div>
+                        <div class="feature-desc">Scan for misconfigurations and compliance gaps</div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon cost">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        </div>
+                        <div class="feature-name">Cost Optimization</div>
+                        <div class="feature-desc">Find idle resources and reduce cloud spend</div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon ai">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        </div>
+                        <div class="feature-name">AI Chat</div>
+                        <div class="feature-desc">Natural language commands with 258 tools</div>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" onclick="nextStep()">Let's Go</button>
+            </div>
+
+            <!-- Step 1: Cloud Provider -->
+            <div class="step" id="step-1">
+                <div class="step-counter">Step 1 of 3</div>
+                <h1>Which clouds do you use?</h1>
+                <p class="subtitle">Select your cloud providers. You can always add more later in Settings.</p>
+
+                <div class="cloud-options">
+                    <div class="cloud-option" onclick="toggleCloud(this, 'aws')">
+                        <div class="cloud-icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M7.164 16.835c-.706.552-1.697.828-2.974.828-.929 0-1.783-.174-2.562-.52a.26.26 0 0 1-.14-.24c0-.077.036-.152.107-.224.071-.072.143-.108.214-.108.036 0 .08.013.134.04.714.31 1.499.465 2.355.465.999 0 1.791-.213 2.377-.639.586-.427.879-.998.879-1.714 0-.785-.423-1.433-1.269-1.944-.071-.036-.267-.142-.586-.317a14.44 14.44 0 0 0-.693-.371c-.214-.107-.456-.24-.726-.398a4.727 4.727 0 0 1-.683-.478c-.196-.178-.36-.38-.493-.605a1.572 1.572 0 0 1-.2-.785c0-.714.297-1.288.89-1.72.594-.433 1.357-.65 2.288-.65.75 0 1.446.125 2.088.374a.268.268 0 0 1 .173.258.326.326 0 0 1-.1.237.296.296 0 0 1-.213.1c-.036 0-.072-.01-.107-.027a5.376 5.376 0 0 0-1.874-.36c-.821 0-1.476.169-1.965.505-.49.337-.734.788-.734 1.354 0 .714.43 1.34 1.289 1.878.036.036.24.138.612.308.373.17.607.276.702.317.196.107.42.237.672.39.253.153.48.32.683.5.203.179.37.386.5.621.13.236.196.496.196.779 0 .785-.314 1.413-.941 1.884zm5.142.29c-.571 0-1.09-.087-1.556-.262a.26.26 0 0 1-.174-.252.315.315 0 0 1 .107-.24.305.305 0 0 1 .214-.094c.035 0 .071.009.107.027.393.143.821.214 1.285.214.571 0 1.032-.134 1.381-.4.35-.268.524-.63.524-1.088 0-.571-.392-1.06-1.175-1.468a27.37 27.37 0 0 1-.505-.267 7.722 7.722 0 0 1-.438-.27c-.129-.089-.26-.194-.39-.317a1.857 1.857 0 0 1-.298-.373 1.203 1.203 0 0 1-.153-.426 2.43 2.43 0 0 1-.047-.493c0-.607.251-1.091.754-1.454.502-.362 1.154-.544 1.957-.544.5 0 .968.072 1.402.214a.274.274 0 0 1 .187.267.308.308 0 0 1-.1.227.291.291 0 0 1-.214.094c-.035 0-.07-.009-.107-.027a3.571 3.571 0 0 0-1.195-.214c-.571 0-1.035.14-1.39.42-.354.28-.531.647-.531 1.1 0 .572.392 1.06 1.175 1.469.072.035.258.138.559.307.301.17.499.286.592.348.357.25.614.505.77.764.156.259.234.555.234.89 0 .642-.26 1.152-.781 1.528-.52.376-1.2.564-2.037.564zm6.942-.03c-1.142 0-2.048-.376-2.716-1.127-.668-.75-1.002-1.741-1.002-2.972 0-1.25.346-2.261 1.036-3.033.69-.773 1.607-1.159 2.749-1.159 1.106 0 1.989.38 2.649 1.14.66.759.99 1.757.99 2.992 0 1.249-.34 2.262-1.022 3.04-.68.779-1.59 1.119-2.684 1.119z"/></svg>
+                        </div>
+                        <div class="cloud-name">AWS</div>
+                    </div>
+                    <div class="cloud-option" onclick="toggleCloud(this, 'azure')">
+                        <div class="cloud-icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M13.05 4.24L6.56 18.05a.5.5 0 0 0 .46.7h8.67a.5.5 0 0 0 .46-.3l5.04-11.2a.5.5 0 0 0-.46-.7h-4.16a.5.5 0 0 1-.46-.3l-2.6-5.78a.5.5 0 0 0-.92.03L13.05 4.24zM3.08 13.41l3.44-7.6a.5.5 0 0 1 .92.03l2.6 5.78a.5.5 0 0 1-.46.7H3.54a.5.5 0 0 1-.46-.7v-.21z"/></svg>
+                        </div>
+                        <div class="cloud-name">Azure</div>
+                    </div>
+                    <div class="cloud-option" onclick="toggleCloud(this, 'gcp')">
+                        <div class="cloud-icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L4 7.5v9L12 21l8-4.5v-9L12 3zm0 2.18l5.45 3.07L12 11.32 6.55 8.25 12 5.18zM5.45 9.32l5.55 3.12v6.24l-5.55-3.12V9.32zm7.1 9.36v-6.24l5.55-3.12v6.24l-5.55 3.12z"/></svg>
+                        </div>
+                        <div class="cloud-name">GCP</div>
+                    </div>
+                    <div class="cloud-option" onclick="toggleCloud(this, 'k8s')">
+                        <div class="cloud-icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="21"/><line x1="3.5" y1="7.5" x2="9" y2="10.5"/><line x1="15" y1="13.5" x2="20.5" y2="16.5"/><line x1="3.5" y1="16.5" x2="9" y2="13.5"/><line x1="15" y1="10.5" x2="20.5" y2="7.5"/></svg>
+                        </div>
+                        <div class="cloud-name">Kubernetes</div>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="prevStep()">Back</button>
+                    <button class="btn btn-primary" onclick="nextStep()">Continue</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Quick Tips -->
+            <div class="step" id="step-2">
+                <div class="step-counter">Step 2 of 3</div>
+                <h1>How to use the Agent</h1>
+                <p class="subtitle">Just type natural language commands in the chat. Here are some examples:</p>
+
+                <div class="tip-box" style="margin-bottom: 16px;">
+                    <div class="tip-title">Infrastructure</div>
+                    <div class="tip-text">
+                        <code>List all my EC2 instances</code><br>
+                        <code>Show me resources in us-east-1</code><br>
+                        <code>Create a new S3 bucket called my-data</code>
+                    </div>
+                </div>
+
+                <div class="tip-box" style="margin-bottom: 16px;">
+                    <div class="tip-title">Security & Compliance</div>
+                    <div class="tip-text">
+                        <code>Run a security scan on my AWS account</code><br>
+                        <code>Check compliance against SOC 2</code>
+                    </div>
+                </div>
+
+                <div class="tip-box" style="margin-bottom: 32px;">
+                    <div class="tip-title">Cost Optimization</div>
+                    <div class="tip-text">
+                        <code>Show my cloud spending this month</code><br>
+                        <code>Find idle resources I can shut down</code>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="prevStep()">Back</button>
+                    <button class="btn btn-primary" onclick="nextStep()">Continue</button>
+                </div>
+            </div>
+
+            <!-- Step 3: Ready -->
+            <div class="step" id="step-3">
+                <div class="step-counter">All Set</div>
+                <h1>You're Ready!</h1>
+                <p class="subtitle">Your DevOps Agent is configured. Head to the chat to start managing your infrastructure with AI.</p>
+
+                <div class="tip-box" style="margin-bottom: 32px;">
+                    <div class="tip-title">Next Steps</div>
+                    <div class="tip-text">
+                        1. Go to <strong>Settings</strong> to add your cloud credentials<br>
+                        2. Run <code>Sync my infrastructure</code> to discover resources<br>
+                        3. Ask the agent anything about your cloud environment
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" onclick="finishOnboarding()">Start Using DevOps Agent</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 0;
+        const totalSteps = 4;
+        const selectedClouds = new Set();
+
+        function updateProgress() {
+            for (let i = 0; i < totalSteps; i++) {
+                const dot = document.getElementById(`dot-${i}`);
+                const step = document.getElementById(`step-${i}`);
+                dot.className = 'progress-dot';
+                step.className = 'step';
+                if (i < currentStep) dot.classList.add('done');
+                if (i === currentStep) {
+                    dot.classList.add('active');
+                    step.classList.add('active');
+                }
+            }
+        }
+
+        function nextStep() {
+            if (currentStep < totalSteps - 1) {
+                currentStep++;
+                updateProgress();
+                fetch('/api/onboarding/step', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ step: currentStep })
+                });
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 0) {
+                currentStep--;
+                updateProgress();
+            }
+        }
+
+        function toggleCloud(el, cloud) {
+            el.classList.toggle('selected');
+            if (selectedClouds.has(cloud)) {
+                selectedClouds.delete(cloud);
+            } else {
+                selectedClouds.add(cloud);
+            }
+        }
+
+        function finishOnboarding() {
+            fetch('/api/onboarding/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step: totalSteps, clouds: [...selectedClouds] })
+            }).then(() => {
+                window.location.href = '/';
+            });
+        }
+    </script>
+</body>
+</html>

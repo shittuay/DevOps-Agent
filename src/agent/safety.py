@@ -243,6 +243,16 @@ class SafetyValidator:
             'delete_bigquery_dataset',
             'delete_cloud_function',
             'delete_disk_snapshot',
+            # Docker destructive
+            'docker_manage_container',  # includes remove action
+            'docker_remove_image',
+            'docker_remove_network',
+            'docker_remove_volume',
+            'docker_system_prune',
+            'docker_compose_down',
+            # GitHub destructive
+            'github_delete_repo',
+            'github_merge_pull_request',
         }
 
         medium_risk_tools = {
@@ -277,6 +287,15 @@ class SafetyValidator:
             'create_firewall_rule',
             'resize_gke_cluster',
             'create_pubsub_subscription',
+            # Docker medium risk
+            'docker_exec',
+            'docker_push_image',
+            'docker_compose_up',
+            # GitHub medium risk
+            'github_trigger_workflow',
+            'github_invite_collaborator',
+            'github_close_issue',
+            'github_create_release',
         }
 
         # Check if tool is a pentest tool

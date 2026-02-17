@@ -44,6 +44,10 @@ class User(UserMixin, db.Model):
     two_factor_attempts = db.Column(db.Integer, default=0)
     two_factor_locked_until = db.Column(db.DateTime, nullable=True)
 
+    # Onboarding
+    onboarding_completed = db.Column(db.Boolean, default=False)
+    onboarding_step = db.Column(db.Integer, default=0)
+
     # API Key Management
     api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade='all, delete-orphan')
 
@@ -600,6 +604,7 @@ class UsageLog(db.Model):
     action_type = db.Column(db.String(50), nullable=False)  # tool_use, message, etc.
     tool_name = db.Column(db.String(100))  # Specific tool used if applicable
     credits_used = db.Column(db.Integer, default=1)
+    ai_model = db.Column(db.String(100))  # Model used for this request (e.g. claude-sonnet-4-5, llama-3.3-70b)
 
     # Success tracking
     success = db.Column(db.Boolean, default=True)
@@ -619,6 +624,7 @@ class UsageLog(db.Model):
             'action_type': self.action_type,
             'tool_name': self.tool_name,
             'credits_used': self.credits_used,
+            'ai_model': self.ai_model,
             'success': self.success,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
@@ -1962,6 +1968,33 @@ class BudgetAlert(db.Model):
             'is_active': self.is_active,
             'last_triggered': self.last_triggered.isoformat() if self.last_triggered else None,
             'last_checked_amount': self.last_checked_amount,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class UserMemory(db.Model):
+    """Persistent memory entries for per-user context across conversations."""
+    __tablename__ = 'user_memories'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    category = db.Column(db.String(50), default='general', index=True)  # general, preference, infrastructure, incident
+    content = db.Column(db.Text, nullable=False)
+    source = db.Column(db.String(50), default='agent')  # agent, user, system
+    importance = db.Column(db.Integer, default=5)  # 1-10, higher = more important
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True)
+
+    user = db.relationship('User', backref=db.backref('memories', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'category': self.category,
+            'content': self.content,
+            'source': self.source,
+            'importance': self.importance,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

@@ -1871,34 +1871,83 @@
             input.value = '';
             input.style.height = 'auto';
 
-            // Show typing indicator
-            const typingId = addTypingIndicator();
-
             isProcessing = true;
             updateSendButton(true);
 
+            // Create streaming agent message bubble
+            const container = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message agent';
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = 'D';
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            const textDiv = document.createElement('div');
+            textDiv.className = 'message-text';
+            textDiv.innerHTML = '<span class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></span>';
+            contentDiv.appendChild(textDiv);
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(contentDiv);
+            container.appendChild(messageDiv);
+            scrollToBottom();
+
             try {
-                const response = await fetch('/api/chat', {
+                const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message })
                 });
 
-                removeTypingIndicator(typingId);
-                const data = await response.json();
+                if (!response.ok) {
+                    const err = await response.json();
+                    textDiv.innerHTML = formatMessage(`Error: ${err.error || 'Unknown error'}`);
+                    isProcessing = false;
+                    updateSendButton(false);
+                    input.focus();
+                    return;
+                }
 
-                if (response.ok) {
-                    addMessage('agent', data.response);
-                    if (data.credits_remaining !== undefined) {
-                        updateCreditsDisplay(data.credits_remaining);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let rawText = '';
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const evt = JSON.parse(line.slice(6));
+                            if (evt.type === 'chunk') {
+                                rawText += evt.content;
+                                textDiv.innerHTML = formatMessage(rawText);
+                                scrollToBottom();
+                            } else if (evt.type === 'done') {
+                                if (evt.credits_remaining !== undefined) {
+                                    updateCreditsDisplay(evt.credits_remaining);
+                                }
+                                loadConversations();
+                            } else if (evt.type === 'error') {
+                                rawText += `\nError: ${evt.content}`;
+                                textDiv.innerHTML = formatMessage(rawText);
+                            }
+                        } catch (e) { /* skip malformed SSE lines */ }
                     }
-                    loadConversations();
-                } else {
-                    addMessage('agent', `Error: ${data.error}`);
+                }
+
+                // Final render
+                if (rawText) {
+                    textDiv.innerHTML = formatMessage(rawText);
                 }
             } catch (error) {
-                removeTypingIndicator(typingId);
-                addMessage('agent', `Error: ${error.message}`);
+                textDiv.innerHTML = formatMessage(`Error: ${error.message}`);
             } finally {
                 isProcessing = false;
                 updateSendButton(false);
