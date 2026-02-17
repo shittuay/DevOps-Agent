@@ -128,6 +128,16 @@ jobs:
           FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
             python -c "from app import app, db; app.app_context().push(); db.create_all(); print('Tables synced (existing data preserved)')"
 
+          # Add any missing columns to existing tables (safe: IF NOT EXISTS)
+          echo "Running column migrations..."
+          sudo -u postgres psql -d devops_agent -c "
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(100);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMP;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(100);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMP;
+          " || echo "Column migration completed (or columns already exist)"
+
           # ============================================
           # STEP 5b: Create Stripe prices and update AWS Secrets Manager (one-time)
           # ============================================
