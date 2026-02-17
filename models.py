@@ -36,6 +36,15 @@ class User(UserMixin, db.Model):
     # Role-based access control
     role = db.Column(db.String(20), default='user')  # user, admin, approver, viewer
 
+    # Email verification
+    email_verified = db.Column(db.Boolean, default=False)
+    email_verification_token = db.Column(db.String(100), nullable=True)
+    email_verification_sent_at = db.Column(db.DateTime, nullable=True)
+
+    # Password reset
+    password_reset_token = db.Column(db.String(100), nullable=True)
+    password_reset_expires = db.Column(db.DateTime, nullable=True)
+
     # Two-Factor Authentication
     two_factor_enabled = db.Column(db.Boolean, default=False)
     two_factor_secret = db.Column(db.String(32), nullable=True)

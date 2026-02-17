@@ -899,6 +899,9 @@
                 {% if error %}
                 <div class="alert alert-error">{{ error }}</div>
                 {% endif %}
+                {% if success %}
+                <div class="alert alert-error" style="background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border-color: rgba(16, 185, 129, 0.3);">{{ success }}</div>
+                {% endif %}
 
                 <form method="POST" action="/login" id="loginForm">
                     <div class="form-group">
@@ -928,6 +931,10 @@
                         Sign In →
                     </button>
                 </form>
+
+                <div class="signup-link" style="margin-top: 16px;">
+                    <a href="/forgot-password" style="color: var(--text-tertiary); font-size: 14px; text-decoration: none; transition: color 0.2s ease;">Forgot your password?</a>
+                </div>
 
                 <div class="signup-link">
                     New to DevOps Agent? <a href="/signup">Create an account</a>

@@ -30,9 +30,11 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 import secrets
+import hashlib
 import logging
 import re
 from email_validator import validate_email, EmailNotValidError
+from services.email_service import email_service
 from models import InfrastructureResource, CostOptimization, SecurityFinding, Alert
 
 # Add src to path
@@ -90,8 +92,7 @@ from flask_talisman import Talisman
 csrf = CSRFProtect(app)
 app.config['WTF_CSRF_ENABLED'] = True
 app.config['WTF_CSRF_TIME_LIMIT'] = None  # No time limit for CSRF tokens
-app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Don't check CSRF on all requests by default
-# We'll enable CSRF only on forms (POST requests to /login, /signup, etc.)
+app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Exempt JSON API routes; CSRF enforced on form endpoints via @csrf.protect
 
 # Rate Limiting
 limiter = Limiter(
@@ -101,22 +102,21 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
-# Security Headers (disable HTTPS redirect for local development)
-# In production, set force_https=True
-# Temporarily disabled Talisman to fix inline script issues
-# Talisman(app,
-#     force_https=False,  # Set to True in production
-#     content_security_policy={
-#         'default-src': "'self'",
-#         'script-src': ["'self'", "'unsafe-inline'", "https://js.stripe.com"],
-#         'style-src': ["'self'", "'unsafe-inline'"],
-#         'img-src': ["'self'", "data:", "https:"],
-#         'font-src': ["'self'", "data:"],
-#         'connect-src': ["'self'", "https://api.stripe.com"],
-#         'frame-src': ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
-#     },
-#     content_security_policy_nonce_in=['script-src']
-# )
+_is_production = os.environ.get('FLASK_ENV') == 'production'
+Talisman(app,
+    force_https=_is_production,
+    strict_transport_security=_is_production,
+    strict_transport_security_max_age=31536000,
+    content_security_policy={
+        'default-src': "'self'",
+        'script-src': ["'self'", "'unsafe-inline'", "https://js.stripe.com", "https://cdn.jsdelivr.net"],
+        'style-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com"],
+        'img-src': ["'self'", "data:", "https:"],
+        'font-src': ["'self'", "data:", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
+        'connect-src': ["'self'", "https://api.stripe.com"],
+        'frame-src': ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+    },
+)
 
 # Security logging
 security_logger = logging.getLogger('security')
@@ -147,7 +147,7 @@ if not app.secret_key:
 # Use default Flask sessions (signed cookies) instead of filesystem to prevent session sharing
 # app.config['SESSION_TYPE'] = 'filesystem'  # REMOVED - caused session sharing between users
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours in seconds
-app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+app.config['SESSION_COOKIE_SECURE'] = _is_production
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['REMEMBER_COOKIE_DURATION'] = 86400  # 24 hours
@@ -240,6 +240,11 @@ app.register_blueprint(organizations_bp)
 # Register Change Governance blueprint
 from routes.changes import changes_bp
 app.register_blueprint(changes_bp)
+
+# Register REST API v1 blueprint (CLI + programmatic access)
+from api import api_bp
+app.register_blueprint(api_bp)
+csrf.exempt(api_bp)
 
 # Initialize proactive monitoring service with incident integration
 from services.proactive_monitoring import get_monitoring_service
@@ -787,6 +792,9 @@ def initialize_agent():
 
         logger.info(f"Agent initialized with {len(agent.list_available_tools())} tools")
 
+        # Store agent on app.config so API v1 endpoints can access it
+        app.config['DEVOPS_AGENT'] = agent
+
         return True, None
 
     except Exception as e:
@@ -927,11 +935,18 @@ def signup():
 
         # Create new user
         try:
+            # Generate email verification token
+            verification_token = secrets.token_urlsafe(32)
+            hashed_verification_token = hashlib.sha256(verification_token.encode()).hexdigest()
+
             user = User(
                 email=email,
                 username=username,
                 full_name=full_name if full_name else None,
-                last_login_ip=ip_address
+                last_login_ip=ip_address,
+                email_verified=False,
+                email_verification_token=hashed_verification_token,
+                email_verification_sent_at=datetime.utcnow()
             )
             user.set_password(password)
 
@@ -939,6 +954,12 @@ def signup():
             db.session.commit()
 
             security_logger.info(f"New user registered: {email} from {ip_address}")
+
+            # Send verification email (non-blocking, don't fail signup if email fails)
+            try:
+                email_service.send_verification_email(user, token=verification_token)
+            except Exception as email_err:
+                app.logger.warning(f"Failed to send verification email to {email}: {email_err}")
 
             # Log the user in
             login_user(user, remember=True)
@@ -958,6 +979,158 @@ def logout():
     """Logout user."""
     logout_user()
     return redirect(url_for('login'))
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+@limiter.limit("5 per hour")
+def forgot_password():
+    """Request a password reset link via email."""
+    if current_user.is_authenticated:
+        return redirect(url_for('chat'))
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        ip_address = request.remote_addr
+
+        if not email:
+            return render_template('forgot_password.html', error='Please enter your email address.')
+
+        # Always show the same success message to avoid user enumeration
+        success_msg = 'If an account with that email exists, we have sent a password reset link. Please check your inbox.'
+
+        user = User.query.filter_by(email=email).first()
+        if user:
+            # Generate token and store hashed version
+            raw_token = secrets.token_urlsafe(32)
+            hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
+
+            user.password_reset_token = hashed_token
+            user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+            db.session.commit()
+
+            try:
+                email_service.send_password_reset_email(user, token=raw_token)
+                security_logger.info(f"Password reset email sent to {email} from {ip_address}")
+            except Exception as e:
+                app.logger.warning(f"Failed to send password reset email to {email}: {e}")
+        else:
+            security_logger.info(f"Password reset requested for non-existent email: {email} from {ip_address}")
+
+        return render_template('forgot_password.html', success=success_msg)
+
+    return render_template('forgot_password.html')
+
+
+@app.route('/reset-password', methods=['GET', 'POST'])
+@limiter.limit("10 per hour")
+def reset_password():
+    """Reset password using a tokenized link from email."""
+    if current_user.is_authenticated:
+        return redirect(url_for('chat'))
+
+    token = request.args.get('token', '')
+    user_id = request.args.get('user_id', '')
+
+    if not token or not user_id:
+        return render_template('reset_password.html', error='Invalid or missing reset link.', token_valid=False)
+
+    # Hash the provided token and look up user
+    hashed_token = hashlib.sha256(token.encode()).hexdigest()
+    user = User.query.filter_by(id=user_id, password_reset_token=hashed_token).first()
+
+    if not user or not user.password_reset_expires or user.password_reset_expires < datetime.utcnow():
+        return render_template('reset_password.html', error='This reset link is invalid or has expired. Please request a new one.', token_valid=False)
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not password:
+            return render_template('reset_password.html', error='Please enter a new password.', token_valid=True, token=token, user_id=user_id)
+
+        if password != confirm_password:
+            return render_template('reset_password.html', error='Passwords do not match.', token_valid=True, token=token, user_id=user_id)
+
+        if len(password) < 8:
+            return render_template('reset_password.html', error='Password must be at least 8 characters long.', token_valid=True, token=token, user_id=user_id)
+
+        if not re.search(r'[A-Z]', password):
+            return render_template('reset_password.html', error='Password must contain at least one uppercase letter.', token_valid=True, token=token, user_id=user_id)
+
+        if not re.search(r'[a-z]', password):
+            return render_template('reset_password.html', error='Password must contain at least one lowercase letter.', token_valid=True, token=token, user_id=user_id)
+
+        if not re.search(r'[0-9]', password):
+            return render_template('reset_password.html', error='Password must contain at least one number.', token_valid=True, token=token, user_id=user_id)
+
+        # Reset the password and clear the token
+        user.set_password(password)
+        user.password_reset_token = None
+        user.password_reset_expires = None
+        db.session.commit()
+
+        security_logger.info(f"Password reset successfully for user {user.email}")
+        return render_template('reset_password.html', success='Your password has been reset successfully. You can now sign in.', token_valid=False)
+
+    return render_template('reset_password.html', token_valid=True, token=token, user_id=user_id)
+
+
+@app.route('/verify-email')
+def verify_email():
+    """Verify user email address via tokenized link."""
+    token = request.args.get('token', '')
+    user_id = request.args.get('user_id', '')
+
+    if not token or not user_id:
+        return render_template('login.html', error='Invalid verification link.')
+
+    hashed_token = hashlib.sha256(token.encode()).hexdigest()
+    user = User.query.filter_by(id=user_id, email_verification_token=hashed_token).first()
+
+    if not user:
+        return render_template('login.html', error='Invalid or expired verification link.')
+
+    # Check 24-hour expiry
+    if user.email_verification_sent_at and (datetime.utcnow() - user.email_verification_sent_at).total_seconds() > 86400:
+        return render_template('login.html', error='Verification link has expired. Please request a new one.')
+
+    user.email_verified = True
+    user.email_verification_token = None
+    db.session.commit()
+
+    security_logger.info(f"Email verified for user {user.email}")
+
+    if current_user.is_authenticated and current_user.id == user.id:
+        return redirect(url_for('chat'))
+
+    return render_template('login.html', error=None, success='Your email has been verified. Please sign in.')
+
+
+@app.route('/resend-verification', methods=['POST'])
+@login_required
+@limiter.limit("3 per hour")
+def resend_verification():
+    """Resend email verification for the currently logged-in user."""
+    user = current_user
+
+    if user.email_verified:
+        return jsonify({'success': False, 'message': 'Email is already verified.'}), 400
+
+    # Generate new token
+    raw_token = secrets.token_urlsafe(32)
+    hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
+
+    user.email_verification_token = hashed_token
+    user.email_verification_sent_at = datetime.utcnow()
+    db.session.commit()
+
+    try:
+        email_service.send_verification_email(user, token=raw_token)
+        security_logger.info(f"Verification email resent to {user.email}")
+        return jsonify({'success': True, 'message': 'Verification email sent. Please check your inbox.'})
+    except Exception as e:
+        app.logger.warning(f"Failed to resend verification email to {user.email}: {e}")
+        return jsonify({'success': False, 'message': 'Failed to send verification email. Please try again later.'}), 500
 
 
 @app.route('/chat')
@@ -1960,72 +2133,13 @@ def manage_budget_alert(alert_id):
 # Free-tier Groq chat helpers (no tool use)
 # ============================================
 
-FREE_TIER_SYSTEM_PROMPT = """You are a DevOps assistant. You can answer questions about cloud infrastructure, Kubernetes, CI/CD, and DevOps best practices.
-
-Note: You are running on the free tier, which provides AI chat advice only. You cannot execute cloud operations or use tools directly.
-
-To unlock full infrastructure automation (create/manage resources, run security scans, cost optimization, compliance checks), upgrade to a paid plan.
-
-Provide helpful, accurate DevOps guidance based on the user's question."""
-
-# Patterns that indicate the Anthropic API failed (agent catches errors and returns them as text)
-_ANTHROPIC_FAIL_PATTERNS = [
-    'credit balance is too low',
-    'Error communicating with Claude',
-    'Unexpected error',
-    'Rate limit reached',
-    'Temporary API issue',
-    'API error:',
-    'overloaded_error',
-]
-
-
-def _is_anthropic_error(text: str) -> bool:
-    """Check if a response string is actually an Anthropic API error caught by the agent."""
-    if not text:
-        return False
-    for pattern in _ANTHROPIC_FAIL_PATTERNS:
-        if pattern in text:
-            return True
-    return False
-
-
-def _process_free_tier_chat(message: str, conversation_history: list, preferences_context: str = None) -> str:
-    """Process a chat message using Groq for free-tier users (no tool use)."""
-    from services.model_failover import get_groq_provider
-    from services.model_router import resolve_model_for_tier
-
-    model_config = resolve_model_for_tier('free')
-    groq = get_groq_provider()
-
-    system = FREE_TIER_SYSTEM_PROMPT
-    if preferences_context:
-        system += f"\n\nUser context:\n{preferences_context}"
-
-    messages = list(conversation_history)
-    if not messages or messages[-1].get('content') != message:
-        messages.append({'role': 'user', 'content': message})
-
-    return groq.chat(messages, system=system, model=model_config.model, max_tokens=model_config.max_tokens)
-
-
-def _stream_free_tier_chat(message: str, conversation_history: list, preferences_context: str = None):
-    """Stream a chat response using Groq for free-tier users (no tool use)."""
-    from services.model_failover import get_groq_provider
-    from services.model_router import resolve_model_for_tier
-
-    model_config = resolve_model_for_tier('free')
-    groq = get_groq_provider()
-
-    system = FREE_TIER_SYSTEM_PROMPT
-    if preferences_context:
-        system += f"\n\nUser context:\n{preferences_context}"
-
-    messages = list(conversation_history)
-    if not messages or messages[-1].get('content') != message:
-        messages.append({'role': 'user', 'content': message})
-
-    yield from groq.chat_stream(messages, system=system, model=model_config.model, max_tokens=model_config.max_tokens)
+# Import chat helpers from shared service (also used by API v1)
+from services.chat_service import (
+    FREE_TIER_SYSTEM_PROMPT,
+    is_anthropic_error as _is_anthropic_error,
+    process_free_tier_chat as _process_free_tier_chat,
+    stream_free_tier_chat as _stream_free_tier_chat,
+)
 
 
 @app.route('/api/chat', methods=['POST'])
@@ -3828,6 +3942,7 @@ def purchase_credits():
 
 
 @app.route('/api/stripe/status', methods=['GET'])
+@login_required
 def stripe_status():
     """Diagnostic endpoint to check Stripe configuration (no secrets exposed)."""
     try:
@@ -4494,19 +4609,19 @@ def init_database():
                  features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
                  max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
                  compliance_frameworks=[], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=49.0,
+            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=10.0,
                  description='For individual developers and solo operators',
                  features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
                  max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
                  compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='professional', display_name='Pro', monthly_credits=2000, monthly_price=199.0,
+            dict(name='professional', display_name='Pro', monthly_credits=2000, monthly_price=30.0,
                  description='For growing teams with multi-cloud needs',
                  features=['2,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
                            'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
                            'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
                  max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
                  compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
-            dict(name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=799.0,
+            dict(name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=100.0,
                  description='Unlimited automation for large organizations',
                  features=['Unlimited AI messages', 'Unlimited cloud accounts', 'Unlimited resources',
                            'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
@@ -4569,19 +4684,19 @@ if __name__ == '__main__':
                  features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
                  max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
                  compliance_frameworks=[], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=49.0,
+            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=10.0,
                  description='For individual developers and solo operators',
                  features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
                  max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
                  compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='professional', display_name='Pro', monthly_credits=2000, monthly_price=199.0,
+            dict(name='professional', display_name='Pro', monthly_credits=2000, monthly_price=30.0,
                  description='For growing teams with multi-cloud needs',
                  features=['2,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
                            'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
                            'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
                  max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
                  compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
-            dict(name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=799.0,
+            dict(name='business', display_name='Enterprise', monthly_credits=99999, monthly_price=100.0,
                  description='Unlimited automation for large organizations',
                  features=['Unlimited AI messages', 'Unlimited cloud accounts', 'Unlimited resources',
                            'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
@@ -4652,6 +4767,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"  Warning: Scheduler failed to start: {e}")
 
-    # In production, debug should be False
-    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    debug_mode = os.environ.get('FLASK_ENV') == 'development'
     app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False)

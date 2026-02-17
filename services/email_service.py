@@ -27,7 +27,7 @@ class EmailService:
         self.smtp_user = os.getenv('SMTP_USER')
         self.smtp_pass = os.getenv('SMTP_PASS')
         self.sendgrid_key = os.getenv('SENDGRID_API_KEY')
-        self.base_url = os.getenv('APP_BASE_URL', 'http://localhost:5000')
+        self.base_url = os.getenv('BASE_URL', 'https://devopsagent.io')
 
     def send_email(self, to_email, subject, html_content, text_content=None):
         """Send email via configured provider. Returns bool."""
@@ -121,16 +121,18 @@ class EmailService:
         </html>
         """
 
-    def send_verification_email(self, user):
-        """Send account verification email."""
-        import secrets
-        token = secrets.token_urlsafe(32)
+    def send_verification_email(self, user, token=None):
+        """Send account verification email. If token is not provided, one will be generated."""
+        if token is None:
+            import secrets as _secrets
+            token = _secrets.token_urlsafe(32)
         link = f"{self.base_url}/verify-email?token={token}&user_id={user.id}"
 
         html = self._wrap_html(f"""
             <h2 style="color: #333; margin-bottom: 12px;">Verify Your Email</h2>
             <p>Hi {user.username},</p>
             <p>Please verify your email address to complete your account setup.</p>
+            <p style="font-size: 13px; color: #666;">This link expires in 24 hours.</p>
             <div style="text-align: center; margin: 24px 0;">
                 <a href="{link}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
                     Verify Email
@@ -140,6 +142,24 @@ class EmailService:
         """)
 
         return self.send_email(user.email, "Verify Your Email - DevOps Agent", html)
+
+    def send_password_reset_email(self, user, token):
+        """Send password reset email with a tokenized link. Link expires in 1 hour."""
+        link = f"{self.base_url}/reset-password?token={token}&user_id={user.id}"
+
+        html = self._wrap_html(f"""
+            <h2 style="color: #333; margin-bottom: 12px;">Reset Your Password</h2>
+            <p>Hi {user.username},</p>
+            <p>We received a request to reset your password. Click the button below to choose a new one.</p>
+            <div style="text-align: center; margin: 24px 0;">
+                <a href="{link}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Reset Password
+                </a>
+            </div>
+            <p style="font-size: 13px; color: #666;">This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
+        """)
+
+        return self.send_email(user.email, "Reset Your Password - DevOps Agent", html)
 
     def send_payment_failed_warning(self, user):
         """Warn user about failed payment."""
