@@ -5,7 +5,8 @@
       "Bash(python -c:*)",
       "Bash(git push:*)",
       "Bash(git pull:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(git status:*)"
     ],
     "deny": [],
     "ask": []
