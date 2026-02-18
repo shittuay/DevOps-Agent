@@ -163,7 +163,8 @@ class DevOpsAgent:
         conversation_history: List[Dict[str, str]],
         user_preferences_context: Optional[str] = None,
         user_id: Optional[int] = None,
-        model_override: Optional[str] = None
+        model_override: Optional[str] = None,
+        trial_context: Optional[str] = None
     ) -> str:
         """
         Process a user message with isolated conversation context (thread-safe).
@@ -210,7 +211,7 @@ class DevOpsAgent:
                 self.conversation.add_user_message(user_message)
 
                 # Process with Claude API
-                response_text = self._call_claude_api(user_preferences_context, model_override=model_override)
+                response_text = self._call_claude_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
 
                 # Capture pending download before restoring state
                 result_pending_download = self.pending_download
@@ -233,7 +234,8 @@ class DevOpsAgent:
         conversation_history: List[Dict[str, str]],
         user_preferences_context: Optional[str] = None,
         user_id: Optional[int] = None,
-        model_override: Optional[str] = None
+        model_override: Optional[str] = None,
+        trial_context: Optional[str] = None
     ):
         """
         Process a user message and yield text chunks as they stream in.
@@ -268,7 +270,7 @@ class DevOpsAgent:
                 max_iterations = 50
                 for iteration in range(max_iterations):
                     try:
-                        system_prompt = self._build_system_prompt(user_preferences_context)
+                        system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
                         api_params = {
                             'model': model_override or self.config.claude_model,
                             'max_tokens': self.config.claude_max_tokens,
@@ -325,12 +327,13 @@ class DevOpsAgent:
                     self.pending_download = original_pending_download
                 self.conversation = original_conversation
 
-    def _build_system_prompt(self, user_preferences_context: Optional[str] = None) -> Optional[str]:
+    def _build_system_prompt(self, user_preferences_context: Optional[str] = None, trial_context: Optional[str] = None) -> Optional[str]:
         """
         Build system prompt with user preferences context.
 
         Args:
             user_preferences_context: Optional context string with user preferences
+            trial_context: Optional trial/credit context for free-tier users
 
         Returns:
             System prompt string or None if no context provided
@@ -364,14 +367,20 @@ RULES:
 User Preferences and Context:
 {preferences}"""
 
-        return base_prompt.format(preferences=user_preferences_context or 'No specific preferences set.')
+        prompt = base_prompt.format(preferences=user_preferences_context or 'No specific preferences set.')
 
-    def _call_claude_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None) -> str:
+        if trial_context:
+            prompt += f"\n\n{trial_context}"
+
+        return prompt
+
+    def _call_claude_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None) -> str:
         """
         Call Claude API with current conversation and handle tool execution.
 
         Args:
             user_preferences_context: Optional context string with user preferences
+            trial_context: Optional trial/credit context for free-tier users
 
         Returns:
             Final response text from Claude
@@ -385,7 +394,7 @@ User Preferences and Context:
 
             try:
                 # Build system prompt with user preferences if provided
-                system_prompt = self._build_system_prompt(user_preferences_context)
+                system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
                 # Call Claude API with streaming to prevent timeouts
                 api_params = {
