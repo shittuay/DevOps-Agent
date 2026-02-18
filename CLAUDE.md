@@ -33,6 +33,8 @@ src/
   config/
     config_manager.py
 services/
+  model_router.py          # Tier -> AI model mapping (free=Sonnet 4.6, starter=Haiku, etc.)
+  chat_service.py          # Groq fallback chat, upgrade pitch, error detection
   infrastructure_sync.py   # Per-user cloud resource sync
   credential_encryption.py # Fernet encryption for credentials
 templates/
@@ -172,6 +174,8 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 | **Stripe price IDs not loading in production** | `MANAGED_SECRET_KEYS` in `secrets_manager.py` was missing Stripe price IDs. Added all `STRIPE_PRICE_*` and `STRIPE_PUBLISHABLE_KEY` to the list. Must also be added to AWS Secrets Manager JSON. |
 | **Credit pack size mismatch** | Billing page showed packs of 50/200 but Stripe config has 100/250. Fixed billing.html to match Stripe: 100/$10, 250/$20, 500/$35, 1000/$60. |
 | **Subscription price mismatch (FIXED)** | `create_stripe_prices.py` had $49/$199/$799 while billing page showed $10/$30/$100. Aligned everything to $29/$99/$299. Business tier changed from unlimited to 10,000 credits. Old Stripe prices were inactive — must run script to create new active prices. |
+| **`resolve_model_for_tier('free')` no longer returns Groq** | Free tier now maps to `claude-sonnet-4-6` (Anthropic). All Groq fallback paths must use explicit `ModelConfig(provider='groq', model='llama-3.3-70b-versatile', ...)` or the `GROQ_FALLBACK_MODEL` constant in `chat_service.py`. Never call `resolve_model_for_tier('free')` when you need a Groq config. |
+| **Free-tier credit exhaustion returns 200, not 402** | When free-tier users run out of credits, endpoints return a 200 with `generate_upgrade_pitch()` and `trial_ended: true`. Only paid users get a 402. Frontend checks `trial_ended` in the SSE `done` event to show the upgrade CTA. |
 
 ## Verification Commands
 
@@ -204,6 +208,42 @@ for name, mod in [('AWS', aws_tools), ('K8s', kubernetes_tools), ('Azure', azure
     print(f'{name}: {len(tools)} tools OK')
 "
 ```
+
+## Free Trial System
+
+Free-tier users get **20 credits/month** with the **full agent experience** — Claude Sonnet 4.6 with real tool execution. This replaces the old Groq/Llama chat-only experience that had no tool support.
+
+### Model Tier Mapping (`services/model_router.py`)
+
+| Tier | Provider | Model | Tools | Max Tokens |
+|------|----------|-------|-------|------------|
+| free | Anthropic | `claude-sonnet-4-6` | Yes | 4096 |
+| starter ($29/mo) | Anthropic | `claude-haiku-4-5-20251001` | Yes | 4096 |
+| professional ($99/mo) | Anthropic | `claude-sonnet-4-6` | Yes | 8192 |
+| business ($299/mo) | Anthropic | `claude-opus-4-6` | Yes | 8192 |
+
+### Trial Context (`src/agent/core.py`)
+- `trial_context` string is built in `app.py` / `api/v1/conversations.py` for free-tier users
+- Threaded through `process_message_isolated()` → `_call_claude_api()` → `_build_system_prompt()`
+- Appended to the system prompt so the agent knows the user is on trial
+- When credits <= 5, the agent is instructed to naturally mention upgrading (without derailing the answer)
+
+### Credit Exhaustion — Upgrade Pitch
+- **Free-tier users** with 0 credits get a **200 response** with `generate_upgrade_pitch()` from `services/chat_service.py` (not a 402 error)
+- `/api/chat`: returns `{response: "...", trial_ended: true, credits_remaining: 0}`
+- `/api/chat/stream`: returns SSE with pitch as chunk + `{type: "done", trial_ended: true}`
+- **Paid users** still get a normal `402` with `insufficient_credits` error
+- Frontend (`index.html`) handles `trial_ended: true` by showing a styled "Upgrade to Starter" CTA button and disabling the input
+
+### Groq Fallback (Anthropic outage only)
+- `process_free_tier_chat()` and `stream_free_tier_chat()` in `chat_service.py` use Groq/Llama as a **fallback** when Anthropic is down
+- These functions use hardcoded `GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'` (NOT `resolve_model_for_tier('free')`, which now returns Anthropic)
+- All Groq fallback paths in `app.py` and `api/v1/conversations.py` use explicit `ModelConfig(provider='groq', ...)` instead of resolving the free tier
+- `FREE_TIER_SYSTEM_PROMPT` is now labeled as a "fallback model" prompt — only used during Groq failover
+
+### Cost
+- ~$0.05/message with Sonnet 4.6 × 20 credits = **~$1.00/user/month**
+- Worth it to convert a $29/mo Starter subscriber
 
 ## Billing & Stripe Payment Flow
 
