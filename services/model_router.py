@@ -2,7 +2,8 @@
 Tiered AI Model Router
 
 Maps subscription tiers to AI providers and models.
-Free users get Groq (no tool use), paid users get progressively better Claude models.
+Free users get Claude Sonnet 4.6 (with tools) for their trial credits.
+Paid users get progressively better Claude models.
 """
 
 import os
@@ -25,10 +26,10 @@ class ModelConfig:
 # Default tier -> model mapping
 DEFAULT_TIER_MODELS = {
     'free': ModelConfig(
-        provider='groq',
-        model='llama-3.3-70b-versatile',
-        display_name='Llama 3.3 70B',
-        supports_tools=False,
+        provider='anthropic',
+        model='claude-sonnet-4-6',
+        display_name='Claude Sonnet 4.6 (Trial)',
+        supports_tools=True,
         max_tokens=4096,
     ),
     'starter': ModelConfig(
@@ -40,8 +41,8 @@ DEFAULT_TIER_MODELS = {
     ),
     'professional': ModelConfig(
         provider='anthropic',
-        model='claude-sonnet-4-5-20250929',
-        display_name='Claude Sonnet 4.5',
+        model='claude-sonnet-4-6',
+        display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
     ),

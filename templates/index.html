@@ -1555,6 +1555,33 @@
                 padding: 20px;
             }
         }
+
+        .upgrade-cta {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 12px 28px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #fff;
+            font-weight: 600;
+            font-size: 15px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .upgrade-cta:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        }
+
+        .trial-ended-banner {
+            text-align: center;
+            padding: 12px;
+            background: rgba(99, 102, 241, 0.08);
+            border-radius: 8px;
+            margin-top: 12px;
+        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
@@ -1932,6 +1959,16 @@
                             } else if (evt.type === 'done') {
                                 if (evt.credits_remaining !== undefined) {
                                     updateCreditsDisplay(evt.credits_remaining);
+                                }
+                                if (evt.trial_ended) {
+                                    const ctaDiv = document.createElement('div');
+                                    ctaDiv.className = 'trial-ended-banner';
+                                    ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Upgrade to Starter &mdash; $29/month</a>';
+                                    textDiv.parentElement.appendChild(ctaDiv);
+                                    const input = document.getElementById('messageInput');
+                                    const sendBtn = document.getElementById('sendButton');
+                                    if (input) { input.disabled = true; input.placeholder = 'Trial ended — upgrade to continue'; }
+                                    if (sendBtn) sendBtn.disabled = true;
                                 }
                                 loadConversations();
                             } else if (evt.type === 'error') {
