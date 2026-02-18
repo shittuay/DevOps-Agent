@@ -1075,12 +1075,8 @@
                     <div class="recommended-badge">Most Popular</div>
                     {% endif %}
                     <div class="tier-name">{{ tier.display_name }}</div>
-                    {% if tier.monthly_price >= 799 %}
-                    <div class="tier-price">Custom</div>
-                    {% else %}
                     <div class="tier-price">${{ tier.monthly_price | int }}<small>/month</small></div>
-                    {% endif %}
-                    <div class="tier-credits">{{ '{:,}'.format(tier.monthly_credits) if tier.monthly_credits < 99999 else 'Unlimited' }} credits/month</div>
+                    <div class="tier-credits">{{ '{:,}'.format(tier.monthly_credits) }} credits/month</div>
                     <ul class="tier-features">
                         {% for feature in (tier.features or []) %}
                         <li>{{ feature }}</li>
@@ -1106,8 +1102,7 @@
                     </div>
                     {% if is_current %}
                     <button class="btn btn-secondary" disabled style="margin-top: 20px;">Current Plan</button>
-                    {% elif tier.name == 'business' %}
-                    <a href="mailto:sales@devopsagent.io?subject=Enterprise%20Plan%20Inquiry" class="btn btn-contact" style="margin-top: 20px; display: block; text-align: center; text-decoration: none;">Contact Sales</a>
+                    {% elif tier.name == 'free' %}
                     {% elif subscription and tier.monthly_price < subscription.tier.monthly_price %}
                     <button class="btn btn-secondary" onclick="upgradeTier('{{ tier.name }}')" style="margin-top: 20px;">Downgrade</button>
                     {% else %}
