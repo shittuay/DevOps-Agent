@@ -284,6 +284,23 @@ You: Save what we did today
 You: What were we working on?
 ```
 
+### 10. continue-where-you-stop
+**Purpose:** Automatically pick up and continue unfinished work after interruptions
+
+**Use when:**
+- A rate limit, token reset, or crash interrupted mid-task
+- You returned to a session and want to finish what was started
+- Context was compressed and tasks were left incomplete
+- You see uncommitted changes and want to finish the job
+
+**How it differs from resume-work:** `/resume-work` reports state and asks what to do. `/continue-where-you-stop` actively resumes execution — it reads the task list, checks git state, re-reads files, and continues working.
+
+**Example usage:**
+```
+You: /continue-where-you-stop
+You: Pick up where you left off
+```
+
 ## Need Help?
 
 If you need assistance with skills:
