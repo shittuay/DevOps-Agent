@@ -171,6 +171,7 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 | **Billing payment bypass (FIXED)** | Legacy endpoints `/api/subscription/upgrade` and `/api/credits/purchase` granted free credits without Stripe payment. Now return 403. All credit granting goes through Stripe webhook `handle_checkout_completed()`. |
 | **Stripe price IDs not loading in production** | `MANAGED_SECRET_KEYS` in `secrets_manager.py` was missing Stripe price IDs. Added all `STRIPE_PRICE_*` and `STRIPE_PUBLISHABLE_KEY` to the list. Must also be added to AWS Secrets Manager JSON. |
 | **Credit pack size mismatch** | Billing page showed packs of 50/200 but Stripe config has 100/250. Fixed billing.html to match Stripe: 100/$10, 250/$20, 500/$35, 1000/$60. |
+| **Subscription price mismatch (FIXED)** | `create_stripe_prices.py` had $49/$199/$799 while billing page showed $10/$30/$100. Aligned everything to $29/$99/$299. Business tier changed from unlimited to 10,000 credits. Old Stripe prices were inactive — must run script to create new active prices. |
 
 ## Verification Commands
 
@@ -230,9 +231,9 @@ for name, mod in [('AWS', aws_tools), ('K8s', kubernetes_tools), ('Azure', azure
 - `STRIPE_SECRET_KEY` — Stripe API secret key
 - `STRIPE_PUBLISHABLE_KEY` — Stripe publishable key (passed to billing template)
 - `STRIPE_WEBHOOK_SECRET` — Webhook signature verification secret
-- `STRIPE_PRICE_STARTER` — Stripe Price ID for Starter tier
-- `STRIPE_PRICE_PROFESSIONAL` — Stripe Price ID for Professional tier
-- `STRIPE_PRICE_BUSINESS` — Stripe Price ID for Business tier
+- `STRIPE_PRICE_STARTER` — Stripe Price ID for Starter tier ($29/mo)
+- `STRIPE_PRICE_PROFESSIONAL` — Stripe Price ID for Professional tier ($99/mo)
+- `STRIPE_PRICE_BUSINESS` — Stripe Price ID for Business tier ($299/mo)
 - `STRIPE_PRICE_PACK_100` — Price ID for 100-credit pack ($10)
 - `STRIPE_PRICE_PACK_250` — Price ID for 250-credit pack ($20)
 - `STRIPE_PRICE_PACK_500` — Price ID for 500-credit pack ($35)
