@@ -1,6 +1,8 @@
 # Database files
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 instance/
 
 # Python
@@ -58,3 +60,11 @@ logs/
 # SSH Keys (NEVER commit private keys!)
 *.pem
 *.key
+
+# Runtime files
+.app_pid
+.app_output.log
+app_output.log
+
+# Node
+node_modules/

@@ -1,0 +1,32 @@
+{
+  "name": "devopsagent",
+  "version": "1.0.0",
+  "description": "CLI for DevOps Agent - AI-powered infrastructure management from your terminal",
+  "bin": {
+    "devopsagent": "./bin/devopsagent.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node bin/devopsagent.js"
+  },
+  "keywords": [
+    "devops",
+    "cli",
+    "aws",
+    "kubernetes",
+    "infrastructure",
+    "ai"
+  ],
+  "author": "DevOps Agent",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "marked": "^12.0.0",
+    "marked-terminal": "^7.0.0",
+    "ora": "^8.0.0"
+  }
+}
