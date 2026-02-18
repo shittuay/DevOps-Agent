@@ -334,6 +334,7 @@ Use `/skill-name` or mention the skill:
 - `/secrets-mgmt` - Secrets management
 - `/update-context` - Update CLAUDE.md after significant codebase changes
 - `/resume-work` - Recover context and resume after rate limit or token reset
+- `/continue-where-you-stop` - Automatically pick up and continue unfinished work after interruptions
 - `/memory` - Maintain WORKLOG.md as persistent session memory across resets
 
 ## Code Style
