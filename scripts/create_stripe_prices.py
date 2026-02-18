@@ -9,10 +9,19 @@ import json
 import stripe
 import boto3
 
-# Load Stripe key from environment
+# Load Stripe key from environment or AWS Secrets Manager
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 if not stripe.api_key:
-    print("ERROR: STRIPE_SECRET_KEY not set")
+    print("STRIPE_SECRET_KEY not in env, trying AWS Secrets Manager...")
+    try:
+        sm = boto3.client('secretsmanager', region_name='us-east-1')
+        response = sm.get_secret_value(SecretId='devops-agent/production')
+        secrets = json.loads(response['SecretString'])
+        stripe.api_key = secrets.get('STRIPE_SECRET_KEY')
+    except Exception as e:
+        print(f"Failed to load from Secrets Manager: {e}")
+if not stripe.api_key:
+    print("ERROR: STRIPE_SECRET_KEY not found in env or Secrets Manager")
     sys.exit(1)
 
 print(f"Using Stripe key: {stripe.api_key[:12]}...")
