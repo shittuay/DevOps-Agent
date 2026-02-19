@@ -181,25 +181,25 @@
             </div>
             {% if analyses %}
                 {% for analysis in analyses|reverse %}
-                <a href="{{ url_for('analysis.view_analysis', analysis_id=analysis.id) }}" class="analysis-card" style="display: block; text-decoration: none; color: inherit;">
+                <a href="{{ url_for('analysis.view_analysis', analysis_id=analysis['id']) }}" class="analysis-card" style="display: block; text-decoration: none; color: inherit;">
                     <div class="analysis-header">
                         <div>
-                            <h4>Analysis #{{ analysis.id }} - Incident #{{ analysis.incident_id }}</h4>
-                            <p>{{ analysis.summary[:100] }}{% if analysis.summary|length > 100 %}...{% endif %}</p>
+                            <h4>Analysis #{{ analysis['id'] }} - Incident #{{ analysis['incident_id'] }}</h4>
+                            <p>{{ analysis['summary'][:100] }}{% if analysis['summary']|length > 100 %}...{% endif %}</p>
                         </div>
-                        <span class="badge badge-{{ analysis.status }}">{{ analysis.status }}</span>
+                        <span class="badge badge-{{ analysis['status'] }}">{{ analysis['status'] }}</span>
                     </div>
                     <div class="analysis-meta">
-                        <span>Analyzed: {{ analysis.analyzed_at[:19] }}</span>
-                        <span>Duration: {{ "%.1f"|format(analysis.analysis_duration_seconds) }}s</span>
-                        <span>Root Causes: {{ analysis.root_causes|length }}</span>
+                        <span>Analyzed: {{ analysis['analyzed_at'] | replace('T', ' ') | truncate(19, False, '') }}</span>
+                        <span>Duration: {{ "%.1f"|format(analysis['analysis_duration_seconds']) }}s</span>
+                        <span>Root Causes: {{ analysis['root_causes']|length }}</span>
                     </div>
-                    {% if analysis.root_causes %}
+                    {% if analysis['root_causes'] %}
                     <div class="root-causes">
-                        {% for rc in analysis.root_causes[:3] %}
+                        {% for rc in analysis['root_causes'][:3] %}
                         <div class="root-cause-item">
-                            <span class="badge confidence-{{ rc.confidence }}">{{ rc.confidence }}</span>
-                            {{ rc.title }}
+                            <span class="badge confidence-{{ rc['confidence'] }}">{{ rc['confidence'] }}</span>
+                            {{ rc['title'] }}
                         </div>
                         {% endfor %}
                     </div>

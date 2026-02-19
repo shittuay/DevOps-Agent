@@ -218,7 +218,8 @@
                         {% if can_create %}
                         <a href="{{ url_for('incidents.edit_playbook', playbook_id=playbook.id) }}"
                            style="font-size: 0.75rem; color: var(--text-secondary); text-decoration: none;">Edit</a>
-                        {% if not playbook.id.startswith('high-') and not playbook.id.startswith('memory-') and not playbook.id.startswith('disk-') and not playbook.id.startswith('pod-') and not playbook.id.startswith('latency-') %}
+                        {% set builtin_ids = ['high-cpu-usage', 'memory-pressure', 'disk-space-low', 'pod-crashloop', 'service-down', 'security-alert'] %}
+                        {% if playbook.id not in builtin_ids %}
                         <button onclick="deletePlaybook('{{ playbook.id }}')"
                                 style="background: none; border: none; font-size: 0.75rem; color: var(--accent-danger); cursor: pointer;">Delete</button>
                         {% endif %}

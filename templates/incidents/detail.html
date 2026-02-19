@@ -279,7 +279,7 @@
                     <div class="action-item">
                         <h4>
                             {{ action.action }}
-                            <span class="badge {% if action.result.success %}severity-low{% else %}severity-critical{% endif %}">
+                            <span class="badge {% if action.result.success %}severity-info{% else %}severity-critical{% endif %}">
                                 {{ 'Success' if action.result.success else 'Failed' }}
                             </span>
                         </h4>

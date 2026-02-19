@@ -86,6 +86,8 @@ class MonitoringRule:
             "state": self.state.value,
             "last_value": self.last_value,
             "last_check": self.last_check.isoformat() if self.last_check else None,
+            "pending_since": self.pending_since.isoformat() if self.pending_since else None,
+            "firing_since": self.firing_since.isoformat() if self.firing_since else None,
         }
 
 
@@ -277,6 +279,7 @@ class ProactiveMonitoringService:
         self.rules: dict[str, MonitoringRule] = {}
         self.alerts: dict[str, Alert] = {}
         self.alert_history: list[Alert] = []
+        self._max_alert_history = 500  # cap in-memory history to prevent unbounded growth
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._alert_callbacks: list[Callable] = []
@@ -553,6 +556,8 @@ class ProactiveMonitoringService:
             if alert.rule_id == rule.id and alert.resolved_at is None:
                 alert.resolved_at = datetime.utcnow()
                 self.alert_history.append(alert)
+                if len(self.alert_history) > self._max_alert_history:
+                    self.alert_history = self.alert_history[-self._max_alert_history:]
                 logger.info(f"ALERT RESOLVED: {rule.name}")
 
                 for callback in self._alert_callbacks:
@@ -616,7 +621,9 @@ class ProactiveMonitoringService:
         """Immediately check a specific rule or all rules."""
         results = {}
 
-        rules_to_check = [self.rules[rule_id]] if rule_id else self.rules.values()
+        if rule_id and rule_id not in self.rules:
+            return {"error": f"Rule {rule_id!r} not found"}
+        rules_to_check = [self.rules[rule_id]] if rule_id else list(self.rules.values())
 
         for rule in rules_to_check:
             if rule.enabled:

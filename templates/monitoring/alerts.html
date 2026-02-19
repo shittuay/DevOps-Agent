@@ -173,8 +173,8 @@
         <div id="message"></div>
 
         <div class="tabs">
-            <button class="tab active" onclick="showTab('active')">Active ({{ active_alerts|length }})</button>
-            <button class="tab" onclick="showTab('history')">History ({{ alert_history|length }})</button>
+            <button class="tab active" onclick="showTab('active', event)">Active ({{ active_alerts|length }})</button>
+            <button class="tab" onclick="showTab('history', event)">History ({{ alert_history|length }})</button>
         </div>
 
         <div id="active-tab" class="section">
@@ -197,7 +197,7 @@
                             <div class="alert-meta">
                                 <span>Value: {{ "%.2f"|format(alert.value) }}</span>
                                 <span>Threshold: {{ alert.threshold }}</span>
-                                <span>Fired: {{ alert.fired_at[:19] }}</span>
+                                <span>Fired: {{ alert.fired_at | replace('T', ' ') | truncate(19, False, '') }}</span>
                                 {% if alert.incident_id %}
                                 <span>
                                     Incident: <a href="{{ url_for('incidents.view_incident', incident_id=alert.incident_id) }}" class="incident-link">#{{ alert.incident_id }}</a>
@@ -243,9 +243,9 @@
                             <p>{{ alert.message }}</p>
                             <div class="alert-meta">
                                 <span>Value: {{ "%.2f"|format(alert.value) }}</span>
-                                <span>Fired: {{ alert.fired_at[:19] }}</span>
+                                <span>Fired: {{ alert.fired_at | replace('T', ' ') | truncate(19, False, '') }}</span>
                                 {% if alert.resolved_at %}
-                                <span>Resolved: {{ alert.resolved_at[:19] }}</span>
+                                <span>Resolved: {{ alert.resolved_at | replace('T', ' ') | truncate(19, False, '') }}</span>
                                 {% endif %}
                                 {% if alert.incident_id %}
                                 <span>Incident: #{{ alert.incident_id }}</span>
@@ -272,11 +272,11 @@
             setTimeout(() => msg.style.display = 'none', 5000);
         }
 
-        function showTab(tab) {
+        function showTab(tab, evt) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
 
-            event.target.classList.add('active');
+            if (evt && evt.target) evt.target.classList.add('active');
             document.getElementById(tab + '-tab').style.display = 'block';
         }
 
@@ -286,12 +286,16 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
+                if (!resp.ok) {
+                    showMessage(`Request failed (${resp.status})`, 'error');
+                    return;
+                }
                 const data = await resp.json();
                 if (data.success) {
                     showMessage('Alert acknowledged', 'success');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    showMessage(data.error, 'error');
+                    showMessage(data.error || 'Failed to acknowledge alert', 'error');
                 }
             } catch (e) {
                 showMessage('Failed to acknowledge alert', 'error');

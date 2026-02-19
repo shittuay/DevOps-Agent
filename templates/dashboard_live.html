@@ -1242,7 +1242,11 @@
                 dots + '</svg>';
 
             $('trendChart').innerHTML = svg;
-            $('trendRange').textContent = trend[0].date + ' to ' + trend[trend.length - 1].date;
+            if (trend.length >= 2) {
+                $('trendRange').textContent = trend[0].date + ' to ' + trend[trend.length - 1].date;
+            } else if (trend.length === 1) {
+                $('trendRange').textContent = trend[0].date;
+            }
 
             // Hover interactions
             var chartEl = $('trendChart');

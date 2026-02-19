@@ -275,7 +275,7 @@ Return ONLY valid JSON, no additional text."""
 
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -437,11 +437,11 @@ Return ONLY valid JSON, no additional text."""
     def _get_data_sources(self, logs, metrics, related_events) -> list[str]:
         """Get list of data sources used in analysis."""
         sources = ["incident_data"]
-        if logs:
+        if logs is not None:
             sources.append(f"logs ({len(logs)} entries)")
-        if metrics:
+        if metrics is not None:
             sources.append(f"metrics ({len(metrics)} metrics)")
-        if related_events:
+        if related_events is not None:
             sources.append(f"related_events ({len(related_events)} events)")
         return sources
 

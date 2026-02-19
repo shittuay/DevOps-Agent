@@ -636,10 +636,10 @@ def api_delete_playbook(playbook_id):
     if not playbook:
         return jsonify({'success': False, 'error': 'Playbook not found'}), 404
 
-    # Check if this is a built-in playbook
+    # Check if this is a built-in playbook (IDs must match _load_builtin_playbooks() in incident_response.py)
     builtin_ids = [
-        'high-cpu-usage', 'memory-pressure', 'disk-full',
-        'pod-crash-loop', 'high-error-rate', 'latency-spike'
+        'high-cpu-usage', 'memory-pressure', 'disk-space-low',
+        'pod-crashloop', 'service-down', 'security-alert'
     ]
     if playbook_id in builtin_ids:
         return jsonify({

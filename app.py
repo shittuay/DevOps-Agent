@@ -260,7 +260,7 @@ monitoring_service.set_incident_engine(incident_engine)
 # Add notification callback to monitoring service for alert notifications
 def send_alert_notification(event_type, alert_data):
     """Send notifications when alerts fire or resolve."""
-    if event_type == "firing":
+    if event_type in ("firing", "resolved"):
         notification_service.send_alert(alert_data)
 
 monitoring_service.add_alert_callback(send_alert_notification)
@@ -2899,7 +2899,7 @@ def sync_infrastructure():
 
             # Calculate total potential savings for notification
             active_recs = CostOptimization.query.filter_by(
-                user_id=current_user.id, status='active'
+                user_id=current_user.id, status='pending'
             ).all()
             total_savings = sum(r.potential_monthly_savings or 0 for r in active_recs)
         except Exception:

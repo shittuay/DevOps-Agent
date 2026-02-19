@@ -40,7 +40,7 @@ def view_analysis(analysis_id: str):
     analysis = analyzer.get_analysis(analysis_id)
 
     if not analysis:
-        return "Analysis not found", 404
+        return render_template('404.html'), 404
 
     return render_template(
         'analysis/detail.html',
