@@ -2158,14 +2158,35 @@ def api_chat():
             return jsonify({'error': 'Agent not initialized. Please configure API key.'}), 503
 
     try:
-        from services.input_sanitizer import sanitize_input, sanitize_output
+        from services.input_sanitizer import sanitize_input, sanitize_output, validate_message
         from services.secret_detector import redact_secrets
+        from src.agent.guardrails import screen_message
 
         data = request.get_json()
         message = sanitize_input(data.get('message', ''))
 
         if not message:
             return jsonify({'error': 'Empty message'}), 400
+
+        # Check if user is blocked due to repeated policy violations
+        if current_user.is_guardrail_blocked():
+            return jsonify({'error': 'Your account has been temporarily restricted due to repeated policy violations. Please contact support.'}), 403
+
+        # Validate message content (length + injection patterns)
+        is_valid, validation_reason = validate_message(message)
+        if not is_valid:
+            current_user.record_guardrail_violation()
+            db.session.commit()
+            return jsonify({'error': validation_reason}), 400
+
+        # Haiku harmlessness screen
+        guardrail_result = screen_message(message)
+        if guardrail_result.blocked:
+            current_user.record_guardrail_violation()
+            db.session.commit()
+            return jsonify({
+                'error': 'Message blocked by content policy. Repeated violations may result in account suspension.'
+            }), 400
 
         # Check user subscription and credits
         subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
@@ -2451,14 +2472,35 @@ def api_chat_stream():
             return jsonify({'error': 'Agent not initialized. Please configure API key.'}), 503
 
     try:
-        from services.input_sanitizer import sanitize_input, sanitize_output
+        from services.input_sanitizer import sanitize_input, sanitize_output, validate_message
         from services.secret_detector import redact_secrets
+        from src.agent.guardrails import screen_message
 
         data = request.get_json()
         message = sanitize_input(data.get('message', ''))
 
         if not message:
             return jsonify({'error': 'Empty message'}), 400
+
+        # Check if user is blocked due to repeated policy violations
+        if current_user.is_guardrail_blocked():
+            return jsonify({'error': 'Your account has been temporarily restricted due to repeated policy violations. Please contact support.'}), 403
+
+        # Validate message content (length + injection patterns)
+        is_valid, validation_reason = validate_message(message)
+        if not is_valid:
+            current_user.record_guardrail_violation()
+            db.session.commit()
+            return jsonify({'error': validation_reason}), 400
+
+        # Haiku harmlessness screen
+        guardrail_result = screen_message(message)
+        if guardrail_result.blocked:
+            current_user.record_guardrail_violation()
+            db.session.commit()
+            return jsonify({
+                'error': 'Message blocked by content policy. Repeated violations may result in account suspension.'
+            }), 400
 
         # Check credits
         subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()

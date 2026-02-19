@@ -45,6 +45,10 @@ class User(UserMixin, db.Model):
     password_reset_token = db.Column(db.String(100), nullable=True)
     password_reset_expires = db.Column(db.DateTime, nullable=True)
 
+    # Guardrail violation tracking
+    guardrail_violations = db.Column(db.Integer, default=0)
+    guardrail_blocked_until = db.Column(db.DateTime, nullable=True)
+
     # Two-Factor Authentication
     two_factor_enabled = db.Column(db.Boolean, default=False)
     two_factor_secret = db.Column(db.String(32), nullable=True)
@@ -106,6 +110,24 @@ class User(UserMixin, db.Model):
             from datetime import timedelta
             self.locked_until = datetime.utcnow() + timedelta(minutes=15)
         db.session.commit()
+
+    def record_guardrail_violation(self):
+        """Record a guardrail policy violation. Block for 1 hour after 3 violations."""
+        from datetime import timedelta
+        self.guardrail_violations = (self.guardrail_violations or 0) + 1
+        if self.guardrail_violations >= 3:
+            self.guardrail_blocked_until = datetime.utcnow() + timedelta(hours=1)
+
+    def is_guardrail_blocked(self) -> bool:
+        """Check if the user is currently blocked due to guardrail violations."""
+        if self.guardrail_blocked_until and self.guardrail_blocked_until > datetime.utcnow():
+            return True
+        if self.guardrail_blocked_until and self.guardrail_blocked_until <= datetime.utcnow():
+            # Auto-unblock; reset counter after serving the block
+            self.guardrail_blocked_until = None
+            self.guardrail_violations = 0
+            db.session.commit()
+        return False
 
     def to_dict(self):
         """Convert user to dictionary"""
