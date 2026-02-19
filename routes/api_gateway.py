@@ -20,12 +20,13 @@ def api_key_required(f):
             return jsonify({'error': 'API key required'}), 401
 
         service = APIGatewayService()
-        key_record = service.validate_api_key(api_key)
+        key_record = service.get_api_key_by_key(api_key)
 
         if not key_record:
             return jsonify({'error': 'Invalid API key'}), 401
 
-        if not service.check_rate_limit(key_record):
+        allowed, _ = service.check_rate_limit(key_record)
+        if not allowed:
             return jsonify({'error': 'Rate limit exceeded'}), 429
 
         request.api_key = key_record
@@ -210,7 +211,7 @@ def usage_stats():
     """API usage statistics"""
     from services.api_gateway import APIGatewayService
     service = APIGatewayService()
-    stats = service.get_usage_stats(current_user.id)
+    stats = service.get_api_usage_stats(current_user.id)
     return render_template('api_gateway/usage.html', stats=stats)
 
 
@@ -377,7 +378,7 @@ def dashboard_stats():
     from services.api_gateway import APIGatewayService
     service = APIGatewayService()
 
-    stats = service.get_usage_stats(current_user.id)
+    stats = service.get_api_usage_stats(current_user.id)
     keys = service.get_user_api_keys(current_user.id)
     webhooks = service.get_user_webhooks(current_user.id)
 
