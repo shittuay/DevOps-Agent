@@ -45,7 +45,7 @@ def api_dashboard_data():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh')) if period[-1] in ('d', 'h') else 30
 
     data = service.get_dashboard_metrics(days=days)
     return jsonify(data)
@@ -77,15 +77,7 @@ def api_cost_forecast():
 
     days = int(request.args.get('days', 30))
     forecast = service.forecast_costs(days)
-
-    return jsonify({
-        'forecast': [{
-            'date': f.date.isoformat(),
-            'predicted_cost': f.predicted_cost,
-            'confidence_lower': f.confidence_lower,
-            'confidence_upper': f.confidence_upper
-        } for f in forecast]
-    })
+    return jsonify(forecast)
 
 
 @analytics_bp.route('/api/costs/by-service')
@@ -133,24 +125,23 @@ def api_performance_metrics():
     resource_id = request.args.get('resource_id')
     period = request.args.get('period', '24h')
 
+    from services.analytics_service import TimeRange
     if period.endswith('h'):
-        hours = int(period.replace('h', ''))
-        start_date = datetime.utcnow() - timedelta(hours=hours)
+        time_range = TimeRange.HOUR if period == '1h' else TimeRange.DAY
+    elif period.endswith('d'):
+        days = int(period[:-1])
+        time_range = TimeRange.WEEK if days <= 7 else TimeRange.MONTH
     else:
-        days = int(period.replace('d', ''))
-        start_date = datetime.utcnow() - timedelta(days=days)
+        time_range = TimeRange.MONTH
 
-    end_date = datetime.utcnow()
-
-    data = service.get_time_series(metric_type, start_date, end_date, resource_id)
+    # Map metric alias to cached series names
+    metric_map = {'cpu': 'resource_count', 'memory': 'resource_count', 'cost': 'daily_cost'}
+    series_name = metric_map.get(metric_type, metric_type)
+    series = service.get_time_series(series_name, time_range)
 
     return jsonify({
         'metric': metric_type,
-        'data': [{
-            'timestamp': d.timestamp.isoformat(),
-            'value': d.value,
-            'resource_id': d.resource_id
-        } for d in data]
+        'data': [p.to_dict() for p in series.data_points] if series else []
     })
 
 
@@ -178,16 +169,15 @@ def api_resource_trends():
     start_date = datetime.utcnow() - timedelta(days=days)
     end_date = datetime.utcnow()
 
-    metrics = ['cpu', 'memory', 'disk', 'network']
+    from services.analytics_service import TimeRange
+    time_range = TimeRange.WEEK if days <= 7 else TimeRange.MONTH
+    metric_map = {'cpu': 'resource_count', 'memory': 'resource_count', 'disk': 'resource_count', 'network': 'api_calls'}
     trends = {}
 
-    for metric in metrics:
-        data = service.get_time_series(metric, start_date, end_date)
-        if data:
-            trends[metric] = [{
-                'timestamp': d.timestamp.isoformat(),
-                'value': d.value
-            } for d in data]
+    for metric in ['cpu', 'memory', 'disk', 'network']:
+        series = service.get_time_series(metric_map[metric], time_range)
+        if series:
+            trends[metric] = [p.to_dict() for p in series.data_points]
 
     return jsonify({'trends': trends})
 

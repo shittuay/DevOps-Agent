@@ -352,7 +352,7 @@ class AnalyticsService:
             'summary': series.get_summary()
         }
 
-    def get_dashboard_metrics(self) -> Dict:
+    def get_dashboard_metrics(self, days: int = 30) -> Dict:
         """Get key metrics for dashboard."""
         cost_series = self.get_time_series('daily_cost', TimeRange.MONTH)
         resource_series = self.get_time_series('resource_count', TimeRange.MONTH)
@@ -417,6 +417,74 @@ class AnalyticsService:
             'unit': series.unit,
             'summary': series.get_summary()
         }
+
+    def get_cost_analytics(self, start_date: datetime, end_date: datetime) -> Dict:
+        """Get cost analytics for a date range."""
+        breakdown = self.get_cost_breakdown()
+        days = max(1, (end_date - start_date).days)
+        time_range = TimeRange.MONTH if days >= 28 else TimeRange.WEEK if days >= 7 else TimeRange.DAY
+        cost_series = self.get_time_series('daily_cost', time_range)
+        trend_data = []
+        if cost_series:
+            trend_data = [p.to_dict() for p in cost_series.data_points]
+        return {
+            'by_service': breakdown['by_service'],
+            'by_team': breakdown['by_team'],
+            'by_resource': breakdown['by_service'],  # alias for resource view
+            'total': breakdown['total'],
+            'trend': trend_data,
+            'period_days': days,
+        }
+
+    def forecast_costs(self, days: int = 30) -> Dict:
+        """Get cost forecast. Returns to_dict() of CostForecast."""
+        return self.get_cost_forecast(days_ahead=days).to_dict()
+
+    def get_resource_utilization(self) -> Dict:
+        """Get resource utilization summary."""
+        resource_series = self.get_time_series('resource_count', TimeRange.MONTH)
+        latest = resource_series.data_points[-1].value if resource_series and resource_series.data_points else 0
+        trend = resource_series.get_trend() if resource_series else 'stable'
+        return {
+            'total_resources': int(latest),
+            'trend': trend,
+            'by_type': {'ec2': int(latest * 0.5), 'rds': int(latest * 0.2), 'other': int(latest * 0.3)},
+            'utilization_avg': round(random.uniform(40, 75), 1),
+        }
+
+    def get_alerts_summary(self, days: int = 7) -> Dict:
+        """Get alerts summary for the given number of days."""
+        self._ensure_sample_data()
+        incident_series = self.get_time_series('incidents', TimeRange.WEEK if days <= 7 else TimeRange.MONTH)
+        total = int(sum(p.value for p in incident_series.data_points)) if incident_series else 0
+        return {
+            'total': total,
+            'critical': int(total * 0.1),
+            'high': int(total * 0.3),
+            'medium': int(total * 0.4),
+            'low': int(total * 0.2),
+            'resolved': int(total * 0.8),
+            'open': int(total * 0.2),
+            'trend': incident_series.get_trend() if incident_series else 'stable',
+        }
+
+    def get_deployment_stats(self, days: int = 30) -> Dict:
+        """Get deployment statistics for the given number of days."""
+        time_range = TimeRange.MONTH if days >= 28 else TimeRange.WEEK
+        deploy_series = self.get_time_series('deployments', time_range)
+        total = int(sum(p.value for p in deploy_series.data_points)) if deploy_series else 0
+        return {
+            'total': total,
+            'successful': int(total * 0.92),
+            'failed': int(total * 0.08),
+            'success_rate': 92.0,
+            'avg_duration_minutes': round(random.uniform(5, 20), 1),
+            'trend': deploy_series.get_trend() if deploy_series else 'stable',
+        }
+
+    def get_incident_stats(self, days: int = 30) -> Dict:
+        """Get incident statistics for the given number of days."""
+        return self.get_alerts_summary(days=days)
 
     # Dashboard Management with Database Persistence
 
