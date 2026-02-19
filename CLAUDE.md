@@ -24,6 +24,7 @@ src/
     core.py         # DevOpsAgent - main AI orchestration
     safety.py       # SafetyValidator - command/tool risk classification
     conversation.py # ConversationManager - message handling
+    guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
     aws_tools.py         # 154 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
     kubernetes_tools.py  # 28 K8s tools (pods, deployments, services, namespaces, etc.)
@@ -37,6 +38,7 @@ services/
   chat_service.py          # Groq fallback chat, upgrade pitch, error detection
   infrastructure_sync.py   # Per-user cloud resource sync
   credential_encryption.py # Fernet encryption for credentials
+  input_sanitizer.py       # sanitize_input() + validate_message() (injection blocking)
 templates/
   chat.html, settings.html, etc.
 ```
@@ -71,6 +73,19 @@ Compute (list, describe, start, stop, create, delete, snapshots), GCS (list buck
 - `@login_required` decorator on all API routes
 - Email verification required for new accounts
 - Account lockout after 5 failed attempts
+
+### Guardrails (Jailbreak / Prompt Injection Defense)
+Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any credit is deducted:
+
+1. **`validate_message()`** (`services/input_sanitizer.py`) — blocks messages with injection patterns (10 regex rules) and enforces a 10,000-char limit. Returns `(bool, reason)`.
+2. **`screen_message()`** (`src/agent/guardrails.py`) — Haiku pre-screen using structured tool output. Classifies: `prompt_injection`, `out_of_scope_attack`, `malware_request`, `data_exfiltration`, `social_engineering`. Fails open on error.
+3. **Hardened system prompt** (`src/agent/core.py`) — `SECURITY BOUNDARIES` section: fixed identity, no prompt disclosure, refuse malware generation, reject in-message operator impersonation.
+
+**Violation tracking on `User` model:**
+- `guardrail_violations` (Integer) + `guardrail_blocked_until` (DateTime)
+- `record_guardrail_violation()` — increments counter; blocks for 1 hour after 3 violations
+- `is_guardrail_blocked()` — auto-unblocks and resets counter after block expires
+- Run `migrate_missing_columns.py` to add these columns to existing databases
 
 ## Safety System (`src/agent/safety.py`)
 
@@ -176,6 +191,8 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 | **Subscription price mismatch (FIXED)** | `create_stripe_prices.py` had $49/$199/$799 while billing page showed $10/$30/$100. Aligned everything to $29/$99/$299. Business tier changed from unlimited to 10,000 credits. Old Stripe prices were inactive — must run script to create new active prices. |
 | **`resolve_model_for_tier('free')` no longer returns Groq** | Free tier now maps to `claude-sonnet-4-6` (Anthropic). All Groq fallback paths must use explicit `ModelConfig(provider='groq', model='llama-3.3-70b-versatile', ...)` or the `GROQ_FALLBACK_MODEL` constant in `chat_service.py`. Never call `resolve_model_for_tier('free')` when you need a Groq config. |
 | **Free-tier credit exhaustion returns 200, not 402** | When free-tier users run out of credits, endpoints return a 200 with `generate_upgrade_pitch()` and `trial_ended: true`. Only paid users get a 402. Frontend checks `trial_ended` in the SSE `done` event to show the upgrade CTA. |
+| **Injection patterns were log-only (FIXED)** | `input_sanitizer.py` originally logged injection patterns but never blocked them. Now `validate_message()` returns `(False, reason)` on any match — callers must check the return value and reject the message. `sanitize_input()` still just cleans chars; call `validate_message()` separately for policy enforcement. |
+| **Guardrail screen fails open** | `screen_message()` in `guardrails.py` catches all exceptions and returns `blocked=False`. This is intentional — an Anthropic outage should not take down the chat endpoint. Pattern-matching in `validate_message()` is always the first line of defense. |
 
 ## Verification Commands
 
