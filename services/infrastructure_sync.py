@@ -324,6 +324,7 @@ def sync_aws_rds_instances(user_id: int) -> int:
             resource.status = status
             resource.monthly_cost = calculate_rds_cost(db_class, status)
             resource.resource_metadata = {
+                'db_instance_identifier': db_id,
                 'db_class': db_class,
                 'engine': db_instance['Engine'],
                 'engine_version': db_instance['EngineVersion'],
@@ -1436,7 +1437,7 @@ def sync_azure_vms(user_id: int) -> int:
             resource.region = location
             resource.status = status
             resource.monthly_cost = monthly_cost
-            resource.metadata = {
+            resource.resource_metadata = {
                 'vm_size': vm_size,
                 'os_type': vm.storage_profile.os_disk.os_type if vm.storage_profile and vm.storage_profile.os_disk else 'unknown',
                 'resource_group': vm.id.split('/')[4] if vm.id and len(vm.id.split('/')) > 4 else 'unknown',
@@ -1488,7 +1489,7 @@ def sync_azure_sql(user_id: int) -> int:
                 resource.region = server.location or 'unknown'
                 resource.status = db_instance.status or 'unknown'
                 resource.monthly_cost = 15.0  # Base estimate
-                resource.metadata = {
+                resource.resource_metadata = {
                     'server_name': server.name,
                     'sku': db_instance.sku.name if db_instance.sku else 'unknown',
                     'edition': db_instance.edition if hasattr(db_instance, 'edition') else 'unknown',
@@ -1608,7 +1609,7 @@ def sync_gcp_compute_instances(user_id: int) -> int:
                 resource.region = zone_name.replace('zones/', '') if zone_name.startswith('zones/') else zone_name
                 resource.status = status
                 resource.monthly_cost = monthly_cost
-                resource.metadata = {
+                resource.resource_metadata = {
                     'machine_type': machine_type,
                     'instance_type': machine_type,
                     'network_interfaces': len(instance.network_interfaces) if instance.network_interfaces else 0,
@@ -1664,7 +1665,7 @@ def sync_gcp_storage_buckets(user_id: int) -> int:
             resource.region = bucket.location or 'US'
             resource.status = 'available'
             resource.monthly_cost = S3_BASE_COST  # Approximate
-            resource.metadata = {
+            resource.resource_metadata = {
                 'storage_class': bucket.storage_class,
                 'location_type': bucket.location_type if hasattr(bucket, 'location_type') else 'unknown',
             }
@@ -1728,7 +1729,7 @@ def sync_gcp_sql_instances(user_id: int) -> int:
             resource.region = inst.get('region', 'unknown')
             resource.status = status
             resource.monthly_cost = 25.0  # Base estimate
-            resource.metadata = {
+            resource.resource_metadata = {
                 'database_version': inst.get('databaseVersion', 'unknown'),
                 'tier': tier,
                 'instance_type': tier,

@@ -275,7 +275,7 @@
                             <div class="alert-meta">
                                 <span>Value: {{ "%.2f"|format(alert.value) }}</span>
                                 <span>Threshold: {{ alert.threshold }}</span>
-                                <span>Fired: {{ alert.fired_at[:19] }}</span>
+                                <span>Fired: {{ alert.fired_at | replace('T', ' ') | truncate(19, False, '') }}</span>
                                 {% if alert.incident_id %}
                                 <span>Incident: #{{ alert.incident_id }}</span>
                                 {% endif %}

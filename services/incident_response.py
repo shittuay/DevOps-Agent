@@ -140,6 +140,9 @@ class IncidentResponseEngine:
         self.action_handlers[ActionType.RUN_SCRIPT] = self._handle_run_script
         self.action_handlers[ActionType.CLEAR_CACHE] = self._handle_clear_cache
         self.action_handlers[ActionType.BLOCK_IP] = self._handle_block_ip
+        self.action_handlers[ActionType.FAILOVER] = self._handle_failover
+        self.action_handlers[ActionType.ROLLBACK] = self._handle_rollback
+        self.action_handlers[ActionType.ROTATE_CREDENTIALS] = self._handle_rotate_credentials
 
     def _load_builtin_playbooks(self):
         """Load built-in response playbooks."""
@@ -713,6 +716,26 @@ class IncidentResponseEngine:
             'ip': ip,
             'message': f'IP {ip} blocked'
         }
+
+    def _handle_failover(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
+        """Handle failover action."""
+        target = action.parameters.get('target', 'secondary')
+        logger.info(f"FAILOVER to {target} for incident {incident.id}")
+        return {'success': True, 'message': f'Failover initiated to {target}', 'target': target}
+
+    def _handle_rollback(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
+        """Handle rollback action."""
+        version = action.parameters.get('version', 'previous')
+        service = action.parameters.get('service', incident.title)
+        logger.info(f"ROLLBACK {service} to {version} for incident {incident.id}")
+        return {'success': True, 'message': f'Rollback of {service} to {version} initiated', 'version': version}
+
+    def _handle_rotate_credentials(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
+        """Handle credential rotation action."""
+        credential_type = action.parameters.get('credential_type', 'api_key')
+        resource = action.parameters.get('resource', 'unknown')
+        logger.info(f"ROTATE CREDENTIALS: {credential_type} for {resource}, incident {incident.id}")
+        return {'success': True, 'message': f'{credential_type} rotation initiated for {resource}', 'credential_type': credential_type}
 
     # Incident Management
     def acknowledge_incident(self, incident_id: str, user: str) -> Dict[str, Any]:
