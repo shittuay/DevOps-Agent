@@ -264,7 +264,7 @@ class DriftDetectionService:
         )
 
         self.reports.append(report)
-        logger.info(f"Drift scan completed: {len(drift_items)} drifts found in {len(report.drifted_resources)} resources")
+        logger.info(f"Drift scan completed: {len(drift_items)} drifts found in {report.drifted_resources} resources")
 
         return report
 
