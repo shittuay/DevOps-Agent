@@ -39,7 +39,8 @@ def framework_detail(framework_id):
         return redirect(url_for('compliance.frameworks'))
 
     controls = service.get_framework_controls(framework_id)
-    assessment = service.run_compliance_check(framework_id)
+    framework_name = framework.name if hasattr(framework, 'name') else str(framework_id)
+    assessment = service.run_compliance_check(current_user.id, framework_name)
 
     return render_template('compliance/framework_detail.html',
                          framework=framework,
@@ -54,7 +55,9 @@ def enable_framework(framework_id):
     from services.compliance_service import ComplianceService
     service = ComplianceService(current_user.id)
 
-    if service.enable_framework(framework_id):
+    framework = service.get_framework(framework_id)
+    framework_name = framework.name if framework and hasattr(framework, 'name') else str(framework_id)
+    if service.enable_framework(current_user.id, framework_name):
         flash('Framework enabled successfully!', 'success')
     else:
         flash('Failed to enable framework.', 'error')
@@ -146,7 +149,12 @@ def audit_log():
     if end_date:
         filters['end_date'] = datetime.fromisoformat(end_date)
 
-    logs = service.get_audit_logs(page=page, per_page=per_page, **filters)
+    limit = per_page * page  # fetch enough to cover current page
+    logs = service.get_audit_logs(
+        user_id=current_user.id,
+        action=filters.get('action_type'),
+        limit=limit
+    )
 
     action_types = ['create', 'read', 'update', 'delete', 'login', 'logout', 'config_change', 'access_grant', 'access_revoke']
     resource_types = ['user', 'resource', 'credential', 'organization', 'api_key', 'webhook', 'policy']
