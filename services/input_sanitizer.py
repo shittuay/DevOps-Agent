@@ -1,18 +1,26 @@
 """
 Input Sanitization Service
 
-Inspired by OpenClaw's security patterns. Sanitizes user input before
-processing to prevent prompt injection, command injection, and other attacks.
+Sanitizes user input before processing to prevent prompt injection,
+command injection, and other attacks.
+
+Two distinct functions:
+  sanitize_input()   — clean the text (strip dangerous chars, normalize unicode)
+  validate_message() — check content policy (length limits, injection patterns)
 """
 
 import re
 import unicodedata
 import logging
+from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
-# Maximum input length (prevent memory exhaustion)
+# Absolute max length — hard truncation to prevent memory exhaustion
 MAX_INPUT_LENGTH = 50000
+
+# Practical message length limit for chat (enforced by validate_message)
+MAX_MESSAGE_LENGTH = 10000
 
 # Null and dangerous control characters to strip
 DANGEROUS_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20)) | {0x7F}
@@ -21,12 +29,15 @@ DANGEROUS_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
 # Unicode categories to strip (format chars, private use, surrogates)
 STRIP_CATEGORIES = {'Cf', 'Co', 'Cs'}
 
-# Patterns that look like prompt injection attempts
+# Patterns that look like prompt injection attempts — BLOCK these
 INJECTION_PATTERNS = [
     re.compile(r'<\s*system\s*>', re.IGNORECASE),
     re.compile(r'\bignore\s+(previous|above|all)\s+(instructions|prompts)\b', re.IGNORECASE),
     re.compile(r'\byou\s+are\s+now\b.*\bassistant\b', re.IGNORECASE),
     re.compile(r'\[INST\]|\[/INST\]|<<SYS>>|<</SYS>>', re.IGNORECASE),
+    re.compile(r'\bdo\s+anything\s+now\b', re.IGNORECASE),                     # DAN-style
+    re.compile(r'\bforget\s+(all\s+)?(previous|your)\s+(instructions|rules|training)\b', re.IGNORECASE),
+    re.compile(r'\bact\s+as\s+(if\s+you\s+are|a)\b.{0,40}\bno\s+restrictions\b', re.IGNORECASE),
 ]
 
 
@@ -37,8 +48,9 @@ def sanitize_input(text: str) -> str:
     - Strips null bytes and dangerous control characters
     - Normalizes Unicode to NFC form
     - Strips Unicode format/control characters
-    - Truncates to max length
-    - Logs potential injection attempts (does not block)
+    - Hard-truncates to MAX_INPUT_LENGTH
+
+    Does NOT check content policy — call validate_message() for that.
 
     Args:
         text: Raw user input
@@ -53,7 +65,7 @@ def sanitize_input(text: str) -> str:
     if len(text) > MAX_INPUT_LENGTH:
         original_len = len(text)
         text = text[:MAX_INPUT_LENGTH]
-        logger.warning(f"Input truncated from {original_len} to {MAX_INPUT_LENGTH} chars")
+        logger.warning(f"Input hard-truncated from {original_len} to {MAX_INPUT_LENGTH} chars")
 
     # Strip null bytes
     text = text.replace('\x00', '')
@@ -73,13 +85,32 @@ def sanitize_input(text: str) -> str:
         if unicodedata.category(ch) not in STRIP_CATEGORIES
     )
 
-    # Log potential prompt injection attempts (don't block — just alert)
+    return text.strip()
+
+
+def validate_message(text: str) -> Tuple[bool, str]:
+    """
+    Check whether a message passes content policy.
+
+    Checks:
+    - Length <= MAX_MESSAGE_LENGTH
+    - No prompt injection patterns
+
+    Args:
+        text: Already-sanitized user message
+
+    Returns:
+        (is_valid, reason) — is_valid=False means the message should be rejected.
+    """
+    if len(text) > MAX_MESSAGE_LENGTH:
+        return False, f"Message too long ({len(text)} chars). Maximum is {MAX_MESSAGE_LENGTH}."
+
     for pattern in INJECTION_PATTERNS:
         if pattern.search(text):
-            logger.warning(f"Potential prompt injection detected: {pattern.pattern}")
-            break
+            logger.warning(f"Prompt injection pattern blocked: {pattern.pattern!r}")
+            return False, "Message blocked: contains prompt injection patterns."
 
-    return text.strip()
+    return True, ""
 
 
 def sanitize_output(text: str) -> str:
