@@ -594,36 +594,57 @@
 
                 <div id="currentAwsConfig" class="current-config" style="display: none;">
                     <h4>Current Configuration:</h4>
-                    <p><strong>Access Key:</strong> <span id="currentAccessKey"></span></p>
+                    <p><strong>Mode:</strong> <span id="currentAuthMode"></span></p>
+                    <p><strong>Identity:</strong> <span id="currentIdentity"></span></p>
                     <p><strong>Region:</strong> <span id="currentRegion"></span></p>
                 </div>
 
                 <div id="errorMessage" class="alert alert-error"></div>
                 <div id="successMessage" class="alert alert-success"></div>
 
+                <!-- Auth mode toggle -->
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="margin-bottom: 8px; display: block;">Authentication Method</label>
+                    <div style="display: flex; gap: 0; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; width: fit-content;">
+                        <button type="button" id="modeAccessKey" class="aws-mode-btn active" onclick="switchAwsMode('access_key')"
+                            style="padding: 8px 16px; border: none; cursor: pointer; font-size: 0.9em; background: #2563eb; color: white;">
+                            Access Keys
+                        </button>
+                        <button type="button" id="modeRoleArn" class="aws-mode-btn" onclick="switchAwsMode('role_arn')"
+                            style="padding: 8px 16px; border: none; border-left: 1px solid #d1d5db; cursor: pointer; font-size: 0.9em; background: #f9fafb; color: #374151;">
+                            IAM Role ARN
+                        </button>
+                    </div>
+                    <small>Access Keys for self-managed setups. Role ARN for cross-account delegation.</small>
+                </div>
+
                 <form id="awsConfigForm" onsubmit="saveAwsConfig(event)">
-                    <div class="form-group">
-                        <label for="accessKey">AWS Access Key ID *</label>
-                        <input
-                            type="text"
-                            id="accessKey"
-                            name="accessKey"
-                            placeholder="AKIA..."
-                            required
-                        />
-                        <small>Your AWS access key (starts with AKIA)</small>
+                    <!-- Access Key fields -->
+                    <div id="accessKeyFields">
+                        <div class="form-group">
+                            <label for="accessKey">AWS Access Key ID *</label>
+                            <input type="text" id="accessKey" name="accessKey" placeholder="AKIA..." required />
+                            <small>Your AWS access key (starts with AKIA)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="secretKey">AWS Secret Access Key *</label>
+                            <input type="password" id="secretKey" name="secretKey" placeholder="Enter your AWS secret key" required />
+                            <small>Your AWS secret access key</small>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="secretKey">AWS Secret Access Key *</label>
-                        <input
-                            type="password"
-                            id="secretKey"
-                            name="secretKey"
-                            placeholder="Enter your AWS secret key"
-                            required
-                        />
-                        <small>Your AWS secret access key (double-click to show/hide)</small>
+                    <!-- Role ARN fields (hidden by default) -->
+                    <div id="roleArnFields" style="display: none;">
+                        <div class="form-group">
+                            <label for="roleArn">IAM Role ARN *</label>
+                            <input type="text" id="roleArn" name="roleArn" placeholder="arn:aws:iam::123456789012:role/DevOpsAgentRole" />
+                            <small>The ARN of the IAM role this platform will assume</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="externalId">External ID</label>
+                            <input type="text" id="externalId" name="externalId" placeholder="(optional) your-external-id" />
+                            <small>Optional &mdash; for confused-deputy protection</small>
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -641,15 +662,28 @@
                         <small>Default AWS region for operations</small>
                     </div>
 
-                    <div class="info-box">
+                    <!-- Info boxes for each mode -->
+                    <div id="accessKeyInfo" class="info-box">
                         <h4>How to get AWS credentials:</h4>
                         <ul>
                             <li>Sign in to the AWS Management Console</li>
-                            <li>Go to IAM (Identity and Access Management)</li>
-                            <li>Create a new user or select existing user</li>
-                            <li>Attach appropriate policies (e.g., EC2FullAccess, S3ReadOnlyAccess)</li>
-                            <li>Generate access keys under "Security credentials"</li>
+                            <li>Go to IAM &rarr; Users &rarr; select your user</li>
+                            <li>Under "Security credentials", create an access key</li>
+                            <li>Attach appropriate policies (e.g., <code>PowerUserAccess</code>, <code>ReadOnlyAccess</code>)</li>
                         </ul>
+                    </div>
+
+                    <div id="roleArnInfo" class="info-box" style="display: none;">
+                        <h4>How to set up IAM Role delegation:</h4>
+                        <ol>
+                            <li>In your AWS account, go to <strong>IAM &rarr; Roles &rarr; Create Role</strong></li>
+                            <li>Select <strong>"Another AWS account"</strong> as the trusted entity</li>
+                            <li>Enter the platform's AWS Account ID</li>
+                            <li>(Optional) Set an External ID for extra security</li>
+                            <li>Attach the policies for resources you want to manage</li>
+                            <li>Copy the Role ARN and paste it above</li>
+                        </ol>
+                        <p style="margin-top:8px;font-size:0.85em;color:#666;">No access keys leave your account. The platform assumes the role for short-lived temporary credentials.</p>
                     </div>
 
                     <div class="button-group">
@@ -965,6 +999,38 @@
                     </div>
                 </form>
             </div>
+
+            <!-- Learning Mode -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div>
+                        <h2>Learning Mode</h2>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Learn DevOps concepts as you work</p>
+                    </div>
+                    <span id="learningStatusBadge" class="status-badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">Off</span>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="settingsLearningMode" onchange="updateLearningPref('learning_mode', this.checked)" style="accent-color: var(--accent-primary); width: 18px; height: 18px;">
+                        <span style="font-size: 0.9rem;">Enable Learning Mode</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding-left: 16px;">
+                        <input type="checkbox" id="settingsSandboxMode" onchange="updateLearningPref('sandbox_mode', this.checked)" style="accent-color: var(--accent-primary); width: 18px; height: 18px;">
+                        <span style="font-size: 0.9rem;">Enable Sandbox (simulated tools, safe to experiment)</span>
+                    </label>
+                </div>
+
+                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 20px 0 12px;">Proficiency Levels</h3>
+                <div id="proficiencyBars" style="display: flex; flex-direction: column; gap: 10px;">
+                    <p style="color: var(--text-tertiary); font-size: 0.85rem;">No proficiency data yet. Complete learning sessions to build your skills.</p>
+                </div>
+
+                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 20px 0 12px;">Session History</h3>
+                <div id="learningHistoryList" style="display: flex; flex-direction: column; gap: 10px;">
+                    <p style="color: var(--text-tertiary); font-size: 0.85rem;">No learning sessions yet.</p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -976,9 +1042,44 @@
             loadCurrentGcpConfig();
             loadNotifChannels();
             loadBudgetAlerts();
+            loadLearningSettings();
         });
 
         // AWS Functions
+        var currentAwsMode = 'access_key';
+
+        function switchAwsMode(mode) {
+            currentAwsMode = mode;
+            var akFields = document.getElementById('accessKeyFields');
+            var raFields = document.getElementById('roleArnFields');
+            var akInfo = document.getElementById('accessKeyInfo');
+            var raInfo = document.getElementById('roleArnInfo');
+            var akBtn = document.getElementById('modeAccessKey');
+            var raBtn = document.getElementById('modeRoleArn');
+
+            if (mode === 'role_arn') {
+                akFields.style.display = 'none';
+                raFields.style.display = 'block';
+                akInfo.style.display = 'none';
+                raInfo.style.display = 'block';
+                akBtn.style.background = '#f9fafb'; akBtn.style.color = '#374151';
+                raBtn.style.background = '#2563eb'; raBtn.style.color = 'white';
+                document.getElementById('accessKey').removeAttribute('required');
+                document.getElementById('secretKey').removeAttribute('required');
+                document.getElementById('roleArn').setAttribute('required', '');
+            } else {
+                akFields.style.display = 'block';
+                raFields.style.display = 'none';
+                akInfo.style.display = 'block';
+                raInfo.style.display = 'none';
+                akBtn.style.background = '#2563eb'; akBtn.style.color = 'white';
+                raBtn.style.background = '#f9fafb'; raBtn.style.color = '#374151';
+                document.getElementById('accessKey').setAttribute('required', '');
+                document.getElementById('secretKey').setAttribute('required', '');
+                document.getElementById('roleArn').removeAttribute('required');
+            }
+        }
+
         function loadCurrentConfig() {
             fetch('/api/aws/config')
                 .then(response => response.json())
@@ -988,8 +1089,16 @@
                         document.getElementById('awsStatusBadge').classList.remove('not-configured');
                         document.getElementById('awsStatusBadge').classList.add('configured');
                         document.getElementById('currentAwsConfig').style.display = 'block';
-                        document.getElementById('currentAccessKey').textContent = data.access_key_id || 'Not set';
                         document.getElementById('currentRegion').textContent = data.region || 'Not set';
+                        if (data.auth_mode === 'role_arn') {
+                            document.getElementById('currentAuthMode').textContent = 'IAM Role ARN';
+                            document.getElementById('currentIdentity').textContent = data.role_arn || 'Not set';
+                            switchAwsMode('role_arn');
+                        } else {
+                            document.getElementById('currentAuthMode').textContent = 'Access Keys';
+                            document.getElementById('currentIdentity').textContent = data.access_key || 'Not set';
+                            switchAwsMode('access_key');
+                        }
                     }
                 })
                 .catch(error => console.error('Error loading config:', error));
@@ -1003,11 +1112,14 @@
             saveBtn.innerHTML = '<span class="spinner"></span> Saving...';
             saveBtn.disabled = true;
 
-            const formData = {
-                access_key_id: document.getElementById('accessKey').value,
-                secret_access_key: document.getElementById('secretKey').value,
-                region: document.getElementById('region').value
-            };
+            var formData = { region: document.getElementById('region').value };
+            if (currentAwsMode === 'role_arn') {
+                formData.role_arn = document.getElementById('roleArn').value;
+                formData.external_id = document.getElementById('externalId').value;
+            } else {
+                formData.access_key_id = document.getElementById('accessKey').value;
+                formData.secret_access_key = document.getElementById('secretKey').value;
+            }
 
             fetch('/api/aws/config', {
                 method: 'POST',
@@ -1403,6 +1515,108 @@
                 this.type = this.type === 'password' ? 'text' : 'password';
             });
         });
+
+        // ===== LEARNING MODE SETTINGS =====
+        function loadLearningSettings() {
+            fetch('/api/preferences')
+                .then(r => r.json())
+                .then(data => {
+                    const p = data.preferences || {};
+                    document.getElementById('settingsLearningMode').checked = !!p.learning_mode;
+                    document.getElementById('settingsSandboxMode').checked = !!p.sandbox_mode;
+                    const badge = document.getElementById('learningStatusBadge');
+                    if (p.learning_mode) {
+                        badge.textContent = p.sandbox_mode ? 'On + Sandbox' : 'On';
+                        badge.style.background = 'var(--accent-primary)';
+                        badge.style.color = '#fff';
+                    }
+                })
+                .catch(() => {});
+
+            fetch('/api/learning/proficiency')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('proficiencyBars');
+                    const levels = data.proficiency || {};
+                    const keys = Object.keys(levels);
+                    if (!keys.length) return;
+                    container.innerHTML = '';
+                    keys.sort((a, b) => levels[b] - levels[a]);
+                    keys.forEach(domain => {
+                        const pct = Math.min(100, levels[domain]);
+                        const color = pct < 30 ? '#ef4444' : pct < 60 ? '#f59e0b' : '#22c55e';
+                        container.innerHTML += `
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <span style="width:90px;font-size:0.85rem;color:var(--text-secondary);text-transform:capitalize;">${domain}</span>
+                                <div style="flex:1;height:8px;background:var(--bg-tertiary);border-radius:4px;overflow:hidden;">
+                                    <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;transition:width 0.5s;"></div>
+                                </div>
+                                <span style="width:35px;text-align:right;font-size:0.8rem;color:var(--text-tertiary);">${pct}%</span>
+                            </div>`;
+                    });
+                    if (data.session_count) {
+                        container.innerHTML += `<p style="color:var(--text-tertiary);font-size:0.8rem;margin-top:6px;">${data.session_count} session(s) completed</p>`;
+                    }
+                })
+                .catch(() => {});
+
+            fetch('/api/learning/history?per_page=5')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('learningHistoryList');
+                    const sessions = data.sessions || [];
+                    if (!sessions.length) return;
+                    container.innerHTML = '';
+                    sessions.forEach(s => {
+                        const date = s.created_at ? new Date(s.created_at).toLocaleDateString() : '';
+                        const topics = (s.topics_covered || []).join(', ');
+                        container.innerHTML += `
+                            <div style="padding:12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                                    <span style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">${topics || 'General'}</span>
+                                    <span style="font-size:0.75rem;color:var(--text-tertiary);">${date}</span>
+                                </div>
+                                <p style="font-size:0.8rem;color:var(--text-secondary);margin:0;line-height:1.4;">${s.summary || 'No summary'}</p>
+                                ${s.was_sandbox ? '<span style="font-size:0.7rem;color:var(--accent-primary);margin-top:4px;display:inline-block;">Sandbox session</span>' : ''}
+                            </div>`;
+                    });
+                })
+                .catch(() => {});
+        }
+
+        function updateLearningPref(key, value) {
+            const body = {};
+            body[key] = value;
+            fetch('/api/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            }).then(function(r) {
+                if (!r.ok) throw new Error('Server returned ' + r.status);
+                return r.json();
+            }).then(function(data) {
+                if (data.error) throw new Error(data.error);
+                const badge = document.getElementById('learningStatusBadge');
+                const lm = document.getElementById('settingsLearningMode').checked;
+                const sb = document.getElementById('settingsSandboxMode').checked;
+                if (lm) {
+                    badge.textContent = sb ? 'On + Sandbox' : 'On';
+                    badge.style.background = 'var(--accent-primary)';
+                    badge.style.color = '#fff';
+                } else {
+                    badge.textContent = 'Off';
+                    badge.style.background = 'var(--bg-tertiary)';
+                    badge.style.color = 'var(--text-secondary)';
+                }
+                var label = key === 'learning_mode' ? 'Learning Mode' : 'Sandbox Mode';
+                if (typeof showToast === 'function') showToast(label + (value ? ' enabled' : ' disabled'), 'success');
+            }).catch(function(err) {
+                // Revert checkbox on failure
+                var el = key === 'learning_mode' ? document.getElementById('settingsLearningMode') : document.getElementById('settingsSandboxMode');
+                el.checked = !value;
+                if (typeof showToast === 'function') showToast('Failed to save: ' + err.message, 'error');
+            });
+        }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>

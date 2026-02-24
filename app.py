@@ -64,7 +64,8 @@ from src.tools import (
 # Import database models
 from models import (
     db, User, ChatMessage, Conversation, UserPreferences, CommandTemplate,
-    ResponseFeedback, SubscriptionTier, UserSubscription, CreditPurchase, UsageLog
+    ResponseFeedback, SubscriptionTier, UserSubscription, CreditPurchase, UsageLog,
+    LearningSession
 )
 
 # Import Stripe integration
@@ -799,6 +800,45 @@ def initialize_agent():
 
     except Exception as e:
         return False, str(e)
+
+
+# ---------------------------------------------------------------------------
+# Learning Mode system prompt augmentation
+# ---------------------------------------------------------------------------
+LEARNING_MODE_CONTEXT = """
+LEARNING MODE IS ACTIVE. You are now a teaching assistant in addition to a DevOps agent.
+For EVERY action you take, follow this pattern:
+
+BEFORE executing a tool:
+- Explain WHAT tool you are about to use and WHY
+- State what you expect the outcome to be
+- Mention any prerequisites or assumptions
+
+AFTER receiving results:
+- Explain the results in plain language
+- Highlight key takeaways and important values
+- Point out common gotchas or mistakes beginners make
+- Mention relevant best practices
+
+TEACHING GUIDELINES:
+- Adjust depth based on proficiency: 0-30 = beginner (explain everything, define acronyms),
+  31-60 = intermediate (focus on why, mention alternatives), 61-100 = advanced (focus on edge cases, optimization)
+- Use headers (### Before, ### Results, ### Key Takeaway) for structure
+- Use blockquote callouts (> ) for tips and warnings
+- Suggest what the user should try next to deepen understanding
+- Connect concepts to real-world scenarios ("In a production environment, you would...")
+- When multiple approaches exist, briefly mention alternatives
+
+Keep answers complete and helpful — teaching is additive, not a replacement for doing the work.
+"""
+
+SANDBOX_MODE_ADDENDUM = """
+SANDBOX MODE IS ACTIVE. All tool results are SIMULATED — no real infrastructure is affected.
+- Prefix key outputs with [SIMULATED] so the user knows this is practice data
+- Explain what would happen differently in a real environment (latency, eventual consistency, costs)
+- Encourage the user to experiment freely — nothing can break
+- Point out when a real execution would require specific permissions or incur costs
+"""
 
 
 @app.route('/')
@@ -1711,18 +1751,22 @@ def aws_config():
         ).first()
 
         if cred and cred.is_active:
-            # Get credentials to show masked access key
             credentials = cred.get_credentials()
-            access_key = credentials.get('access_key', '')
-            masked_access_key = access_key[:8] + '****' if len(access_key) > 8 else '****'
-
-            return jsonify({
+            result = {
                 'configured': True,
-                'access_key': masked_access_key,
                 'region': cred.default_region,
                 'verification_status': cred.verification_status,
                 'last_verified': cred.last_verified.isoformat() if cred.last_verified else None
-            })
+            }
+            if credentials.get('role_arn'):
+                result['auth_mode'] = 'role_arn'
+                result['role_arn'] = credentials['role_arn']
+                result['has_external_id'] = bool(credentials.get('external_id'))
+            else:
+                result['auth_mode'] = 'access_key'
+                access_key = credentials.get('access_key', '')
+                result['access_key'] = access_key[:8] + '****' if len(access_key) > 8 else '****'
+            return jsonify(result)
         return jsonify({'configured': False})
 
     if request.method == 'DELETE':
@@ -1743,14 +1787,14 @@ def aws_config():
 
     try:
         data = request.get_json()
-        access_key = (data.get('access_key') or data.get('access_key_id') or '').strip()
-        secret_key = (data.get('secret_key') or data.get('secret_access_key') or '').strip()
         region = (data.get('region') or 'us-east-1').strip()
 
         success, message = save_user_aws_credentials(
             user_id=current_user.id,
-            access_key=access_key,
-            secret_key=secret_key,
+            access_key=(data.get('access_key') or data.get('access_key_id') or '').strip(),
+            secret_key=(data.get('secret_key') or data.get('secret_access_key') or '').strip(),
+            role_arn=(data.get('role_arn') or '').strip(),
+            external_id=(data.get('external_id') or '').strip(),
             region=region
         )
 
@@ -2234,10 +2278,12 @@ def api_chat():
                 'credits_remaining': subscription.credits_remaining
             }), 402
 
-        # Resolve AI model for user's subscription tier
-        from services.model_router import resolve_model_for_tier
+        # Resolve AI model for user's subscription tier with user preference
+        from services.model_router import resolve_model_with_preference
         tier_name = subscription.tier.name if subscription.tier else 'free'
-        model_config = resolve_model_for_tier(tier_name)
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        preferred_provider = prefs.preferred_model_provider if prefs else None
+        model_config = resolve_model_with_preference(tier_name, preferred_provider)
 
         # Get or create conversation ID
         conversation_id = session.get('conversation_id')
@@ -2287,10 +2333,15 @@ def api_chat():
         db.session.add(user_message)
 
         # Get user preferences for personalized context
-        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
         preferences_context = None
+        sandbox_active = False
         if prefs:
             preferences_context = prefs.get_context_for_prompt()
+            if prefs.learning_mode:
+                preferences_context = (preferences_context or '') + '\n\n' + LEARNING_MODE_CONTEXT
+                if prefs.sandbox_mode:
+                    preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
+                    sandbox_active = True
 
         # Inject relevant memory context
         try:
@@ -2328,19 +2379,31 @@ def api_chat():
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
-        # Process message — route based on tier model
+        # Process message — route based on provider
         try:
-            if model_config.provider != 'anthropic':
-                response = _process_free_tier_chat(message, conversation_history, preferences_context)
-            else:
+            if model_config.provider == 'kimi':
                 response = agent.process_message_isolated(
                     user_message=message,
                     conversation_history=conversation_history,
                     user_preferences_context=preferences_context,
                     user_id=current_user.id,
                     model_override=model_config.model,
-                    trial_context=trial_context
+                    trial_context=trial_context,
+                    sandbox_mode=sandbox_active,
+                    provider='kimi'
                 )
+            elif model_config.provider == 'anthropic':
+                response = agent.process_message_isolated(
+                    user_message=message,
+                    conversation_history=conversation_history,
+                    user_preferences_context=preferences_context,
+                    user_id=current_user.id,
+                    model_override=model_config.model,
+                    trial_context=trial_context,
+                    sandbox_mode=sandbox_active
+                )
+            else:
+                response = _process_free_tier_chat(message, conversation_history, preferences_context)
             success = True
             error_msg = None
         except Exception as agent_error:
@@ -2348,12 +2411,13 @@ def api_chat():
             success = False
             error_msg = str(agent_error)
 
-        # Auto-fallback: if Anthropic returned an error string, retry with Groq
-        if model_config.provider == 'anthropic' and _is_anthropic_error(response):
+        # Auto-fallback: if primary provider returned an error string, retry with Groq
+        if model_config.provider in ('anthropic', 'kimi') and _is_anthropic_error(response):
             try:
                 from services.model_router import ModelConfig
                 response = _process_free_tier_chat(message, conversation_history, preferences_context)
-                response += "\n\n---\n*Note: Claude is temporarily unavailable. This response was generated by Llama 3.3 (Groq) without tool execution. Your cloud operations will resume when Claude is back online.*"
+                fallback_note = "Claude" if model_config.provider == 'anthropic' else "Kimi"
+                response += f"\n\n---\n*Note: {fallback_note} is temporarily unavailable. This response was generated by Llama 3.3 (Groq) without tool execution. Your cloud operations will resume when the primary model is back online.*"
                 model_config = ModelConfig(
                     provider='groq', model='llama-3.3-70b-versatile',
                     display_name='Llama 3.3 70B (Fallback)', supports_tools=False,
@@ -2539,9 +2603,11 @@ def api_chat_stream():
         if not subscription.use_credit():
             return jsonify({'error': 'insufficient_credits'}), 402
 
-        # Resolve AI model for user's subscription tier
-        from services.model_router import resolve_model_for_tier
-        model_config = resolve_model_for_tier(tier_name)
+        # Resolve AI model for user's subscription tier with user preference
+        from services.model_router import resolve_model_with_preference
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        preferred_provider = prefs.preferred_model_provider if prefs else None
+        model_config = resolve_model_with_preference(tier_name, preferred_provider)
 
         # Get or create conversation
         conversation_id = session.get('conversation_id')
@@ -2585,8 +2651,13 @@ def api_chat_stream():
         )
         db.session.add(user_msg)
 
-        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
         preferences_context = prefs.get_context_for_prompt() if prefs else None
+        sandbox_active = False
+        if prefs and prefs.learning_mode:
+            preferences_context = (preferences_context or '') + '\n\n' + LEARNING_MODE_CONTEXT
+            if prefs.sandbox_mode:
+                preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
+                sandbox_active = True
 
         prior_messages = ChatMessage.query.filter_by(
             user_id=current_user.id,
@@ -2622,6 +2693,7 @@ def api_chat_stream():
         msg_text = message
         mc = model_config
         tc = trial_context
+        sb = sandbox_active
 
         db.session.commit()
 
@@ -2638,18 +2710,21 @@ def api_chat_stream():
             actual_mc = mc
             _log.warning(f"STREAM DEBUG: tier={getattr(mc, 'provider', '?')}, model={getattr(mc, 'model', '?')}")
             try:
-                if mc.provider != 'anthropic':
-                    _log.warning("STREAM DEBUG: Using Groq path (non-anthropic)")
+                if mc.provider not in ('anthropic', 'kimi'):
+                    _log.warning("STREAM DEBUG: Using Groq path (non-anthropic/kimi)")
                     stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
                 else:
                     try:
+                        _provider_arg = 'kimi' if mc.provider == 'kimi' else None
                         stream_source = agent.process_message_streaming(
                             user_message=msg_text,
                             conversation_history=conversation_history,
                             user_preferences_context=preferences_context,
                             user_id=uid,
                             model_override=mc.model,
-                            trial_context=tc
+                            trial_context=tc,
+                            sandbox_mode=sb,
+                            provider=_provider_arg
                         )
                         # Collect initial chunks to detect agent-swallowed errors
                         # The agent catches Anthropic exceptions and yields error text
@@ -2693,7 +2768,8 @@ def api_chat_stream():
 
                 # Append fallback note if we switched providers
                 if actual_mc.provider != mc.provider:
-                    fallback_msg = "\n\n---\n*Note: Claude is temporarily unavailable. This response was generated by Llama 3.3 (Groq) without tool execution.*"
+                    _fn = "Claude" if mc.provider == 'anthropic' else "Kimi"
+                    fallback_msg = f"\n\n---\n*Note: {_fn} is temporarily unavailable. This response was generated by Llama 3.3 (Groq) without tool execution.*"
                     full_response.append(fallback_msg)
                     yield f"data: {_json.dumps({'type': 'chunk', 'content': fallback_msg})}\n\n"
 
@@ -2757,6 +2833,67 @@ def api_chat_stream():
         db.session.rollback()
         logger = get_logger(__name__)
         logger.error(f"Error in streaming chat: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/model/switch', methods=['POST'])
+@login_required
+def switch_model():
+    """Switch the user's preferred AI model provider."""
+    try:
+        data = request.get_json()
+        provider = data.get('provider')
+
+        if provider not in ('anthropic', 'kimi', None):
+            return jsonify({'error': 'Invalid provider. Must be "anthropic", "kimi", or null.'}), 400
+
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        if not prefs:
+            prefs = UserPreferences(user_id=current_user.id)
+            db.session.add(prefs)
+
+        prefs.preferred_model_provider = provider
+        db.session.commit()
+
+        # Resolve what the effective model is now
+        from services.model_router import resolve_model_with_preference
+        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
+        tier_name = subscription.tier.name if subscription and subscription.tier else 'free'
+        model_config = resolve_model_with_preference(tier_name, provider)
+
+        return jsonify({
+            'success': True,
+            'provider': model_config.provider,
+            'model': model_config.model,
+            'display_name': model_config.display_name,
+            'supports_tools': model_config.supports_tools,
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/model/current', methods=['GET'])
+@login_required
+def get_current_model():
+    """Get the user's current model configuration."""
+    try:
+        from services.model_router import resolve_model_with_preference
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        preferred = prefs.preferred_model_provider if prefs else None
+
+        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
+        tier_name = subscription.tier.name if subscription and subscription.tier else 'free'
+        model_config = resolve_model_with_preference(tier_name, preferred)
+
+        return jsonify({
+            'provider': model_config.provider,
+            'model': model_config.model,
+            'display_name': model_config.display_name,
+            'supports_tools': model_config.supports_tools,
+            'preferred_provider': preferred,
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
@@ -3642,6 +3779,145 @@ def remove_shortcut(shortcut):
     except Exception as e:
         logger = get_logger(__name__)
         logger.error(f"Error removing shortcut: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ===== LEARNING MODE API =====
+
+@app.route('/api/learning/session-summary', methods=['POST'])
+@login_required
+def learning_session_summary():
+    """Generate an AI session summary for the current learning conversation."""
+    try:
+        data = request.get_json() or {}
+        conversation_id = data.get('conversation_id') or session.get('conversation_id')
+        if not conversation_id:
+            return jsonify({'error': 'No active conversation'}), 400
+
+        messages = ChatMessage.query.filter_by(
+            user_id=current_user.id,
+            conversation_id=conversation_id
+        ).order_by(ChatMessage.timestamp).all()
+
+        if not messages:
+            return jsonify({'error': 'No messages in conversation'}), 400
+
+        transcript = '\n'.join(f"[{m.role}] {m.content[:500]}" for m in messages[-30:])
+        message_count = len(messages)
+
+        duration = 0
+        if len(messages) >= 2:
+            first_ts = messages[0].timestamp
+            last_ts = messages[-1].timestamp
+            if first_ts and last_ts:
+                duration = max(1, int((last_ts - first_ts).total_seconds() / 60))
+
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        was_sandbox = prefs.sandbox_mode if prefs else False
+
+        import anthropic as _anthropic
+        _client = _anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
+        summary_response = _client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=1024,
+            messages=[{'role': 'user', 'content': f"""Analyze this DevOps learning session transcript and return a JSON object with these fields:
+- "summary": 2-3 sentence overview of what was learned
+- "topics_covered": array of topic strings (e.g. ["ec2", "security_groups", "vpc"])
+- "tools_used": array of tool names that were executed
+- "key_lessons": array of 2-4 key takeaways
+- "study_recommendations": array of 2-3 suggestions for what to study next
+- "proficiency_deltas": object mapping domain to points gained (e.g. {{"aws": 5, "security": 3}})
+
+Return ONLY valid JSON, no markdown wrapping.
+
+Transcript:
+{transcript}"""}]
+        )
+
+        import json as _json
+        raw = summary_response.content[0].text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+        summary_data = _json.loads(raw)
+
+        ls = LearningSession(
+            user_id=current_user.id,
+            conversation_id=conversation_id,
+            summary=summary_data.get('summary', ''),
+            topics_covered=summary_data.get('topics_covered', []),
+            tools_used=summary_data.get('tools_used', []),
+            key_lessons=summary_data.get('key_lessons', []),
+            study_recommendations=summary_data.get('study_recommendations', []),
+            proficiency_deltas=summary_data.get('proficiency_deltas', {}),
+            message_count=message_count,
+            was_sandbox=was_sandbox,
+            duration_minutes=duration
+        )
+        db.session.add(ls)
+
+        if prefs:
+            levels = prefs.learning_level or {}
+            for domain, delta in summary_data.get('proficiency_deltas', {}).items():
+                current = levels.get(domain, 0)
+                levels[domain] = min(100, current + int(delta))
+            prefs.learning_level = levels
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(prefs, 'learning_level')
+
+        db.session.commit()
+
+        return jsonify({'success': True, 'session': ls.to_dict()})
+
+    except Exception as e:
+        db.session.rollback()
+        logger = get_logger(__name__)
+        logger.error(f"Error generating learning summary: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/learning/history', methods=['GET'])
+@login_required
+def learning_history():
+    """Get paginated list of past learning sessions."""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+
+        sessions = LearningSession.query.filter_by(
+            user_id=current_user.id
+        ).order_by(LearningSession.created_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+
+        return jsonify({
+            'sessions': [s.to_dict() for s in sessions.items],
+            'total': sessions.total,
+            'page': sessions.page,
+            'pages': sessions.pages
+        })
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"Error fetching learning history: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/learning/proficiency', methods=['GET'])
+@login_required
+def learning_proficiency():
+    """Get current proficiency levels and session count."""
+    try:
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        levels = prefs.learning_level if prefs and prefs.learning_level else {}
+
+        session_count = LearningSession.query.filter_by(user_id=current_user.id).count()
+
+        return jsonify({
+            'proficiency': levels,
+            'session_count': session_count
+        })
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"Error fetching proficiency: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -4680,6 +4956,7 @@ def health():
         'version': '2026-02-11-v6',
         'stripe_enabled': STRIPE_ENABLED
     })
+
 
 
 @app.route('/init-database-secret-endpoint-12345', methods=['POST'])

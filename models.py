@@ -239,9 +239,15 @@ class UserPreferences(db.Model):
 
     # General Preferences
     preferred_cloud_provider = db.Column(db.String(20), default='aws')  # aws, azure, gcp
+    preferred_model_provider = db.Column(db.String(20), default=None, nullable=True)  # None=tier default, 'anthropic', 'kimi'
     enable_cost_warnings = db.Column(db.Boolean, default=True)
     enable_suggestions = db.Column(db.Boolean, default=True)
     verbose_mode = db.Column(db.Boolean, default=False)
+
+    # Learning Mode
+    learning_mode = db.Column(db.Boolean, default=False)
+    sandbox_mode = db.Column(db.Boolean, default=False)
+    learning_level = db.Column(db.JSON, default=dict)  # {"aws": 30, "kubernetes": 10, ...}
 
     # Favorite Commands (JSON array)
     favorite_commands = db.Column(db.JSON, default=list)
@@ -273,9 +279,13 @@ class UserPreferences(db.Model):
             'k8s_default_namespace': self.k8s_default_namespace,
             'k8s_default_replicas': self.k8s_default_replicas,
             'preferred_cloud_provider': self.preferred_cloud_provider,
+            'preferred_model_provider': self.preferred_model_provider,
             'enable_cost_warnings': self.enable_cost_warnings,
             'enable_suggestions': self.enable_suggestions,
             'verbose_mode': self.verbose_mode,
+            'learning_mode': self.learning_mode or False,
+            'sandbox_mode': self.sandbox_mode or False,
+            'learning_level': self.learning_level or {},
             'favorite_commands': self.favorite_commands or [],
             'custom_shortcuts': self.custom_shortcuts or {},
             'recent_operations': self.recent_operations or []
@@ -357,6 +367,13 @@ class UserPreferences(db.Model):
 
         if self.verbose_mode:
             context.append("User prefers detailed explanations")
+
+        if self.learning_mode:
+            levels = self.learning_level or {}
+            level_str = ', '.join(f'{k}: {v}/100' for k, v in levels.items()) if levels else 'all beginner'
+            context.append(f"LEARNING MODE ACTIVE. Proficiency levels: {level_str}")
+            if self.sandbox_mode:
+                context.append("SANDBOX MODE ACTIVE. All tool executions are simulated.")
 
         return "\n".join(context)
 
@@ -1083,8 +1100,14 @@ class UserCloudCredential(db.Model):
             creds = self.get_credentials()
             # Mask sensitive values
             if self.cloud_provider == 'aws':
-                result['has_access_key'] = bool(creds.get('access_key'))
-                result['access_key_preview'] = creds.get('access_key', '')[:8] + '****' if creds.get('access_key') else None
+                if creds.get('role_arn'):
+                    result['auth_mode'] = 'role_arn'
+                    result['role_arn'] = creds['role_arn']
+                    result['has_external_id'] = bool(creds.get('external_id'))
+                else:
+                    result['auth_mode'] = 'access_key'
+                    result['has_access_key'] = bool(creds.get('access_key'))
+                    result['access_key_preview'] = creds.get('access_key', '')[:8] + '****' if creds.get('access_key') else None
             elif self.cloud_provider == 'azure':
                 result['has_client_secret'] = bool(creds.get('client_secret'))
                 result['subscription_id'] = creds.get('subscription_id')
@@ -2028,6 +2051,49 @@ class UserMemory(db.Model):
             'importance': self.importance,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class LearningSession(db.Model):
+    """Track learning mode sessions with summaries and proficiency tracking"""
+    __tablename__ = 'learning_sessions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    conversation_id = db.Column(db.String(50), db.ForeignKey('conversations.id'), nullable=True)
+
+    summary = db.Column(db.Text)
+    topics_covered = db.Column(db.JSON, default=list)
+    tools_used = db.Column(db.JSON, default=list)
+    key_lessons = db.Column(db.JSON, default=list)
+    study_recommendations = db.Column(db.JSON, default=list)
+    proficiency_deltas = db.Column(db.JSON, default=dict)
+    message_count = db.Column(db.Integer, default=0)
+    was_sandbox = db.Column(db.Boolean, default=False)
+    duration_minutes = db.Column(db.Integer, default=0)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('learning_sessions', lazy='dynamic'))
+    conversation = db.relationship('Conversation', backref=db.backref('learning_session', uselist=False))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'conversation_id': self.conversation_id,
+            'summary': self.summary,
+            'topics_covered': self.topics_covered or [],
+            'tools_used': self.tools_used or [],
+            'key_lessons': self.key_lessons or [],
+            'study_recommendations': self.study_recommendations or [],
+            'proficiency_deltas': self.proficiency_deltas or {},
+            'message_count': self.message_count,
+            'was_sandbox': self.was_sandbox,
+            'duration_minutes': self.duration_minutes,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<LearningSession {self.id} user={self.user_id}>'
 
 
 class StripeWebhookEvent(db.Model):

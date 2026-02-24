@@ -10,7 +10,7 @@
 
 - **Backend:** Flask + SQLAlchemy (SQLite)
 - **Frontend:** Jinja2 templates + vanilla JavaScript
-- **AI:** Anthropic Claude API
+- **AI:** Kimi K2.5 (default, free/starter) + Anthropic Claude (professional/business)
 - **Auth:** Flask-Login with bcrypt password hashing
 - **Cloud:** boto3 (AWS), azure-sdk, google-cloud
 
@@ -34,11 +34,14 @@ src/
   config/
     config_manager.py
 services/
-  model_router.py          # Tier -> AI model mapping (free=Sonnet 4.6, starter=Haiku, etc.)
+  model_router.py          # Tier -> AI model mapping (free/starter=Kimi, pro=Sonnet, biz=Opus)
+  model_failover.py        # KimiProvider, GroqProvider with health tracking
   chat_service.py          # Groq fallback chat, upgrade pitch, error detection
+  credential_service.py    # Per-user AWS credential storage (dual-mode: access keys + role ARN)
   infrastructure_sync.py   # Per-user cloud resource sync
   credential_encryption.py # Fernet encryption for credentials
   input_sanitizer.py       # sanitize_input() + validate_message() (injection blocking)
+  learning_sandbox.py      # Mock tool results for sandbox/learning mode
 templates/
   chat.html, settings.html, etc.
 ```
@@ -68,6 +71,11 @@ Compute (list, describe, start, stop, create, delete, snapshots), GCS (list buck
 - `UserCloudCredential` model stores encrypted credentials
 - Uses Fernet (AES-128) encryption via `credential_encryption.py`
 - Key derived from `CREDENTIAL_ENCRYPTION_KEY` or `SECRET_KEY`
+- **AWS dual-mode auth** (`credential_service.py`):
+  - `auth_mode='access_key'`: Direct IAM access key + secret key (simple, for self-hosting teams)
+  - `auth_mode='role_arn'`: IAM Role ARN + optional External ID → STS AssumeRole for temp creds (enterprise, cross-account)
+  - `get_user_boto_client()` / `get_user_boto_resource()` handle both modes transparently
+  - Settings UI (`templates/settings.html`) has toggle between the two modes
 
 ### Authentication
 - `@login_required` decorator on all API routes
@@ -210,6 +218,13 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 | **API Gateway usage stats method name** | `service.get_usage_stats()` doesn't exist. Correct method is `get_api_usage_stats()`. |
 | **Compliance service/route API mismatch (FIXED)** | Routes called ~22 methods that don't exist on `ComplianceService` (e.g., `get_enabled_frameworks`, `get_framework_controls`, `get_violations`, etc.). Added adapter methods to the service class. Routes also called `enable_framework(framework_id)` and `run_compliance_check(framework_id)` with wrong signatures — fixed to pass `user_id` and `framework_name`. |
 | **Contact widget blocks send button on mobile** | Fixed: floating contact button (`position:fixed; bottom:24px; right:24px`) overlaps the send button on mobile. Hidden with `display:none` inside `@media (max-width: 768px)` in `templates/index.html`. |
+| **`resolve_model_for_tier('free')` now returns Kimi** | Free and Starter tiers default to `kimi` provider. Use `resolve_model_with_preference(tier_name, preferred_provider)` to respect user overrides. The `provider` parameter on `process_message_isolated()` and `process_message_streaming()` routes to `_call_kimi_api()` when set to `'kimi'`. |
+| **Kimi tool format differs from Anthropic** | Anthropic uses `{name, description, input_schema}`. Kimi (OpenAI-compatible) uses `{type: "function", function: {name, description, parameters}}`. `_convert_tools_to_openai_format()` in `core.py` handles the conversion. |
+| **Kimi K2.5 rejects temperature != 1 (FIXED)** | K2.5 is a reasoning model that only accepts `temperature=1`. Passing `temperature=0.7` caused 400 errors. Fixed in `core.py`: skip temperature param when model contains `k2`. |
+| **Kimi reasoning_content missing in tool calls (FIXED)** | Kimi K2.5 streams `reasoning_content` (thinking tokens) that must be preserved in assistant messages during multi-turn tool-use conversations. If omitted, subsequent API calls fail with "thinking is enabled but reasoning_content is missing". Fixed by collecting `reasoning_content` from streaming deltas and including it in the assistant message dict. |
+| **AWS dual-mode auth (access keys + role ARN)** | `credential_service.py` supports both `auth_mode='access_key'` (direct keys) and `auth_mode='role_arn'` (STS AssumeRole with temp creds). Settings UI has toggle. Small teams use access keys; enterprise uses cross-account role delegation. |
+| **11 missing DB columns caused 500 error (FIXED)** | New model fields (`preferred_model_provider`, `learning_mode`, `sandbox_mode`, `learning_level`, `email_verified`, `email_verification_token`, `email_verification_sent_at`, `password_reset_token`, `password_reset_expires`, `guardrail_violations`, `guardrail_blocked_until`) weren't in the DB. Fixed by running `migrate_missing_columns.py`. |
+| **Env var name mismatch for Kimi (FIXED)** | `.env` had `kimi_API_KEY` but code reads `MOONSHOT_API_KEY`. Renamed in `.env`. |
 
 ## Verification Commands
 
@@ -245,20 +260,35 @@ for name, mod in [('AWS', aws_tools), ('K8s', kubernetes_tools), ('Azure', azure
 
 ## Free Trial System
 
-Free-tier users get **20 credits/month** with the **full agent experience** — Claude Sonnet 4.6 with real tool execution. This replaces the old Groq/Llama chat-only experience that had no tool support.
+Free-tier users get **20 credits/month** with the **full agent experience** — Kimi K2.5 with real tool execution (users can switch to Claude via the model toggle). This replaces the old Groq/Llama chat-only experience that had no tool support.
 
 ### Model Tier Mapping (`services/model_router.py`)
 
-| Tier | Provider | Model | Tools | Max Tokens |
+| Tier | Default Provider | Model | Tools | Max Tokens |
 |------|----------|-------|-------|------------|
-| free | Anthropic | `claude-sonnet-4-6` | Yes | 4096 |
-| starter ($29/mo) | Anthropic | `claude-haiku-4-5-20251001` | Yes | 4096 |
+| free | Kimi | `kimi-k2.5` | Yes | 4096 |
+| starter ($29/mo) | Kimi | `kimi-k2.5` | Yes | 4096 |
 | professional ($99/mo) | Anthropic | `claude-sonnet-4-6` | Yes | 8192 |
 | business ($299/mo) | Anthropic | `claude-opus-4-6` | Yes | 8192 |
 
+**Users can override their tier default** via a toggle in the chat toolbar (`/api/model/switch`). The override is stored in `UserPreferences.preferred_model_provider` (null = tier default, `'anthropic'` = force Claude, `'kimi'` = force Kimi). Use `resolve_model_with_preference(tier_name, preferred_provider)` instead of `resolve_model_for_tier()` when you need to respect user preference.
+
+### Kimi K2.5 Integration
+- **Provider:** Moonshot AI, OpenAI-compatible API at `https://api.moonshot.ai/v1`
+- **Model ID:** `kimi-k2.5` (262K context, ~$0.60/M input, ~$3.00/M output)
+- **Auth:** Bearer token via `MOONSHOT_API_KEY` env var
+- **Tool support:** Yes — all 258 tools work via OpenAI function-calling format
+- **Implementation:** `KimiProvider` in `services/model_failover.py`, `_call_kimi_api()` and `_call_kimi_api_streaming()` in `src/agent/core.py`
+- **Tool format conversion:** `_convert_tools_to_openai_format()` converts Anthropic `{name, description, input_schema}` to OpenAI `{type: "function", function: {name, description, parameters}}`
+- **Fallback:** If Kimi fails, auto-falls back to Groq (same as Anthropic failure path)
+- **Reasoning model constraints:**
+  - K2.5 only accepts `temperature=1` — skip temperature param when model contains `k2`
+  - Streams `reasoning_content` (thinking tokens) alongside `content` — must collect from deltas
+  - `reasoning_content` MUST be preserved in assistant messages during multi-turn tool-use conversations or subsequent API calls fail with "reasoning_content is missing"
+
 ### Trial Context (`src/agent/core.py`)
 - `trial_context` string is built in `app.py` / `api/v1/conversations.py` for free-tier users
-- Threaded through `process_message_isolated()` → `_call_claude_api()` → `_build_system_prompt()`
+- Threaded through `process_message_isolated()` → `_call_claude_api()` / `_call_kimi_api()` → `_build_system_prompt()`
 - Appended to the system prompt so the agent knows the user is on trial
 - When credits <= 5, the agent is instructed to naturally mention upgrading (without derailing the answer)
 
@@ -269,11 +299,20 @@ Free-tier users get **20 credits/month** with the **full agent experience** — 
 - **Paid users** still get a normal `402` with `insufficient_credits` error
 - Frontend (`index.html`) handles `trial_ended: true` by showing a styled "Upgrade to Starter" CTA button and disabling the input
 
-### Groq Fallback (Anthropic outage only)
-- `process_free_tier_chat()` and `stream_free_tier_chat()` in `chat_service.py` use Groq/Llama as a **fallback** when Anthropic is down
-- These functions use hardcoded `GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'` (NOT `resolve_model_for_tier('free')`, which now returns Anthropic)
+### Groq Fallback (Anthropic/Kimi outage only)
+- `process_free_tier_chat()` and `stream_free_tier_chat()` in `chat_service.py` use Groq/Llama as a **fallback** when both Anthropic and Kimi are down
+- These functions use hardcoded `GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'` (NOT `resolve_model_for_tier('free')`, which now returns Kimi)
 - All Groq fallback paths in `app.py` and `api/v1/conversations.py` use explicit `ModelConfig(provider='groq', ...)` instead of resolving the free tier
 - `FREE_TIER_SYSTEM_PROMPT` is now labeled as a "fallback model" prompt — only used during Groq failover
+
+### Learning Mode & Sandbox
+
+Users can enable **Learning Mode** and/or **Sandbox Mode** in Settings > Preferences:
+
+- **Learning Mode** (`UserPreferences.learning_mode`): AI explains DevOps concepts inline, tracks proficiency per topic via `LearningSession` model. API: `/api/learning/session-summary`, `/api/learning/history`, `/api/learning/proficiency`
+- **Sandbox Mode** (`UserPreferences.sandbox_mode`): Tools return simulated results from `services/learning_sandbox.py` instead of calling real cloud APIs. Safe for experimentation. Covers AWS, K8s, Azure, GCP with realistic mock data.
+- **Learning Level** (`UserPreferences.learning_level`): `beginner`, `intermediate`, `advanced` — controls explanation depth
+- Settings UI shows proficiency radar and learning history when learning mode is enabled
 
 ### Cost
 - ~$0.05/message with Sonnet 4.6 × 20 credits = **~$1.00/user/month**
@@ -327,6 +366,8 @@ Optional:
 - `DATABASE_URL` - Database connection string
 - `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
+- `MOONSHOT_API_KEY` - Kimi K2.5 API key (required for Kimi model provider)
+- `KIMI_MODEL` - Kimi model override (default: `kimi-k2.5`)
 
 ## Running the App
 
@@ -370,6 +411,7 @@ Use `/skill-name` or mention the skill:
 - `/resume-work` - Recover context and resume after rate limit or token reset
 - `/continue-where-you-stop` - Automatically pick up and continue unfinished work after interruptions
 - `/memory` - Maintain WORKLOG.md as persistent session memory across resets
+- `/security-scan` - Run security scans (infrastructure, compliance, secrets, vulnerabilities, audit)
 
 ## Code Style
 

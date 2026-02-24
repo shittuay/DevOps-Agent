@@ -19,7 +19,7 @@ COLUMN_TYPE_MAP = {
     'Text':     'TEXT',
     'DateTime': 'TIMESTAMP',
     'Float':    'FLOAT',
-    'JSON':     'TEXT',
+    'JSON':     'JSONB',
 }
 
 def sql_type(col):
@@ -46,6 +46,9 @@ def default_clause(col):
 
 def migrate():
     with app.app_context():
+        # Create any entirely new tables (e.g. learning_sessions)
+        db.create_all()
+
         inspector = inspect(db.engine)
         existing_tables = set(inspector.get_table_names())
         total_added = 0

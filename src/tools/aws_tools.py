@@ -77,7 +77,7 @@ def _get_boto_client(service: str, region: Optional[str] = None):
         logger.error(f"Failed to get AWS credentials for user {user_id}: {str(e)}")
         # SECURITY: Do NOT fall back to environment/IAM role credentials
         raise Exception(
-            "AWS credentials not configured. Please add your AWS Access Key and Secret Key in Settings > Cloud Credentials."
+            "AWS credentials not configured. Please add your Access Keys or IAM Role ARN in Settings > Cloud Credentials."
         )
 
 

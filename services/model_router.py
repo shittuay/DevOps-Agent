@@ -2,8 +2,9 @@
 Tiered AI Model Router
 
 Maps subscription tiers to AI providers and models.
-Free users get Claude Sonnet 4.6 (with tools) for their trial credits.
-Paid users get progressively better Claude models.
+Free and Starter users default to Kimi K2.5 (cheaper, with tools).
+Professional and Business users default to Claude (premium).
+Users can override their tier default via preferred_model_provider.
 """
 
 import os
@@ -16,15 +17,24 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelConfig:
-    provider: str       # 'groq' or 'anthropic'
-    model: str          # e.g. 'llama-3.3-70b-versatile', 'claude-haiku-4-5-20251001'
+    provider: str       # 'anthropic', 'kimi', or 'groq'
+    model: str          # e.g. 'kimi-k2.5', 'claude-sonnet-4-6'
     display_name: str   # Human-readable name for UI
     supports_tools: bool
     max_tokens: int = 4096
 
 
-# Default tier -> model mapping
-DEFAULT_TIER_MODELS = {
+# Kimi model config constant
+KIMI_MODEL_CONFIG = ModelConfig(
+    provider='kimi',
+    model='kimi-k2.5',
+    display_name='Kimi K2.5',
+    supports_tools=True,
+    max_tokens=4096,
+)
+
+# Claude model configs for user overrides
+CLAUDE_OVERRIDE_CONFIGS = {
     'free': ModelConfig(
         provider='anthropic',
         model='claude-sonnet-4-6',
@@ -55,6 +65,39 @@ DEFAULT_TIER_MODELS = {
     ),
 }
 
+# Default tier -> model mapping
+# Free + Starter default to Kimi (cheaper); Professional + Business default to Claude (premium)
+DEFAULT_TIER_MODELS = {
+    'free': ModelConfig(
+        provider='kimi',
+        model='kimi-k2.5',
+        display_name='Kimi K2.5 (Trial)',
+        supports_tools=True,
+        max_tokens=4096,
+    ),
+    'starter': ModelConfig(
+        provider='kimi',
+        model='kimi-k2.5',
+        display_name='Kimi K2.5',
+        supports_tools=True,
+        max_tokens=4096,
+    ),
+    'professional': ModelConfig(
+        provider='anthropic',
+        model='claude-sonnet-4-6',
+        display_name='Claude Sonnet 4.6',
+        supports_tools=True,
+        max_tokens=8192,
+    ),
+    'business': ModelConfig(
+        provider='anthropic',
+        model='claude-opus-4-6',
+        display_name='Claude Opus 4.6',
+        supports_tools=True,
+        max_tokens=8192,
+    ),
+}
+
 
 def _parse_env_override(env_value: str) -> Optional[ModelConfig]:
     """Parse MODEL_TIER_<NAME>=provider:model env var override."""
@@ -65,7 +108,7 @@ def _parse_env_override(env_value: str) -> Optional[ModelConfig]:
     model = model.strip()
     if not provider or not model:
         return None
-    supports_tools = provider == 'anthropic'
+    supports_tools = provider in ('anthropic', 'kimi')
     return ModelConfig(
         provider=provider,
         model=model,
@@ -104,3 +147,39 @@ def resolve_model_for_tier(tier_name: str) -> ModelConfig:
     # Unknown tier falls back to free
     logger.warning("Unknown tier '%s', falling back to free tier model", tier_name)
     return DEFAULT_TIER_MODELS['free']
+
+
+def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[str] = None) -> ModelConfig:
+    """
+    Resolve model config considering user's preferred provider override.
+
+    If preferred_provider is set, returns an appropriate ModelConfig for that provider.
+    Otherwise falls through to tier defaults via resolve_model_for_tier().
+
+    Args:
+        tier_name: Subscription tier name
+        preferred_provider: User's preferred provider ('anthropic', 'kimi', or None for tier default)
+
+    Returns:
+        ModelConfig for the resolved provider
+    """
+    tier_name = (tier_name or 'free').lower()
+
+    if preferred_provider == 'kimi':
+        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+        return ModelConfig(
+            provider='kimi',
+            model=kimi_model,
+            display_name='Kimi K2.5',
+            supports_tools=True,
+            max_tokens=DEFAULT_TIER_MODELS.get(tier_name, DEFAULT_TIER_MODELS['free']).max_tokens,
+        )
+
+    if preferred_provider == 'anthropic':
+        claude_config = CLAUDE_OVERRIDE_CONFIGS.get(tier_name)
+        if claude_config:
+            return claude_config
+        return CLAUDE_OVERRIDE_CONFIGS['free']
+
+    # No preference — use tier default
+    return resolve_model_for_tier(tier_name)
