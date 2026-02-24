@@ -2760,9 +2760,45 @@
 
         // ===== VOICE NARRATION (TTS) =====
         var voiceEnabled = false;
+        var ttsVoiceCache = null;
+
+        // Preload voices (Chrome loads them async)
+        if (window.speechSynthesis) {
+            speechSynthesis.onvoiceschanged = function() { ttsVoiceCache = null; };
+        }
+
+        function getTTSVoice() {
+            if (ttsVoiceCache) return ttsVoiceCache;
+            var voices = speechSynthesis.getVoices();
+            if (!voices.length) return null;
+            // Priority: Natural/Neural voices sound far more human
+            var priority = [
+                // Microsoft Edge Neural voices (best quality on Windows)
+                function(v) { return /Natural/i.test(v.name) && /en/i.test(v.lang) && /female|aria|jenny|sonia/i.test(v.name); },
+                function(v) { return /Natural/i.test(v.name) && /en/i.test(v.lang); },
+                function(v) { return /Online/i.test(v.name) && /en/i.test(v.lang) && /female|aria|jenny/i.test(v.name); },
+                function(v) { return /Online/i.test(v.name) && /en/i.test(v.lang); },
+                // Google Chrome voices
+                function(v) { return v.name === 'Google UK English Female'; },
+                function(v) { return v.name === 'Google US English'; },
+                // macOS high-quality voices
+                function(v) { return /samantha|karen|moira|tessa/i.test(v.name) && /en/i.test(v.lang); },
+                // Any English female voice
+                function(v) { return v.lang.startsWith('en') && /female/i.test(v.name); },
+                // Any English voice
+                function(v) { return v.lang.startsWith('en'); }
+            ];
+            for (var i = 0; i < priority.length; i++) {
+                var match = voices.find(priority[i]);
+                if (match) { ttsVoiceCache = match; return match; }
+            }
+            ttsVoiceCache = voices[0];
+            return voices[0];
+        }
 
         function stripMarkdownForTTS(text) {
-            text = text.replace(/```[\s\S]*?```/g, ' code block omitted ');
+            // Remove code blocks entirely — don't read code aloud
+            text = text.replace(/```[\s\S]*?```/g, '');
             text = text.replace(/`([^`]+)`/g, '$1');
             text = text.replace(/^#{1,6}\s+/gm, '');
             text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
@@ -2771,10 +2807,35 @@
             text = text.replace(/_([^_]+)_/g, '$1');
             text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
             text = text.replace(/<[^>]+>/g, '');
+            // Clean up list markers
+            text = text.replace(/^[\s]*[-*+]\s+/gm, '');
+            text = text.replace(/^[\s]*\d+\.\s+/gm, '');
+            // Normalize whitespace
             text = text.replace(/\n{2,}/g, '. ');
-            text = text.replace(/\n/g, ' ');
+            text = text.replace(/\n/g, ', ');
             text = text.replace(/\s{2,}/g, ' ');
+            // Clean up punctuation artifacts
+            text = text.replace(/[.,]{2,}/g, '.');
+            text = text.replace(/,\s*\./g, '.');
             return text.trim();
+        }
+
+        function splitIntoSentences(text) {
+            // Split on sentence boundaries but keep the delimiter
+            var raw = text.match(/[^.!?]+[.!?]+[\s]*/g);
+            if (!raw) return [text];
+            // Merge very short fragments into the previous sentence
+            var sentences = [];
+            for (var i = 0; i < raw.length; i++) {
+                var s = raw[i].trim();
+                if (!s) continue;
+                if (s.length < 15 && sentences.length > 0) {
+                    sentences[sentences.length - 1] += ' ' + s;
+                } else {
+                    sentences.push(s);
+                }
+            }
+            return sentences.length ? sentences : [text];
         }
 
         function speakText(text, btn) {
@@ -2782,21 +2843,38 @@
             stopSpeaking();
             var clean = stripMarkdownForTTS(text);
             if (!clean) return;
-            var utterance = new SpeechSynthesisUtterance(clean);
-            utterance.rate = 1.0;
-            utterance.pitch = 1.0;
-            var voices = speechSynthesis.getVoices();
-            var preferred = voices.find(function(v) { return v.name.indexOf('Google UK English Female') !== -1; })
-                || voices.find(function(v) { return v.lang.startsWith('en') && v.name.indexOf('Female') !== -1; })
-                || voices.find(function(v) { return v.lang.startsWith('en'); });
-            if (preferred) utterance.voice = preferred;
+
+            var voice = getTTSVoice();
+            var sentences = splitIntoSentences(clean);
+
             if (btn) {
                 btn.classList.add('speaking');
                 btn.innerHTML = '⏹ Stop';
-                utterance.onend = function() { btn.classList.remove('speaking'); btn.innerHTML = '🔊 Listen'; };
-                utterance.onerror = function() { btn.classList.remove('speaking'); btn.innerHTML = '🔊 Listen'; };
             }
-            speechSynthesis.speak(utterance);
+
+            // Speak sentence by sentence for natural pacing with breath pauses
+            var idx = 0;
+            function speakNext() {
+                if (idx >= sentences.length) {
+                    if (btn) { btn.classList.remove('speaking'); btn.innerHTML = '🔊 Listen'; }
+                    return;
+                }
+                var utterance = new SpeechSynthesisUtterance(sentences[idx]);
+                utterance.rate = 0.92;   // slightly slower = more deliberate, teacher-like
+                utterance.pitch = 1.05;  // slightly warmer
+                utterance.volume = 1.0;
+                if (voice) utterance.voice = voice;
+                utterance.onend = function() {
+                    idx++;
+                    // Brief pause between sentences (like a natural breath)
+                    setTimeout(speakNext, 180);
+                };
+                utterance.onerror = function() {
+                    if (btn) { btn.classList.remove('speaking'); btn.innerHTML = '🔊 Listen'; }
+                };
+                speechSynthesis.speak(utterance);
+            }
+            speakNext();
         }
 
         function stopSpeaking() {
@@ -2815,6 +2893,12 @@
             if (voiceEnabled) {
                 icon.textContent = '🔊';
                 btn.classList.add('active');
+                // Warm up voice engine — Chrome needs a user gesture to load voices
+                if (speechSynthesis.getVoices().length === 0) {
+                    var warmup = new SpeechSynthesisUtterance('');
+                    speechSynthesis.speak(warmup);
+                    speechSynthesis.cancel();
+                }
                 if (typeof showToast === 'function') showToast('Voice narration enabled', 'success');
             } else {
                 icon.textContent = '🔇';
