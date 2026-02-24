@@ -1734,6 +1734,40 @@
             border-radius: 8px;
             margin-top: 12px;
         }
+
+        /* Voice Narration */
+        .voice-button.active {
+            background: rgba(255, 107, 53, 0.15);
+            border-color: rgba(255, 107, 53, 0.3);
+            color: var(--accent-primary);
+        }
+        .tts-btn {
+            background: none;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 4px 8px;
+            cursor: pointer;
+            color: var(--text-tertiary);
+            font-size: 14px;
+            transition: all 0.2s;
+            margin-top: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .tts-btn:hover {
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+        .tts-btn.speaking {
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+            animation: pulse-tts 1.5s infinite;
+        }
+        @keyframes pulse-tts {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
@@ -1822,6 +1856,10 @@
                     <div id="learningBadge" class="learning-badge" style="display:none;">
                         Learning<span id="sandboxBadgeTag"></span>
                     </div>
+                    <button id="voiceToggle" class="header-button voice-button" onclick="toggleVoice()" title="Voice Narration" style="display:none;">
+                        <span class="voice-icon">🔇</span>
+                        <span>Voice</span>
+                    </button>
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
                         💰 <span id="credits-count">--</span> credits
                     </div>
@@ -2118,6 +2156,7 @@
         }
 
         async function sendMessage() {
+            stopSpeaking();
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
 
@@ -2216,6 +2255,16 @@
                 // Final render
                 if (rawText) {
                     textDiv.innerHTML = formatMessage(rawText);
+                    // Add per-message speaker button
+                    var ttsBtn = document.createElement('button');
+                    ttsBtn.className = 'tts-btn';
+                    ttsBtn.innerHTML = '🔊 Listen';
+                    ttsBtn.onclick = (function(t, b) { return function() { speakText(t, b); }; })(rawText, ttsBtn);
+                    contentDiv.appendChild(ttsBtn);
+                    // Auto-speak if voice is enabled
+                    if (voiceEnabled) {
+                        speakText(rawText, ttsBtn);
+                    }
                 }
             } catch (error) {
                 textDiv.innerHTML = formatMessage(`Error: ${error.message}`);
@@ -2243,6 +2292,13 @@
             textDiv.innerHTML = formatMessage(content);
 
             contentDiv.appendChild(textDiv);
+            if (type === 'assistant' || type === 'agent') {
+                var ttsBtn = document.createElement('button');
+                ttsBtn.className = 'tts-btn';
+                ttsBtn.innerHTML = '🔊 Listen';
+                ttsBtn.onclick = (function(t, b) { return function() { speakText(t, b); }; })(content, ttsBtn);
+                contentDiv.appendChild(ttsBtn);
+            }
             messageDiv.appendChild(avatar);
             messageDiv.appendChild(contentDiv);
             container.appendChild(messageDiv);
@@ -2702,6 +2758,72 @@
             }
         });
 
+        // ===== VOICE NARRATION (TTS) =====
+        var voiceEnabled = false;
+
+        function stripMarkdownForTTS(text) {
+            text = text.replace(/```[\s\S]*?```/g, ' code block omitted ');
+            text = text.replace(/`([^`]+)`/g, '$1');
+            text = text.replace(/^#{1,6}\s+/gm, '');
+            text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+            text = text.replace(/\*([^*]+)\*/g, '$1');
+            text = text.replace(/__([^_]+)__/g, '$1');
+            text = text.replace(/_([^_]+)_/g, '$1');
+            text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+            text = text.replace(/<[^>]+>/g, '');
+            text = text.replace(/\n{2,}/g, '. ');
+            text = text.replace(/\n/g, ' ');
+            text = text.replace(/\s{2,}/g, ' ');
+            return text.trim();
+        }
+
+        function speakText(text, btn) {
+            if (!window.speechSynthesis) return;
+            stopSpeaking();
+            var clean = stripMarkdownForTTS(text);
+            if (!clean) return;
+            var utterance = new SpeechSynthesisUtterance(clean);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            var voices = speechSynthesis.getVoices();
+            var preferred = voices.find(function(v) { return v.name.indexOf('Google UK English Female') !== -1; })
+                || voices.find(function(v) { return v.lang.startsWith('en') && v.name.indexOf('Female') !== -1; })
+                || voices.find(function(v) { return v.lang.startsWith('en'); });
+            if (preferred) utterance.voice = preferred;
+            if (btn) {
+                btn.classList.add('speaking');
+                btn.innerHTML = '⏹ Stop';
+                utterance.onend = function() { btn.classList.remove('speaking'); btn.innerHTML = '🔊 Listen'; };
+                utterance.onerror = function() { btn.classList.remove('speaking'); btn.innerHTML = '🔊 Listen'; };
+            }
+            speechSynthesis.speak(utterance);
+        }
+
+        function stopSpeaking() {
+            if (!window.speechSynthesis) return;
+            speechSynthesis.cancel();
+            document.querySelectorAll('.tts-btn.speaking').forEach(function(b) {
+                b.classList.remove('speaking');
+                b.innerHTML = '🔊 Listen';
+            });
+        }
+
+        function toggleVoice() {
+            voiceEnabled = !voiceEnabled;
+            var btn = document.getElementById('voiceToggle');
+            var icon = btn.querySelector('.voice-icon');
+            if (voiceEnabled) {
+                icon.textContent = '🔊';
+                btn.classList.add('active');
+                if (typeof showToast === 'function') showToast('Voice narration enabled', 'success');
+            } else {
+                icon.textContent = '🔇';
+                btn.classList.remove('active');
+                stopSpeaking();
+                if (typeof showToast === 'function') showToast('Voice narration disabled', 'info');
+            }
+        }
+
         // ===== LEARNING MODE =====
         function initLearningMode() {
             fetch('/api/preferences')
@@ -2722,13 +2844,23 @@
             const badge = document.getElementById('learningBadge');
             const sandboxTag = document.getElementById('sandboxBadgeTag');
             const endBtn = document.getElementById('endSessionBtn');
+            var voiceBtn = document.getElementById('voiceToggle');
             if (learning) {
                 badge.style.display = 'inline-flex';
                 sandboxTag.textContent = sandbox ? ' + Sandbox' : '';
                 endBtn.style.display = 'inline-block';
+                if (voiceBtn) voiceBtn.style.display = 'inline-flex';
             } else {
                 badge.style.display = 'none';
                 endBtn.style.display = 'none';
+                if (voiceBtn) voiceBtn.style.display = 'none';
+                voiceEnabled = false;
+                stopSpeaking();
+                if (voiceBtn) {
+                    voiceBtn.classList.remove('active');
+                    var icon = voiceBtn.querySelector('.voice-icon');
+                    if (icon) icon.textContent = '🔇';
+                }
             }
         }
 
