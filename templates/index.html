@@ -335,6 +335,100 @@
             transform: translateY(0);
         }
 
+        /* Learning Mode Toggles */
+        .learning-toggles {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .learning-toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 0;
+        }
+        .learning-toggle-row label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+        }
+        .toggle-switch {
+            display: block;
+            position: relative;
+            width: 36px;
+            height: 20px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: var(--bg-tertiary);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            left: 2px;
+            bottom: 2px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--accent-primary);
+        }
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(16px);
+        }
+        .sandbox-toggle-row {
+            padding-left: 12px;
+            border-left: 2px solid var(--border-subtle);
+            margin-left: 4px;
+        }
+
+        /* Learning Mode Badge */
+        .learning-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 12px;
+            background: rgba(255, 107, 53, 0.15);
+            color: var(--accent-primary);
+            border: 1px solid rgba(255, 107, 53, 0.3);
+            font-family: 'Outfit', sans-serif;
+        }
+
+        /* End Session Button */
+        .end-session-btn {
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(255, 107, 53, 0.1);
+            color: var(--accent-primary);
+            border: 1px solid rgba(255, 107, 53, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .end-session-btn:hover {
+            background: rgba(255, 107, 53, 0.2);
+        }
+
         .conversations-list {
             flex: 1;
             overflow-y: auto;
@@ -889,6 +983,59 @@
         .input-container {
             max-width: 100%;
             margin: 0 auto;
+        }
+
+        .model-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            padding: 0 4px;
+        }
+
+        .model-selector-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .model-toggle-group {
+            display: flex;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 2px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .model-toggle-btn {
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: 'Outfit', sans-serif;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: transparent;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+        }
+
+        .model-toggle-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .model-toggle-btn.active {
+            background: var(--accent-primary);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
+        }
+
+        .model-active-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-left: 4px;
         }
 
         .input-box {
@@ -1622,6 +1769,22 @@
                 <span>New Session</span>
             </button>
         </div>
+        <div class="learning-toggles" id="learningToggles">
+            <div class="learning-toggle-row">
+                <label for="learningModeToggle">Learning Mode</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="learningModeToggle" onchange="toggleLearningMode(this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="learning-toggle-row sandbox-toggle-row" id="sandboxRow" style="display:none;">
+                <label for="sandboxModeToggle">Sandbox</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="sandboxModeToggle" onchange="toggleSandboxMode(this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </div>
         <div class="conversations-list" id="conversationsList">
             <!-- Conversations will be loaded here -->
         </div>
@@ -1656,6 +1819,9 @@
                         <span>🔍</span>
                         <span>Analysis</span>
                     </a>
+                    <div id="learningBadge" class="learning-badge" style="display:none;">
+                        Learning<span id="sandboxBadgeTag"></span>
+                    </div>
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
                         💰 <span id="credits-count">--</span> credits
                     </div>
@@ -1769,6 +1935,19 @@
                 <!-- Input Area (inside the box) -->
                 <div class="input-wrapper">
                     <div class="input-container">
+                        <!-- Model Selector -->
+                        <div class="model-selector" id="modelSelector">
+                            <span class="model-selector-label">Model:</span>
+                            <div class="model-toggle-group">
+                                <button class="model-toggle-btn" data-provider="kimi" onclick="switchModel('kimi')" title="Kimi K2.5 - Fast & affordable">
+                                    Kimi
+                                </button>
+                                <button class="model-toggle-btn" data-provider="anthropic" onclick="switchModel('anthropic')" title="Claude - Premium AI">
+                                    Claude
+                                </button>
+                            </div>
+                            <span class="model-active-label" id="modelActiveLabel"></span>
+                        </div>
                         <div class="input-box">
                             <textarea
                                 id="messageInput"
@@ -1777,6 +1956,9 @@
                                 onkeydown="handleKeyDown(event)"
                                 oninput="autoResize(this)"
                             ></textarea>
+                            <button id="endSessionBtn" class="end-session-btn" style="display:none;" onclick="endLearningSession()">
+                                End Session
+                            </button>
                             <button id="sendButton" onclick="sendMessage()">
                                 Send
                             </button>
@@ -1789,6 +1971,52 @@
 
     <script>
         let isProcessing = false;
+        let currentModelProvider = null;
+
+        // Model Selector
+        async function initModelSelector() {
+            try {
+                const res = await fetch('/api/model/current');
+                if (res.ok) {
+                    const data = await res.json();
+                    currentModelProvider = data.provider;
+                    updateModelToggleUI(data.provider, data.display_name);
+                }
+            } catch (e) {
+                // Default to kimi if fetch fails
+                updateModelToggleUI('kimi', 'Kimi K2.5');
+            }
+        }
+
+        function updateModelToggleUI(provider, displayName) {
+            document.querySelectorAll('.model-toggle-btn').forEach(btn => {
+                if (btn.getAttribute('data-provider') === provider) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            const label = document.getElementById('modelActiveLabel');
+            if (label) label.textContent = displayName || '';
+        }
+
+        async function switchModel(provider) {
+            if (isProcessing) return;
+            try {
+                const res = await fetch('/api/model/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    currentModelProvider = data.provider;
+                    updateModelToggleUI(data.provider, data.display_name);
+                }
+            } catch (e) {
+                console.error('Failed to switch model:', e);
+            }
+        }
 
         // Theme Toggle Functionality
         function setTheme(theme) {
@@ -1821,6 +2049,7 @@
 
         // Initialize theme when DOM is ready
         initTheme();
+        initModelSelector();
 
         function toggleMenu() {
             const menu = document.getElementById('mainMenu');
@@ -2472,6 +2701,128 @@
                 closeContactModal();
             }
         });
+
+        // ===== LEARNING MODE =====
+        function initLearningMode() {
+            fetch('/api/preferences')
+                .then(r => r.json())
+                .then(data => {
+                    const p = data.preferences || {};
+                    const lm = !!p.learning_mode;
+                    const sb = !!p.sandbox_mode;
+                    document.getElementById('learningModeToggle').checked = lm;
+                    document.getElementById('sandboxModeToggle').checked = sb;
+                    document.getElementById('sandboxRow').style.display = lm ? 'flex' : 'none';
+                    updateLearningBadge(lm, sb);
+                })
+                .catch(() => {});
+        }
+
+        function updateLearningBadge(learning, sandbox) {
+            const badge = document.getElementById('learningBadge');
+            const sandboxTag = document.getElementById('sandboxBadgeTag');
+            const endBtn = document.getElementById('endSessionBtn');
+            if (learning) {
+                badge.style.display = 'inline-flex';
+                sandboxTag.textContent = sandbox ? ' + Sandbox' : '';
+                endBtn.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+                endBtn.style.display = 'none';
+            }
+        }
+
+        function toggleLearningMode(enabled) {
+            fetch('/api/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({learning_mode: enabled})
+            }).then(function(r) {
+                if (!r.ok) throw new Error('Server returned ' + r.status);
+                return r.json();
+            }).then(function(data) {
+                if (data.error) throw new Error(data.error);
+                document.getElementById('sandboxRow').style.display = enabled ? 'flex' : 'none';
+                if (!enabled) {
+                    document.getElementById('sandboxModeToggle').checked = false;
+                    toggleSandboxMode(false);
+                }
+                updateLearningBadge(enabled, document.getElementById('sandboxModeToggle').checked);
+                if (typeof showToast === 'function') showToast('Learning Mode ' + (enabled ? 'enabled' : 'disabled'), 'success');
+            }).catch(function(err) {
+                document.getElementById('learningModeToggle').checked = !enabled;
+                if (typeof showToast === 'function') showToast('Failed to save: ' + err.message, 'error');
+            });
+        }
+
+        function toggleSandboxMode(enabled) {
+            fetch('/api/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({sandbox_mode: enabled})
+            }).then(function(r) {
+                if (!r.ok) throw new Error('Server returned ' + r.status);
+                return r.json();
+            }).then(function(data) {
+                if (data.error) throw new Error(data.error);
+                updateLearningBadge(document.getElementById('learningModeToggle').checked, enabled);
+                if (typeof showToast === 'function') showToast('Sandbox Mode ' + (enabled ? 'enabled' : 'disabled'), 'success');
+            }).catch(function(err) {
+                document.getElementById('sandboxModeToggle').checked = !enabled;
+                if (typeof showToast === 'function') showToast('Failed to save: ' + err.message, 'error');
+            });
+        }
+
+        function endLearningSession() {
+            const btn = document.getElementById('endSessionBtn');
+            btn.disabled = true;
+            btn.textContent = 'Summarizing...';
+
+            fetch('/api/learning/session-summary', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            })
+            .then(r => r.json())
+            .then(data => {
+                btn.disabled = false;
+                btn.textContent = 'End Session';
+                if (data.error) {
+                    addMessage('assistant', 'Could not generate summary: ' + data.error);
+                    return;
+                }
+                const s = data.session;
+                let html = '### Learning Session Summary\n\n';
+                html += (s.summary || 'No summary available.') + '\n\n';
+                if (s.topics_covered && s.topics_covered.length) {
+                    html += '**Topics:** ' + s.topics_covered.join(', ') + '\n\n';
+                }
+                if (s.key_lessons && s.key_lessons.length) {
+                    html += '**Key Lessons:**\n';
+                    s.key_lessons.forEach(l => { html += '- ' + l + '\n'; });
+                    html += '\n';
+                }
+                if (s.study_recommendations && s.study_recommendations.length) {
+                    html += '**Study Next:**\n';
+                    s.study_recommendations.forEach(r => { html += '- ' + r + '\n'; });
+                    html += '\n';
+                }
+                if (s.proficiency_deltas && Object.keys(s.proficiency_deltas).length) {
+                    html += '**Proficiency Gained:** ';
+                    html += Object.entries(s.proficiency_deltas).map(([k,v]) => `${k} +${v}`).join(', ');
+                    html += '\n';
+                }
+                addMessage('assistant', html);
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.textContent = 'End Session';
+                addMessage('assistant', 'Error generating session summary.');
+            });
+        }
+
+        // Init learning mode on page load
+        document.addEventListener('DOMContentLoaded', initLearningMode);
 
         // Load on page ready - handled in toggleSidebarCollapse function above
     </script>

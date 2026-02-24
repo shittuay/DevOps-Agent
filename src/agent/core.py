@@ -164,7 +164,9 @@ class DevOpsAgent:
         user_preferences_context: Optional[str] = None,
         user_id: Optional[int] = None,
         model_override: Optional[str] = None,
-        trial_context: Optional[str] = None
+        trial_context: Optional[str] = None,
+        sandbox_mode: bool = False,
+        provider: Optional[str] = None
     ) -> str:
         """
         Process a user message with isolated conversation context (thread-safe).
@@ -177,6 +179,7 @@ class DevOpsAgent:
             conversation_history: List of prior messages [{'role': 'user'|'assistant', 'content': str}]
             user_preferences_context: Optional context string with user preferences
             user_id: Optional user ID for per-user cloud credentials
+            provider: Optional provider name ('anthropic', 'kimi'). Defaults to 'anthropic'.
 
         Returns:
             Agent's response text
@@ -196,6 +199,7 @@ class DevOpsAgent:
                 # Create fresh conversation context for this request
                 self.conversation = ConversationManager()
                 self.pending_download = None
+                self._sandbox_mode = sandbox_mode
 
                 # Load conversation history
                 for msg in conversation_history:
@@ -210,8 +214,11 @@ class DevOpsAgent:
                 # Add the new user message
                 self.conversation.add_user_message(user_message)
 
-                # Process with Claude API
-                response_text = self._call_claude_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
+                # Route to appropriate provider
+                if provider == 'kimi':
+                    response_text = self._call_kimi_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
+                else:
+                    response_text = self._call_claude_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
 
                 # Capture pending download before restoring state
                 result_pending_download = self.pending_download
@@ -221,6 +228,7 @@ class DevOpsAgent:
             finally:
                 # Clear cloud user context
                 self._clear_cloud_user_context()
+                self._sandbox_mode = False
 
                 # Restore original conversation state for backwards compatibility
                 # Note: pending_download is kept from this request if it was set
@@ -235,15 +243,17 @@ class DevOpsAgent:
         user_preferences_context: Optional[str] = None,
         user_id: Optional[int] = None,
         model_override: Optional[str] = None,
-        trial_context: Optional[str] = None
+        trial_context: Optional[str] = None,
+        sandbox_mode: bool = False,
+        provider: Optional[str] = None
     ):
         """
         Process a user message and yield text chunks as they stream in.
 
         Yields:
-            str: Text chunks as they arrive from the Claude API
+            str: Text chunks as they arrive from the API
         """
-        self.logger.info(f"Streaming message for user {user_id}: {user_message[:100]}...")
+        self.logger.info(f"Streaming message for user {user_id} (provider={provider or 'anthropic'}): {user_message[:100]}...")
 
         self._set_cloud_user_context(user_id)
 
@@ -254,6 +264,7 @@ class DevOpsAgent:
             try:
                 self.conversation = ConversationManager()
                 self.pending_download = None
+                self._sandbox_mode = sandbox_mode
 
                 for msg in conversation_history:
                     if msg['role'] == 'user':
@@ -266,7 +277,12 @@ class DevOpsAgent:
 
                 self.conversation.add_user_message(user_message)
 
-                # Streaming loop (handles tool calls)
+                # Route to Kimi streaming if requested
+                if provider == 'kimi':
+                    yield from self._call_kimi_api_streaming(user_preferences_context, model_override=model_override, trial_context=trial_context)
+                    return
+
+                # Streaming loop for Claude (handles tool calls)
                 max_iterations = 50
                 for iteration in range(max_iterations):
                     try:
@@ -323,6 +339,7 @@ class DevOpsAgent:
 
             finally:
                 self._clear_cloud_user_context()
+                self._sandbox_mode = False
                 if self.pending_download is None:
                     self.pending_download = original_pending_download
                 self.conversation = original_conversation
@@ -490,6 +507,299 @@ User Preferences and Context:
         self.logger.error("Max iterations reached in Claude API loop")
         return "❌ Maximum number of tool executions reached. Please try rephrasing your request."
 
+    def _convert_tools_to_openai_format(self) -> List[Dict[str, Any]]:
+        """Convert Anthropic tool definitions to OpenAI function-calling format."""
+        if not self.tool_definitions:
+            return []
+        oai_tools = []
+        for tool in self.tool_definitions:
+            oai_tools.append({
+                'type': 'function',
+                'function': {
+                    'name': tool['name'],
+                    'description': tool['description'],
+                    'parameters': tool['input_schema'],
+                }
+            })
+        return oai_tools
+
+    def _call_kimi_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None) -> str:
+        """
+        Call Kimi K2.5 API with tool support (OpenAI-compatible format).
+
+        Args:
+            user_preferences_context: Optional context string with user preferences
+            model_override: Optional model name override
+            trial_context: Optional trial/credit context for free-tier users
+
+        Returns:
+            Final response text from Kimi
+        """
+        import os
+        try:
+            from openai import OpenAI
+        except ImportError:
+            return "Kimi provider requires the openai package. Please install it."
+
+        api_key = os.environ.get('MOONSHOT_API_KEY', '')
+        if not api_key:
+            return "Kimi API key not configured. Please set MOONSHOT_API_KEY."
+
+        client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
+        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+        oai_tools = self._convert_tools_to_openai_format()
+
+        system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
+
+        # Build messages from conversation history
+        messages = []
+        if system_prompt:
+            messages.append({'role': 'system', 'content': system_prompt})
+
+        for msg in self.conversation.get_messages_for_api():
+            if msg['role'] in ('user', 'assistant'):
+                content = msg.get('content', '')
+                if isinstance(content, list):
+                    text_parts = [b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text']
+                    content = '\n'.join(text_parts)
+                messages.append({'role': msg['role'], 'content': content})
+
+        max_iterations = 50
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+            self.logger.debug(f"Kimi API call iteration {iteration}")
+
+            try:
+                params = {
+                    'model': model,
+                    'messages': messages,
+                    'max_tokens': self.config.claude_max_tokens,
+                }
+                if 'k2' not in model:
+                    params['temperature'] = self.config.claude_temperature
+                if oai_tools:
+                    params['tools'] = oai_tools
+
+                response = client.chat.completions.create(**params)
+                choice = response.choices[0]
+                msg = choice.message
+
+                if msg.tool_calls:
+                    # Append assistant message with tool calls
+                    # Include reasoning_content for Kimi K2.5 (reasoning model requirement)
+                    assistant_dict = msg.model_dump()
+                    if hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                        assistant_dict['reasoning_content'] = msg.reasoning_content
+                    messages.append(assistant_dict)
+
+                    for tc in msg.tool_calls:
+                        tool_name = tc.function.name
+                        try:
+                            tool_input = json.loads(tc.function.arguments)
+                        except (json.JSONDecodeError, TypeError):
+                            tool_input = {}
+
+                        self.logger.info(f"Kimi tool call: {tool_name}")
+
+                        # Validate tool call safety
+                        validation = self.safety_validator.validate_tool_call(tool_name, tool_input)
+                        if not validation.is_safe:
+                            result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
+                        elif getattr(self, '_sandbox_mode', False):
+                            from services.learning_sandbox import generate_mock_result
+                            result = generate_mock_result(tool_name, tool_input)
+                        elif tool_name in self.tools:
+                            try:
+                                result = self.tools[tool_name](**tool_input)
+                            except Exception as e:
+                                self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
+                                result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                        else:
+                            result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+
+                        result_str = json.dumps(result, indent=2)
+                        sanitized_result = self.safety_validator.sanitize_output(result_str)
+
+                        messages.append({
+                            'role': 'tool',
+                            'tool_call_id': tc.id,
+                            'content': sanitized_result,
+                        })
+
+                        time.sleep(0.5)
+
+                    # Continue the loop to get the next response
+                    continue
+
+                # No tool calls — return text
+                return msg.content or ""
+
+            except Exception as e:
+                self.logger.error(f"Kimi API error: {str(e)}", exc_info=True)
+                return f"Error communicating with Kimi: {str(e)}"
+
+        return "Maximum number of tool executions reached. Please try rephrasing your request."
+
+    def _call_kimi_api_streaming(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None):
+        """
+        Call Kimi K2.5 API with streaming and tool support.
+
+        Yields:
+            str: Text chunks as they arrive from the Kimi API
+        """
+        import os
+        try:
+            from openai import OpenAI
+        except ImportError:
+            yield "Kimi provider requires the openai package. Please install it."
+            return
+
+        api_key = os.environ.get('MOONSHOT_API_KEY', '')
+        if not api_key:
+            yield "Kimi API key not configured. Please set MOONSHOT_API_KEY."
+            return
+
+        client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
+        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+        oai_tools = self._convert_tools_to_openai_format()
+
+        system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
+
+        messages = []
+        if system_prompt:
+            messages.append({'role': 'system', 'content': system_prompt})
+
+        for msg in self.conversation.get_messages_for_api():
+            if msg['role'] in ('user', 'assistant'):
+                content = msg.get('content', '')
+                if isinstance(content, list):
+                    text_parts = [b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text']
+                    content = '\n'.join(text_parts)
+                messages.append({'role': msg['role'], 'content': content})
+
+        max_iterations = 50
+        for iteration in range(max_iterations):
+            try:
+                params = {
+                    'model': model,
+                    'messages': messages,
+                    'max_tokens': self.config.claude_max_tokens,
+                    'stream': True,
+                }
+                if 'k2' not in model:
+                    params['temperature'] = self.config.claude_temperature
+                if oai_tools:
+                    params['tools'] = oai_tools
+
+                # Collect streamed response
+                collected_content = ""
+                collected_reasoning = ""
+                collected_tool_calls = {}  # index -> {id, name, arguments}
+
+                stream = client.chat.completions.create(**params)
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+
+                    # Reasoning content (Kimi K2.5 thinking — collect but don't yield)
+                    if getattr(delta, 'reasoning_content', None):
+                        collected_reasoning += delta.reasoning_content
+
+                    # Text content
+                    if delta.content:
+                        collected_content += delta.content
+                        yield delta.content
+
+                    # Tool calls (streamed in pieces)
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in collected_tool_calls:
+                                collected_tool_calls[idx] = {'id': '', 'name': '', 'arguments': ''}
+                            if tc_delta.id:
+                                collected_tool_calls[idx]['id'] = tc_delta.id
+                            if tc_delta.function:
+                                if tc_delta.function.name:
+                                    collected_tool_calls[idx]['name'] = tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    collected_tool_calls[idx]['arguments'] += tc_delta.function.arguments
+
+                    finish_reason = chunk.choices[0].finish_reason
+
+                # Check if we need to handle tool calls
+                if collected_tool_calls:
+                    # Build the assistant message with tool_calls for the messages array
+                    tool_calls_list = []
+                    for idx in sorted(collected_tool_calls.keys()):
+                        tc = collected_tool_calls[idx]
+                        tool_calls_list.append({
+                            'id': tc['id'],
+                            'type': 'function',
+                            'function': {
+                                'name': tc['name'],
+                                'arguments': tc['arguments'],
+                            }
+                        })
+
+                    assistant_msg = {
+                        'role': 'assistant',
+                        'content': collected_content or None,
+                        'tool_calls': tool_calls_list,
+                    }
+                    if collected_reasoning:
+                        assistant_msg['reasoning_content'] = collected_reasoning
+                    messages.append(assistant_msg)
+
+                    yield "\n\n_[Executing tool...]_\n\n"
+
+                    for tc_info in tool_calls_list:
+                        tool_name = tc_info['function']['name']
+                        try:
+                            tool_input = json.loads(tc_info['function']['arguments'])
+                        except (json.JSONDecodeError, TypeError):
+                            tool_input = {}
+
+                        self.logger.info(f"Kimi streaming tool call: {tool_name}")
+
+                        validation = self.safety_validator.validate_tool_call(tool_name, tool_input)
+                        if not validation.is_safe:
+                            result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
+                        elif getattr(self, '_sandbox_mode', False):
+                            from services.learning_sandbox import generate_mock_result
+                            result = generate_mock_result(tool_name, tool_input)
+                        elif tool_name in self.tools:
+                            try:
+                                result = self.tools[tool_name](**tool_input)
+                            except Exception as e:
+                                result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                        else:
+                            result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+
+                        result_str = json.dumps(result, indent=2)
+                        sanitized_result = self.safety_validator.sanitize_output(result_str)
+
+                        messages.append({
+                            'role': 'tool',
+                            'tool_call_id': tc_info['id'],
+                            'content': sanitized_result,
+                        })
+
+                        time.sleep(0.5)
+
+                    # Continue loop to get next response
+                    continue
+
+                # No tool calls — done
+                return
+
+            except Exception as e:
+                self.logger.error(f"Kimi streaming error: {str(e)}", exc_info=True)
+                yield f"\n\nError communicating with Kimi: {str(e)}"
+                return
+
     def _handle_tool_uses(self, content: List[Dict[str, Any]]) -> None:
         """
         Handle tool use requests from Claude.
@@ -529,9 +839,10 @@ User Preferences and Context:
 
                 # Execute tool
                 try:
-                    if tool_name in self.tools:
-                        result = self.tools[tool_name](**tool_input)
-                    else:
+                    if getattr(self, '_sandbox_mode', False):
+                        from services.learning_sandbox import generate_mock_result
+                        result = generate_mock_result(tool_name, tool_input)
+                    elif tool_name in self.tools:
                         result = {
                             'success': False,
                             'error': f"Unknown tool: {tool_name}"

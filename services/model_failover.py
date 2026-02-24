@@ -18,6 +18,7 @@ _provider_status = {
     'openai': {'healthy': True, 'last_failure': 0, 'failures': 0},
     'google': {'healthy': True, 'last_failure': 0, 'failures': 0},
     'groq': {'healthy': True, 'last_failure': 0, 'failures': 0},
+    'kimi': {'healthy': True, 'last_failure': 0, 'failures': 0},
 }
 
 # Backoff: mark provider unhealthy after 3 failures, retry after 60s
@@ -336,12 +337,85 @@ class GroqProvider(ModelProvider):
             raise
 
 
+class KimiProvider(ModelProvider):
+    """Moonshot Kimi K2.5 adapter (OpenAI-compatible API)."""
+
+    def __init__(self):
+        super().__init__('kimi')
+
+    @property
+    def api_key(self):
+        return os.environ.get('MOONSHOT_API_KEY', '')
+
+    @property
+    def model(self):
+        return os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+
+    def is_available(self) -> bool:
+        return bool(self.api_key) and super().is_available()
+
+    def chat(self, messages: List[Dict], system: str = None, **kwargs) -> str:
+        try:
+            from openai import OpenAI
+        except ImportError:
+            logger.debug("openai package not installed")
+            return ""
+
+        client = OpenAI(api_key=self.api_key, base_url="https://api.moonshot.ai/v1")
+        oai_messages = []
+        if system:
+            oai_messages.append({'role': 'system', 'content': system})
+        for msg in messages:
+            oai_messages.append({'role': msg['role'], 'content': msg['content']})
+
+        try:
+            response = client.chat.completions.create(
+                model=kwargs.get('model', self.model),
+                messages=oai_messages,
+                max_tokens=kwargs.get('max_tokens', 4096),
+            )
+            self.mark_success()
+            return response.choices[0].message.content
+        except Exception as e:
+            self.mark_failure()
+            raise
+
+    def chat_stream(self, messages: List[Dict], system: str = None, **kwargs) -> Generator[str, None, None]:
+        try:
+            from openai import OpenAI
+        except ImportError:
+            return
+
+        client = OpenAI(api_key=self.api_key, base_url="https://api.moonshot.ai/v1")
+        oai_messages = []
+        if system:
+            oai_messages.append({'role': 'system', 'content': system})
+        for msg in messages:
+            oai_messages.append({'role': msg['role'], 'content': msg['content']})
+
+        try:
+            stream = client.chat.completions.create(
+                model=kwargs.get('model', self.model),
+                messages=oai_messages,
+                max_tokens=kwargs.get('max_tokens', 4096),
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+            self.mark_success()
+        except Exception as e:
+            self.mark_failure()
+            raise
+
+
 # Ordered provider chain
 _providers = [
     AnthropicProvider(),
     OpenAIProvider(),
     GoogleProvider(),
     GroqProvider(),
+    KimiProvider(),
 ]
 
 
@@ -406,3 +480,11 @@ def get_groq_provider() -> GroqProvider:
         if isinstance(p, GroqProvider):
             return p
     return GroqProvider()
+
+
+def get_kimi_provider() -> KimiProvider:
+    """Get the Kimi provider instance."""
+    for p in _providers:
+        if isinstance(p, KimiProvider):
+            return p
+    return KimiProvider()

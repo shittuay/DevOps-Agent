@@ -301,6 +301,34 @@ You: /continue-where-you-stop
 You: Pick up where you left off
 ```
 
+### 11. security-scan
+**Purpose:** Run security scans across cloud infrastructure, compliance, credentials, and vulnerabilities
+
+**Use when:**
+- Auditing cloud security posture (S3, security groups, encryption, IAM)
+- Checking compliance against SOC2, HIPAA, PCI-DSS, GDPR frameworks
+- Scanning for leaked secrets in configs, logs, and environment files
+- Running authorized vulnerability or penetration tests
+- Reviewing audit trails for suspicious activity
+
+**Key features:**
+- Infrastructure security scanning (AWS S3, security groups, encryption, IAM)
+- Multi-framework compliance assessment with scoring
+- Credential and secret leak detection (17 patterns)
+- Vulnerability scanning (port scan, SSL, web app, SQL injection, XSS)
+- Cloud security audits (AWS, Azure, GCP, Kubernetes)
+- Audit trail analysis and export
+- Prioritized remediation guidance
+
+**Example usage:**
+```
+You: /security-scan
+You: Run a quick security scan on our AWS infrastructure
+You: Check our compliance against HIPAA
+You: Scan the codebase for leaked secrets
+You: Run a vulnerability scan against staging (authorized)
+```
+
 ## Need Help?
 
 If you need assistance with skills:
@@ -318,5 +346,5 @@ If you need assistance with skills:
 
 ---
 
-**Last Updated:** 2026-01-22
+**Last Updated:** 2026-02-21
 **Created by:** Claude Code based on Anthropic skills standard

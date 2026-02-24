@@ -17,11 +17,13 @@ Provide helpful, accurate DevOps guidance based on the user's question."""
 _ANTHROPIC_FAIL_PATTERNS = [
     'credit balance is too low',
     'Error communicating with Claude',
+    'Error communicating with Kimi',
     'Unexpected error',
     'Rate limit reached',
     'Temporary API issue',
     'API error:',
     'overloaded_error',
+    'insufficient balance',
 ]
 
 

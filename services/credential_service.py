@@ -16,11 +16,15 @@ def get_user_aws_credentials(user_id: int) -> Optional[Dict[str, str]]:
     """
     Get AWS credentials for a specific user.
 
+    Supports two auth modes:
+      - 'access_key': Direct access key + secret key (simple, for self-hosting teams)
+      - 'role_arn': IAM Role ARN via AssumeRole (cross-account delegation)
+
     Args:
         user_id: The user's ID
 
     Returns:
-        Dict with access_key, secret_key, and region, or None if not configured
+        Dict with auth_mode and credentials, or None if not configured
     """
     from models import UserCloudCredential, db
 
@@ -34,14 +38,25 @@ def get_user_aws_credentials(user_id: int) -> Optional[Dict[str, str]]:
         return None
 
     credentials = cred.get_credentials()
-    if not credentials.get('access_key') or not credentials.get('secret_key'):
-        return None
+    region = cred.default_region or credentials.get('region', 'us-east-1')
 
-    return {
-        'access_key': credentials.get('access_key'),
-        'secret_key': credentials.get('secret_key'),
-        'region': cred.default_region or credentials.get('region', 'us-east-1')
-    }
+    if credentials.get('role_arn'):
+        return {
+            'auth_mode': 'role_arn',
+            'role_arn': credentials['role_arn'],
+            'external_id': credentials.get('external_id', ''),
+            'region': region
+        }
+
+    if credentials.get('access_key') and credentials.get('secret_key'):
+        return {
+            'auth_mode': 'access_key',
+            'access_key': credentials['access_key'],
+            'secret_key': credentials['secret_key'],
+            'region': region
+        }
+
+    return None
 
 
 def get_user_azure_credentials(user_id: int) -> Optional[Dict[str, str]]:
@@ -112,9 +127,78 @@ def get_user_gcp_credentials(user_id: int) -> Optional[Dict[str, Any]]:
     }
 
 
+def _assume_role(role_arn: str, external_id: str = '', session_name: str = 'devops-agent') -> Dict[str, str]:
+    """
+    Assume an IAM role and return temporary credentials.
+
+    Uses the platform's own identity (instance profile / env vars) to call STS AssumeRole.
+
+    Args:
+        role_arn: The IAM Role ARN to assume
+        external_id: Optional external ID for confused-deputy protection
+        session_name: Session name for CloudTrail auditing
+
+    Returns:
+        Dict with AccessKeyId, SecretAccessKey, SessionToken
+
+    Raises:
+        Exception if AssumeRole fails
+    """
+    try:
+        sts = boto3.client('sts')
+        params = {
+            'RoleArn': role_arn,
+            'RoleSessionName': session_name,
+            'DurationSeconds': 3600,
+        }
+        if external_id:
+            params['ExternalId'] = external_id
+        response = sts.assume_role(**params)
+        return response['Credentials']
+    except NoCredentialsError:
+        raise Exception(
+            "Platform AWS credentials not configured. The server needs an IAM role or "
+            "environment credentials to assume customer roles. Contact your administrator."
+        )
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        if code == 'AccessDenied':
+            raise Exception(
+                f"Access denied when assuming role {role_arn}. Verify the role's trust policy "
+                "allows this platform to assume it, and the External ID matches if required."
+            )
+        raise Exception(f"Failed to assume role: {e.response['Error']['Message']}")
+
+
+def _get_boto_kwargs(creds: Dict[str, str], region: Optional[str] = None) -> Dict[str, str]:
+    """
+    Build boto3 credential kwargs from either access-key or role-ARN credentials.
+
+    Returns dict suitable for passing to boto3.client() / boto3.resource().
+    """
+    effective_region = region or creds['region']
+
+    if creds['auth_mode'] == 'role_arn':
+        temp_creds = _assume_role(creds['role_arn'], creds.get('external_id', ''))
+        return {
+            'aws_access_key_id': temp_creds['AccessKeyId'],
+            'aws_secret_access_key': temp_creds['SecretAccessKey'],
+            'aws_session_token': temp_creds['SessionToken'],
+            'region_name': effective_region
+        }
+
+    return {
+        'aws_access_key_id': creds['access_key'],
+        'aws_secret_access_key': creds['secret_key'],
+        'region_name': effective_region
+    }
+
+
 def get_user_boto_client(user_id: int, service: str, region: Optional[str] = None):
     """
     Get a boto3 client configured with user-specific AWS credentials.
+
+    Supports both direct access keys and IAM Role ARN (AssumeRole).
 
     Args:
         user_id: The user's ID
@@ -135,12 +219,7 @@ def get_user_boto_client(user_id: int, service: str, region: Optional[str] = Non
         )
 
     try:
-        return boto3.client(
-            service,
-            aws_access_key_id=creds['access_key'],
-            aws_secret_access_key=creds['secret_key'],
-            region_name=region or creds['region']
-        )
+        return boto3.client(service, **_get_boto_kwargs(creds, region))
     except Exception as e:
         raise Exception(f"Failed to create AWS client: {str(e)}")
 
@@ -148,6 +227,8 @@ def get_user_boto_client(user_id: int, service: str, region: Optional[str] = Non
 def get_user_boto_resource(user_id: int, service: str, region: Optional[str] = None):
     """
     Get a boto3 resource configured with user-specific AWS credentials.
+
+    Supports both direct access keys and IAM Role ARN (AssumeRole).
 
     Args:
         user_id: The user's ID
@@ -165,12 +246,7 @@ def get_user_boto_resource(user_id: int, service: str, region: Optional[str] = N
         )
 
     try:
-        return boto3.resource(
-            service,
-            aws_access_key_id=creds['access_key'],
-            aws_secret_access_key=creds['secret_key'],
-            region_name=region or creds['region']
-        )
+        return boto3.resource(service, **_get_boto_kwargs(creds, region))
     except Exception as e:
         raise Exception(f"Failed to create AWS resource: {str(e)}")
 
@@ -247,47 +323,70 @@ def get_user_gcp_credentials_file(user_id: int) -> Tuple[str, str, str, str]:
 
 def save_user_aws_credentials(
     user_id: int,
-    access_key: str,
-    secret_key: str,
+    access_key: str = '',
+    secret_key: str = '',
+    role_arn: str = '',
+    external_id: str = '',
     region: str = 'us-east-1'
 ) -> Tuple[bool, str]:
     """
-    Save AWS credentials for a user.
+    Save AWS credentials for a user. Supports two modes:
 
-    Args:
-        user_id: The user's ID
-        access_key: AWS access key ID
-        secret_key: AWS secret access key
-        region: Default region
+      1. Access Keys — pass access_key + secret_key (simple, for self-hosting teams)
+      2. Role ARN — pass role_arn + optional external_id (cross-account delegation)
+
+    Exactly one mode must be provided. The credentials are verified before saving.
 
     Returns:
         Tuple of (success, message)
     """
+    import re
     from models import UserCloudCredential, db
 
-    # Validate credentials
-    if not access_key or not secret_key:
-        return False, "Access key and secret key are required"
+    has_keys = bool(access_key and secret_key)
+    has_role = bool(role_arn)
 
-    if not access_key.startswith('AKIA'):
-        return False, "Invalid AWS access key format (should start with AKIA)"
+    if not has_keys and not has_role:
+        return False, "Provide either Access Key + Secret Key, or a Role ARN"
 
+    # --- Validate & test ---
+    if has_role:
+        if not re.match(r'^arn:aws:iam::\d{12}:role/.+$', role_arn):
+            return False, "Invalid Role ARN format. Expected: arn:aws:iam::123456789012:role/RoleName"
+        try:
+            temp_creds = _assume_role(role_arn, external_id, session_name='devops-agent-verify')
+            verify_client = boto3.client(
+                'sts',
+                aws_access_key_id=temp_creds['AccessKeyId'],
+                aws_secret_access_key=temp_creds['SecretAccessKey'],
+                aws_session_token=temp_creds['SessionToken'],
+                region_name=region
+            )
+            identity = verify_client.get_caller_identity()
+        except Exception as e:
+            return False, str(e)
+        stored = {'role_arn': role_arn, 'external_id': external_id, 'region': region}
+        success_msg = f"AWS role configured. Assumed identity: {identity.get('Arn', '')}"
+    else:
+        if not access_key.startswith('AKIA'):
+            return False, "Invalid AWS access key format (should start with AKIA)"
+        try:
+            test_client = boto3.client(
+                'sts',
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                region_name=region
+            )
+            identity = test_client.get_caller_identity()
+        except ClientError as e:
+            return False, f"Invalid AWS credentials: {str(e)}"
+        except Exception as e:
+            return False, f"Failed to validate credentials: {str(e)}"
+        stored = {'access_key': access_key, 'secret_key': secret_key, 'region': region}
+        success_msg = f"AWS credentials saved. Identity: {identity.get('Arn', '')}"
+
+    # --- Persist ---
     try:
-        # Test credentials
-        test_client = boto3.client(
-            'sts',
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region
-        )
-        test_client.get_caller_identity()
-    except ClientError as e:
-        return False, f"Invalid AWS credentials: {str(e)}"
-    except Exception as e:
-        return False, f"Failed to validate credentials: {str(e)}"
-
-    try:
-        # Find or create credential record
         cred = UserCloudCredential.query.filter_by(
             user_id=user_id,
             cloud_provider='aws'
@@ -300,19 +399,14 @@ def save_user_aws_credentials(
             )
             db.session.add(cred)
 
-        # Store encrypted credentials
-        cred.set_credentials({
-            'access_key': access_key,
-            'secret_key': secret_key,
-            'region': region
-        })
+        cred.set_credentials(stored)
         cred.default_region = region
         cred.verification_status = 'valid'
         cred.last_verified = datetime.utcnow()
         cred.is_active = True
 
         db.session.commit()
-        return True, "AWS credentials saved successfully"
+        return True, success_msg
     except Exception as e:
         db.session.rollback()
         return False, f"Failed to save credentials: {str(e)}"
