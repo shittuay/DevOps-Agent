@@ -247,6 +247,9 @@ class UserPreferences(db.Model):
     # Learning Mode
     learning_mode = db.Column(db.Boolean, default=False)
     sandbox_mode = db.Column(db.Boolean, default=False)
+
+    # Currency preference
+    preferred_currency = db.Column(db.String(3), nullable=True)  # None=auto-detect, 'USD', 'NGN'
     learning_level = db.Column(db.JSON, default=dict)  # {"aws": 30, "kubernetes": 10, ...}
 
     # Favorite Commands (JSON array)
@@ -285,6 +288,7 @@ class UserPreferences(db.Model):
             'verbose_mode': self.verbose_mode,
             'learning_mode': self.learning_mode or False,
             'sandbox_mode': self.sandbox_mode or False,
+            'preferred_currency': self.preferred_currency,
             'learning_level': self.learning_level or {},
             'favorite_commands': self.favorite_commands or [],
             'custom_shortcuts': self.custom_shortcuts or {},
@@ -527,6 +531,13 @@ class UserSubscription(db.Model):
     payment_status = db.Column(db.String(20), default='active')  # active, cancelled, past_due, unpaid
     payment_failed_at = db.Column(db.DateTime, nullable=True)
 
+    # Multi-gateway support
+    payment_gateway = db.Column(db.String(20), nullable=True)  # stripe, paystack, flutterwave
+    paystack_customer_code = db.Column(db.String(100), nullable=True)
+    paystack_subscription_code = db.Column(db.String(100), nullable=True)
+    flutterwave_customer_id = db.Column(db.String(100), nullable=True)
+    flutterwave_subscription_id = db.Column(db.String(100), nullable=True)
+
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -617,6 +628,12 @@ class CreditPurchase(db.Model):
     # Payment information
     stripe_payment_intent_id = db.Column(db.String(100), unique=True, index=True)
     payment_status = db.Column(db.String(20), default='pending')  # pending, completed, failed, refunded
+
+    # Multi-gateway support
+    payment_gateway = db.Column(db.String(20), nullable=True)  # stripe, paystack, flutterwave
+    currency = db.Column(db.String(3), nullable=True)  # USD, NGN
+    price_paid_ngn = db.Column(db.Integer, nullable=True)  # Amount in whole naira
+    gateway_reference = db.Column(db.String(100), nullable=True)  # Paystack/Flutterwave reference
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -2103,3 +2120,46 @@ class StripeWebhookEvent(db.Model):
     id = db.Column(db.String(100), primary_key=True)
     event_type = db.Column(db.String(100), nullable=False)
     processed_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class PaymentWebhookEvent(db.Model):
+    """Unified webhook idempotency tracking across all payment gateways"""
+    __tablename__ = 'payment_webhook_events'
+
+    id = db.Column(db.String(200), primary_key=True)  # format: "{gateway}:{event_id}"
+    gateway = db.Column(db.String(20), nullable=False)  # stripe, paystack, flutterwave
+    event_type = db.Column(db.String(100), nullable=False)
+    processed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    raw_payload = db.Column(db.Text, nullable=True)
+
+    def __repr__(self):
+        return f'<PaymentWebhookEvent {self.id}>'
+
+
+class NGNPriceConfig(db.Model):
+    """Nigerian Naira price configuration for products"""
+    __tablename__ = 'ngn_price_configs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    product_type = db.Column(db.String(20), nullable=False)  # subscription, credit_pack
+    product_key = db.Column(db.String(50), nullable=False, unique=True)  # e.g. "starter", "pack_100"
+    price_ngn = db.Column(db.Integer, nullable=False)  # Whole naira (not kobo)
+    paystack_plan_code = db.Column(db.String(100), nullable=True)
+    flutterwave_plan_id = db.Column(db.String(100), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_type': self.product_type,
+            'product_key': self.product_key,
+            'price_ngn': self.price_ngn,
+            'paystack_plan_code': self.paystack_plan_code,
+            'flutterwave_plan_id': self.flutterwave_plan_id,
+            'is_active': self.is_active,
+        }
+
+    def __repr__(self):
+        return f'<NGNPriceConfig {self.product_key} ₦{self.price_ngn:,}>'

@@ -1,4 +1,4 @@
-# DevOps Agent - Claude Context
+   # DevOps Agent - Claude Context
 
 > This file provides persistent context for Claude Code sessions.
 
@@ -318,16 +318,19 @@ Users can enable **Learning Mode** and/or **Sandbox Mode** in Settings > Prefere
 - ~$0.05/message with Sonnet 4.6 × 20 credits = **~$1.00/user/month**
 - Worth it to convert a $29/mo Starter subscriber
 
-## Billing & Stripe Payment Flow
+## Billing & Payment Flow
 
 ### Architecture
-- **Frontend:** `templates/billing.html` — subscription tiers + credit pack purchase buttons
-- **Stripe Checkout:** `stripe_integration.py` — `StripePaymentService` handles session creation
-- **Webhook:** `/api/stripe/webhook` in `app.py` — receives Stripe events, grants credits/subscriptions
-- **Models:** `UserSubscription`, `CreditPurchase`, `SubscriptionTier`, `StripeWebhookEvent` in `models.py`
+- **Frontend:** `templates/billing.html` — subscription tiers + credit pack purchase buttons, dual USD/NGN currency toggle
+- **Stripe (USD):** `stripe_integration.py` — `StripePaymentService` handles session creation
+- **Paystack (NGN primary):** `services/paystack_integration.py` — `PaystackPaymentService` for Naira payments
+- **Flutterwave (NGN fallback):** `services/flutterwave_integration.py` — `FlutterwavePaymentService` auto-failover
+- **Currency detection:** `services/currency_detection.py` — IP geolocation + Accept-Language + user preference
+- **Webhooks:** `/api/stripe/webhook`, `/api/paystack/webhook`, `/api/flutterwave/webhook` in `app.py`
+- **Models:** `UserSubscription`, `CreditPurchase`, `SubscriptionTier`, `StripeWebhookEvent`, `PaymentWebhookEvent`, `NGNPriceConfig` in `models.py`
 
-### Payment Flow (MUST follow this pattern)
-1. User clicks upgrade/purchase on billing page
+### Payment Flow — USD (Stripe)
+1. User clicks upgrade/purchase with USD currency selected
 2. JS calls `/api/subscription/create-checkout` or `/api/credits/create-checkout`
 3. Backend creates Stripe Checkout session, returns `checkout_url`
 4. User redirected to Stripe's hosted payment page
@@ -335,12 +338,35 @@ Users can enable **Learning Mode** and/or **Sandbox Mode** in Settings > Prefere
 6. `handle_checkout_completed()` verifies and grants subscription/credits
 7. User redirected to `/billing/success` which shows billing page
 
-### CRITICAL: Never grant credits without Stripe verification
+### Payment Flow — NGN (Paystack/Flutterwave)
+1. User clicks upgrade/purchase with NGN currency selected
+2. JS calls `/api/subscription/create-checkout-ngn` or `/api/credits/create-checkout-ngn`
+3. Backend tries Paystack first; if Paystack fails, falls back to Flutterwave
+4. User redirected to Paystack/Flutterwave payment page (supports card, bank transfer, USSD)
+5. After payment, gateway sends webhook (`charge.success` / `charge.completed`)
+6. `handle_paystack_charge_success()` or `handle_flutterwave_charge_success()` grants subscription/credits
+7. User redirected to `/billing/success?gateway=paystack&trxref=xxx`
+
+### NGN Prices (purchasing power adjusted, NOT FX-converted)
+| Product | USD | NGN |
+|---------|-----|-----|
+| Starter | $29/mo | ₦15,000/mo |
+| Professional | $99/mo | ₦45,000/mo |
+| Business | $299/mo | ₦120,000/mo |
+| 100 credits | $10 | ₦5,000 |
+| 250 credits | $20 | ₦9,000 |
+| 500 credits | $35 | ₦15,000 |
+| 1000 credits | $60 | ₦25,000 |
+
+NGN prices stored in `NGNPriceConfig` table, seeded by `scripts/seed_ngn_prices.py`.
+
+### CRITICAL: Never grant credits without webhook verification
 - `/api/subscription/upgrade` — DISABLED (returns 403). Was a legacy endpoint that granted free subscriptions.
 - `/api/credits/purchase` — DISABLED (returns 403). Was a legacy endpoint that granted free credits.
-- Credits/subscriptions MUST only be granted via `handle_checkout_completed()` after Stripe webhook verification.
+- Credits/subscriptions MUST only be granted via webhook handlers after gateway verification.
+- All webhooks use `PaymentWebhookEvent` for idempotency (format: `{gateway}:{event_id}`).
 
-### Stripe Environment Variables (all required for payments)
+### Stripe Environment Variables (USD payments)
 - `STRIPE_SECRET_KEY` — Stripe API secret key
 - `STRIPE_PUBLISHABLE_KEY` — Stripe publishable key (passed to billing template)
 - `STRIPE_WEBHOOK_SECRET` — Webhook signature verification secret
@@ -352,8 +378,22 @@ Users can enable **Learning Mode** and/or **Sandbox Mode** in Settings > Prefere
 - `STRIPE_PRICE_PACK_500` — Price ID for 500-credit pack ($35)
 - `STRIPE_PRICE_PACK_1000` — Price ID for 1000-credit pack ($60)
 
-All Stripe env vars must be in AWS Secrets Manager (`devops-agent/production` JSON) for production.
+### Paystack/Flutterwave Environment Variables (NGN payments)
+- `PAYSTACK_SECRET_KEY` — Paystack API secret key (enables NGN primary gateway)
+- `PAYSTACK_PUBLIC_KEY` — Paystack publishable key
+- `FLUTTERWAVE_SECRET_KEY` — Flutterwave API secret key (enables NGN fallback)
+- `FLUTTERWAVE_PUBLIC_KEY` — Flutterwave publishable key
+- `FLUTTERWAVE_WEBHOOK_SECRET` — Flutterwave webhook signature secret
+
+All payment env vars must be in AWS Secrets Manager (`devops-agent/production` JSON) for production.
 They are listed in `services/secrets_manager.py` `MANAGED_SECRET_KEYS`.
+
+### Setup Scripts for NGN Payments
+```bash
+python scripts/seed_ngn_prices.py          # Seed NGNPriceConfig table (idempotent)
+python scripts/create_paystack_plans.py    # Create subscription plans on Paystack
+python scripts/create_flutterwave_plans.py # Create payment plans on Flutterwave
+```
 
 ## Environment Variables
 
@@ -365,9 +405,14 @@ Optional:
 - `CREDENTIAL_ENCRYPTION_KEY` - For credential encryption
 - `DATABASE_URL` - Database connection string
 - `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
-- `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
+- `BASE_URL` - App base URL for Stripe/Paystack/Flutterwave callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi K2.5 API key (required for Kimi model provider)
 - `KIMI_MODEL` - Kimi model override (default: `kimi-k2.5`)
+- `PAYSTACK_SECRET_KEY` - Paystack API secret key (NGN payments)
+- `PAYSTACK_PUBLIC_KEY` - Paystack publishable key
+- `FLUTTERWAVE_SECRET_KEY` - Flutterwave API secret key (NGN fallback)
+- `FLUTTERWAVE_PUBLIC_KEY` - Flutterwave publishable key
+- `FLUTTERWAVE_WEBHOOK_SECRET` - Flutterwave webhook signature verification
 
 ## Running the App
 
