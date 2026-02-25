@@ -340,7 +340,7 @@ def api_run_check():
     service = ComplianceService(current_user.id)
 
     framework_id = request.json.get('framework_id')
-    result = service.run_compliance_check(framework_id)
+    result = service.run_compliance_check(current_user.id, framework_id)
 
     return jsonify(result)
 
@@ -355,21 +355,21 @@ def api_audit_log():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
 
-    logs = service.get_audit_logs(page=page, per_page=per_page)
+    logs = service.get_audit_logs(user_id=current_user.id, limit=per_page)
 
     return jsonify({
         'logs': [{
-            'id': log.id,
-            'action': log.action_type,
-            'resource_type': log.resource_type,
-            'resource_id': log.resource_id,
-            'details': log.details,
-            'ip_address': log.ip_address,
-            'timestamp': log.timestamp.isoformat() if log.timestamp else None
-        } for log in logs.items],
-        'total': logs.total,
-        'pages': logs.pages,
-        'current_page': logs.page
+            'id': getattr(log, 'id', None),
+            'action': getattr(log, 'action_type', None),
+            'resource_type': getattr(log, 'resource_type', None),
+            'resource_id': getattr(log, 'resource_id', None),
+            'details': getattr(log, 'details', None),
+            'ip_address': getattr(log, 'ip_address', None),
+            'timestamp': log.timestamp.isoformat() if getattr(log, 'timestamp', None) else None
+        } for log in logs],
+        'total': len(logs),
+        'pages': 1,
+        'current_page': page
     })
 
 

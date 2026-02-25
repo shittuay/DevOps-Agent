@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Performance Analytics - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Performance Analytics</h1>
+        <a href="{{ url_for('analytics.dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+    <div class="analytics-nav">
+        <a href="{{ url_for('analytics.dashboard') }}" class="nav-item">Dashboard</a>
+        <a href="{{ url_for('analytics.cost_analytics') }}" class="nav-item">Costs</a>
+        <a href="{{ url_for('analytics.performance_analytics') }}" class="nav-item active">Performance</a>
+        <a href="{{ url_for('analytics.resource_analytics') }}" class="nav-item">Resources</a>
+    </div>
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-tachometer-alt"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Avg Response Time</span>
+                <span class="metric-value" id="avgResponse">--</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-check-circle"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Uptime</span>
+                <span class="metric-value" id="uptime">--</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Error Rate</span>
+                <span class="metric-value" id="errorRate">--</span>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <h3>Performance Trends</h3>
+        <div class="empty-state">
+            <i class="fas fa-chart-area"></i>
+            <h3>Performance Monitoring</h3>
+            <p>Connect cloud accounts and set up monitoring to see performance trends</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

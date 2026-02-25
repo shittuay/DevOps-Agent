@@ -153,6 +153,14 @@
             <a href="javascript:location.reload()" class="btn btn-secondary">Try Again</a>
             <a href="/" class="btn btn-primary">Go Home</a>
         </div>
+        {% if error_detail %}
+        <div style="margin-top:24px;text-align:left;background:rgba(0,0,0,0.4);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:16px;max-height:300px;overflow:auto;">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#ef4444;margin-bottom:8px;">{{ error_detail }}</div>
+            {% if error_traceback %}
+            <pre style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-tertiary);white-space:pre-wrap;word-break:break-all;margin:0;">{{ error_traceback }}</pre>
+            {% endif %}
+        </div>
+        {% endif %}
         <div class="terminal-hint"><span>ERR</span> internal server exception</div>
     </div>
 

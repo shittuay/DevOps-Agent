@@ -56,11 +56,24 @@ class StripePaymentService:
     """Service for handling Stripe payments"""
 
     @staticmethod
-    def create_checkout_session_subscription(user_email, tier_name, tier_price_id, success_url, cancel_url):
-        """Create a Stripe Checkout session for subscription."""
+    def create_checkout_session_subscription(user_email, tier_name, tier_price_id, success_url, cancel_url, currency=None, user_id=None):
+        """Create a Stripe Checkout session for subscription.
+
+        Args:
+            currency: Optional currency code (e.g. 'ngn'). If set, Stripe creates
+                      the checkout page in that currency.
+            user_id: Internal user ID stored in metadata for reliable webhook lookup.
+        """
         try:
             _ensure_stripe_configured()
-            session = stripe.checkout.Session.create(
+            metadata = {
+                'tier_name': tier_name,
+                'product_type': 'subscription',
+                'currency': currency or 'usd',
+            }
+            if user_id:
+                metadata['user_id'] = str(user_id)
+            session_params = dict(
                 payment_method_types=['card'],
                 line_items=[{
                     'price': tier_price_id,
@@ -70,11 +83,12 @@ class StripePaymentService:
                 success_url=success_url + '?session_id={CHECKOUT_SESSION_ID}',
                 cancel_url=cancel_url,
                 customer_email=user_email,
-                metadata={
-                    'tier_name': tier_name,
-                    'product_type': 'subscription'
-                }
+                metadata=metadata,
+                subscription_data={'metadata': metadata},
             )
+            if currency:
+                session_params['currency'] = currency.lower()
+            session = stripe.checkout.Session.create(**session_params)
 
             return {
                 'success': True,
@@ -90,11 +104,24 @@ class StripePaymentService:
             }
 
     @staticmethod
-    def create_checkout_session_credits(user_email, pack_size, pack_price_id, success_url, cancel_url):
-        """Create a Stripe Checkout session for one-time credit purchase."""
+    def create_checkout_session_credits(user_email, pack_size, pack_price_id, success_url, cancel_url, currency=None, user_id=None):
+        """Create a Stripe Checkout session for one-time credit purchase.
+
+        Args:
+            currency: Optional currency code (e.g. 'ngn'). If set, Stripe creates
+                      the checkout page in that currency.
+            user_id: Internal user ID stored in metadata for reliable webhook lookup.
+        """
         try:
             _ensure_stripe_configured()
-            session = stripe.checkout.Session.create(
+            metadata = {
+                'pack_size': pack_size,
+                'product_type': 'credit_pack',
+                'currency': currency or 'usd',
+            }
+            if user_id:
+                metadata['user_id'] = str(user_id)
+            session_params = dict(
                 payment_method_types=['card'],
                 line_items=[{
                     'price': pack_price_id,
@@ -104,11 +131,11 @@ class StripePaymentService:
                 success_url=success_url + '?session_id={CHECKOUT_SESSION_ID}',
                 cancel_url=cancel_url,
                 customer_email=user_email,
-                metadata={
-                    'pack_size': pack_size,
-                    'product_type': 'credit_pack'
-                }
+                metadata=metadata,
             )
+            if currency:
+                session_params['currency'] = currency.lower()
+            session = stripe.checkout.Session.create(**session_params)
 
             return {
                 'success': True,
@@ -211,9 +238,18 @@ class StripePaymentService:
 
 # Helper functions for common operations
 
-def create_subscription_checkout(user, tier_name):
-    """Create a subscription checkout session for a user."""
-    price_id = StripePaymentService.get_price_id(tier_name=tier_name)
+def create_subscription_checkout(user, tier_name, currency=None, ngn_price_id=None):
+    """Create a subscription checkout session for a user.
+
+    Args:
+        currency: 'ngn' to create a Naira checkout, None/usd for dollars.
+        ngn_price_id: Stripe Price ID for the NGN product (from NGNPriceConfig.stripe_price_id_ngn).
+    """
+    if currency and currency.lower() == 'ngn' and ngn_price_id:
+        price_id = ngn_price_id
+    else:
+        price_id = StripePaymentService.get_price_id(tier_name=tier_name)
+        currency = None  # USD is Stripe default
 
     if not price_id:
         return {'success': False, 'error': f'Stripe price not configured for tier: {tier_name}. Check STRIPE_PRICE_{tier_name.upper()} env var.'}
@@ -227,13 +263,24 @@ def create_subscription_checkout(user, tier_name):
         tier_name=tier_name,
         tier_price_id=price_id,
         success_url=success_url,
-        cancel_url=cancel_url
+        cancel_url=cancel_url,
+        currency=currency,
+        user_id=user.id,
     )
 
 
-def create_credit_pack_checkout(user, pack_size):
-    """Create a credit pack checkout session for a user."""
-    price_id = StripePaymentService.get_price_id(pack_size=pack_size)
+def create_credit_pack_checkout(user, pack_size, currency=None, ngn_price_id=None):
+    """Create a credit pack checkout session for a user.
+
+    Args:
+        currency: 'ngn' to create a Naira checkout, None/usd for dollars.
+        ngn_price_id: Stripe Price ID for the NGN product (from NGNPriceConfig.stripe_price_id_ngn).
+    """
+    if currency and currency.lower() == 'ngn' and ngn_price_id:
+        price_id = ngn_price_id
+    else:
+        price_id = StripePaymentService.get_price_id(pack_size=pack_size)
+        currency = None
 
     if not price_id:
         return {'success': False, 'error': f'Stripe price not configured for pack size: {pack_size}. Check STRIPE_PRICE_PACK_{pack_size} env var.'}
@@ -247,5 +294,7 @@ def create_credit_pack_checkout(user, pack_size):
         pack_size=pack_size,
         pack_price_id=price_id,
         success_url=success_url,
-        cancel_url=cancel_url
+        cancel_url=cancel_url,
+        currency=currency,
+        user_id=user.id,
     )

@@ -2838,14 +2838,25 @@
             return sentences.length ? sentences : [text];
         }
 
+        var ttsAbortController = { cancelled: false };
+
         function speakText(text, btn) {
             if (!window.speechSynthesis) return;
+
+            // If this button is already speaking, stop it
+            if (btn && btn.classList.contains('speaking')) {
+                stopSpeaking();
+                return;
+            }
+
             stopSpeaking();
             var clean = stripMarkdownForTTS(text);
             if (!clean) return;
 
             var voice = getTTSVoice();
             var sentences = splitIntoSentences(clean);
+            var controller = { cancelled: false };
+            ttsAbortController = controller;
 
             if (btn) {
                 btn.classList.add('speaking');
@@ -2855,18 +2866,18 @@
             // Speak sentence by sentence for natural pacing with breath pauses
             var idx = 0;
             function speakNext() {
-                if (idx >= sentences.length) {
+                if (controller.cancelled || idx >= sentences.length) {
                     if (btn) { btn.classList.remove('speaking'); btn.innerHTML = '🔊 Listen'; }
                     return;
                 }
                 var utterance = new SpeechSynthesisUtterance(sentences[idx]);
-                utterance.rate = 0.92;   // slightly slower = more deliberate, teacher-like
-                utterance.pitch = 1.05;  // slightly warmer
+                utterance.rate = 0.92;
+                utterance.pitch = 1.05;
                 utterance.volume = 1.0;
                 if (voice) utterance.voice = voice;
                 utterance.onend = function() {
+                    if (controller.cancelled) return;
                     idx++;
-                    // Brief pause between sentences (like a natural breath)
                     setTimeout(speakNext, 180);
                 };
                 utterance.onerror = function() {
@@ -2879,6 +2890,7 @@
 
         function stopSpeaking() {
             if (!window.speechSynthesis) return;
+            ttsAbortController.cancelled = true;
             speechSynthesis.cancel();
             document.querySelectorAll('.tts-btn.speaking').forEach(function(b) {
                 b.classList.remove('speaking');

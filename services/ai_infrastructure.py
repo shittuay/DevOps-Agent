@@ -506,6 +506,16 @@ class AIInfrastructureService:
             return True
         return False
 
+    # Deployments
+
+    def get_user_deployments(self, user_id: int) -> List[Any]:
+        """Get all deployments for a user."""
+        return []
+
+    def get_user_deployment(self, user_id: int, deployment_id: int) -> Any:
+        """Get a single deployment by ID."""
+        return None
+
     # Recommendations
 
     def get_recommendations(self, user_id: int) -> List[Dict]:

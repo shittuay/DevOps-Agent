@@ -28,7 +28,7 @@ def templates():
     """Infrastructure templates"""
     from services.ai_infrastructure import AIInfrastructureService
     service = AIInfrastructureService(current_user.id)
-    all_templates = service.get_templates()
+    all_templates = service.get_user_templates(current_user.id)
     return render_template('ai_infrastructure/templates.html', templates=all_templates)
 
 
@@ -53,7 +53,7 @@ def recommendations():
     """AI-powered recommendations"""
     from services.ai_infrastructure import AIInfrastructureService
     service = AIInfrastructureService(current_user.id)
-    all_recommendations = service.get_recommendations()
+    all_recommendations = service.get_recommendations(current_user.id)
     return render_template('ai_infrastructure/recommendations.html', recommendations=all_recommendations)
 
 
@@ -63,7 +63,7 @@ def deployments():
     """AI-assisted deployments history"""
     from services.ai_infrastructure import AIInfrastructureService
     service = AIInfrastructureService(current_user.id)
-    all_deployments = service.get_deployments()
+    all_deployments = service.get_user_deployments(current_user.id)
     return render_template('ai_infrastructure/deployments.html', deployments=all_deployments)
 
 
@@ -73,7 +73,7 @@ def deployment_detail(deployment_id):
     """Deployment detail"""
     from services.ai_infrastructure import AIInfrastructureService
     service = AIInfrastructureService(current_user.id)
-    deployment = service.get_deployment(deployment_id)
+    deployment = service.get_user_deployment(current_user.id, deployment_id)
 
     if not deployment:
         flash('Deployment not found.', 'error')
@@ -189,18 +189,18 @@ def api_recommendations():
     service = AIInfrastructureService(current_user.id)
 
     category = request.args.get('category')
-    recommendations = service.get_recommendations(category=category)
+    recommendations = service.get_recommendations(current_user.id)
 
     return jsonify({
         'recommendations': [{
-            'id': r.id,
-            'category': r.category,
-            'title': r.title,
-            'description': r.description,
-            'impact': r.impact,
-            'effort': r.effort,
-            'potential_savings': r.potential_savings,
-            'created_at': r.created_at.isoformat() if r.created_at else None
+            'id': r.get('id'),
+            'category': r.get('category'),
+            'title': r.get('title'),
+            'description': r.get('description'),
+            'impact': r.get('impact'),
+            'effort': r.get('effort'),
+            'potential_savings': r.get('potential_savings'),
+            'created_at': None
         } for r in recommendations]
     })
 
@@ -238,7 +238,7 @@ def api_templates():
 
     category = request.args.get('category')
     provider = request.args.get('provider')
-    templates = service.get_templates(category=category, provider=provider)
+    templates = service.get_user_templates(current_user.id)
 
     return jsonify({
         'templates': [{
