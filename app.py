@@ -65,7 +65,7 @@ from src.tools import (
 from models import (
     db, User, ChatMessage, Conversation, UserPreferences, CommandTemplate,
     ResponseFeedback, SubscriptionTier, UserSubscription, CreditPurchase, UsageLog,
-    LearningSession
+    LearningSession, PaymentWebhookEvent, NGNPriceConfig
 )
 
 # Import Stripe integration
@@ -80,6 +80,28 @@ try:
 except ImportError:
     STRIPE_ENABLED = False
     print("Warning: Stripe not installed. Payment features will be disabled.")
+
+# Import Paystack integration (NGN primary gateway)
+try:
+    from services.paystack_integration import (
+        PaystackPaymentService,
+        create_paystack_subscription_checkout,
+        create_paystack_credit_checkout,
+    )
+    PAYSTACK_ENABLED = bool(os.getenv('PAYSTACK_SECRET_KEY'))
+except ImportError:
+    PAYSTACK_ENABLED = False
+
+# Import Flutterwave integration (NGN fallback gateway)
+try:
+    from services.flutterwave_integration import (
+        FlutterwavePaymentService,
+        create_flutterwave_subscription_checkout,
+        create_flutterwave_credit_checkout,
+    )
+    FLUTTERWAVE_ENABLED = bool(os.getenv('FLUTTERWAVE_SECRET_KEY'))
+except ImportError:
+    FLUTTERWAVE_ENABLED = False
 
 app = Flask(__name__)
 
@@ -1540,7 +1562,28 @@ def billing():
         subscription.reset_monthly_credits()
     tiers = SubscriptionTier.query.filter_by(is_active=True).order_by(SubscriptionTier.monthly_price).all()
     stripe_pub_key = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
-    return render_template('billing.html', user=current_user, subscription=subscription, tiers=tiers, stripe_enabled=STRIPE_ENABLED, stripe_publishable_key=stripe_pub_key)
+
+    # NGN pricing support
+    from services.currency_detection import detect_user_currency
+    from models import NGNPriceConfig
+    user_prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+    detected_currency = detect_user_currency(request, user_prefs)
+    ngn_prices = {p.product_key: p.price_ngn for p in NGNPriceConfig.query.filter_by(is_active=True).all()}
+    paystack_pub_key = os.getenv('PAYSTACK_PUBLIC_KEY', '')
+
+    return render_template(
+        'billing.html',
+        user=current_user,
+        subscription=subscription,
+        tiers=tiers,
+        stripe_enabled=STRIPE_ENABLED,
+        stripe_publishable_key=stripe_pub_key,
+        detected_currency=detected_currency,
+        ngn_prices=ngn_prices,
+        paystack_enabled=PAYSTACK_ENABLED,
+        flutterwave_enabled=FLUTTERWAVE_ENABLED,
+        paystack_pub_key=paystack_pub_key,
+    )
 
 
 @app.route('/usage-policy')
@@ -4401,6 +4444,477 @@ def get_credit_packs():
     return jsonify({'packs': credit_packs})
 
 
+# ============================================================
+# NGN Payment Routes (Paystack + Flutterwave)
+# ============================================================
+
+@app.route('/api/subscription/create-checkout-ngn', methods=['POST'])
+@login_required
+def create_subscription_checkout_ngn():
+    """Create Paystack/Flutterwave checkout for NGN subscription."""
+    logger = get_logger(__name__)
+
+    if not PAYSTACK_ENABLED and not FLUTTERWAVE_ENABLED:
+        return jsonify({'error': 'NGN payment processing is not enabled'}), 503
+
+    try:
+        data = request.get_json()
+        tier_name = data.get('tier_name')
+        if not tier_name:
+            return jsonify({'error': 'Tier name is required'}), 400
+
+        from models import NGNPriceConfig
+        config = NGNPriceConfig.query.filter_by(
+            product_key=tier_name.lower(), product_type='subscription', is_active=True
+        ).first()
+        if not config:
+            return jsonify({'error': f'NGN pricing not configured for tier: {tier_name}'}), 400
+
+        # Try Paystack first, fall back to Flutterwave
+        result = None
+        gateway = None
+
+        if PAYSTACK_ENABLED:
+            result = create_paystack_subscription_checkout(
+                current_user, tier_name, config.paystack_plan_code or '', config.price_ngn
+            )
+            gateway = 'paystack'
+
+        if (not result or not result.get('success')) and FLUTTERWAVE_ENABLED:
+            logger.info(f"Paystack failed or unavailable, falling back to Flutterwave for {tier_name}")
+            result = create_flutterwave_subscription_checkout(
+                current_user, tier_name, config.price_ngn, config.flutterwave_plan_id
+            )
+            gateway = 'flutterwave'
+
+        if result and result.get('success'):
+            checkout_url = result.get('authorization_url') or result.get('payment_link')
+            return jsonify({
+                'success': True,
+                'checkout_url': checkout_url,
+                'reference': result.get('reference'),
+                'gateway': gateway,
+            })
+        else:
+            error = result.get('error', 'Failed to create checkout') if result else 'No NGN gateway available'
+            return jsonify({'error': error}), 500
+
+    except Exception as e:
+        logger.error(f"NGN subscription checkout error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/credits/create-checkout-ngn', methods=['POST'])
+@login_required
+def create_credits_checkout_ngn():
+    """Create Paystack/Flutterwave checkout for NGN credit pack purchase."""
+    logger = get_logger(__name__)
+
+    if not PAYSTACK_ENABLED and not FLUTTERWAVE_ENABLED:
+        return jsonify({'error': 'NGN payment processing is not enabled'}), 503
+
+    try:
+        data = request.get_json()
+        pack_size = data.get('pack_size', 100)
+
+        if pack_size not in [100, 250, 500, 1000]:
+            return jsonify({'error': 'Invalid pack size'}), 400
+
+        from models import NGNPriceConfig
+        config = NGNPriceConfig.query.filter_by(
+            product_key=f'pack_{pack_size}', product_type='credit_pack', is_active=True
+        ).first()
+        if not config:
+            return jsonify({'error': f'NGN pricing not configured for pack size: {pack_size}'}), 400
+
+        result = None
+        gateway = None
+
+        if PAYSTACK_ENABLED:
+            result = create_paystack_credit_checkout(current_user, pack_size, config.price_ngn)
+            gateway = 'paystack'
+
+        if (not result or not result.get('success')) and FLUTTERWAVE_ENABLED:
+            logger.info(f"Paystack failed or unavailable, falling back to Flutterwave for pack_{pack_size}")
+            result = create_flutterwave_credit_checkout(current_user, pack_size, config.price_ngn)
+            gateway = 'flutterwave'
+
+        if result and result.get('success'):
+            checkout_url = result.get('authorization_url') or result.get('payment_link')
+            return jsonify({
+                'success': True,
+                'checkout_url': checkout_url,
+                'reference': result.get('reference'),
+                'gateway': gateway,
+            })
+        else:
+            error = result.get('error', 'Failed to create checkout') if result else 'No NGN gateway available'
+            return jsonify({'error': error}), 500
+
+    except Exception as e:
+        logger.error(f"NGN credits checkout error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/billing/currency', methods=['POST'])
+@login_required
+def set_billing_currency():
+    """Save user's preferred billing currency."""
+    data = request.get_json()
+    currency = data.get('currency')
+    if currency not in ('USD', 'NGN', None):
+        return jsonify({'error': 'Invalid currency. Must be USD, NGN, or null (auto-detect)'}), 400
+
+    prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+    if not prefs:
+        prefs = UserPreferences(user_id=current_user.id)
+        db.session.add(prefs)
+    prefs.preferred_currency = currency
+    db.session.commit()
+    return jsonify({'success': True, 'currency': currency})
+
+
+@app.route('/api/billing/prices', methods=['GET'])
+@login_required
+def get_billing_prices():
+    """Return all prices in both USD and NGN."""
+    from models import NGNPriceConfig
+    tiers = SubscriptionTier.query.filter_by(is_active=True).order_by(SubscriptionTier.monthly_price).all()
+    ngn_configs = {p.product_key: p.to_dict() for p in NGNPriceConfig.query.filter_by(is_active=True).all()}
+
+    subscriptions = []
+    for tier in tiers:
+        ngn = ngn_configs.get(tier.name, {})
+        subscriptions.append({
+            'name': tier.name,
+            'display_name': tier.display_name,
+            'price_usd': tier.monthly_price,
+            'price_ngn': ngn.get('price_ngn'),
+            'monthly_credits': tier.monthly_credits,
+        })
+
+    credit_packs = [
+        {'size': 100, 'price_usd': 10, 'price_ngn': ngn_configs.get('pack_100', {}).get('price_ngn')},
+        {'size': 250, 'price_usd': 20, 'price_ngn': ngn_configs.get('pack_250', {}).get('price_ngn')},
+        {'size': 500, 'price_usd': 35, 'price_ngn': ngn_configs.get('pack_500', {}).get('price_ngn')},
+        {'size': 1000, 'price_usd': 60, 'price_ngn': ngn_configs.get('pack_1000', {}).get('price_ngn')},
+    ]
+
+    return jsonify({
+        'subscriptions': subscriptions,
+        'credit_packs': credit_packs,
+        'paystack_enabled': PAYSTACK_ENABLED,
+        'flutterwave_enabled': FLUTTERWAVE_ENABLED,
+    })
+
+
+@app.route('/api/paystack/webhook', methods=['POST'])
+def paystack_webhook():
+    """Handle Paystack webhook events. CSRF-exempt, signature-verified."""
+    logger = get_logger(__name__)
+
+    if not PAYSTACK_ENABLED:
+        return jsonify({'error': 'Paystack not enabled'}), 503
+
+    payload = request.get_data()
+    signature = request.headers.get('X-Paystack-Signature', '')
+
+    if not PaystackPaymentService.verify_webhook_signature(payload, signature):
+        logger.warning("Invalid Paystack webhook signature")
+        return jsonify({'error': 'Invalid signature'}), 400
+
+    try:
+        import json
+        event = json.loads(payload)
+    except Exception:
+        return jsonify({'error': 'Invalid payload'}), 400
+
+    event_type = event.get('event', '')
+    event_data = event.get('data', {})
+    logger.info(f"Received Paystack webhook: {event_type}")
+
+    # Idempotency check
+    from models import PaymentWebhookEvent
+    event_id = f"paystack:{event_data.get('reference', event_data.get('id', ''))}"
+    if PaymentWebhookEvent.query.get(event_id):
+        logger.info(f"Duplicate Paystack webhook {event_id}, skipping")
+        return jsonify({'success': True, 'duplicate': True})
+
+    if event_type == 'charge.success':
+        handle_paystack_charge_success(event_data)
+    elif event_type == 'subscription.create':
+        handle_paystack_subscription_created(event_data)
+    elif event_type == 'subscription.disable':
+        handle_paystack_subscription_disabled(event_data)
+
+    # Record processed event
+    try:
+        db.session.add(PaymentWebhookEvent(
+            id=event_id,
+            gateway='paystack',
+            event_type=event_type,
+            raw_payload=payload.decode('utf-8', errors='replace')[:10000],
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    return jsonify({'success': True})
+
+
+@app.route('/api/flutterwave/webhook', methods=['POST'])
+def flutterwave_webhook():
+    """Handle Flutterwave webhook events. CSRF-exempt, signature-verified."""
+    logger = get_logger(__name__)
+
+    if not FLUTTERWAVE_ENABLED:
+        return jsonify({'error': 'Flutterwave not enabled'}), 503
+
+    payload = request.get_data()
+    signature = request.headers.get('verif-hash', '')
+
+    if not FlutterwavePaymentService.verify_webhook_signature(payload, signature):
+        logger.warning("Invalid Flutterwave webhook signature")
+        return jsonify({'error': 'Invalid signature'}), 400
+
+    try:
+        import json
+        event = json.loads(payload)
+    except Exception:
+        return jsonify({'error': 'Invalid payload'}), 400
+
+    event_type = event.get('event', '')
+    event_data = event.get('data', {})
+    logger.info(f"Received Flutterwave webhook: {event_type}")
+
+    # Idempotency check
+    from models import PaymentWebhookEvent
+    event_id = f"flutterwave:{event_data.get('tx_ref', event_data.get('id', ''))}"
+    if PaymentWebhookEvent.query.get(event_id):
+        logger.info(f"Duplicate Flutterwave webhook {event_id}, skipping")
+        return jsonify({'success': True, 'duplicate': True})
+
+    if event_type == 'charge.completed' and event_data.get('status') == 'successful':
+        handle_flutterwave_charge_success(event_data)
+
+    # Record processed event
+    try:
+        db.session.add(PaymentWebhookEvent(
+            id=event_id,
+            gateway='flutterwave',
+            event_type=event_type,
+            raw_payload=payload.decode('utf-8', errors='replace')[:10000],
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    return jsonify({'success': True})
+
+
+def handle_paystack_charge_success(data):
+    """Handle successful Paystack charge — grants credits or subscription."""
+    logger = get_logger(__name__)
+    try:
+        metadata = data.get('metadata', {})
+        product_type = metadata.get('product_type')
+        customer_email = data.get('customer', {}).get('email')
+        customer_code = data.get('customer', {}).get('customer_code')
+        reference = data.get('reference', '')
+        amount_kobo = data.get('amount', 0)
+        amount_naira = amount_kobo // 100
+
+        user = User.query.filter_by(email=customer_email).first()
+        if not user:
+            logger.error(f"Paystack charge: user not found for email {customer_email}")
+            return
+
+        if product_type == 'subscription':
+            tier_name = metadata.get('tier_name')
+            tier = SubscriptionTier.query.filter_by(name=tier_name).first()
+            if not tier:
+                logger.error(f"Paystack charge: tier '{tier_name}' not found")
+                return
+
+            subscription = UserSubscription.query.filter_by(user_id=user.id).first()
+            if subscription:
+                old_credits = subscription.tier.monthly_credits if subscription.tier else 0
+                subscription.tier_id = tier.id
+                subscription.payment_status = 'active'
+                subscription.payment_gateway = 'paystack'
+                subscription.paystack_customer_code = customer_code
+                subscription.add_credits(tier.monthly_credits - old_credits)
+            else:
+                from dateutil.relativedelta import relativedelta
+                subscription = UserSubscription(
+                    user_id=user.id,
+                    tier_id=tier.id,
+                    credits_remaining=tier.monthly_credits,
+                    payment_status='active',
+                    payment_gateway='paystack',
+                    paystack_customer_code=customer_code,
+                    current_period_end=datetime.utcnow() + relativedelta(months=1),
+                )
+                db.session.add(subscription)
+
+            db.session.commit()
+            logger.info(f"Paystack subscription created for user {user.id}, tier={tier_name}")
+
+        elif product_type == 'credit_pack':
+            pack_size = int(metadata.get('pack_size', 0))
+
+            purchase = CreditPurchase(
+                user_id=user.id,
+                credits_amount=pack_size,
+                price_paid=0,
+                payment_gateway='paystack',
+                currency='NGN',
+                price_paid_ngn=amount_naira,
+                gateway_reference=reference,
+                payment_status='completed',
+                completed_at=datetime.utcnow(),
+            )
+            db.session.add(purchase)
+
+            subscription = UserSubscription.query.filter_by(user_id=user.id).first()
+            if subscription:
+                subscription.add_credits(pack_size)
+            else:
+                free_tier = SubscriptionTier.query.filter_by(name='free').first()
+                subscription = UserSubscription(
+                    user_id=user.id,
+                    tier_id=free_tier.id if free_tier else 1,
+                    credits_remaining=pack_size,
+                    payment_gateway='paystack',
+                )
+                db.session.add(subscription)
+
+            db.session.commit()
+            logger.info(f"Paystack credit pack ({pack_size}) purchased for user {user.id}")
+
+    except Exception as e:
+        logger.error(f"Error handling Paystack charge: {e}", exc_info=True)
+        db.session.rollback()
+
+
+def handle_paystack_subscription_created(data):
+    """Handle Paystack subscription.create event."""
+    logger = get_logger(__name__)
+    try:
+        customer_code = data.get('customer', {}).get('customer_code')
+        subscription_code = data.get('subscription_code')
+
+        if customer_code and subscription_code:
+            sub = UserSubscription.query.filter_by(paystack_customer_code=customer_code).first()
+            if sub:
+                sub.paystack_subscription_code = subscription_code
+                db.session.commit()
+                logger.info(f"Paystack subscription code stored for user {sub.user_id}")
+    except Exception as e:
+        logger.error(f"Error handling Paystack subscription created: {e}", exc_info=True)
+        db.session.rollback()
+
+
+def handle_paystack_subscription_disabled(data):
+    """Handle Paystack subscription.disable event."""
+    logger = get_logger(__name__)
+    try:
+        subscription_code = data.get('subscription_code')
+        if subscription_code:
+            sub = UserSubscription.query.filter_by(paystack_subscription_code=subscription_code).first()
+            if sub:
+                sub.payment_status = 'cancelled'
+                db.session.commit()
+                logger.info(f"Paystack subscription cancelled for user {sub.user_id}")
+    except Exception as e:
+        logger.error(f"Error handling Paystack subscription disabled: {e}", exc_info=True)
+        db.session.rollback()
+
+
+def handle_flutterwave_charge_success(data):
+    """Handle successful Flutterwave charge — grants credits or subscription."""
+    logger = get_logger(__name__)
+    try:
+        metadata = data.get('meta', {})
+        product_type = metadata.get('product_type')
+        customer_email = data.get('customer', {}).get('email')
+        customer_id = str(data.get('customer', {}).get('id', ''))
+        reference = data.get('tx_ref', '')
+        amount_naira = int(data.get('amount', 0))
+
+        user = User.query.filter_by(email=customer_email).first()
+        if not user:
+            logger.error(f"Flutterwave charge: user not found for email {customer_email}")
+            return
+
+        if product_type == 'subscription':
+            tier_name = metadata.get('tier_name')
+            tier = SubscriptionTier.query.filter_by(name=tier_name).first()
+            if not tier:
+                logger.error(f"Flutterwave charge: tier '{tier_name}' not found")
+                return
+
+            subscription = UserSubscription.query.filter_by(user_id=user.id).first()
+            if subscription:
+                old_credits = subscription.tier.monthly_credits if subscription.tier else 0
+                subscription.tier_id = tier.id
+                subscription.payment_status = 'active'
+                subscription.payment_gateway = 'flutterwave'
+                subscription.flutterwave_customer_id = customer_id
+                subscription.add_credits(tier.monthly_credits - old_credits)
+            else:
+                from dateutil.relativedelta import relativedelta
+                subscription = UserSubscription(
+                    user_id=user.id,
+                    tier_id=tier.id,
+                    credits_remaining=tier.monthly_credits,
+                    payment_status='active',
+                    payment_gateway='flutterwave',
+                    flutterwave_customer_id=customer_id,
+                    current_period_end=datetime.utcnow() + relativedelta(months=1),
+                )
+                db.session.add(subscription)
+
+            db.session.commit()
+            logger.info(f"Flutterwave subscription created for user {user.id}, tier={tier_name}")
+
+        elif product_type == 'credit_pack':
+            pack_size = int(metadata.get('pack_size', 0))
+
+            purchase = CreditPurchase(
+                user_id=user.id,
+                credits_amount=pack_size,
+                price_paid=0,
+                payment_gateway='flutterwave',
+                currency='NGN',
+                price_paid_ngn=amount_naira,
+                gateway_reference=reference,
+                payment_status='completed',
+                completed_at=datetime.utcnow(),
+            )
+            db.session.add(purchase)
+
+            subscription = UserSubscription.query.filter_by(user_id=user.id).first()
+            if subscription:
+                subscription.add_credits(pack_size)
+            else:
+                free_tier = SubscriptionTier.query.filter_by(name='free').first()
+                subscription = UserSubscription(
+                    user_id=user.id,
+                    tier_id=free_tier.id if free_tier else 1,
+                    credits_remaining=pack_size,
+                    payment_gateway='flutterwave',
+                )
+                db.session.add(subscription)
+
+            db.session.commit()
+            logger.info(f"Flutterwave credit pack ({pack_size}) purchased for user {user.id}")
+
+    except Exception as e:
+        logger.error(f"Error handling Flutterwave charge: {e}", exc_info=True)
+        db.session.rollback()
+
+
 @app.route('/api/usage/history', methods=['GET'])
 @login_required
 def get_usage_history():
@@ -4932,15 +5446,31 @@ def search_user_memories():
 @app.route('/billing/success')
 @login_required
 def billing_success():
-    """Success page after Stripe checkout."""
+    """Success page after Stripe/Paystack/Flutterwave checkout."""
     session_id = request.args.get('session_id')
+    gateway = request.args.get('gateway')
+    trxref = request.args.get('trxref') or request.args.get('reference')
 
     if session_id and STRIPE_ENABLED:
         result = StripePaymentService.retrieve_session(session_id)
         if result['success']:
-            session = result['session']
-            # You can display session details here
-            pass
+            pass  # Stripe webhook handles the actual granting
+
+    elif gateway == 'paystack' and trxref and PAYSTACK_ENABLED:
+        # Verify Paystack transaction on callback
+        result = PaystackPaymentService.verify_transaction(trxref)
+        if result.get('success'):
+            logger = get_logger(__name__)
+            logger.info(f"Paystack callback verified: {trxref}")
+            # Actual granting is done via webhook — this is just a verification check
+
+    elif gateway == 'flutterwave' and FLUTTERWAVE_ENABLED:
+        transaction_id = request.args.get('transaction_id')
+        if transaction_id:
+            result = FlutterwavePaymentService.verify_transaction(transaction_id)
+            if result.get('success'):
+                logger = get_logger(__name__)
+                logger.info(f"Flutterwave callback verified: {transaction_id}")
 
     return redirect(url_for('billing') + '?success=true')
 
@@ -4954,7 +5484,9 @@ def health():
         'api_key_configured': check_api_key_configured(),
         'timestamp': datetime.now().isoformat(),
         'version': '2026-02-11-v6',
-        'stripe_enabled': STRIPE_ENABLED
+        'stripe_enabled': STRIPE_ENABLED,
+        'paystack_enabled': PAYSTACK_ENABLED,
+        'flutterwave_enabled': FLUTTERWAVE_ENABLED,
     })
 
 

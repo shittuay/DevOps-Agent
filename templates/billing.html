@@ -1025,6 +1025,67 @@
                 font-size: 36px;
             }
         }
+
+        /* Currency Toggle */
+        .currency-toggle-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .currency-toggle-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+        }
+
+        .currency-toggle {
+            display: flex;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .currency-toggle button {
+            padding: 6px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .currency-toggle button.active {
+            background: var(--gradient-primary);
+            color: #fff;
+        }
+
+        .currency-toggle button:hover:not(.active) {
+            color: var(--text-primary);
+        }
+
+        .price-ngn {
+            display: none;
+        }
+
+        .price-usd {
+            display: inline;
+        }
+
+        body.currency-ngn .price-ngn {
+            display: inline;
+        }
+
+        body.currency-ngn .price-usd {
+            display: none;
+        }
     </style>
 </head>
 <body class="animated-bg">
@@ -1064,6 +1125,17 @@
                 </div>
             </div>
 
+            <!-- Currency Toggle -->
+            {% if paystack_enabled or flutterwave_enabled %}
+            <div class="currency-toggle-wrapper">
+                <span class="currency-toggle-label">Currency</span>
+                <div class="currency-toggle">
+                    <button id="btn-usd" class="active" onclick="setCurrency('USD')">USD $</button>
+                    <button id="btn-ngn" onclick="setCurrency('NGN')">NGN &#8358;</button>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- Pricing Tiers -->
             <h2 class="section-title">Pricing Plans</h2>
             <div class="tiers-grid">
@@ -1075,7 +1147,11 @@
                     <div class="recommended-badge">Most Popular</div>
                     {% endif %}
                     <div class="tier-name">{{ tier.display_name }}</div>
-                    <div class="tier-price">${{ tier.monthly_price | int }}<small>/month</small></div>
+                    <div class="tier-price">
+                        <span class="price-usd">${{ tier.monthly_price | int }}</span>
+                        <span class="price-ngn">&#8358;{{ '{:,}'.format(ngn_prices.get(tier.name, 0)) }}</span>
+                        <small>/month</small>
+                    </div>
                     <div class="tier-credits">{{ '{:,}'.format(tier.monthly_credits) }} credits/month</div>
                     <ul class="tier-features">
                         {% for feature in (tier.features or []) %}
@@ -1120,7 +1196,7 @@
                 <div class="pack-card">
                     <div class="pack-amount">100</div>
                     <div class="pack-label">Credits</div>
-                    <div class="pack-price">$10</div>
+                    <div class="pack-price"><span class="price-usd">$10</span><span class="price-ngn">&#8358;{{ '{:,}'.format(ngn_prices.get('pack_100', 5000)) }}</span></div>
                     <button class="btn btn-primary" onclick="purchaseCredits(100)">Purchase</button>
                 </div>
 
@@ -1128,21 +1204,21 @@
                     <div class="popular-badge">Best Value</div>
                     <div class="pack-amount">250</div>
                     <div class="pack-label">Credits</div>
-                    <div class="pack-price">$20</div>
+                    <div class="pack-price"><span class="price-usd">$20</span><span class="price-ngn">&#8358;{{ '{:,}'.format(ngn_prices.get('pack_250', 9000)) }}</span></div>
                     <button class="btn btn-primary" onclick="purchaseCredits(250)">Purchase</button>
                 </div>
 
                 <div class="pack-card">
                     <div class="pack-amount">500</div>
                     <div class="pack-label">Credits</div>
-                    <div class="pack-price">$35</div>
+                    <div class="pack-price"><span class="price-usd">$35</span><span class="price-ngn">&#8358;{{ '{:,}'.format(ngn_prices.get('pack_500', 15000)) }}</span></div>
                     <button class="btn btn-primary" onclick="purchaseCredits(500)">Purchase</button>
                 </div>
 
                 <div class="pack-card">
                     <div class="pack-amount">1,000</div>
                     <div class="pack-label">Credits</div>
-                    <div class="pack-price">$60</div>
+                    <div class="pack-price"><span class="price-usd">$60</span><span class="price-ngn">&#8358;{{ '{:,}'.format(ngn_prices.get('pack_1000', 25000)) }}</span></div>
                     <button class="btn btn-primary" onclick="purchaseCredits(1000)">Purchase</button>
                 </div>
             </div>
@@ -1152,6 +1228,9 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        // Current selected currency
+        var currentCurrency = '{{ detected_currency }}';
+
         function showToast(message, type) {
             var toast = document.getElementById('toast');
             toast.textContent = message;
@@ -1174,13 +1253,41 @@
             }
         }
 
-        // Redirect to Stripe Checkout for subscription upgrade
+        // Currency toggle
+        function setCurrency(currency) {
+            currentCurrency = currency;
+            var btnUsd = document.getElementById('btn-usd');
+            var btnNgn = document.getElementById('btn-ngn');
+            if (btnUsd && btnNgn) {
+                btnUsd.classList.toggle('active', currency === 'USD');
+                btnNgn.classList.toggle('active', currency === 'NGN');
+            }
+            document.body.classList.toggle('currency-ngn', currency === 'NGN');
+
+            // Save preference
+            fetch('/api/billing/currency', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currency: currency })
+            }).catch(function() { /* silent */ });
+        }
+
+        // Initialize currency on page load
+        if (currentCurrency === 'NGN') {
+            setCurrency('NGN');
+        }
+
+        // Gateway-aware subscription upgrade
         function upgradeTier(tierName) {
             var btn = event.currentTarget;
             btn.disabled = true;
             btn.textContent = 'Redirecting...';
 
-            fetch('/api/subscription/create-checkout', {
+            var endpoint = currentCurrency === 'NGN'
+                ? '/api/subscription/create-checkout-ngn'
+                : '/api/subscription/create-checkout';
+
+            fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tier_name: tierName })
@@ -1210,13 +1317,17 @@
             });
         }
 
-        // Redirect to Stripe Checkout for credit pack purchase
+        // Gateway-aware credit pack purchase
         function purchaseCredits(packSize) {
             var btn = event.currentTarget;
             btn.disabled = true;
             btn.textContent = 'Redirecting...';
 
-            fetch('/api/credits/create-checkout', {
+            var endpoint = currentCurrency === 'NGN'
+                ? '/api/credits/create-checkout-ngn'
+                : '/api/credits/create-checkout';
+
+            fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pack_size: packSize })
