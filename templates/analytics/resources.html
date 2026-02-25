@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Resource Analytics - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Resource Analytics</h1>
+        <a href="{{ url_for('analytics.dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+    <div class="analytics-nav">
+        <a href="{{ url_for('analytics.dashboard') }}" class="nav-item">Dashboard</a>
+        <a href="{{ url_for('analytics.cost_analytics') }}" class="nav-item">Costs</a>
+        <a href="{{ url_for('analytics.performance_analytics') }}" class="nav-item">Performance</a>
+        <a href="{{ url_for('analytics.resource_analytics') }}" class="nav-item active">Resources</a>
+    </div>
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-server"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Total Resources</span>
+                <span class="metric-value" id="totalResources">--</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-microchip"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Avg CPU Usage</span>
+                <span class="metric-value" id="avgCpu">--</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-memory"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Avg Memory Usage</span>
+                <span class="metric-value" id="avgMemory">--</span>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <h3>Resource Utilization</h3>
+        <div class="empty-state">
+            <i class="fas fa-th-large"></i>
+            <h3>Resource Overview</h3>
+            <p>Connect cloud accounts in Settings to see resource utilization across providers</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

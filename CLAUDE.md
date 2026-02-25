@@ -225,6 +225,18 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 | **AWS dual-mode auth (access keys + role ARN)** | `credential_service.py` supports both `auth_mode='access_key'` (direct keys) and `auth_mode='role_arn'` (STS AssumeRole with temp creds). Settings UI has toggle. Small teams use access keys; enterprise uses cross-account role delegation. |
 | **11 missing DB columns caused 500 error (FIXED)** | New model fields (`preferred_model_provider`, `learning_mode`, `sandbox_mode`, `learning_level`, `email_verified`, `email_verification_token`, `email_verification_sent_at`, `password_reset_token`, `password_reset_expires`, `guardrail_violations`, `guardrail_blocked_until`) weren't in the DB. Fixed by running `migrate_missing_columns.py`. |
 | **Env var name mismatch for Kimi (FIXED)** | `.env` had `kimi_API_KEY` but code reads `MOONSHOT_API_KEY`. Renamed in `.env`. |
+| **NGN payments simplified to Stripe (FIXED)** | Replaced Paystack (primary) + Flutterwave (fallback) with Stripe NGN currency support. Deleted `services/paystack_integration.py`, `services/flutterwave_integration.py`, `scripts/create_paystack_plans.py`, `scripts/create_flutterwave_plans.py`. Existing Stripe checkout routes now accept `currency` param. NGN Stripe Price IDs stored in `NGNPriceConfig.stripe_price_id_ngn`. Run `scripts/create_stripe_ngn_prices.py` to create NGN prices in Stripe. |
+| **Env file load order: `config/.env` wins (CRITICAL)** | App loads `config/.env` first, then `.env`, both with `override=False`. First-loaded value wins. Always update `config/.env` when changing env vars — `.env` is a fallback only. Missing `STRIPE_PRICE_BUSINESS` in `config/.env` caused checkout to fail even though `.env` had the value. |
+| **`base.html` template missing (FIXED)** | 27 blueprint templates (analytics, compliance, ai_infrastructure, etc.) extend `base.html` but it didn't exist. Created `templates/base.html` with full layout (header nav, fonts, CSS variables, responsive design). |
+| **Auto-migration at app startup (ADDED)** | `db.create_all()` only creates new tables, never adds columns to existing tables. Added auto-migration after `db.create_all()` that inspects all models, compares columns to DB, and runs `ALTER TABLE ADD COLUMN` for missing ones. Eliminates the need to run `migrate_missing_columns.py` manually. |
+| **Webhook user lookup by email only (FIXED)** | `handle_checkout_completed()` looked up users by `customer_email` only — if email didn't match, payment was silently lost. Now stores `user_id` in Stripe session metadata; webhook looks up by `user_id` first, falls back to email. |
+| **`stripe_customer_id` never saved (FIXED)** | `handle_checkout_completed()` never stored `stripe_customer_id` from the Stripe session onto `UserSubscription`. This broke ALL recurring billing webhooks (`invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.updated/deleted`) which look up by `stripe_customer_id`. Now saved on every checkout. |
+| **Recurring billing webhook lookup fallback (FIXED)** | `handle_invoice_payment_succeeded` and `handle_invoice_payment_failed` only looked up by `stripe_customer_id`. Added fallback to `stripe_subscription_id` lookup, and backfills `stripe_customer_id` when found. |
+| **Subscription metadata not on Stripe Subscription object (FIXED)** | Checkout session metadata (`tier_name`, `user_id`) was only on the session, not on the resulting Stripe Subscription. Added `subscription_data={'metadata': metadata}` to session creation so metadata propagates to the subscription object for future webhook events. |
+| **Billing success page was a no-op (FIXED)** | `/billing/success` retrieved the Stripe session but did nothing (`pass`). If webhook hadn't fired yet, user saw no subscription update. Now processes checkout inline as a safety net (with idempotency checks to avoid double-granting). |
+| **Missing analytics templates (FIXED)** | Routes referenced `analytics/costs.html`, `analytics/performance.html`, `analytics/resources.html` but templates didn't exist. Created all three. |
+| **AI Infrastructure route broken method calls (FIXED)** | `routes/ai_infrastructure.py` called non-existent methods on `AIInfrastructureService`. Fixed 6 calls: `get_templates()` → `get_user_templates(user_id)`, `get_recommendations()` → `get_recommendations(user_id)`, `get_deployments()` → `get_user_deployments(user_id)`, etc. Added `get_user_deployments()` and `get_user_deployment()` stubs to service. |
+| **Zombie server processes on port 5000** | Multiple stale `python app.py` processes can accumulate on port 5000. Browser may hit an old process without code fixes. Always kill all Python processes before restarting: `taskkill /F /IM python.exe` (Windows) or `pkill -f 'python app.py'` (Linux). |
 
 ## Verification Commands
 
@@ -322,77 +334,74 @@ Users can enable **Learning Mode** and/or **Sandbox Mode** in Settings > Prefere
 
 ### Architecture
 - **Frontend:** `templates/billing.html` — subscription tiers + credit pack purchase buttons, dual USD/NGN currency toggle
-- **Stripe (USD):** `stripe_integration.py` — `StripePaymentService` handles session creation
-- **Paystack (NGN primary):** `services/paystack_integration.py` — `PaystackPaymentService` for Naira payments
-- **Flutterwave (NGN fallback):** `services/flutterwave_integration.py` — `FlutterwavePaymentService` auto-failover
+- **Stripe:** `stripe_integration.py` — `StripePaymentService` handles session creation for both USD and NGN
 - **Currency detection:** `services/currency_detection.py` — IP geolocation + Accept-Language + user preference
-- **Webhooks:** `/api/stripe/webhook`, `/api/paystack/webhook`, `/api/flutterwave/webhook` in `app.py`
+- **Webhooks:** `/api/stripe/webhook` in `app.py`
 - **Models:** `UserSubscription`, `CreditPurchase`, `SubscriptionTier`, `StripeWebhookEvent`, `PaymentWebhookEvent`, `NGNPriceConfig` in `models.py`
 
-### Payment Flow — USD (Stripe)
-1. User clicks upgrade/purchase with USD currency selected
-2. JS calls `/api/subscription/create-checkout` or `/api/credits/create-checkout`
-3. Backend creates Stripe Checkout session, returns `checkout_url`
-4. User redirected to Stripe's hosted payment page
-5. After payment, Stripe sends `checkout.session.completed` webhook
-6. `handle_checkout_completed()` verifies and grants subscription/credits
-7. User redirected to `/billing/success` which shows billing page
+### Payment Flow (Stripe — handles both USD and NGN)
+1. User clicks upgrade/purchase (currency toggle selects USD or NGN)
+2. JS calls `/api/subscription/create-checkout` or `/api/credits/create-checkout` with `{currency: 'USD'|'NGN'}`
+3. Backend creates Stripe Checkout session with `user_id` in metadata — for NGN, uses `NGNPriceConfig.stripe_price_id_ngn` and passes `currency='ngn'`
+4. For subscriptions, `subscription_data={'metadata': ...}` ensures metadata propagates to the Stripe Subscription object
+5. User redirected to Stripe's hosted payment page (shows amount in selected currency)
+6. After payment, Stripe sends `checkout.session.completed` webhook
+7. `handle_checkout_completed()` finds user by `metadata.user_id` (primary) or `customer_email` (fallback)
+8. Saves `stripe_customer_id` and `stripe_subscription_id` on `UserSubscription` — required for all future recurring billing webhooks
+9. Grants subscription tier + full monthly credits (or adds credit pack credits)
+10. User redirected to `/billing/success` — processes checkout inline as safety net if webhook hasn't fired yet
+11. Billing page shows success toast and updated subscription data
 
-### Payment Flow — NGN (Paystack/Flutterwave)
-1. User clicks upgrade/purchase with NGN currency selected
-2. JS calls `/api/subscription/create-checkout-ngn` or `/api/credits/create-checkout-ngn`
-3. Backend tries Paystack first; if Paystack fails, falls back to Flutterwave
-4. User redirected to Paystack/Flutterwave payment page (supports card, bank transfer, USSD)
-5. After payment, gateway sends webhook (`charge.success` / `charge.completed`)
-6. `handle_paystack_charge_success()` or `handle_flutterwave_charge_success()` grants subscription/credits
-7. User redirected to `/billing/success?gateway=paystack&trxref=xxx`
+### Webhook Event Handlers
+| Event | Handler | Lookup |
+|-------|---------|--------|
+| `checkout.session.completed` | `handle_checkout_completed()` | `metadata.user_id` → `customer_email` |
+| `invoice.payment_succeeded` | `handle_invoice_payment_succeeded()` | `stripe_customer_id` → `stripe_subscription_id` |
+| `invoice.payment_failed` | `handle_invoice_payment_failed()` | `stripe_customer_id` → `stripe_subscription_id` |
+| `customer.subscription.updated` | `handle_customer_subscription_updated()` | `stripe_subscription_id` |
+| `customer.subscription.deleted` | `handle_subscription_deleted()` | `stripe_subscription_id` |
 
 ### NGN Prices (purchasing power adjusted, NOT FX-converted)
 | Product | USD | NGN |
 |---------|-----|-----|
-| Starter | $29/mo | ₦15,000/mo |
-| Professional | $99/mo | ₦45,000/mo |
-| Business | $299/mo | ₦120,000/mo |
-| 100 credits | $10 | ₦5,000 |
-| 250 credits | $20 | ₦9,000 |
-| 500 credits | $35 | ₦15,000 |
-| 1000 credits | $60 | ₦25,000 |
+| Starter | $29/mo | NGN 15,000/mo |
+| Professional | $99/mo | NGN 45,000/mo |
+| Business | $299/mo | NGN 120,000/mo |
+| 100 credits | $10 | NGN 5,000 |
+| 250 credits | $20 | NGN 9,000 |
+| 500 credits | $35 | NGN 15,000 |
+| 1000 credits | $60 | NGN 25,000 |
 
-NGN prices stored in `NGNPriceConfig` table, seeded by `scripts/seed_ngn_prices.py`.
+NGN prices stored in `NGNPriceConfig` table (seeded by `scripts/seed_ngn_prices.py`).
+Each row has a `stripe_price_id_ngn` column for the corresponding Stripe Price ID in NGN currency.
 
 ### CRITICAL: Never grant credits without webhook verification
 - `/api/subscription/upgrade` — DISABLED (returns 403). Was a legacy endpoint that granted free subscriptions.
 - `/api/credits/purchase` — DISABLED (returns 403). Was a legacy endpoint that granted free credits.
-- Credits/subscriptions MUST only be granted via webhook handlers after gateway verification.
+- Credits/subscriptions MUST only be granted via webhook handlers after Stripe verification.
 - All webhooks use `PaymentWebhookEvent` for idempotency (format: `{gateway}:{event_id}`).
 
-### Stripe Environment Variables (USD payments)
+### Stripe Environment Variables
 - `STRIPE_SECRET_KEY` — Stripe API secret key
 - `STRIPE_PUBLISHABLE_KEY` — Stripe publishable key (passed to billing template)
 - `STRIPE_WEBHOOK_SECRET` — Webhook signature verification secret
-- `STRIPE_PRICE_STARTER` — Stripe Price ID for Starter tier ($29/mo)
-- `STRIPE_PRICE_PROFESSIONAL` — Stripe Price ID for Professional tier ($99/mo)
-- `STRIPE_PRICE_BUSINESS` — Stripe Price ID for Business tier ($299/mo)
-- `STRIPE_PRICE_PACK_100` — Price ID for 100-credit pack ($10)
-- `STRIPE_PRICE_PACK_250` — Price ID for 250-credit pack ($20)
-- `STRIPE_PRICE_PACK_500` — Price ID for 500-credit pack ($35)
-- `STRIPE_PRICE_PACK_1000` — Price ID for 1000-credit pack ($60)
+- `STRIPE_PRICE_STARTER` — Stripe Price ID for Starter tier ($29/mo USD)
+- `STRIPE_PRICE_PROFESSIONAL` — Stripe Price ID for Professional tier ($99/mo USD)
+- `STRIPE_PRICE_BUSINESS` — Stripe Price ID for Business tier ($299/mo USD)
+- `STRIPE_PRICE_PACK_100` — Price ID for 100-credit pack ($10 USD)
+- `STRIPE_PRICE_PACK_250` — Price ID for 250-credit pack ($20 USD)
+- `STRIPE_PRICE_PACK_500` — Price ID for 500-credit pack ($35 USD)
+- `STRIPE_PRICE_PACK_1000` — Price ID for 1000-credit pack ($60 USD)
 
-### Paystack/Flutterwave Environment Variables (NGN payments)
-- `PAYSTACK_SECRET_KEY` — Paystack API secret key (enables NGN primary gateway)
-- `PAYSTACK_PUBLIC_KEY` — Paystack publishable key
-- `FLUTTERWAVE_SECRET_KEY` — Flutterwave API secret key (enables NGN fallback)
-- `FLUTTERWAVE_PUBLIC_KEY` — Flutterwave publishable key
-- `FLUTTERWAVE_WEBHOOK_SECRET` — Flutterwave webhook signature secret
+NGN Stripe Price IDs are stored in `NGNPriceConfig.stripe_price_id_ngn` (database, not env vars).
 
 All payment env vars must be in AWS Secrets Manager (`devops-agent/production` JSON) for production.
 They are listed in `services/secrets_manager.py` `MANAGED_SECRET_KEYS`.
 
 ### Setup Scripts for NGN Payments
 ```bash
-python scripts/seed_ngn_prices.py          # Seed NGNPriceConfig table (idempotent)
-python scripts/create_paystack_plans.py    # Create subscription plans on Paystack
-python scripts/create_flutterwave_plans.py # Create payment plans on Flutterwave
+python scripts/seed_ngn_prices.py              # Seed NGNPriceConfig table (idempotent)
+python scripts/create_stripe_ngn_prices.py     # Create Stripe Price objects for NGN products, store IDs in DB
 ```
 
 ## Environment Variables
@@ -405,14 +414,9 @@ Optional:
 - `CREDENTIAL_ENCRYPTION_KEY` - For credential encryption
 - `DATABASE_URL` - Database connection string
 - `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
-- `BASE_URL` - App base URL for Stripe/Paystack/Flutterwave callbacks (default: `https://devopsagent.io`)
+- `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi K2.5 API key (required for Kimi model provider)
 - `KIMI_MODEL` - Kimi model override (default: `kimi-k2.5`)
-- `PAYSTACK_SECRET_KEY` - Paystack API secret key (NGN payments)
-- `PAYSTACK_PUBLIC_KEY` - Paystack publishable key
-- `FLUTTERWAVE_SECRET_KEY` - Flutterwave API secret key (NGN fallback)
-- `FLUTTERWAVE_PUBLIC_KEY` - Flutterwave publishable key
-- `FLUTTERWAVE_WEBHOOK_SECRET` - Flutterwave webhook signature verification
 
 ## Running the App
 

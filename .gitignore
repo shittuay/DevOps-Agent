@@ -68,3 +68,5 @@ app_output.log
 
 # Node
 node_modules/
+
+cookies.txt

@@ -1126,7 +1126,7 @@
             </div>
 
             <!-- Currency Toggle -->
-            {% if paystack_enabled or flutterwave_enabled %}
+            {% if ngn_prices %}
             <div class="currency-toggle-wrapper">
                 <span class="currency-toggle-label">Currency</span>
                 <div class="currency-toggle">
@@ -1277,20 +1277,29 @@
             setCurrency('NGN');
         }
 
-        // Gateway-aware subscription upgrade
+        // Show success toast after returning from Stripe checkout
+        (function() {
+            var params = new URLSearchParams(window.location.search);
+            if (params.get('success') === 'true') {
+                showToast('Payment successful! Your subscription has been updated.', 'success');
+                // Clean URL without reload
+                if (window.history.replaceState) {
+                    var cleanUrl = window.location.pathname;
+                    window.history.replaceState({}, document.title, cleanUrl);
+                }
+            }
+        })();
+
+        // Subscription upgrade (Stripe handles both USD and NGN)
         function upgradeTier(tierName) {
             var btn = event.currentTarget;
             btn.disabled = true;
             btn.textContent = 'Redirecting...';
 
-            var endpoint = currentCurrency === 'NGN'
-                ? '/api/subscription/create-checkout-ngn'
-                : '/api/subscription/create-checkout';
-
-            fetch(endpoint, {
+            fetch('/api/subscription/create-checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tier_name: tierName })
+                body: JSON.stringify({ tier_name: tierName, currency: currentCurrency })
             })
             .then(function(res) {
                 if (!res.ok) {
@@ -1317,20 +1326,16 @@
             });
         }
 
-        // Gateway-aware credit pack purchase
+        // Credit pack purchase (Stripe handles both USD and NGN)
         function purchaseCredits(packSize) {
             var btn = event.currentTarget;
             btn.disabled = true;
             btn.textContent = 'Redirecting...';
 
-            var endpoint = currentCurrency === 'NGN'
-                ? '/api/credits/create-checkout-ngn'
-                : '/api/credits/create-checkout';
-
-            fetch(endpoint, {
+            fetch('/api/credits/create-checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pack_size: packSize })
+                body: JSON.stringify({ pack_size: packSize, currency: currentCurrency })
             })
             .then(function(res) { return res.json(); })
             .then(function(data) {

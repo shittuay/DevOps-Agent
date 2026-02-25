@@ -531,12 +531,8 @@ class UserSubscription(db.Model):
     payment_status = db.Column(db.String(20), default='active')  # active, cancelled, past_due, unpaid
     payment_failed_at = db.Column(db.DateTime, nullable=True)
 
-    # Multi-gateway support
-    payment_gateway = db.Column(db.String(20), nullable=True)  # stripe, paystack, flutterwave
-    paystack_customer_code = db.Column(db.String(100), nullable=True)
-    paystack_subscription_code = db.Column(db.String(100), nullable=True)
-    flutterwave_customer_id = db.Column(db.String(100), nullable=True)
-    flutterwave_subscription_id = db.Column(db.String(100), nullable=True)
+    # Payment gateway
+    payment_gateway = db.Column(db.String(20), nullable=True)  # stripe
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -629,11 +625,11 @@ class CreditPurchase(db.Model):
     stripe_payment_intent_id = db.Column(db.String(100), unique=True, index=True)
     payment_status = db.Column(db.String(20), default='pending')  # pending, completed, failed, refunded
 
-    # Multi-gateway support
-    payment_gateway = db.Column(db.String(20), nullable=True)  # stripe, paystack, flutterwave
+    # Payment gateway
+    payment_gateway = db.Column(db.String(20), nullable=True)  # stripe
     currency = db.Column(db.String(3), nullable=True)  # USD, NGN
     price_paid_ngn = db.Column(db.Integer, nullable=True)  # Amount in whole naira
-    gateway_reference = db.Column(db.String(100), nullable=True)  # Paystack/Flutterwave reference
+    gateway_reference = db.Column(db.String(100), nullable=True)  # Stripe reference
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -2127,7 +2123,7 @@ class PaymentWebhookEvent(db.Model):
     __tablename__ = 'payment_webhook_events'
 
     id = db.Column(db.String(200), primary_key=True)  # format: "{gateway}:{event_id}"
-    gateway = db.Column(db.String(20), nullable=False)  # stripe, paystack, flutterwave
+    gateway = db.Column(db.String(20), nullable=False)  # stripe
     event_type = db.Column(db.String(100), nullable=False)
     processed_at = db.Column(db.DateTime, default=datetime.utcnow)
     raw_payload = db.Column(db.Text, nullable=True)
@@ -2144,8 +2140,7 @@ class NGNPriceConfig(db.Model):
     product_type = db.Column(db.String(20), nullable=False)  # subscription, credit_pack
     product_key = db.Column(db.String(50), nullable=False, unique=True)  # e.g. "starter", "pack_100"
     price_ngn = db.Column(db.Integer, nullable=False)  # Whole naira (not kobo)
-    paystack_plan_code = db.Column(db.String(100), nullable=True)
-    flutterwave_plan_id = db.Column(db.String(100), nullable=True)
+    stripe_price_id_ngn = db.Column(db.String(100), nullable=True)  # Stripe Price ID for NGN product
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -2156,8 +2151,7 @@ class NGNPriceConfig(db.Model):
             'product_type': self.product_type,
             'product_key': self.product_key,
             'price_ngn': self.price_ngn,
-            'paystack_plan_code': self.paystack_plan_code,
-            'flutterwave_plan_id': self.flutterwave_plan_id,
+            'stripe_price_id_ngn': self.stripe_price_id_ngn,
             'is_active': self.is_active,
         }
 

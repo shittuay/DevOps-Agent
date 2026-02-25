@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Cost Analytics - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Cost Analytics</h1>
+        <a href="{{ url_for('analytics.dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+    <div class="analytics-nav">
+        <a href="{{ url_for('analytics.dashboard') }}" class="nav-item">Dashboard</a>
+        <a href="{{ url_for('analytics.cost_analytics') }}" class="nav-item active">Costs</a>
+        <a href="{{ url_for('analytics.performance_analytics') }}" class="nav-item">Performance</a>
+        <a href="{{ url_for('analytics.resource_analytics') }}" class="nav-item">Resources</a>
+    </div>
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-dollar-sign"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Monthly Spend</span>
+                <span class="metric-value" id="monthlySpend">--</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-chart-line"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Forecast (30d)</span>
+                <span class="metric-value" id="forecast">--</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon"><i class="fas fa-piggy-bank"></i></div>
+            <div class="metric-content">
+                <span class="metric-label">Savings Found</span>
+                <span class="metric-value" id="savings">--</span>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <h3>Cost Breakdown</h3>
+        <div class="empty-state" id="costChart">
+            <i class="fas fa-chart-pie"></i>
+            <h3>Loading cost data...</h3>
+            <p>Connect cloud accounts in Settings to see cost analytics</p>
+        </div>
+    </div>
+</div>
+<script>
+fetch('/analytics/api/costs/summary')
+    .then(r => r.json())
+    .then(d => {
+        if (d.total_cost !== undefined) {
+            document.getElementById('monthlySpend').textContent = '$' + (d.total_cost || 0).toFixed(2);
+            document.getElementById('forecast').textContent = '$' + (d.forecast || 0).toFixed(2);
+            document.getElementById('savings').textContent = '$' + (d.potential_savings || 0).toFixed(2);
+        }
+    }).catch(() => {});
+</script>
+{% endblock %}
