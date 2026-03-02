@@ -3,11 +3,13 @@ AI-Powered Root Cause Analysis Service for DevOps Agent.
 
 Uses Claude to analyze incidents, logs, metrics, and system state
 to identify root causes and suggest remediation steps.
+
+Persisted to DB with per-user isolation.
 """
 
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
@@ -17,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 
 class AnalysisStatus(Enum):
-    """Status of root cause analysis."""
     PENDING = "pending"
     ANALYZING = "analyzing"
     COMPLETED = "completed"
@@ -25,7 +26,6 @@ class AnalysisStatus(Enum):
 
 
 class ConfidenceLevel(Enum):
-    """Confidence level of the analysis."""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -34,7 +34,6 @@ class ConfidenceLevel(Enum):
 
 @dataclass
 class RootCause:
-    """A potential root cause identified by analysis."""
     id: str
     title: str
     description: str
@@ -61,7 +60,6 @@ class RootCause:
 
 @dataclass
 class AnalysisResult:
-    """Result of root cause analysis."""
     id: str
     incident_id: str
     status: AnalysisStatus
@@ -73,6 +71,7 @@ class AnalysisResult:
     analyzed_at: datetime
     analysis_duration_seconds: float
     data_sources_used: list[str]
+    db_id: int = None
 
     def to_dict(self) -> dict:
         return {
@@ -94,17 +93,20 @@ class RootCauseAnalyzer:
     """
     AI-powered root cause analysis engine.
 
-    Analyzes incidents using Claude to identify root causes,
-    correlate events, and suggest remediation.
+    Per-user isolation with DB persistence and in-memory cache.
     """
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY')
-        self.analyses: dict[str, AnalysisResult] = {}
+        self._user_analyses: dict[int, dict[str, AnalysisResult]] = {}
+        self._users_loaded: set[int] = set()
+        self._app = None
         self._client = None
 
+    def set_app(self, app):
+        self._app = app
+
     def _get_client(self):
-        """Get or create Anthropic client."""
         if self._client is None:
             try:
                 import anthropic
@@ -114,34 +116,115 @@ class RootCauseAnalyzer:
                 return None
         return self._client
 
-    def analyze_incident(self, incident_data: dict,
+    # ---- User loading ----
+
+    def _ensure_user_loaded(self, user_id: int):
+        if user_id in self._users_loaded:
+            return
+        if not self._app:
+            self._user_analyses.setdefault(user_id, {})
+            self._users_loaded.add(user_id)
+            return
+
+        with self._app.app_context():
+            from models import AnalysisModel
+
+            db_rows = AnalysisModel.query.filter_by(user_id=user_id).order_by(
+                AnalysisModel.analyzed_at.desc()
+            ).limit(200).all()
+
+            analyses = {}
+            for row in db_rows:
+                root_causes = self._deserialize_root_causes(row.root_causes or [])
+                result = AnalysisResult(
+                    id=row.analysis_key,
+                    incident_id=row.incident_id or 'unknown',
+                    status=AnalysisStatus(row.status or 'completed'),
+                    root_causes=root_causes,
+                    summary=row.summary or '',
+                    timeline_analysis=row.timeline_analysis or '',
+                    impact_assessment=row.impact_assessment or '',
+                    recommendations=row.recommendations or [],
+                    analyzed_at=row.analyzed_at or datetime.utcnow(),
+                    analysis_duration_seconds=row.analysis_duration_seconds or 0.0,
+                    data_sources_used=row.data_sources_used or [],
+                    db_id=row.id,
+                )
+                analyses[row.analysis_key] = result
+
+            self._user_analyses[user_id] = analyses
+            self._users_loaded.add(user_id)
+
+    def _deserialize_root_causes(self, rc_list: list) -> list[RootCause]:
+        confidence_map = {
+            'low': ConfidenceLevel.LOW,
+            'medium': ConfidenceLevel.MEDIUM,
+            'high': ConfidenceLevel.HIGH,
+            'very_high': ConfidenceLevel.VERY_HIGH,
+        }
+        results = []
+        for rc in rc_list:
+            results.append(RootCause(
+                id=rc.get('id', 'rc1'),
+                title=rc.get('title', 'Unknown'),
+                description=rc.get('description', ''),
+                confidence=confidence_map.get(rc.get('confidence', 'medium'), ConfidenceLevel.MEDIUM),
+                evidence=rc.get('evidence', []),
+                affected_components=rc.get('affected_components', []),
+                remediation_steps=rc.get('remediation_steps', []),
+                prevention_measures=rc.get('prevention_measures', []),
+                related_incidents=rc.get('related_incidents', []),
+            ))
+        return results
+
+    # ---- DB persistence ----
+
+    def _save_to_db(self, user_id: int, result: AnalysisResult):
+        if not self._app:
+            return
+        try:
+            with self._app.app_context():
+                from models import AnalysisModel, db
+
+                row = AnalysisModel(
+                    user_id=user_id,
+                    analysis_key=result.id,
+                    incident_id=result.incident_id,
+                    status=result.status.value,
+                    summary=result.summary,
+                    timeline_analysis=result.timeline_analysis,
+                    impact_assessment=result.impact_assessment,
+                    root_causes=[rc.to_dict() for rc in result.root_causes],
+                    recommendations=result.recommendations,
+                    data_sources_used=result.data_sources_used,
+                    analysis_duration_seconds=result.analysis_duration_seconds,
+                    analyzed_at=result.analyzed_at,
+                )
+                db.session.add(row)
+                db.session.commit()
+                result.db_id = row.id
+        except Exception as e:
+            logger.error(f"Failed to persist analysis: {e}")
+
+    # ---- Public API (all user-scoped) ----
+
+    def analyze_incident(self, user_id: int, incident_data: dict,
                          logs: list[str] = None,
                          metrics: dict = None,
                          related_events: list[dict] = None) -> AnalysisResult:
-        """
-        Perform root cause analysis on an incident.
-
-        Args:
-            incident_data: Incident details (title, description, timeline, etc.)
-            logs: Relevant log entries
-            metrics: System metrics around the incident time
-            related_events: Other events that occurred around the same time
-
-        Returns:
-            AnalysisResult with identified root causes and recommendations
-        """
+        """Perform root cause analysis on an incident for a specific user."""
         import uuid
         import time
+
+        self._ensure_user_loaded(user_id)
 
         analysis_id = str(uuid.uuid4())[:8]
         start_time = time.time()
 
-        # Build context for Claude
         context = self._build_analysis_context(
             incident_data, logs, metrics, related_events
         )
 
-        # Get analysis from Claude
         try:
             analysis = self._perform_ai_analysis(context)
 
@@ -175,18 +258,33 @@ class RootCauseAnalyzer:
                 data_sources_used=[]
             )
 
-        self.analyses[analysis_id] = result
+        self._user_analyses[user_id][analysis_id] = result
+        self._save_to_db(user_id, result)
         return result
+
+    def get_analysis(self, user_id: int, analysis_id: str) -> Optional[AnalysisResult]:
+        self._ensure_user_loaded(user_id)
+        return self._user_analyses.get(user_id, {}).get(analysis_id)
+
+    def get_analyses_for_incident(self, user_id: int, incident_id: str) -> list[AnalysisResult]:
+        self._ensure_user_loaded(user_id)
+        return [a for a in self._user_analyses.get(user_id, {}).values()
+                if a.incident_id == incident_id]
+
+    def get_all_analyses(self, user_id: int) -> list[dict]:
+        self._ensure_user_loaded(user_id)
+        analyses = list(self._user_analyses.get(user_id, {}).values())
+        analyses.sort(key=lambda a: a.analyzed_at, reverse=True)
+        return [a.to_dict() for a in analyses]
+
+    # ---- AI analysis (unchanged) ----
 
     def _build_analysis_context(self, incident_data: dict,
                                  logs: list[str] = None,
                                  metrics: dict = None,
                                  related_events: list[dict] = None) -> str:
-        """Build context string for AI analysis."""
-
         context_parts = []
 
-        # Incident information
         context_parts.append("## Incident Information")
         context_parts.append(f"Title: {incident_data.get('title', 'Unknown')}")
         context_parts.append(f"Description: {incident_data.get('description', 'No description')}")
@@ -197,32 +295,27 @@ class RootCauseAnalyzer:
         if incident_data.get('triggered_at'):
             context_parts.append(f"Triggered At: {incident_data['triggered_at']}")
 
-        # Timeline
         if incident_data.get('timeline'):
             context_parts.append("\n## Timeline")
             for event in incident_data['timeline']:
                 context_parts.append(f"- {event.get('timestamp', 'Unknown')}: {event.get('event', '')} - {event.get('details', '')}")
 
-        # Actions taken
         if incident_data.get('actions_taken'):
             context_parts.append("\n## Actions Taken")
             for action in incident_data['actions_taken']:
                 result = "Success" if action.get('result', {}).get('success') else "Failed"
                 context_parts.append(f"- {action.get('action', 'Unknown')}: {result}")
 
-        # Logs
         if logs:
             context_parts.append("\n## Relevant Logs")
-            for log in logs[:50]:  # Limit to 50 log entries
+            for log in logs[:50]:
                 context_parts.append(f"  {log}")
 
-        # Metrics
         if metrics:
             context_parts.append("\n## System Metrics")
             for metric_name, metric_value in metrics.items():
                 context_parts.append(f"- {metric_name}: {metric_value}")
 
-        # Related events
         if related_events:
             context_parts.append("\n## Related Events")
             for event in related_events[:20]:
@@ -231,12 +324,9 @@ class RootCauseAnalyzer:
         return "\n".join(context_parts)
 
     def _perform_ai_analysis(self, context: str) -> dict:
-        """Perform AI analysis using Claude."""
-
         client = self._get_client()
 
         if client is None:
-            # Fallback to rule-based analysis if Claude is unavailable
             return self._perform_fallback_analysis(context)
 
         prompt = f"""You are an expert Site Reliability Engineer performing root cause analysis on an incident.
@@ -280,10 +370,8 @@ Return ONLY valid JSON, no additional text."""
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            # Parse response
             response_text = response.content[0].text
 
-            # Try to extract JSON from response
             import re
             json_match = re.search(r'\{[\s\S]*\}', response_text)
             if json_match:
@@ -291,25 +379,7 @@ Return ONLY valid JSON, no additional text."""
             else:
                 analysis = json.loads(response_text)
 
-            # Convert to proper objects
-            root_causes = []
-            for rc in analysis.get('root_causes', []):
-                confidence_map = {
-                    'low': ConfidenceLevel.LOW,
-                    'medium': ConfidenceLevel.MEDIUM,
-                    'high': ConfidenceLevel.HIGH,
-                    'very_high': ConfidenceLevel.VERY_HIGH,
-                }
-                root_causes.append(RootCause(
-                    id=rc.get('id', 'rc1'),
-                    title=rc.get('title', 'Unknown'),
-                    description=rc.get('description', ''),
-                    confidence=confidence_map.get(rc.get('confidence', 'medium'), ConfidenceLevel.MEDIUM),
-                    evidence=rc.get('evidence', []),
-                    affected_components=rc.get('affected_components', []),
-                    remediation_steps=rc.get('remediation_steps', []),
-                    prevention_measures=rc.get('prevention_measures', []),
-                ))
+            root_causes = self._deserialize_root_causes(analysis.get('root_causes', []))
 
             return {
                 'summary': analysis.get('summary', 'Analysis completed'),
@@ -324,99 +394,62 @@ Return ONLY valid JSON, no additional text."""
             return self._perform_fallback_analysis(context)
 
     def _perform_fallback_analysis(self, context: str) -> dict:
-        """Perform rule-based fallback analysis when AI is unavailable."""
-
-        # Simple keyword-based analysis
         root_causes = []
         recommendations = []
 
         context_lower = context.lower()
 
-        # Check for common patterns
         if 'cpu' in context_lower and ('high' in context_lower or '80' in context_lower or '90' in context_lower):
             root_causes.append(RootCause(
-                id="rc-cpu",
-                title="High CPU Utilization",
+                id="rc-cpu", title="High CPU Utilization",
                 description="The system experienced high CPU utilization which may have caused performance degradation.",
                 confidence=ConfidenceLevel.MEDIUM,
                 evidence=["CPU metrics indicate elevated usage"],
                 affected_components=["compute", "application"],
-                remediation_steps=[
-                    "Identify CPU-intensive processes",
-                    "Consider scaling horizontally",
-                    "Optimize application code"
-                ],
-                prevention_measures=[
-                    "Set up CPU-based auto-scaling",
-                    "Implement resource limits"
-                ]
+                remediation_steps=["Identify CPU-intensive processes", "Consider scaling horizontally", "Optimize application code"],
+                prevention_measures=["Set up CPU-based auto-scaling", "Implement resource limits"]
             ))
             recommendations.append("Review and optimize CPU-intensive operations")
 
         if 'memory' in context_lower and ('high' in context_lower or 'oom' in context_lower):
             root_causes.append(RootCause(
-                id="rc-memory",
-                title="Memory Pressure",
+                id="rc-memory", title="Memory Pressure",
                 description="The system experienced memory pressure which may have caused instability.",
                 confidence=ConfidenceLevel.MEDIUM,
                 evidence=["Memory metrics indicate high usage"],
                 affected_components=["compute", "application"],
-                remediation_steps=[
-                    "Identify memory leaks",
-                    "Increase memory allocation",
-                    "Restart affected services"
-                ],
-                prevention_measures=[
-                    "Implement memory monitoring",
-                    "Set memory limits and alerts"
-                ]
+                remediation_steps=["Identify memory leaks", "Increase memory allocation", "Restart affected services"],
+                prevention_measures=["Implement memory monitoring", "Set memory limits and alerts"]
             ))
             recommendations.append("Investigate potential memory leaks")
 
         if 'timeout' in context_lower or 'latency' in context_lower:
             root_causes.append(RootCause(
-                id="rc-latency",
-                title="Service Latency Issues",
+                id="rc-latency", title="Service Latency Issues",
                 description="Services experienced increased latency or timeouts.",
                 confidence=ConfidenceLevel.MEDIUM,
                 evidence=["Timeout or latency mentioned in incident"],
                 affected_components=["network", "database", "application"],
-                remediation_steps=[
-                    "Check database query performance",
-                    "Review network connectivity",
-                    "Increase timeout thresholds if appropriate"
-                ],
-                prevention_measures=[
-                    "Implement circuit breakers",
-                    "Add caching layers"
-                ]
+                remediation_steps=["Check database query performance", "Review network connectivity", "Increase timeout thresholds if appropriate"],
+                prevention_measures=["Implement circuit breakers", "Add caching layers"]
             ))
             recommendations.append("Review service dependencies and timeouts")
 
         if 'error' in context_lower and ('5' in context_lower or 'exception' in context_lower):
             root_causes.append(RootCause(
-                id="rc-errors",
-                title="Application Errors",
+                id="rc-errors", title="Application Errors",
                 description="Application errors were detected during the incident.",
                 confidence=ConfidenceLevel.MEDIUM,
                 evidence=["Error patterns detected in logs"],
                 affected_components=["application"],
-                remediation_steps=[
-                    "Review error logs for root cause",
-                    "Deploy fix or rollback",
-                    "Clear any corrupted state"
-                ],
-                prevention_measures=[
-                    "Improve error handling",
-                    "Add better logging"
-                ]
+                remediation_steps=["Review error logs for root cause", "Deploy fix or rollback", "Clear any corrupted state"],
+                prevention_measures=["Improve error handling", "Add better logging"]
             ))
             recommendations.append("Review application error handling")
 
         if not root_causes:
             root_causes.append(RootCause(
-                id="rc-unknown",
-                title="Further Investigation Required",
+                id="rc-unknown", title="Further Investigation Required",
                 description="Unable to automatically determine root cause. Manual investigation recommended.",
                 confidence=ConfidenceLevel.LOW,
                 evidence=["Insufficient data for automatic analysis"],
@@ -435,7 +468,6 @@ Return ONLY valid JSON, no additional text."""
         }
 
     def _get_data_sources(self, logs, metrics, related_events) -> list[str]:
-        """Get list of data sources used in analysis."""
         sources = ["incident_data"]
         if logs is not None:
             sources.append(f"logs ({len(logs)} entries)")
@@ -445,25 +477,12 @@ Return ONLY valid JSON, no additional text."""
             sources.append(f"related_events ({len(related_events)} events)")
         return sources
 
-    def get_analysis(self, analysis_id: str) -> Optional[AnalysisResult]:
-        """Get a specific analysis by ID."""
-        return self.analyses.get(analysis_id)
-
-    def get_analyses_for_incident(self, incident_id: str) -> list[AnalysisResult]:
-        """Get all analyses for a specific incident."""
-        return [a for a in self.analyses.values() if a.incident_id == incident_id]
-
-    def get_all_analyses(self) -> list[dict]:
-        """Get all analyses."""
-        return [a.to_dict() for a in self.analyses.values()]
-
 
 # Global instance
 _analyzer: Optional[RootCauseAnalyzer] = None
 
 
 def get_root_cause_analyzer() -> RootCauseAnalyzer:
-    """Get or create the global root cause analyzer instance."""
     global _analyzer
     if _analyzer is None:
         _analyzer = RootCauseAnalyzer()

@@ -155,6 +155,7 @@ class Conversation(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     title = db.Column(db.String(200), default='New Chat')
+    preview = db.Column(db.String(200), default='New Chat')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
@@ -162,20 +163,11 @@ class Conversation(db.Model):
     user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic'))
 
     def to_dict(self):
-        """Convert conversation to dictionary"""
-        # Get first message for preview - MUST filter by user_id to prevent data leakage
-        first_message = ChatMessage.query.filter_by(
-            conversation_id=self.id,
-            user_id=self.user_id,  # Added user_id filter for security
-            role='user'
-        ).first()
-
-        preview = first_message.content[:100] if first_message else 'New Chat'
-
+        """Convert conversation to dictionary — no extra queries."""
         return {
             'id': self.id,
             'title': self.title,
-            'preview': preview,
+            'preview': self.preview or 'New Chat',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -198,6 +190,11 @@ class ChatMessage(db.Model):
     # Relationships
     user = db.relationship('User', backref=db.backref('messages', lazy='dynamic'))
     conversation = db.relationship('Conversation', backref=db.backref('messages', lazy='dynamic'))
+
+    __table_args__ = (
+        db.Index('idx_chatmsg_conv_user_role', 'conversation_id', 'user_id', 'role'),
+        db.Index('idx_chatmsg_conv_ts', 'conversation_id', 'timestamp'),
+    )
 
     def to_dict(self):
         """Convert message to dictionary"""
@@ -250,16 +247,16 @@ class UserPreferences(db.Model):
 
     # Currency preference
     preferred_currency = db.Column(db.String(3), nullable=True)  # None=auto-detect, 'USD', 'NGN'
-    learning_level = db.Column(db.JSON, default=dict)  # {"aws": 30, "kubernetes": 10, ...}
+    learning_level = db.Column(db.JSON, default=lambda: {})  # {"aws": 30, "kubernetes": 10, ...}
 
     # Favorite Commands (JSON array)
-    favorite_commands = db.Column(db.JSON, default=list)
+    favorite_commands = db.Column(db.JSON, default=lambda: [])
 
     # Custom Shortcuts (JSON object: shortcut -> command)
-    custom_shortcuts = db.Column(db.JSON, default=dict)
+    custom_shortcuts = db.Column(db.JSON, default=lambda: {})
 
     # Recently Used (JSON array)
-    recent_operations = db.Column(db.JSON, default=list)
+    recent_operations = db.Column(db.JSON, default=lambda: [])
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -465,7 +462,7 @@ class SubscriptionTier(db.Model):
     monthly_price = db.Column(db.Float, default=0.0)  # Price in USD
     monthly_credits = db.Column(db.Integer, nullable=False)  # Credits per month
     description = db.Column(db.Text)
-    features = db.Column(db.JSON, default=list)  # List of feature descriptions
+    features = db.Column(db.JSON, default=lambda: [])  # List of feature descriptions
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -474,7 +471,7 @@ class SubscriptionTier(db.Model):
     max_resources = db.Column(db.Integer, default=50)
     max_team_members = db.Column(db.Integer, default=1)
     sync_interval_minutes = db.Column(db.Integer, default=0)  # 0 = manual only
-    compliance_frameworks = db.Column(db.JSON, default=list)
+    compliance_frameworks = db.Column(db.JSON, default=lambda: [])
     has_pdf_export = db.Column(db.Boolean, default=False)
     has_auto_remediation = db.Column(db.Boolean, default=False)
     has_sso = db.Column(db.Boolean, default=False)
@@ -546,9 +543,13 @@ class UserSubscription(db.Model):
         """Check if user has available credits"""
         return self.credits_remaining > 0
 
-    def use_credit(self) -> bool:
+    def use_credit(self, commit: bool = True) -> bool:
         """
         Deduct one credit from user's account.
+
+        Args:
+            commit: If True (default), commits immediately. Pass False to let
+                    the caller commit as part of a larger transaction.
 
         Returns:
             bool: True if credit was deducted, False if no credits available
@@ -559,7 +560,8 @@ class UserSubscription(db.Model):
         self.credits_remaining -= 1
         self.credits_used_this_month += 1
         self.total_credits_used += 1
-        db.session.commit()
+        if commit:
+            db.session.commit()
         return True
 
     def add_credits(self, amount: int):
@@ -678,6 +680,11 @@ class UsageLog(db.Model):
     user = db.relationship('User', backref=db.backref('usage_logs', lazy='dynamic'))
     conversation = db.relationship('Conversation', backref=db.backref('usage_logs', lazy='dynamic'))
 
+    __table_args__ = (
+        db.Index('idx_usage_user_created', 'user_id', 'created_at'),
+        db.Index('idx_usage_user_tool', 'user_id', 'tool_name'),
+    )
+
     def to_dict(self):
         """Convert usage log to dictionary"""
         return {
@@ -721,6 +728,12 @@ class InfrastructureResource(db.Model):
 
     # Relationships
     user = db.relationship('User', backref=db.backref('infrastructure_resources', lazy='dynamic'))
+
+    __table_args__ = (
+        db.Index('idx_infra_user_type', 'user_id', 'resource_type'),
+        db.Index('idx_infra_user_provider', 'user_id', 'cloud_provider'),
+        db.Index('idx_infra_user_created', 'user_id', 'created_at'),
+    )
 
     def to_dict(self):
         """Convert resource to dictionary"""
@@ -1016,6 +1029,248 @@ class Alert(db.Model):
         return f'<Alert {self.severity}: {self.title}>'
 
 
+class MonitoringRuleModel(db.Model):
+    """Persisted monitoring rules with user isolation"""
+    __tablename__ = 'monitoring_rules'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    rule_key = db.Column(db.String(50), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, default='')
+    source = db.Column(db.String(20), nullable=False, default='prometheus')
+    metric_query = db.Column(db.Text, nullable=False)
+    condition = db.Column(db.String(10), nullable=False, default='gt')
+    threshold = db.Column(db.Float, nullable=False)
+    duration_seconds = db.Column(db.Integer, default=60)
+    severity = db.Column(db.String(20), default='medium')
+    labels = db.Column(db.JSON, default=lambda: {})
+    enabled = db.Column(db.Boolean, default=True)
+    check_interval_seconds = db.Column(db.Integer, default=30)
+    state = db.Column(db.String(20), default='ok')
+    last_value = db.Column(db.Float, nullable=True)
+    last_check = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('monitoring_rules', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'rule_key', name='uq_user_rule_key'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.rule_key,
+            'name': self.name,
+            'description': self.description or '',
+            'source': self.source,
+            'query': self.metric_query,
+            'condition': self.condition,
+            'threshold': self.threshold,
+            'duration_seconds': self.duration_seconds,
+            'severity': self.severity,
+            'labels': self.labels or {},
+            'enabled': self.enabled,
+            'check_interval_seconds': self.check_interval_seconds,
+            'state': self.state or 'ok',
+            'last_value': self.last_value,
+            'last_check': self.last_check.isoformat() if self.last_check else None,
+            'pending_since': None,
+            'firing_since': None,
+        }
+
+    def __repr__(self):
+        return f'<MonitoringRuleModel {self.rule_key} user={self.user_id}>'
+
+
+class MonitoringAlertModel(db.Model):
+    """Persisted monitoring alerts with user isolation"""
+    __tablename__ = 'monitoring_alerts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    alert_key = db.Column(db.String(50), nullable=False)
+    rule_db_id = db.Column(db.Integer, db.ForeignKey('monitoring_rules.id'), nullable=True)
+    rule_key = db.Column(db.String(50), nullable=False)
+    rule_name = db.Column(db.String(200), nullable=False)
+    severity = db.Column(db.String(20), nullable=False)
+    value = db.Column(db.Float, nullable=False)
+    threshold = db.Column(db.Float, nullable=False)
+    condition = db.Column(db.String(50))
+    message = db.Column(db.Text)
+    labels = db.Column(db.JSON, default=lambda: {})
+    fired_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    acknowledged = db.Column(db.Boolean, default=False)
+    acknowledged_by = db.Column(db.String(200), nullable=True)
+    incident_id = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('monitoring_alerts', lazy='dynamic'))
+    rule = db.relationship('MonitoringRuleModel', backref=db.backref('alerts', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.alert_key,
+            'rule_id': self.rule_key,
+            'rule_name': self.rule_name,
+            'severity': self.severity,
+            'value': self.value,
+            'threshold': self.threshold,
+            'condition': self.condition,
+            'message': self.message,
+            'labels': self.labels or {},
+            'fired_at': self.fired_at.isoformat() if self.fired_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+            'acknowledged': self.acknowledged,
+            'acknowledged_by': self.acknowledged_by,
+            'incident_id': self.incident_id,
+        }
+
+    def __repr__(self):
+        return f'<MonitoringAlertModel {self.alert_key} user={self.user_id}>'
+
+
+class IncidentModel(db.Model):
+    """Persisted incidents with user isolation"""
+    __tablename__ = 'incidents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    incident_key = db.Column(db.String(50), nullable=False, unique=True)
+    title = db.Column(db.String(500), nullable=False)
+    description = db.Column(db.Text, default='')
+    severity = db.Column(db.String(20), nullable=False, default='medium')
+    status = db.Column(db.String(30), nullable=False, default='detected')
+    source = db.Column(db.String(50), nullable=False, default='manual')
+    source_id = db.Column(db.String(200), nullable=True)
+    playbook_id = db.Column(db.String(100), nullable=True)
+    assigned_to = db.Column(db.String(200), nullable=True)
+    metadata_json = db.Column(db.JSON, default=lambda: {})
+    actions_taken = db.Column(db.JSON, default=lambda: [])
+    timeline = db.Column(db.JSON, default=lambda: [])
+    triggered_at = db.Column(db.DateTime, default=datetime.utcnow)
+    acknowledged_at = db.Column(db.DateTime, nullable=True)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('incidents', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.incident_key,
+            'title': self.title,
+            'description': self.description or '',
+            'severity': self.severity,
+            'status': self.status,
+            'source': self.source,
+            'source_id': self.source_id,
+            'playbook_id': self.playbook_id,
+            'assigned_to': self.assigned_to,
+            'metadata': self.metadata_json or {},
+            'actions_taken': self.actions_taken or [],
+            'timeline': self.timeline or [],
+            'triggered_at': self.triggered_at.isoformat() if self.triggered_at else None,
+            'acknowledged_at': self.acknowledged_at.isoformat() if self.acknowledged_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+        }
+
+    def __repr__(self):
+        return f'<IncidentModel {self.incident_key} user={self.user_id}>'
+
+
+class PlaybookModel(db.Model):
+    """Persisted custom playbooks with user isolation"""
+    __tablename__ = 'playbooks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    playbook_key = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, default='')
+    trigger_conditions = db.Column(db.JSON, default=lambda: {})
+    severity = db.Column(db.String(20), default='medium')
+    actions_json = db.Column(db.JSON, default=lambda: [])
+    enabled = db.Column(db.Boolean, default=True)
+    auto_execute = db.Column(db.Boolean, default=False)
+    notification_channels = db.Column(db.JSON, default=lambda: [])
+    escalation_policy = db.Column(db.String(100), nullable=True)
+    tags = db.Column(db.JSON, default=lambda: [])
+    is_builtin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('playbooks', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'playbook_key', name='uq_user_playbook_key'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.playbook_key,
+            'name': self.name,
+            'description': self.description or '',
+            'trigger_conditions': self.trigger_conditions or {},
+            'severity': self.severity,
+            'actions': self.actions_json or [],
+            'enabled': self.enabled,
+            'auto_execute': self.auto_execute,
+            'notification_channels': self.notification_channels or [],
+            'escalation_policy': self.escalation_policy,
+            'tags': self.tags or [],
+            'is_builtin': self.is_builtin,
+        }
+
+    def __repr__(self):
+        return f'<PlaybookModel {self.playbook_key} user={self.user_id}>'
+
+
+class AnalysisModel(db.Model):
+    """Persisted root cause analysis with per-user isolation."""
+    __tablename__ = 'analyses'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    analysis_key = db.Column(db.String(50), nullable=False)
+    incident_id = db.Column(db.String(100), nullable=True)
+    status = db.Column(db.String(20), default='completed')
+    summary = db.Column(db.Text, default='')
+    timeline_analysis = db.Column(db.Text, default='')
+    impact_assessment = db.Column(db.Text, default='')
+    root_causes = db.Column(db.JSON, default=list)
+    recommendations = db.Column(db.JSON, default=list)
+    data_sources_used = db.Column(db.JSON, default=list)
+    analysis_duration_seconds = db.Column(db.Float, default=0.0)
+    analyzed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'analysis_key', name='uq_user_analysis_key'),
+        db.Index('idx_analysis_user_incident', 'user_id', 'incident_id'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.analysis_key,
+            'incident_id': self.incident_id or 'unknown',
+            'status': self.status or 'completed',
+            'summary': self.summary or '',
+            'timeline_analysis': self.timeline_analysis or '',
+            'impact_assessment': self.impact_assessment or '',
+            'root_causes': self.root_causes or [],
+            'recommendations': self.recommendations or [],
+            'data_sources_used': self.data_sources_used or [],
+            'analysis_duration_seconds': self.analysis_duration_seconds or 0.0,
+            'analyzed_at': self.analyzed_at.isoformat() if self.analyzed_at else None,
+        }
+
+    def __repr__(self):
+        return f'<AnalysisModel {self.analysis_key} user={self.user_id}>'
+
+
 class UserCloudCredential(db.Model):
     """Store per-user cloud credentials (encrypted) for AWS, Azure, and GCP"""
     __tablename__ = 'user_cloud_credentials'
@@ -1147,8 +1402,8 @@ class APIKey(db.Model):
     key_hash = db.Column(db.String(64), nullable=False, unique=True)  # SHA-256 hash of full key
 
     # Permissions and scopes
-    scopes = db.Column(db.JSON, default=list)  # List of allowed scopes: ['read', 'write', 'admin']
-    allowed_ips = db.Column(db.JSON, default=list)  # IP whitelist (empty = all allowed)
+    scopes = db.Column(db.JSON, default=lambda: [])  # List of allowed scopes: ['read', 'write', 'admin']
+    allowed_ips = db.Column(db.JSON, default=lambda: [])  # IP whitelist (empty = all allowed)
 
     # Rate limiting
     rate_limit = db.Column(db.Integer, default=1000)  # Requests per hour
@@ -1349,7 +1604,7 @@ class Organization(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
     # Settings
-    settings = db.Column(db.JSON, default=dict)
+    settings = db.Column(db.JSON, default=lambda: {})
 
     # SSO Configuration
     sso_enabled = db.Column(db.Boolean, default=False)
@@ -1505,7 +1760,7 @@ class WebhookEndpoint(db.Model):
     secret = db.Column(db.String(64))  # For HMAC signature verification
 
     # Events to subscribe to
-    events = db.Column(db.JSON, default=list)  # ['resource.created', 'alert.triggered', etc.]
+    events = db.Column(db.JSON, default=lambda: [])  # ['resource.created', 'alert.triggered', etc.]
 
     # Configuration
     is_active = db.Column(db.Boolean, default=True)
@@ -1605,7 +1860,7 @@ class ComplianceFrameworkModel(db.Model):
 
     # Configuration
     is_enabled = db.Column(db.Boolean, default=False)
-    settings = db.Column(db.JSON, default=dict)
+    settings = db.Column(db.JSON, default=lambda: {})
 
     # Status
     last_assessment_at = db.Column(db.DateTime)
@@ -2075,11 +2330,11 @@ class LearningSession(db.Model):
     conversation_id = db.Column(db.String(50), db.ForeignKey('conversations.id'), nullable=True)
 
     summary = db.Column(db.Text)
-    topics_covered = db.Column(db.JSON, default=list)
-    tools_used = db.Column(db.JSON, default=list)
-    key_lessons = db.Column(db.JSON, default=list)
-    study_recommendations = db.Column(db.JSON, default=list)
-    proficiency_deltas = db.Column(db.JSON, default=dict)
+    topics_covered = db.Column(db.JSON, default=lambda: [])
+    tools_used = db.Column(db.JSON, default=lambda: [])
+    key_lessons = db.Column(db.JSON, default=lambda: [])
+    study_recommendations = db.Column(db.JSON, default=lambda: [])
+    proficiency_deltas = db.Column(db.JSON, default=lambda: {})
     message_count = db.Column(db.Integer, default=0)
     was_sandbox = db.Column(db.Boolean, default=False)
     duration_minutes = db.Column(db.Integer, default=0)

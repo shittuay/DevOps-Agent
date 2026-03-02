@@ -1,12 +1,13 @@
 """
 Incident Response API routes for DevOps Agent.
+All engine methods receive user_id for per-user isolation.
 """
 
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, request, jsonify, render_template, make_response
 from flask_login import login_required, current_user
 from services.incident_response import (
     get_incident_engine, IncidentSeverity, IncidentStatus,
-    ResponsePlaybook, RemediationAction, ActionType
+    ResponsePlaybook, RemediationAction, ActionType, BUILTIN_IDS
 )
 from services.rbac import require_permission, Permission, approver_required
 from datetime import datetime
@@ -25,10 +26,11 @@ incidents_bp = Blueprint('incidents', __name__, url_prefix='/incidents')
 def incidents_dashboard():
     """Incident response dashboard."""
     engine = get_incident_engine()
+    user_id = current_user.id
 
-    incidents = engine.list_incidents(limit=50)
-    playbooks = engine.list_playbooks()
-    stats = engine.get_stats()
+    incidents = engine.list_incidents(user_id, limit=50)
+    playbooks = engine.list_playbooks(user_id)
+    stats = engine.get_stats(user_id)
 
     return render_template('incidents/dashboard.html',
         incidents=incidents,
@@ -44,20 +46,23 @@ def incidents_dashboard():
 def view_incident(incident_id):
     """View incident details."""
     engine = get_incident_engine()
-    incident = engine.get_incident(incident_id)
+    user_id = current_user.id
+    incident = engine.get_incident(user_id, incident_id)
 
     if not incident:
         return jsonify({'error': 'Incident not found'}), 404
 
     playbook = None
     if incident.playbook_id:
-        playbook = engine.get_playbook(incident.playbook_id)
+        playbook = engine.get_playbook(user_id, incident.playbook_id)
 
-    return render_template('incidents/detail.html',
+    resp = make_response(render_template('incidents/detail.html',
         incident=incident,
         playbook=playbook,
         IncidentStatus=IncidentStatus
-    )
+    ))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
 
 
 @incidents_bp.route('/playbooks')
@@ -67,7 +72,8 @@ def list_playbooks():
     from services.rbac import user_is_approver
 
     engine = get_incident_engine()
-    playbooks = engine.list_playbooks()
+    user_id = current_user.id
+    playbooks = engine.list_playbooks(user_id)
 
     return render_template('incidents/playbooks.html',
         playbooks=playbooks,
@@ -89,7 +95,8 @@ def new_playbook():
 def edit_playbook(playbook_id):
     """Edit playbook form."""
     engine = get_incident_engine()
-    playbook = engine.get_playbook(playbook_id)
+    user_id = current_user.id
+    playbook = engine.get_playbook(user_id, playbook_id)
 
     if not playbook:
         return jsonify({'error': 'Playbook not found'}), 404
@@ -105,6 +112,7 @@ def edit_playbook(playbook_id):
 def api_list_incidents():
     """API: List incidents."""
     engine = get_incident_engine()
+    user_id = current_user.id
 
     status_filter = request.args.get('status')
     severity_filter = request.args.get('severity')
@@ -124,7 +132,7 @@ def api_list_incidents():
         except ValueError:
             pass
 
-    incidents = engine.list_incidents(status=status, severity=severity, limit=limit)
+    incidents = engine.list_incidents(user_id, status=status, severity=severity, limit=limit)
 
     return jsonify({
         'success': True,
@@ -149,7 +157,8 @@ def api_list_incidents():
 def api_get_incident(incident_id):
     """API: Get incident details."""
     engine = get_incident_engine()
-    incident = engine.get_incident(incident_id)
+    user_id = current_user.id
+    incident = engine.get_incident(user_id, incident_id)
 
     if not incident:
         return jsonify({'success': False, 'error': 'Incident not found'}), 404
@@ -181,11 +190,9 @@ def api_get_incident(incident_id):
 def api_acknowledge_incident(incident_id):
     """API: Acknowledge an incident."""
     engine = get_incident_engine()
+    user_id = current_user.id
 
-    result = engine.acknowledge_incident(
-        incident_id,
-        user=current_user.email
-    )
+    result = engine.acknowledge_incident(user_id, incident_id, user=current_user.email)
 
     if result['success']:
         logger.info(f"Incident {incident_id} acknowledged by {current_user.email}")
@@ -198,11 +205,12 @@ def api_acknowledge_incident(incident_id):
 def api_resolve_incident(incident_id):
     """API: Resolve an incident."""
     engine = get_incident_engine()
+    user_id = current_user.id
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     resolution = data.get('resolution', f'Resolved by {current_user.email}')
 
-    result = engine.resolve_incident(incident_id, resolution)
+    result = engine.resolve_incident(user_id, incident_id, resolution)
 
     if result['success']:
         logger.info(f"Incident {incident_id} resolved by {current_user.email}")
@@ -215,28 +223,32 @@ def api_resolve_incident(incident_id):
 @approver_required
 def api_execute_playbook(incident_id):
     """API: Execute playbook for an incident (requires approver role)."""
-    engine = get_incident_engine()
-    incident = engine.get_incident(incident_id)
+    try:
+        engine = get_incident_engine()
+        user_id = current_user.id
+        incident = engine.get_incident(user_id, incident_id)
 
-    if not incident:
-        return jsonify({'success': False, 'error': 'Incident not found'}), 404
+        if not incident:
+            return jsonify({'success': False, 'error': 'Incident not found'}), 404
 
-    data = request.get_json() or {}
-    skip_approval = data.get('skip_approval', False)
+        data = request.get_json(silent=True) or {}
+        skip_approval = data.get('skip_approval', False)
 
-    # Only admins can skip approval
-    from services.rbac import user_is_admin
-    if skip_approval and not user_is_admin(current_user):
-        skip_approval = False
+        from services.rbac import user_is_admin
+        if skip_approval and not user_is_admin(current_user):
+            skip_approval = False
 
-    result = engine.execute_playbook(incident, skip_approval=skip_approval)
+        result = engine.execute_playbook(user_id, incident, skip_approval=skip_approval)
 
-    logger.info(
-        f"Playbook executed for incident {incident_id} by {current_user.email}, "
-        f"skip_approval={skip_approval}"
-    )
+        logger.info(
+            f"Playbook executed for incident {incident_id} by {current_user.email}, "
+            f"skip_approval={skip_approval}"
+        )
 
-    return jsonify(result)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Playbook execution error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @incidents_bp.route('/api/process', methods=['POST'])
@@ -249,7 +261,8 @@ def api_process_alert():
         return jsonify({'success': False, 'error': 'No data provided'}), 400
 
     engine = get_incident_engine()
-    incident = engine.process_alert(data)
+    user_id = current_user.id
+    incident = engine.process_alert(user_id, data)
 
     if incident:
         logger.info(f"Alert processed, created incident {incident.id}")
@@ -268,9 +281,10 @@ def api_process_alert():
 def api_stats():
     """API: Get incident statistics."""
     engine = get_incident_engine()
+    user_id = current_user.id
     return jsonify({
         'success': True,
-        'stats': engine.get_stats()
+        'stats': engine.get_stats(user_id)
     })
 
 
@@ -279,7 +293,8 @@ def api_stats():
 def api_list_playbooks():
     """API: List all playbooks."""
     engine = get_incident_engine()
-    playbooks = engine.list_playbooks()
+    user_id = current_user.id
+    playbooks = engine.list_playbooks(user_id)
 
     return jsonify({
         'success': True,
@@ -292,7 +307,8 @@ def api_list_playbooks():
             'enabled': p.enabled,
             'auto_execute': p.auto_execute,
             'actions_count': len(p.actions),
-            'tags': p.tags
+            'tags': p.tags,
+            'is_builtin': p.is_builtin,
         } for p in playbooks]
     })
 
@@ -302,7 +318,8 @@ def api_list_playbooks():
 def api_get_playbook(playbook_id):
     """API: Get playbook details."""
     engine = get_incident_engine()
-    playbook = engine.get_playbook(playbook_id)
+    user_id = current_user.id
+    playbook = engine.get_playbook(user_id, playbook_id)
 
     if not playbook:
         return jsonify({'success': False, 'error': 'Playbook not found'}), 404
@@ -320,6 +337,7 @@ def api_get_playbook(playbook_id):
             'notification_channels': playbook.notification_channels,
             'escalation_policy': playbook.escalation_policy,
             'tags': playbook.tags,
+            'is_builtin': playbook.is_builtin,
             'actions': [{
                 'name': a.name,
                 'type': a.action_type.value,
@@ -337,23 +355,21 @@ def api_get_playbook(playbook_id):
 def api_toggle_playbook(playbook_id):
     """API: Enable/disable a playbook."""
     engine = get_incident_engine()
-    playbook = engine.get_playbook(playbook_id)
+    user_id = current_user.id
+    new_state = engine.toggle_playbook(user_id, playbook_id)
 
-    if not playbook:
+    if new_state is None:
         return jsonify({'success': False, 'error': 'Playbook not found'}), 404
 
-    playbook.enabled = not playbook.enabled
-    playbook.updated_at = datetime.utcnow()
-
     logger.info(
-        f"Playbook {playbook_id} {'enabled' if playbook.enabled else 'disabled'} "
+        f"Playbook {playbook_id} {'enabled' if new_state else 'disabled'} "
         f"by {current_user.email}"
     )
 
     return jsonify({
         'success': True,
         'playbook_id': playbook_id,
-        'enabled': playbook.enabled
+        'enabled': new_state
     })
 
 
@@ -363,18 +379,20 @@ def webhook_receive(source):
     """
     Webhook endpoint for receiving alerts from external systems.
     Supports: prometheus, alertmanager, datadog, pagerduty, opsgenie, grafana
+    Note: Webhooks use a system user_id since there's no authenticated user.
     """
     data = request.get_json()
 
     if not data:
         return jsonify({'error': 'No data'}), 400
 
-    # Transform based on source
     alert_data = _transform_webhook_data(source, data)
 
     if alert_data:
         engine = get_incident_engine()
-        incident = engine.process_alert(alert_data)
+        # Webhook alerts go to user_id from data or default to admin user (id=1)
+        user_id = data.get('user_id', 1)
+        incident = engine.process_alert(user_id, alert_data)
 
         if incident:
             return jsonify({
@@ -389,7 +407,6 @@ def _transform_webhook_data(source: str, data: dict) -> dict:
     """Transform webhook data from various sources to standard format."""
 
     if source == 'prometheus' or source == 'alertmanager':
-        # Prometheus/Alertmanager format
         alerts = data.get('alerts', [data])
         if alerts:
             alert = alerts[0]
@@ -451,7 +468,6 @@ def _transform_webhook_data(source: str, data: dict) -> dict:
             'alert_id': data.get('ruleId')
         }
 
-    # Generic format
     return {
         'source': source,
         **data
@@ -499,22 +515,19 @@ def api_create_playbook():
         return jsonify({'success': False, 'error': 'At least one action is required'}), 400
 
     engine = get_incident_engine()
+    user_id = current_user.id
 
-    # Generate unique ID
     import uuid
     playbook_id = data.get('id') or f"custom-{str(uuid.uuid4())[:8]}"
 
-    # Check for duplicate ID
-    if engine.get_playbook(playbook_id):
+    if engine.get_playbook(user_id, playbook_id):
         playbook_id = f"custom-{str(uuid.uuid4())[:8]}"
 
-    # Parse severity
     try:
         severity = IncidentSeverity(data.get('severity', 'medium'))
     except ValueError:
         severity = IncidentSeverity.MEDIUM
 
-    # Parse actions
     actions = []
     for action_data in data.get('actions', []):
         try:
@@ -531,7 +544,6 @@ def api_create_playbook():
             timeout_seconds=action_data.get('timeout_seconds', 300)
         ))
 
-    # Create playbook
     playbook = ResponsePlaybook(
         id=playbook_id,
         name=data.get('name'),
@@ -546,7 +558,7 @@ def api_create_playbook():
         tags=data.get('tags', [])
     )
 
-    engine.register_playbook(playbook)
+    engine.register_playbook(user_id, playbook)
 
     logger.info(f"Playbook '{playbook.name}' created by {current_user.email}")
 
@@ -563,7 +575,8 @@ def api_create_playbook():
 def api_update_playbook(playbook_id):
     """API: Update an existing playbook."""
     engine = get_incident_engine()
-    playbook = engine.get_playbook(playbook_id)
+    user_id = current_user.id
+    playbook = engine.get_playbook(user_id, playbook_id)
 
     if not playbook:
         return jsonify({'success': False, 'error': 'Playbook not found'}), 404
@@ -572,7 +585,6 @@ def api_update_playbook(playbook_id):
     if not data:
         return jsonify({'success': False, 'error': 'No data provided'}), 400
 
-    # Update fields
     if 'name' in data:
         playbook.name = data['name']
     if 'description' in data:
@@ -595,7 +607,6 @@ def api_update_playbook(playbook_id):
     if 'tags' in data:
         playbook.tags = data['tags']
 
-    # Update actions if provided
     if 'actions' in data:
         actions = []
         for action_data in data['actions']:
@@ -615,6 +626,7 @@ def api_update_playbook(playbook_id):
         playbook.actions = actions
 
     playbook.updated_at = datetime.utcnow()
+    engine._save_playbook_to_db(user_id, playbook)
 
     logger.info(f"Playbook '{playbook.name}' updated by {current_user.email}")
 
@@ -631,25 +643,19 @@ def api_update_playbook(playbook_id):
 def api_delete_playbook(playbook_id):
     """API: Delete a playbook."""
     engine = get_incident_engine()
-    playbook = engine.get_playbook(playbook_id)
+    user_id = current_user.id
+    playbook = engine.get_playbook(user_id, playbook_id)
 
     if not playbook:
         return jsonify({'success': False, 'error': 'Playbook not found'}), 404
 
-    # Check if this is a built-in playbook (IDs must match _load_builtin_playbooks() in incident_response.py)
-    builtin_ids = [
-        'high-cpu-usage', 'memory-pressure', 'disk-space-low',
-        'pod-crashloop', 'service-down', 'security-alert'
-    ]
-    if playbook_id in builtin_ids:
+    if playbook_id in BUILTIN_IDS:
         return jsonify({
             'success': False,
             'error': 'Cannot delete built-in playbooks. You can disable them instead.'
         }), 400
 
-    # Remove from engine
-    if playbook_id in engine.playbooks:
-        del engine.playbooks[playbook_id]
+    engine.unregister_playbook(user_id, playbook_id)
 
     logger.info(f"Playbook '{playbook.name}' deleted by {current_user.email}")
 

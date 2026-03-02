@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Template Detail - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>{{ template.name if template else 'Template Detail' }}</h1>
+        <a href="{{ url_for('ai_infrastructure.templates') }}" class="btn btn-secondary">Back to Templates</a>
+    </div>
+    {% if template %}
+    <div class="detail-grid">
+        <div class="card">
+            <h3>Overview</h3>
+            <div class="detail-row"><strong>Name:</strong> {{ template.name }}</div>
+            <div class="detail-row"><strong>Description:</strong> {{ template.description or 'No description' }}</div>
+            <div class="detail-row"><strong>Category:</strong> {{ template.category or '-' }}</div>
+            <div class="detail-row"><strong>Provider:</strong> {{ template.provider or template.cloud_provider or '-' }}</div>
+            <div class="detail-row"><strong>Complexity:</strong> {{ template.complexity or '-' }}</div>
+            <div class="detail-row"><strong>Estimated Cost:</strong> ${{ template.estimated_cost or 0 }}/mo</div>
+        </div>
+        <div class="card">
+            <h3>Configuration</h3>
+            <pre class="code-block">{{ template.config | tojson(indent=2) if template.config else 'No configuration data' }}</pre>
+        </div>
+        <div class="card">
+            <h3>Actions</h3>
+            <button class="btn btn-primary" onclick="deployTemplate('{{ template.id }}')">Deploy This Template</button>
+            <button class="btn btn-secondary" onclick="previewTemplate('{{ template.id }}')">Preview</button>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted">Template not found.</p>
+    {% endif %}
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.detail-grid { display: grid; gap: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
+.card h3 { margin: 0 0 16px 0; font-size: 1.1rem; }
+.detail-row { padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+.detail-row:last-child { border-bottom: none; }
+.code-block { background: var(--bg-primary); padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; }
+</style>
+<script>
+function deployTemplate(id) {
+    if (confirm('Deploy this template?')) {
+        fetch('/ai/api/templates/' + id + '/preview', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
+        .then(r => r.json()).then(data => alert('Preview generated. Check the console.')).catch(e => alert('Error: ' + e.message));
+    }
+}
+function previewTemplate(id) {
+    fetch('/ai/api/templates/' + id + '/preview', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
+    .then(r => r.json()).then(data => { document.querySelector('.code-block').textContent = JSON.stringify(data, null, 2); })
+    .catch(e => alert('Error: ' + e.message));
+}
+</script>
+{% endblock %}

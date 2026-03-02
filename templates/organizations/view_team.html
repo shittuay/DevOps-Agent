@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name if team else 'Team' }} - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>{{ team.name if team else 'Team Detail' }}</h1>
+        <a href="{{ url_for('organizations.list_teams', org_id=org.id) }}" class="btn btn-secondary">Back to Teams</a>
+    </div>
+    {% if team %}
+    <div class="detail-grid">
+        <div class="card">
+            <h3>Team Info</h3>
+            <div class="detail-row"><strong>Name:</strong> {{ team.name }}</div>
+            <div class="detail-row"><strong>Description:</strong> {{ team.description or 'No description' }}</div>
+            <div class="detail-row"><strong>Organization:</strong> {{ org.name if org else '-' }}</div>
+            <div class="detail-row"><strong>Created:</strong> {{ team.created_at or '-' }}</div>
+        </div>
+        <div class="card">
+            <h3>Members ({{ members | length if members else 0 }})</h3>
+            {% if members %}
+            <table class="table">
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th></tr></thead>
+                <tbody>
+                {% for member in members %}
+                <tr>
+                    <td>{{ member.user.username if member.user else member.username or '-' }}</td>
+                    <td>{{ member.user.email if member.user else member.email or '-' }}</td>
+                    <td><span class="role-badge">{{ member.role or 'member' }}</span></td>
+                    <td>{{ member.joined_at or member.created_at or '-' }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted">No members in this team yet.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted">Team not found.</p>
+    {% endif %}
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.detail-grid { display: grid; gap: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
+.card h3 { margin: 0 0 16px 0; font-size: 1.1rem; }
+.detail-row { padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+.detail-row:last-child { border-bottom: none; }
+.table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.table th, .table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border-color); }
+.role-badge { padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; background: rgba(99,102,241,0.15); color: #6366f1; }
+</style>
+{% endblock %}

@@ -507,8 +507,12 @@ User Preferences and Context:
         self.logger.error("Max iterations reached in Claude API loop")
         return "❌ Maximum number of tool executions reached. Please try rephrasing your request."
 
+    _cached_oai_tools: List[Dict[str, Any]] = None
+
     def _convert_tools_to_openai_format(self) -> List[Dict[str, Any]]:
-        """Convert Anthropic tool definitions to OpenAI function-calling format."""
+        """Convert Anthropic tool definitions to OpenAI function-calling format (cached)."""
+        if self._cached_oai_tools is not None:
+            return self._cached_oai_tools
         if not self.tool_definitions:
             return []
         oai_tools = []
@@ -521,6 +525,7 @@ User Preferences and Context:
                     'parameters': tool['input_schema'],
                 }
             })
+        self._cached_oai_tools = oai_tools
         return oai_tools
 
     def _call_kimi_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None) -> str:

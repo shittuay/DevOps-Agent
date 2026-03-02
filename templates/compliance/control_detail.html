@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Control Detail - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>{{ control.name or control.title or 'Control Detail' }}</h1>
+        <a href="{{ url_for('compliance.controls') }}" class="btn btn-secondary">Back to Controls</a>
+    </div>
+    {% if control %}
+    <div class="detail-grid">
+        <div class="card">
+            <h3>Control Information</h3>
+            <div class="detail-row"><strong>ID:</strong> {{ control.id or control.control_id or '-' }}</div>
+            <div class="detail-row"><strong>Name:</strong> {{ control.name or control.title or '-' }}</div>
+            <div class="detail-row"><strong>Framework:</strong> {{ control.framework or control.framework_id or '-' }}</div>
+            <div class="detail-row"><strong>Category:</strong> {{ control.category or '-' }}</div>
+            <div class="detail-row"><strong>Description:</strong> {{ control.description or 'No description' }}</div>
+            <div class="detail-row">
+                <strong>Status:</strong>
+                <span class="status-badge status-{{ (control.status or 'unknown') | lower }}">{{ control.status or 'Unknown' }}</span>
+            </div>
+            <div class="detail-row"><strong>Severity:</strong> {{ control.severity or '-' }}</div>
+        </div>
+        <div class="card">
+            <h3>Evidence ({{ evidence | length if evidence else 0 }})</h3>
+            {% if evidence %}
+            <table class="table">
+                <thead><tr><th>Type</th><th>Description</th><th>Date</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for e in evidence %}
+                <tr>
+                    <td>{{ e.type or e.evidence_type or '-' }}</td>
+                    <td>{{ e.description or '-' }}</td>
+                    <td>{{ e.created_at or e.date or '-' }}</td>
+                    <td>{{ e.status or 'Submitted' }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted">No evidence submitted for this control.</p>
+            <form method="POST" action="{{ url_for('compliance.add_evidence', control_id=control.id or control.control_id) }}" class="evidence-form">
+                <textarea name="description" placeholder="Describe the evidence..." rows="3" class="form-control"></textarea>
+                <button type="submit" class="btn btn-primary mt-2">Submit Evidence</button>
+            </form>
+            {% endif %}
+        </div>
+        <div class="card">
+            <h3>Remediation Steps</h3>
+            {% if remediation %}
+            <ol class="remediation-list">
+            {% for step in remediation %}
+                <li class="remediation-step">
+                    <div class="step-desc">{{ step.description or step }}</div>
+                    {% if step.status %}<span class="status-badge status-{{ step.status }}">{{ step.status }}</span>{% endif %}
+                </li>
+            {% endfor %}
+            </ol>
+            {% else %}
+            <p class="text-muted">No remediation steps available. This control may already be compliant.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted">Control not found.</p>
+    {% endif %}
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.detail-grid { display: grid; gap: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
+.card h3 { margin: 0 0 16px 0; font-size: 1.1rem; }
+.detail-row { padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+.detail-row:last-child { border-bottom: none; }
+.table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.table th, .table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border-color); }
+.status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
+.status-compliant { background: rgba(16,185,129,0.15); color: #10b981; }
+.status-non_compliant, .status-non-compliant { background: rgba(239,68,68,0.15); color: #ef4444; }
+.status-partial, .status-pending { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.remediation-list { padding-left: 20px; }
+.remediation-step { padding: 10px 0; border-bottom: 1px solid var(--border-color); }
+.remediation-step:last-child { border-bottom: none; }
+.evidence-form { margin-top: 12px; }
+.form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-family: inherit; resize: vertical; }
+.mt-2 { margin-top: 8px; }
+</style>
+{% endblock %}

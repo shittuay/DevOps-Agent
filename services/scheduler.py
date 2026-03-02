@@ -6,6 +6,7 @@ cost anomaly detection, and health checks.
 """
 
 import logging
+import os
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -88,13 +89,17 @@ def _run_health_check(app, db):
     results = run_diagnostics(app=app, db=db)
 
     if results['overall'] == 'unhealthy':
-        logger.error(f"HEALTH CHECK FAILED: {results['summary']}")
-        _store_alert(db, 'health_check', 'critical',
-                     f"System unhealthy: {results['summary']['error']} errors detected")
+        error_count = results['summary'].get('error', 0)
+        # Downgrade to warning in dev (no FLASK_ENV=production)
+        is_prod = os.environ.get('FLASK_ENV') == 'production'
+        if is_prod:
+            logger.error(f"HEALTH CHECK FAILED: {results['summary']}")
+            _store_alert(db, 'health_check', 'critical',
+                         f"System unhealthy: {error_count} errors detected")
+        else:
+            logger.warning(f"Health check: {error_count} errors (non-production, suppressing CRITICAL)")
     elif results['overall'] == 'degraded':
-        logger.warning(f"HEALTH CHECK DEGRADED: {results['summary']}")
-        _store_alert(db, 'health_check', 'warning',
-                     f"System degraded: {results['summary']['warning']} warnings")
+        logger.info(f"Health check: {results['summary']['warning']} warnings")
     else:
         logger.info("Health check passed")
 

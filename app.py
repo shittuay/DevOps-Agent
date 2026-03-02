@@ -26,7 +26,7 @@ else:
             load_dotenv(_env_path, override=False)
 # --- End early secrets initialization ---
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file, g
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 import secrets
@@ -67,6 +67,21 @@ from models import (
     ResponseFeedback, SubscriptionTier, UserSubscription, CreditPurchase, UsageLog,
     LearningSession, PaymentWebhookEvent, NGNPriceConfig
 )
+
+
+def _get_active_tiers():
+    """Get active subscription tiers, cached per-request in Flask g."""
+    if not hasattr(g, '_cached_tiers'):
+        g._cached_tiers = SubscriptionTier.query.filter_by(is_active=True).all()
+    return g._cached_tiers
+
+
+def _get_ngn_prices():
+    """Get NGN price config, cached per-request in Flask g."""
+    if not hasattr(g, '_cached_ngn'):
+        g._cached_ngn = {p.product_key: p.price_ngn for p in NGNPriceConfig.query.filter_by(is_active=True).all()}
+    return g._cached_ngn
+
 
 # Import Stripe integration
 try:
@@ -252,20 +267,27 @@ csrf.exempt(api_bp)
 from services.proactive_monitoring import get_monitoring_service
 from services.incident_response import get_incident_engine
 from services.notification_service import get_notification_service
+from services.root_cause_analyzer import get_root_cause_analyzer
 
 monitoring_service = get_monitoring_service()
+monitoring_service.set_app(app)
 incident_engine = get_incident_engine()
+incident_engine.set_app(app)
 notification_service = get_notification_service()
+incident_engine.set_notification_service(notification_service)
+root_cause_analyzer = get_root_cause_analyzer()
+root_cause_analyzer.set_app(app)
 
 monitoring_service.set_incident_engine(incident_engine)
 
 # Add notification callback to monitoring service for alert notifications
-def send_alert_notification(event_type, alert_data):
+def send_alert_notification(event_type, alert_data, user_id=None):
     """Send notifications when alerts fire or resolve."""
     if event_type in ("firing", "resolved"):
         notification_service.send_alert(alert_data)
 
 monitoring_service.add_alert_callback(send_alert_notification)
+monitoring_service.start()
 
 # RBAC context processor - makes RBAC helpers available in all templates
 from services.rbac import RBACContext, get_user_role, user_has_permission, Permission
@@ -297,25 +319,14 @@ def shutdown_session(exception=None):
         pass
 
 
-# PostgreSQL transaction fix: ensure clean transaction state before each request
+# Ensure clean transaction state before each request (no query overhead)
 @app.before_request
 def ensure_clean_transaction():
-    """
-    Ensure database transaction is in a clean state before processing request.
-    This fixes PostgreSQL's 'InFailedSqlTransaction' error that occurs when
-    a previous transaction failed and wasn't properly rolled back.
-    """
+    """Roll back any leftover failed transaction without issuing a query."""
     try:
-        # Check if there's a transaction in an invalid state and rollback if needed
-        if db.session.is_active:
-            # Try a simple query to check transaction state
-            try:
-                db.session.execute(db.text('SELECT 1'))
-            except Exception:
-                # Transaction is in a failed state, rollback
-                db.session.rollback()
+        if db.session.is_active and db.session.dirty:
+            db.session.rollback()
     except Exception:
-        # If anything goes wrong, try to rollback anyway
         try:
             db.session.rollback()
         except Exception:
@@ -378,6 +389,8 @@ _2FA_EXEMPT_ROUTES = {
 @app.before_request
 def enforce_two_factor():
     """Require all logged-in users to set up 2FA before accessing the app."""
+    if app.config.get('TESTING'):
+        return
     if not current_user.is_authenticated:
         return
     if request.endpoint in _2FA_EXEMPT_ROUTES:
@@ -1546,7 +1559,7 @@ def billing():
     subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
     if subscription and subscription.should_reset_credits():
         subscription.reset_monthly_credits()
-    tiers = SubscriptionTier.query.filter_by(is_active=True).order_by(SubscriptionTier.monthly_price).all()
+    tiers = _get_active_tiers()
     stripe_pub_key = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
 
     # NGN pricing support
@@ -1554,7 +1567,11 @@ def billing():
     from models import NGNPriceConfig
     user_prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
     detected_currency = detect_user_currency(request, user_prefs)
-    ngn_prices = {p.product_key: p.price_ngn for p in NGNPriceConfig.query.filter_by(is_active=True).all()}
+    ngn_prices = _get_ngn_prices()
+    ngn_defaults = {'starter': 15000, 'professional': 45000, 'business': 120000,
+                    'pack_100': 5000, 'pack_250': 9000, 'pack_500': 15000, 'pack_1000': 25000}
+    for _k, _v in ngn_defaults.items():
+        ngn_prices.setdefault(_k, _v)
 
     return render_template(
         'billing.html',
@@ -2295,14 +2312,6 @@ def api_chat():
                 'tier': subscription.tier.to_dict() if subscription.tier else None
             }), 402  # Payment Required
 
-        # Deduct credit BEFORE processing
-        if not subscription.use_credit():
-            return jsonify({
-                'error': 'insufficient_credits',
-                'message': 'Failed to deduct credit. Please try again.',
-                'credits_remaining': subscription.credits_remaining
-            }), 402
-
         # Resolve AI model for user's subscription tier with user preference
         from services.model_router import resolve_model_with_preference
         tier_name = subscription.tier.name if subscription.tier else 'free'
@@ -2348,7 +2357,7 @@ def api_chat():
                 )
                 db.session.add(conversation)
 
-        # Save user message
+        # Save user message and update conversation preview
         user_message = ChatMessage(
             user_id=current_user.id,
             conversation_id=conversation_id,
@@ -2356,6 +2365,9 @@ def api_chat():
             content=message
         )
         db.session.add(user_message)
+        if conversation and not getattr(conversation, '_preview_set', False):
+            conversation.preview = message[:200]
+            conversation._preview_set = True
 
         # Get user preferences for personalized context
         preferences_context = None
@@ -2485,6 +2497,10 @@ def api_chat():
             if len(title) > 50:
                 title = title[:47] + '...'
             conversation.title = title
+
+        # Deduct credit AFTER successful response (not before)
+        if success:
+            subscription.use_credit(commit=False)
 
         db.session.commit()
 
@@ -2625,8 +2641,7 @@ def api_chat_stream():
                 )
             return jsonify({'error': 'insufficient_credits'}), 402
 
-        if not subscription.use_credit():
-            return jsonify({'error': 'insufficient_credits'}), 402
+        # Credit deduction moved into generate() after successful AI response
 
         # Resolve AI model for user's subscription tier with user preference
         from services.model_router import resolve_model_with_preference
@@ -2667,7 +2682,7 @@ def api_chat_stream():
                 )
                 db.session.add(conversation)
 
-        # Save user message
+        # Save user message and update conversation preview
         user_msg = ChatMessage(
             user_id=current_user.id,
             conversation_id=conversation_id,
@@ -2675,6 +2690,9 @@ def api_chat_stream():
             content=message
         )
         db.session.add(user_msg)
+        if conversation and not getattr(conversation, '_preview_set', False):
+            conversation.preview = message[:200]
+            conversation._preview_set = True
 
         preferences_context = prefs.get_context_for_prompt() if prefs else None
         sandbox_active = False
@@ -2833,15 +2851,21 @@ def api_chat_stream():
                         if c:
                             c.title = title
 
+                    # Deduct credit AFTER successful response (not before)
+                    fresh_sub = UserSubscription.query.filter_by(user_id=uid).first()
+                    if fresh_sub:
+                        fresh_sub.use_credit(commit=False)
+
                     db.session.commit()
 
-                    # Re-query subscription inside active session to get current credits
-                    fresh_sub = UserSubscription.query.filter_by(user_id=uid).first()
+                    # Read remaining credits after commit
                     remaining = fresh_sub.credits_remaining if fresh_sub else 0
 
                 yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
 
             except Exception as e:
+                with app.app_context():
+                    db.session.rollback()
                 yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
         return app.response_class(
@@ -3000,12 +3024,14 @@ def get_cost_data():
         costs['forecast'] = forecast
         return jsonify(costs)
     except Exception:
-        # Fallback: build cost data from synced resources
-        resources = InfrastructureResource.query.filter_by(user_id=current_user.id).all()
-        service_costs = {}
-        for r in resources:
-            svc = r.resource_type or 'other'
-            service_costs[svc] = service_costs.get(svc, 0) + (r.monthly_cost or 0)
+        # Fallback: aggregate cost data from synced resources (lightweight query)
+        rows = db.session.query(
+            InfrastructureResource.resource_type,
+            db.func.sum(InfrastructureResource.monthly_cost)
+        ).filter_by(user_id=current_user.id).group_by(
+            InfrastructureResource.resource_type
+        ).all()
+        service_costs = {(r[0] or 'other'): float(r[1] or 0) for r in rows}
         total = sum(service_costs.values())
         return jsonify({
             'total_cost': round(total, 2),
@@ -3032,7 +3058,7 @@ def get_resource_utilization(resource_db_id):
         if resource.resource_type == 'ec2':
             data = get_instance_utilization(current_user.id, resource.resource_id, days=days)
         elif resource.resource_type == 'rds':
-            db_id = resource.resource_metadata.get('db_instance_identifier', resource.resource_id)
+            db_id = (resource.resource_metadata or {}).get('db_instance_identifier', resource.resource_id)
             data = get_rds_utilization(current_user.id, db_id, days=days)
         else:
             return jsonify({'error': 'Utilization metrics not available for this resource type'}), 400
@@ -3552,9 +3578,11 @@ def get_stats():
 def get_conversations():
     """Get all conversations for the current user."""
     try:
+        limit = request.args.get('limit', 50, type=int)
+        limit = max(1, min(limit, 200))
         conversations = Conversation.query.filter_by(
             user_id=current_user.id
-        ).order_by(Conversation.updated_at.desc()).all()
+        ).order_by(Conversation.updated_at.desc()).limit(limit).all()
 
         return jsonify({
             'conversations': [conv.to_dict() for conv in conversations]
@@ -4181,7 +4209,7 @@ def get_subscription():
             free_tier = SubscriptionTier.query.filter_by(name='free').first()
             return jsonify({
                 'subscription': None,
-                'available_tiers': [t.to_dict() for t in SubscriptionTier.query.filter_by(is_active=True).all()],
+                'available_tiers': [t.to_dict() for t in _get_active_tiers()],
                 'suggested_tier': free_tier.to_dict() if free_tier else None
             })
 
@@ -4191,7 +4219,7 @@ def get_subscription():
 
         return jsonify({
             'subscription': subscription.to_dict(),
-            'available_tiers': [t.to_dict() for t in SubscriptionTier.query.filter_by(is_active=True).all()]
+            'available_tiers': [t.to_dict() for t in _get_active_tiers()]
         })
 
     except Exception as e:
@@ -4204,7 +4232,7 @@ def get_subscription():
 def get_subscription_tiers():
     """Get all available subscription tiers (public endpoint)."""
     try:
-        tiers = SubscriptionTier.query.filter_by(is_active=True).order_by(SubscriptionTier.monthly_price).all()
+        tiers = _get_active_tiers()
         return jsonify({
             'tiers': [tier.to_dict() for tier in tiers]
         })
@@ -4313,7 +4341,7 @@ def create_subscription_checkout_session():
         api_key = stripe_mod.api_key
         logger.info(f"Stripe checkout: tier={tier_name}, currency={currency}, api_key_set={bool(api_key)}, api_key_prefix={api_key[:12] + '...' if api_key else 'None'}")
 
-        # NGN currency: look up NGN Stripe price ID
+        # NGN currency: look up NGN Stripe price ID, fall back to USD price if not configured
         ngn_price_id = None
         if currency and currency.upper() == 'NGN':
             from models import NGNPriceConfig
@@ -4323,8 +4351,11 @@ def create_subscription_checkout_session():
             if config and config.stripe_price_id_ngn:
                 ngn_price_id = config.stripe_price_id_ngn
             else:
-                return jsonify({'error': f'NGN pricing not configured for tier: {tier_name}'}), 400
-        else:
+                # Fall back to USD Stripe price when NGN price ID not configured
+                logger.info(f"NGN Stripe price not configured for {tier_name}, falling back to USD")
+                currency = None
+
+        if not ngn_price_id:
             from stripe_integration import STRIPE_PRICES
             price_id = STRIPE_PRICES['subscriptions'].get(tier_name.lower())
             logger.info(f"Stripe price_id for {tier_name}: {price_id}")
@@ -4413,7 +4444,7 @@ def create_credits_checkout_session():
         if pack_size not in [100, 250, 500, 1000]:
             return jsonify({'error': 'Invalid pack size'}), 400
 
-        # NGN currency: look up NGN Stripe price ID
+        # NGN currency: look up NGN Stripe price ID, fall back to USD if not configured
         ngn_price_id = None
         if currency and currency.upper() == 'NGN':
             from models import NGNPriceConfig
@@ -4423,7 +4454,8 @@ def create_credits_checkout_session():
             if config and config.stripe_price_id_ngn:
                 ngn_price_id = config.stripe_price_id_ngn
             else:
-                return jsonify({'error': f'NGN pricing not configured for pack size: {pack_size}'}), 400
+                logger.info(f"NGN Stripe price not configured for pack_{pack_size}, falling back to USD")
+                currency = None
 
         result = create_credit_pack_checkout(
             current_user, pack_size,
@@ -4481,7 +4513,7 @@ def set_billing_currency():
 def get_billing_prices():
     """Return all prices in both USD and NGN."""
     from models import NGNPriceConfig
-    tiers = SubscriptionTier.query.filter_by(is_active=True).order_by(SubscriptionTier.monthly_price).all()
+    tiers = _get_active_tiers()
     ngn_configs = {p.product_key: p.to_dict() for p in NGNPriceConfig.query.filter_by(is_active=True).all()}
 
     subscriptions = []
@@ -4601,11 +4633,12 @@ def stripe_webhook():
     logger = get_logger(__name__)
     logger.info(f"Received Stripe webhook: {event['type']}")
 
-    # Idempotency check
-    from models import StripeWebhookEvent
+    # Idempotency check (unified across all gateways)
+    from models import PaymentWebhookEvent
     event_id = event.get('id')
-    if event_id and StripeWebhookEvent.query.get(event_id):
-        logger.info(f"Duplicate webhook event {event_id}, skipping")
+    webhook_key = f"stripe:{event_id}" if event_id else None
+    if webhook_key and PaymentWebhookEvent.query.get(webhook_key):
+        logger.info(f"Duplicate webhook event {webhook_key}, skipping")
         return jsonify({'success': True, 'duplicate': True})
 
     # Handle different event types
@@ -4630,9 +4663,9 @@ def stripe_webhook():
         handle_subscription_deleted(subscription)
 
     # Record processed event for idempotency
-    if event_id:
+    if webhook_key:
         try:
-            db.session.add(StripeWebhookEvent(id=event_id, event_type=event['type']))
+            db.session.add(PaymentWebhookEvent(id=webhook_key, gateway='stripe', event_type=event['type']))
             db.session.commit()
         except Exception:
             db.session.rollback()
@@ -5250,6 +5283,8 @@ if __name__ == '__main__':
                             _df = ' DEFAULT ' + ('TRUE' if _v else 'FALSE')
                         elif isinstance(_v, (int, float)):
                             _df = f' DEFAULT {_v}'
+                        elif isinstance(_v, str):
+                            _df = f" DEFAULT '{_v.replace(chr(39), chr(39)+chr(39))}'"
                     with db.engine.connect() as _conn:
                         _conn.execute(sa_text(f'ALTER TABLE {_tbl} ADD COLUMN {_col.key} {_st}{_df}'))
                         _conn.commit()

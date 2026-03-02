@@ -195,34 +195,30 @@ function showOutOfCreditsModal() {
     });
 }
 
-// Quick buy credits function
+// Quick buy credits function - redirects to Stripe checkout
 async function buyCreditsQuick() {
-    const pack = confirm('Buy 250 credits for $20? (Most popular option)');
-    if (!pack) {
+    var proceed = confirm('Buy 250 credits for $20? You will be redirected to checkout.');
+    if (!proceed) {
         location.href = '/billing';
         return;
     }
 
     try {
-        const response = await fetch('/api/credits/purchase', {
+        var response = await fetch('/api/credits/create-checkout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pack_size: 250 })
         });
 
-        const data = await response.json();
+        var data = await response.json();
 
-        if (response.ok) {
-            alert('Success! 250 credits added to your account.');
-            document.getElementById('out-of-credits-modal')?.remove();
-            checkCredits(); // Refresh display
+        if (data.success && data.checkout_url) {
+            window.location.href = data.checkout_url;
         } else {
-            alert('Purchase failed: ' + (data.error || 'Unknown error'));
             location.href = '/billing';
         }
     } catch (error) {
-        console.error('Error purchasing credits:', error);
-        alert('Error purchasing credits. Redirecting to billing page...');
+        console.error('Error starting checkout:', error);
         location.href = '/billing';
     }
 }
