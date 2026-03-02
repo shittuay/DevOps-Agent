@@ -60,12 +60,22 @@ def create_key():
         from services.api_gateway import APIGatewayService
         service = APIGatewayService()
 
+        try:
+            rate_limit = max(1, min(int(request.form.get('rate_limit', 1000)), 100000))
+        except (ValueError, TypeError):
+            rate_limit = 1000
+        try:
+            expires_days = max(0, min(int(request.form.get('expires_days', 0)), 365))
+        except (ValueError, TypeError):
+            expires_days = 0
+
+        name = (request.form.get('name') or '')[:100]
         data = {
             'user_id': current_user.id,
-            'name': request.form.get('name'),
+            'name': name,
             'scopes': request.form.getlist('scopes'),
-            'rate_limit': int(request.form.get('rate_limit', 1000)),
-            'expires_days': int(request.form.get('expires_days', 0)) or None
+            'rate_limit': rate_limit,
+            'expires_days': expires_days or None
         }
 
         key = service.create_api_key(data)
@@ -134,7 +144,7 @@ def create_webhook():
             import json
             try:
                 data['headers'] = json.loads(custom_headers)
-            except:
+            except (ValueError, TypeError):
                 pass
 
         webhook = service.create_webhook(data)
@@ -284,7 +294,10 @@ def api_get_costs():
     from datetime import datetime, timedelta
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    try:
+        days = max(1, min(int(period.rstrip('dh')), 365))
+    except (ValueError, TypeError):
+        days = 30
 
     service = AnalyticsService(request.api_key.user_id)
     start_date = datetime.utcnow() - timedelta(days=days)

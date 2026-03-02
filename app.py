@@ -1508,11 +1508,16 @@ def update_onboarding_step():
 
 
 @app.route('/setup', methods=['GET', 'POST'])
+@login_required
 def setup():
     """Setup page for API key configuration."""
     if request.method == 'POST':
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Invalid request'}), 400
         api_key = data.get('api_key', '').strip()
+        if len(api_key) > 200:
+            return jsonify({'error': 'Invalid API key'}), 400
 
         if not api_key:
             return jsonify({'error': 'API key is required'}), 400
@@ -1601,8 +1606,8 @@ def privacy_policy():
 @login_required
 def teams():
     """Team management page."""
-    # Get all users for team management
-    users = User.query.order_by(User.created_at.desc()).all()
+    # Get users for team management (limit to 200)
+    users = User.query.order_by(User.created_at.desc()).limit(200).all()
     return render_template('teams.html', users=users, current_user=current_user)
 
 
@@ -3206,7 +3211,7 @@ def get_compliance_summary():
         findings = SecurityFinding.query.filter_by(
             user_id=current_user.id,
             status='open'
-        ).order_by(SecurityFinding.risk_score.desc()).all()
+        ).order_by(SecurityFinding.risk_score.desc()).limit(100).all()
 
         findings_data = [{
             'id': f.id,

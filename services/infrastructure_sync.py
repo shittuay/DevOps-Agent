@@ -765,7 +765,7 @@ def sync_aws_sns_topics(user_id: int) -> int:
             try:
                 attrs = sns.get_topic_attributes(TopicArn=topic_arn)
                 attributes = attrs.get('Attributes', {})
-            except:
+            except Exception:
                 attributes = {}
 
             # Minimal cost estimate

@@ -111,13 +111,13 @@ def scan_s3_buckets(user_id: int) -> List[Dict]:
                             'risk_score': 95,
                             'exploitability': 'high'
                         })
-            except Exception as e:
-                pass  # Bucket might not exist or no permission
+            except Exception:
+                pass  # Bucket ACL not accessible — skip
 
             # Check encryption
             try:
                 encryption = s3.get_bucket_encryption(Bucket=bucket_name)
-            except:
+            except Exception:
                 findings.append({
                     'finding_type': 'unencrypted_s3_bucket',
                     'severity': 'high',
