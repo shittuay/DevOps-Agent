@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Settings - DevOps Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+        .header { background: var(--bg-secondary); padding: 1rem 2rem; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header nav a { color: var(--text-secondary); text-decoration: none; margin-left: 1.5rem; transition: color 0.2s; }
+        .header nav a:hover { color: var(--accent-primary); }
+        .container { max-width: 1000px; margin: 0 auto; padding: 2rem; }
+        .card { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+        .card h2 { font-size: 1.2rem; margin-bottom: 16px; }
+        .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+        .setting-row:last-child { border-bottom: none; }
+        .setting-label { font-weight: 500; }
+        .setting-value { color: var(--text-secondary); font-size: 0.9rem; }
+        .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
+        .badge-green { background: rgba(16,185,129,0.15); color: #10b981; }
+        .badge-yellow { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>System Settings</h1>
+        <nav>
+            <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('admin.list_users') }}">Users</a>
+            <a href="{{ url_for('admin.audit_logs') }}">Audit Logs</a>
+            <a href="/">Back to App</a>
+        </nav>
+    </div>
+    <div class="container">
+        <div class="card">
+            <h2>General</h2>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Application Mode</div>
+                    <div class="setting-value">Production</div>
+                </div>
+                <span class="badge badge-green">Active</span>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Agent Log Level</div>
+                    <div class="setting-value">INFO</div>
+                </div>
+                <span class="badge badge-green">Default</span>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Dry Run Mode</div>
+                    <div class="setting-value">Disabled - commands execute for real</div>
+                </div>
+                <span class="badge badge-green">Off</span>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Require Confirmation</div>
+                    <div class="setting-value">High-risk operations require user confirmation</div>
+                </div>
+                <span class="badge badge-green">Enabled</span>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Integrations</h2>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Stripe Payments</div>
+                    <div class="setting-value">Handles subscription and credit purchases</div>
+                </div>
+                <span class="badge badge-green">Connected</span>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Email (Brevo SMTP)</div>
+                    <div class="setting-value">Transactional emails and notifications</div>
+                </div>
+                <span class="badge badge-green">Connected</span>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">AI Models</div>
+                    <div class="setting-value">Kimi K2.5 (free/starter) + Claude (pro/business)</div>
+                </div>
+                <span class="badge badge-green">Active</span>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Security</h2>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Guardrails</div>
+                    <div class="setting-value">3-layer defense: input sanitizer + Haiku pre-screen + hardened system prompt</div>
+                </div>
+                <span class="badge badge-green">Enabled</span>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Credential Encryption</div>
+                    <div class="setting-value">Fernet (AES-128) for stored cloud credentials</div>
+                </div>
+                <span class="badge badge-green">Active</span>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Rate Limiting</div>
+                    <div class="setting-value">500/day, 100/hour per user</div>
+                </div>
+                <span class="badge badge-green">Enforced</span>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

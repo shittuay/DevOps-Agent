@@ -319,31 +319,41 @@ class SafetyValidator:
                 risk_level='high'
             )
 
-        # Check if tool is high risk
+        # Check for specific dangerous patterns in input (escalate to critical on production)
+        input_str = str(tool_input).lower()
+        targets_production = 'production' in input_str or 'prod' in input_str
+
+        # Priority: explicit sets override auto-detection.
+        # A tool in medium_risk_tools stays medium even if its name matches a high-risk pattern.
         if tool_name in high_risk_tools:
-            # Check for specific dangerous patterns in input
-            input_str = str(tool_input).lower()
-
-            if 'production' in input_str or 'prod' in input_str:
-                return ValidationResult(
-                    is_safe=True,
-                    reason=f"High-risk tool '{tool_name}' on production",
-                    requires_confirmation=True,
-                    risk_level='critical'
-                )
-
             return ValidationResult(
                 is_safe=True,
-                reason=f"High-risk tool '{tool_name}'",
+                reason=f"High-risk tool '{tool_name}'" + (" on production" if targets_production else ""),
                 requires_confirmation=True,
-                risk_level='high'
+                risk_level='critical' if targets_production else 'high'
             )
 
-        # Check if tool is medium risk
         if tool_name in medium_risk_tools:
             return ValidationResult(
                 is_safe=True,
                 reason=f"Medium-risk tool '{tool_name}'",
+                requires_confirmation=True,
+                risk_level='medium'
+            )
+
+        # Auto-detect: catch tools not in either explicit set
+        if self._matches_high_risk_pattern(tool_name):
+            return ValidationResult(
+                is_safe=True,
+                reason=f"High-risk tool '{tool_name}' (auto-detected)" + (" on production" if targets_production else ""),
+                requires_confirmation=True,
+                risk_level='critical' if targets_production else 'high'
+            )
+
+        if self._matches_medium_risk_pattern(tool_name):
+            return ValidationResult(
+                is_safe=True,
+                reason=f"Medium-risk tool '{tool_name}' (auto-detected)",
                 requires_confirmation=True,
                 risk_level='medium'
             )
@@ -355,6 +365,40 @@ class SafetyValidator:
             requires_confirmation=False,
             risk_level='low'
         )
+
+    # Auto-detection patterns: catch new tools that weren't added to the static sets
+    _HIGH_RISK_NAME_PREFIXES = (
+        'delete_', 'terminate_', 'destroy_', 'remove_', 'drop_', 'purge_',
+    )
+    _HIGH_RISK_NAME_SUBSTRINGS = ('_prune', '_wipe', '_force_remove')
+
+    _MEDIUM_RISK_NAME_PREFIXES = (
+        'update_', 'restart_', 'reboot_', 'scale_', 'resize_',
+        'modify_', 'revoke_', 'detach_', 'deregister_', 'release_',
+        'cordon_', 'uncordon_', 'rollback_', 'migrate_',
+    )
+    _MEDIUM_RISK_NAME_SUBSTRINGS = ('_exec', '_run_command')
+
+    @classmethod
+    def _matches_high_risk_pattern(cls, tool_name: str) -> bool:
+        name = tool_name.lower()
+        if any(name.startswith(p) for p in cls._HIGH_RISK_NAME_PREFIXES):
+            return True
+        if any(s in name for s in cls._HIGH_RISK_NAME_SUBSTRINGS):
+            return True
+        return False
+
+    @classmethod
+    def _matches_medium_risk_pattern(cls, tool_name: str) -> bool:
+        name = tool_name.lower()
+        # Don't escalate to medium if it already matched high
+        if cls._matches_high_risk_pattern(tool_name):
+            return False
+        if any(name.startswith(p) for p in cls._MEDIUM_RISK_NAME_PREFIXES):
+            return True
+        if any(s in name for s in cls._MEDIUM_RISK_NAME_SUBSTRINGS):
+            return True
+        return False
 
     def validate_resource_operation(
         self,

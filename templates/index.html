@@ -44,11 +44,16 @@
             opacity: 0.3;
             pointer-events: none;
             animation: gridMove 20s linear infinite;
+            will-change: transform;
         }
 
         @keyframes gridMove {
             0% { transform: translate(0, 0); }
             100% { transform: translate(50px, 50px); }
+        }
+
+        body.tab-hidden::before {
+            animation-play-state: paused;
         }
 
         /* Gradient Mesh Overlay */
@@ -2050,9 +2055,11 @@
                     const data = await res.json();
                     currentModelProvider = data.provider;
                     updateModelToggleUI(data.provider, data.display_name);
+                    if (typeof showToast === 'function') showToast('Switched to ' + data.display_name, 'success');
                 }
             } catch (e) {
                 console.error('Failed to switch model:', e);
+                if (typeof showToast === 'function') showToast('Failed to switch model', 'error');
             }
         }
 
@@ -2127,6 +2134,11 @@
             }
 
             loadConversations();
+        });
+
+        // Pause background grid animation when tab is hidden to save GPU cycles
+        document.addEventListener('visibilitychange', () => {
+            document.body.classList.toggle('tab-hidden', document.hidden);
         });
 
         // Close menu when clicking outside
@@ -2564,11 +2576,12 @@
                 listContainer.innerHTML = '';
 
                 if (data.conversations && data.conversations.length > 0) {
-                    // Add "Recent" header
+                    const frag = document.createDocumentFragment();
+
                     const header = document.createElement('div');
                     header.className = 'conversations-header';
                     header.textContent = 'Recent';
-                    listContainer.appendChild(header);
+                    frag.appendChild(header);
 
                     data.conversations.forEach(conv => {
                         const item = document.createElement('div');
@@ -2595,8 +2608,10 @@
                         item.appendChild(title);
                         item.appendChild(preview);
                         item.appendChild(deleteBtn);
-                        listContainer.appendChild(item);
+                        frag.appendChild(item);
                     });
+
+                    listContainer.appendChild(frag);
                 }
             } catch (error) {
                 console.error('Error loading conversations:', error);

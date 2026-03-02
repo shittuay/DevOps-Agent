@@ -51,12 +51,12 @@ def run_diagnostics(app=None, db=None, agent=None) -> Dict[str, Any]:
         'detail': f"{api_key[:12]}..." if api_key else 'Not configured',
     })
 
-    # 4. Agent status
+    # 4. Agent status (warning not error — agent may not be passed in scheduler context)
     checks.append({
         'name': 'AI Agent',
         'category': 'ai',
-        'status': 'ok' if agent is not None else 'error',
-        'detail': f"{len(agent.list_available_tools())} tools loaded" if agent else 'Not initialized',
+        'status': 'ok' if agent is not None else 'warning',
+        'detail': f"{len(agent.list_available_tools())} tools loaded" if agent else 'Not passed to diagnostics',
     })
 
     # 5. Stripe configuration

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Deployment Detail - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Deployment Detail</h1>
+        <a href="{{ url_for('ai_infrastructure.deployments') }}" class="btn btn-secondary">Back to Deployments</a>
+    </div>
+    {% if deployment %}
+    <div class="detail-grid">
+        <div class="card">
+            <h3>Overview</h3>
+            <div class="detail-row"><strong>ID:</strong> {{ deployment.id or deployment.request_id or '-' }}</div>
+            <div class="detail-row"><strong>Description:</strong> {{ deployment.description or deployment.natural_language_input or 'N/A' }}</div>
+            <div class="detail-row">
+                <strong>Status:</strong>
+                <span class="status-badge status-{{ (deployment.status or 'unknown') | lower }}">{{ deployment.status or 'Unknown' }}</span>
+            </div>
+            <div class="detail-row"><strong>Provider:</strong> {{ deployment.cloud_provider or '-' }}</div>
+            <div class="detail-row"><strong>Created:</strong> {{ deployment.created_at or '-' }}</div>
+            <div class="detail-row"><strong>Completed:</strong> {{ deployment.completed_at or 'In progress' }}</div>
+        </div>
+        {% if deployment.terraform_code or deployment.generated_code %}
+        <div class="card">
+            <h3>Generated Code</h3>
+            <pre class="code-block">{{ deployment.terraform_code or deployment.generated_code or 'No code generated' }}</pre>
+        </div>
+        {% endif %}
+        {% if deployment.execution_log or deployment.logs %}
+        <div class="card">
+            <h3>Execution Log</h3>
+            <pre class="code-block">{{ deployment.execution_log or deployment.logs or 'No logs available' }}</pre>
+        </div>
+        {% endif %}
+    </div>
+    {% else %}
+    <p class="text-muted">Deployment not found.</p>
+    {% endif %}
+</div>
+<style>
+.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.detail-grid { display: grid; gap: 20px; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
+.card h3 { margin: 0 0 16px 0; font-size: 1.1rem; }
+.detail-row { padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+.detail-row:last-child { border-bottom: none; }
+.code-block { background: var(--bg-primary); padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; }
+.status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
+.status-completed, .status-success { background: rgba(16,185,129,0.15); color: #10b981; }
+.status-failed, .status-error { background: rgba(239,68,68,0.15); color: #ef4444; }
+.status-pending, .status-running { background: rgba(245,158,11,0.15); color: #f59e0b; }
+</style>
+{% endblock %}

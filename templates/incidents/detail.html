@@ -328,8 +328,13 @@
             try {
                 const resp = await fetch('{{ url_for("incidents.api_acknowledge_incident", incident_id=incident.id) }}', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
                 });
+                if (!resp.ok) {
+                    showMessage('Server error (' + resp.status + '). Please refresh.', 'error');
+                    return;
+                }
                 const data = await resp.json();
                 if (data.success) {
                     showMessage('Incident acknowledged', 'success');
@@ -338,7 +343,7 @@
                     showMessage(data.error, 'error');
                 }
             } catch (e) {
-                showMessage('Failed to acknowledge incident', 'error');
+                showMessage('Failed to acknowledge incident: ' + e.message, 'error');
             }
         }
 
@@ -370,8 +375,13 @@
             try {
                 const resp = await fetch('{{ url_for("incidents.api_execute_playbook", incident_id=incident.id) }}', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
                 });
+                if (resp.redirected || !resp.ok && resp.status !== 200) {
+                    showMessage('Session expired or server error (' + resp.status + '). Please refresh the page.', 'error');
+                    return;
+                }
                 const data = await resp.json();
                 if (data.success) {
                     showMessage('Playbook execution completed', 'success');
@@ -380,7 +390,7 @@
                     showMessage(data.error || 'Execution failed', 'error');
                 }
             } catch (e) {
-                showMessage('Failed to execute playbook', 'error');
+                showMessage('Failed to execute playbook: ' + e.message, 'error');
             }
         }
 
@@ -392,8 +402,15 @@
             try {
                 const resp = await fetch('{{ url_for("analysis.api_analyze_incident_by_id", incident_id=incident.id) }}', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
                 });
+                if (resp.redirected || !resp.ok && resp.status !== 200) {
+                    showMessage('Session expired or server error (' + resp.status + '). Please refresh the page.', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Analyze Root Cause';
+                    return;
+                }
                 const data = await resp.json();
                 if (data.success) {
                     showMessage('Root cause analysis completed', 'success');
@@ -406,7 +423,7 @@
                     btn.textContent = 'Analyze Root Cause';
                 }
             } catch (e) {
-                showMessage('Failed to start analysis', 'error');
+                showMessage('Failed to start analysis: ' + e.message, 'error');
                 btn.disabled = false;
                 btn.textContent = 'Analyze Root Cause';
             }

@@ -27,7 +27,7 @@ def test_stripe_configuration():
     try:
         import stripe
         print("✓ Stripe library is installed")
-        print(f"  Version: {stripe.__version__}")
+        print(f"  Version: {getattr(stripe, 'VERSION', getattr(stripe, '__version__', 'unknown'))}")
     except ImportError:
         print("✗ Stripe library is not installed")
         print("  Run: pip install stripe")
