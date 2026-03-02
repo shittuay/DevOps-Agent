@@ -848,6 +848,8 @@ User Preferences and Context:
                         from services.learning_sandbox import generate_mock_result
                         result = generate_mock_result(tool_name, tool_input)
                     elif tool_name in self.tools:
+                        result = self.tools[tool_name](**tool_input)
+                    else:
                         result = {
                             'success': False,
                             'error': f"Unknown tool: {tool_name}"
