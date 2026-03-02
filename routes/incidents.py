@@ -381,6 +381,10 @@ def webhook_receive(source):
     Supports: prometheus, alertmanager, datadog, pagerduty, opsgenie, grafana
     Note: Webhooks use a system user_id since there's no authenticated user.
     """
+    valid_sources = {'prometheus', 'alertmanager', 'datadog', 'pagerduty', 'opsgenie', 'grafana'}
+    if source not in valid_sources:
+        return jsonify({'error': 'Unsupported webhook source'}), 400
+
     data = request.get_json()
 
     if not data:
@@ -390,8 +394,8 @@ def webhook_receive(source):
 
     if alert_data:
         engine = get_incident_engine()
-        # Webhook alerts go to user_id from data or default to admin user (id=1)
-        user_id = data.get('user_id', 1)
+        # Webhook alerts default to admin user (id=1) — user_id is NOT accepted from external input
+        user_id = 1
         incident = engine.process_alert(user_id, alert_data)
 
         if incident:

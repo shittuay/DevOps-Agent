@@ -279,10 +279,16 @@ def system_settings():
 @admin_required
 def api_list_users():
     """API endpoint to list users."""
-    users = User.query.all()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(per_page, 200)
+    query = User.query.order_by(User.created_at.desc())
+    total = query.count()
+    users = query.offset((page - 1) * per_page).limit(per_page).all()
 
     return jsonify({
         'success': True,
+        'pagination': {'page': page, 'per_page': per_page, 'total': total},
         'users': [{
             'id': u.id,
             'email': u.email,

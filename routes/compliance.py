@@ -114,8 +114,19 @@ def add_evidence(control_id):
     if 'file' in request.files:
         file = request.files['file']
         if file.filename:
-            data['file_name'] = file.filename
-            data['file_data'] = file.read()
+            from werkzeug.utils import secure_filename
+            safe_name = secure_filename(file.filename)
+            allowed_ext = {'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xlsx', 'csv', 'txt'}
+            ext = safe_name.rsplit('.', 1)[-1].lower() if '.' in safe_name else ''
+            if ext not in allowed_ext:
+                flash('File type not allowed. Accepted: PDF, images, documents.', 'error')
+                return redirect(url_for('compliance.control_detail', control_id=control_id))
+            file_data = file.read(10 * 1024 * 1024 + 1)  # Read up to 10MB + 1 byte
+            if len(file_data) > 10 * 1024 * 1024:
+                flash('File too large. Maximum size is 10MB.', 'error')
+                return redirect(url_for('compliance.control_detail', control_id=control_id))
+            data['file_name'] = safe_name
+            data['file_data'] = file_data
 
     if service.add_evidence(data):
         flash('Evidence added successfully!', 'success')
