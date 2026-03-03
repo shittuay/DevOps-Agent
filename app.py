@@ -1016,6 +1016,21 @@ def signup():
 
             security_logger.info(f"New user registered: {email} from {ip_address}")
 
+            # Create free-tier subscription so credits are visible immediately
+            free_tier = SubscriptionTier.query.filter_by(name='free').first()
+            if free_tier:
+                from dateutil.relativedelta import relativedelta
+                sub = UserSubscription(
+                    user_id=user.id,
+                    tier_id=free_tier.id,
+                    credits_remaining=free_tier.monthly_credits,
+                    current_period_start=datetime.utcnow(),
+                    current_period_end=datetime.utcnow() + relativedelta(months=1),
+                    last_reset_date=datetime.utcnow(),
+                )
+                db.session.add(sub)
+                db.session.commit()
+
             # Send verification email (non-blocking, don't fail signup if email fails)
             try:
                 email_service.send_verification_email(user, token=verification_token)
@@ -1206,7 +1221,25 @@ def chat():
     if 'conversation_id' not in session:
         session['conversation_id'] = secrets.token_hex(8)
 
-    return render_template('index.html', user=current_user)
+    # Ensure subscription exists so credits display correctly
+    subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
+    if not subscription:
+        free_tier = SubscriptionTier.query.filter_by(name='free').first()
+        if free_tier:
+            from dateutil.relativedelta import relativedelta
+            subscription = UserSubscription(
+                user_id=current_user.id,
+                tier_id=free_tier.id,
+                credits_remaining=free_tier.monthly_credits,
+                current_period_start=datetime.utcnow(),
+                current_period_end=datetime.utcnow() + relativedelta(months=1),
+                last_reset_date=datetime.utcnow(),
+            )
+            db.session.add(subscription)
+            db.session.commit()
+
+    credits = subscription.credits_remaining if subscription else 0
+    return render_template('index.html', user=current_user, initial_credits=credits)
 
 
 @app.route('/dashboard')
@@ -1562,7 +1595,21 @@ def templates_page():
 def billing():
     """Billing and credits management page."""
     subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-    if subscription and subscription.should_reset_credits():
+    if not subscription:
+        free_tier = SubscriptionTier.query.filter_by(name='free').first()
+        if free_tier:
+            from dateutil.relativedelta import relativedelta
+            subscription = UserSubscription(
+                user_id=current_user.id,
+                tier_id=free_tier.id,
+                credits_remaining=free_tier.monthly_credits,
+                current_period_start=datetime.utcnow(),
+                current_period_end=datetime.utcnow() + relativedelta(months=1),
+                last_reset_date=datetime.utcnow(),
+            )
+            db.session.add(subscription)
+            db.session.commit()
+    elif subscription.should_reset_credits():
         subscription.reset_monthly_credits()
     tiers = _get_active_tiers()
     stripe_pub_key = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
