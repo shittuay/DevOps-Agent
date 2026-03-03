@@ -1866,7 +1866,7 @@
                         <span>Voice</span>
                     </button>
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
-                        💰 <span id="credits-count">--</span> credits
+                        💰 <span id="credits-count">{{ initial_credits if initial_credits is defined else '--' }}</span> credits
                     </div>
                     <button class="header-button" onclick="exportChat()">
                         <span>📋</span>
