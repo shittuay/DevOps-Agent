@@ -10,6 +10,7 @@ from flask_login import login_required, current_user
 import logging
 
 from services.webhook_integrations import get_webhook_service, WebhookSource
+from services.rbac import admin_required
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ webhooks_bp = Blueprint('webhooks', __name__, url_prefix='/webhooks')
 
 @webhooks_bp.route('/')
 @login_required
+@admin_required
 def webhooks_dashboard():
     """Webhook events dashboard."""
     service = get_webhook_service()
@@ -159,6 +161,7 @@ def receive_bitbucket():
 
 @webhooks_bp.route('/api/events')
 @login_required
+@admin_required
 def api_list_events():
     """API: List webhook events."""
     service = get_webhook_service()
@@ -191,6 +194,7 @@ def api_list_events():
 
 @webhooks_bp.route('/api/stats')
 @login_required
+@admin_required
 def api_stats():
     """API: Get webhook statistics."""
     service = get_webhook_service()

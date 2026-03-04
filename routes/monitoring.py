@@ -30,13 +30,16 @@ def json_response(data: dict, status: int = 200):
 def monitoring_dashboard():
     service = get_monitoring_service()
     uid = current_user.id
+    rules = service.get_rules(uid)
+    user_monitoring_active = any(r.get('enabled') for r in rules)
     return render_template(
         'monitoring/dashboard.html',
         status=service.get_status(uid),
-        rules=service.get_rules(uid),
+        rules=rules,
         alerts=service.get_active_alerts(uid),
         sources=[s.value for s in MetricSource],
-        conditions=[c.value for c in AlertCondition]
+        conditions=[c.value for c in AlertCondition],
+        user_monitoring_active=user_monitoring_active,
     )
 
 
@@ -196,20 +199,20 @@ def api_acknowledge_alert(alert_id: str):
 @monitoring_bp.route('/api/service/start', methods=['POST'])
 @login_required
 def api_start_service():
+    """Enable all monitoring rules for the current user."""
     service = get_monitoring_service()
-    if service.is_running():
-        return json_response({"error": "Service already running"}, 400)
-    service.start()
+    uid = current_user.id
+    service.enable_all_rules(uid)
     return json_response({"success": True, "running": True})
 
 
 @monitoring_bp.route('/api/service/stop', methods=['POST'])
 @login_required
 def api_stop_service():
+    """Disable all monitoring rules for the current user."""
     service = get_monitoring_service()
-    if not service.is_running():
-        return json_response({"error": "Service not running"}, 400)
-    service.stop()
+    uid = current_user.id
+    service.disable_all_rules(uid)
     return json_response({"success": True, "running": False})
 
 

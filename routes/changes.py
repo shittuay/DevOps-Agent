@@ -23,7 +23,7 @@ def _notify_change(change, event):
         from services.notification_service import get_notification_service
         svc = get_notification_service()
         details = change.change_details or {}
-        svc.send_change_notification({
+        svc.send_change_notification(change.user_id, {
             'id': change.id,
             'title': change.title,
             'action_type': change.action_type,

@@ -27,8 +27,8 @@ def scaling_dashboard():
     service = get_scaling_service()
 
     # Generate fresh predictions
-    predictions = service.generate_all_predictions()
-    summary = service.get_summary()
+    predictions = service.generate_all_predictions(current_user.id)
+    summary = service.get_summary(current_user.id)
 
     return render_template('scaling/dashboard.html',
         predictions=predictions,
@@ -62,7 +62,7 @@ def api_list_predictions():
         except ValueError:
             direction = None
 
-    predictions = service.get_predictions(category=category, direction=direction)
+    predictions = service.get_predictions(current_user.id, category=category, direction=direction)
 
     return jsonify({
         'success': True,
@@ -93,8 +93,8 @@ def api_analyze():
     """API: Trigger analysis and generate predictions."""
     service = get_scaling_service()
 
-    predictions = service.generate_all_predictions()
-    summary = service.get_summary()
+    predictions = service.generate_all_predictions(current_user.id)
+    summary = service.get_summary(current_user.id)
 
     logger.info(f"Scaling analysis run by {current_user.email}: {len(predictions)} predictions")
 
@@ -112,7 +112,7 @@ def api_summary():
     service = get_scaling_service()
     return jsonify({
         'success': True,
-        'summary': service.get_summary()
+        'summary': service.get_summary(current_user.id)
     })
 
 
@@ -121,7 +121,7 @@ def api_summary():
 def api_get_pattern(resource_id: str):
     """API: Get detected pattern for a resource."""
     service = get_scaling_service()
-    pattern = service.get_pattern(resource_id)
+    pattern = service.get_pattern(current_user.id, resource_id)
 
     if not pattern:
         return jsonify({'success': False, 'error': 'No pattern data available'}), 404
@@ -144,7 +144,8 @@ def api_get_pattern(resource_id: str):
 def api_get_metrics(resource_id: str):
     """API: Get historical metrics for a resource."""
     service = get_scaling_service()
-    metrics = service.metrics.get(resource_id, [])
+    service._ensure_sample_data(current_user.id)
+    metrics = service.metrics.get(current_user.id, {}).get(resource_id, [])
 
     if not metrics:
         return jsonify({'success': False, 'error': 'No metrics available'}), 404
@@ -180,7 +181,7 @@ def api_apply_recommendation(prediction_id: str):
 
     # Find the prediction
     prediction = None
-    for p in service.predictions:
+    for p in service.predictions.get(current_user.id, []):
         if p.id == prediction_id:
             prediction = p
             break

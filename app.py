@@ -283,8 +283,8 @@ monitoring_service.set_incident_engine(incident_engine)
 # Add notification callback to monitoring service for alert notifications
 def send_alert_notification(event_type, alert_data, user_id=None):
     """Send notifications when alerts fire or resolve."""
-    if event_type in ("firing", "resolved"):
-        notification_service.send_alert(alert_data)
+    if event_type in ("firing", "resolved") and user_id is not None:
+        notification_service.send_alert(user_id, alert_data)
 
 monitoring_service.add_alert_callback(send_alert_notification)
 monitoring_service.start()
@@ -3150,7 +3150,7 @@ def sync_infrastructure():
             try:
                 from services.notification_service import get_notification_service
                 svc = get_notification_service()
-                svc.send_cost_alert({
+                svc.send_cost_alert(current_user.id, {
                     'amount': total_savings,
                     'threshold': 50,
                     'message': f'Infrastructure sync found ${total_savings:.2f}/month in potential savings',
@@ -3365,7 +3365,7 @@ def run_all_compliance_scans():
             try:
                 from services.notification_service import get_notification_service
                 svc = get_notification_service()
-                svc.send_security_notification(total_findings)
+                svc.send_security_notification(current_user.id, total_findings)
             except Exception:
                 pass
 

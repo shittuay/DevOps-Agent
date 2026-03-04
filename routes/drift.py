@@ -27,8 +27,8 @@ def drift_dashboard():
     """Drift detection dashboard."""
     service = get_drift_service()
 
-    baselines = service.get_baselines()
-    reports = service.get_recent_reports(limit=10)
+    baselines = service.get_baselines(current_user.id)
+    reports = service.get_recent_reports(current_user.id, limit=10)
 
     # Get latest report summary if available
     latest_report = reports[0] if reports else None
@@ -37,7 +37,7 @@ def drift_dashboard():
         baselines=baselines,
         reports=reports,
         latest_report=latest_report,
-        baseline_count=service.get_baseline_count(),
+        baseline_count=service.get_baseline_count(current_user.id),
         ResourceType=ResourceType
     )
 
@@ -47,7 +47,7 @@ def drift_dashboard():
 def view_report(report_id: str):
     """View a specific drift report."""
     service = get_drift_service()
-    report = service.get_report(report_id)
+    report = service.get_report(current_user.id, report_id)
 
     if not report:
         return "Report not found", 404
@@ -68,13 +68,13 @@ def api_scan():
     """API: Trigger a drift detection scan."""
     service = get_drift_service()
 
-    if service.get_baseline_count() == 0:
+    if service.get_baseline_count(current_user.id) == 0:
         return jsonify({
             'success': False,
             'error': 'No baselines configured. Import a Terraform state or add baselines first.'
         }), 400
 
-    report = service.scan_for_drift()
+    report = service.scan_for_drift(current_user.id)
 
     logger.info(f"Drift scan completed by {current_user.email}: {report.summary['total_drifts']} drifts found")
 
@@ -92,7 +92,7 @@ def api_list_reports():
     service = get_drift_service()
     limit = request.args.get('limit', 10, type=int)
 
-    reports = service.get_recent_reports(limit=limit)
+    reports = service.get_recent_reports(current_user.id, limit=limit)
 
     return jsonify({
         'success': True,
@@ -114,7 +114,7 @@ def api_list_reports():
 def api_get_report(report_id: str):
     """API: Get a specific drift report."""
     service = get_drift_service()
-    report = service.get_report(report_id)
+    report = service.get_report(current_user.id, report_id)
 
     if not report:
         return jsonify({'success': False, 'error': 'Report not found'}), 404
@@ -158,7 +158,7 @@ def api_list_baselines():
         except ValueError:
             resource_type = None
 
-    baselines = service.get_baselines(resource_type=resource_type)
+    baselines = service.get_baselines(current_user.id, resource_type=resource_type)
 
     return jsonify({
         'success': True,
@@ -203,7 +203,7 @@ def api_add_baseline():
         tags=data.get('tags', {})
     )
 
-    service.add_baseline(baseline)
+    service.add_baseline(current_user.id, baseline)
 
     logger.info(f"Baseline added by {current_user.email}: {resource_type.value}:{data['resource_id']}")
 
@@ -224,7 +224,7 @@ def api_delete_baseline(resource_type: str, resource_id: str):
         return jsonify({'success': False, 'error': 'Invalid resource_type'}), 400
 
     service = get_drift_service()
-    service.remove_baseline(rt, resource_id)
+    service.remove_baseline(current_user.id, rt, resource_id)
 
     logger.info(f"Baseline removed by {current_user.email}: {resource_type}:{resource_id}")
 
@@ -248,11 +248,11 @@ def api_import_terraform():
         return jsonify({'success': False, 'error': 'Terraform state required'}), 400
 
     service = get_drift_service()
-    initial_count = service.get_baseline_count()
+    initial_count = service.get_baseline_count(current_user.id)
 
-    service.import_terraform_state(data['state'])
+    service.import_terraform_state(current_user.id, data['state'])
 
-    new_count = service.get_baseline_count()
+    new_count = service.get_baseline_count(current_user.id)
     imported = new_count - initial_count
 
     logger.info(f"Terraform state imported by {current_user.email}: {imported} resources")
@@ -329,10 +329,10 @@ def api_import_sample():
     ]
 
     for baseline in sample_baselines:
-        service.add_baseline(baseline)
+        service.add_baseline(current_user.id, baseline)
 
     return jsonify({
         'success': True,
         'imported': len(sample_baselines),
-        'total_baselines': service.get_baseline_count()
+        'total_baselines': service.get_baseline_count(current_user.id)
     })

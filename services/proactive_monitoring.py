@@ -395,7 +395,7 @@ class ProactiveMonitoringService:
                 duration_seconds=rd.get('duration_seconds', 60),
                 severity=rd.get('severity', 'medium'),
                 labels=rd.get('labels', {}),
-                enabled=True, check_interval_seconds=30,
+                enabled=False, check_interval_seconds=30,
             )
             db.session.add(rule)
         db.session.commit()
@@ -479,6 +479,28 @@ class ProactiveMonitoringService:
             db.session.commit()
         return True
 
+    def enable_all_rules(self, user_id: int):
+        """Enable all monitoring rules for a user."""
+        self._ensure_user_loaded(user_id)
+        rules = self._user_rules.get(user_id, {})
+        for rule in rules.values():
+            rule.enabled = True
+        with self._app.app_context():
+            from models import MonitoringRuleModel, db
+            MonitoringRuleModel.query.filter_by(user_id=user_id).update({'enabled': True})
+            db.session.commit()
+
+    def disable_all_rules(self, user_id: int):
+        """Disable all monitoring rules for a user."""
+        self._ensure_user_loaded(user_id)
+        rules = self._user_rules.get(user_id, {})
+        for rule in rules.values():
+            rule.enabled = False
+        with self._app.app_context():
+            from models import MonitoringRuleModel, db
+            MonitoringRuleModel.query.filter_by(user_id=user_id).update({'enabled': False})
+            db.session.commit()
+
     def get_rules(self, user_id: int) -> list[dict]:
         """Get all monitoring rules for a user."""
         self._ensure_user_loaded(user_id)
@@ -548,12 +570,13 @@ class ProactiveMonitoringService:
         return results
 
     def get_status(self, user_id: int) -> dict:
-        """Get monitoring status for a user."""
+        """Get monitoring status for a user (per-user, not global)."""
         self._ensure_user_loaded(user_id)
         rules = self._user_rules.get(user_id, {})
         alerts = self._user_alerts.get(user_id, {})
+        user_has_enabled_rules = any(r.enabled for r in rules.values())
         return {
-            "running": self._running,
+            "running": user_has_enabled_rules,
             "rules_total": len(rules),
             "rules_enabled": sum(1 for r in rules.values() if r.enabled),
             "alerts_active": len([a for a in alerts.values() if a.resolved_at is None]),

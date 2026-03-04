@@ -34,8 +34,8 @@ def optimization_dashboard():
     optimizer = get_performance_optimizer()
     return render_template(
         'optimization/dashboard.html',
-        summary=optimizer.get_summary(),
-        recommendations=optimizer.get_recommendations(status=Status.PENDING)[:10],
+        summary=optimizer.get_summary(current_user.id),
+        recommendations=optimizer.get_recommendations(current_user.id, status=Status.PENDING)[:10],
         optimization_types=[t.value for t in OptimizationType],
         resource_types=[r.value for r in ResourceType],
         priorities=[p.value for p in Priority]
@@ -65,8 +65,8 @@ def list_recommendations():
 
     return render_template(
         'optimization/recommendations.html',
-        recommendations=optimizer.get_recommendations(**filters),
-        summary=optimizer.get_summary(),
+        recommendations=optimizer.get_recommendations(current_user.id, **filters),
+        summary=optimizer.get_summary(current_user.id),
         optimization_types=[t.value for t in OptimizationType],
         resource_types=[r.value for r in ResourceType],
         priorities=[p.value for p in Priority],
@@ -87,7 +87,7 @@ def list_recommendations():
 def api_summary():
     """Get optimization summary."""
     optimizer = get_performance_optimizer()
-    return json_response(optimizer.get_summary())
+    return json_response(optimizer.get_summary(current_user.id))
 
 
 @optimization_bp.route('/api/recommendations', methods=['GET'])
@@ -115,7 +115,7 @@ def api_list_recommendations():
         return json_response({"error": f"Invalid filter value: {e}"}, 400)
 
     return json_response({
-        "recommendations": optimizer.get_recommendations(**filters)
+        "recommendations": optimizer.get_recommendations(current_user.id, **filters)
     })
 
 
@@ -124,7 +124,7 @@ def api_list_recommendations():
 def api_get_recommendation(rec_id: str):
     """Get a specific recommendation."""
     optimizer = get_performance_optimizer()
-    rec = optimizer.get_recommendation(rec_id)
+    rec = optimizer.get_recommendation(current_user.id, rec_id)
 
     if not rec:
         return json_response({"error": "Recommendation not found"}, 404)
@@ -147,7 +147,7 @@ def api_update_status(rec_id: str):
         return json_response({"error": "Invalid status"}, 400)
 
     optimizer = get_performance_optimizer()
-    if optimizer.update_recommendation_status(rec_id, new_status):
+    if optimizer.update_recommendation_status(current_user.id, rec_id, new_status):
         return json_response({"success": True, "status": new_status.value})
 
     return json_response({"error": "Recommendation not found"}, 404)
@@ -161,7 +161,7 @@ def api_dismiss_recommendation(rec_id: str):
     reason = data.get('reason')
 
     optimizer = get_performance_optimizer()
-    if optimizer.dismiss_recommendation(rec_id, reason):
+    if optimizer.dismiss_recommendation(current_user.id, rec_id, reason):
         return json_response({"success": True})
 
     return json_response({"error": "Recommendation not found"}, 404)
@@ -173,7 +173,7 @@ def api_implement_recommendation(rec_id: str):
     """Mark a recommendation as implemented."""
     optimizer = get_performance_optimizer()
 
-    rec = optimizer.get_recommendation(rec_id)
+    rec = optimizer.get_recommendation(current_user.id, rec_id)
     if not rec:
         return json_response({"error": "Recommendation not found"}, 404)
 
@@ -183,7 +183,7 @@ def api_implement_recommendation(rec_id: str):
             "action_steps": rec.get('action_steps', [])
         }, 400)
 
-    if optimizer.update_recommendation_status(rec_id, Status.IMPLEMENTED):
+    if optimizer.update_recommendation_status(current_user.id, rec_id, Status.IMPLEMENTED):
         return json_response({
             "success": True,
             "message": "Recommendation implemented successfully"

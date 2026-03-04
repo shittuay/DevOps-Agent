@@ -32,7 +32,7 @@ def notifications_settings():
     service = get_notification_service()
     return render_template(
         'notifications/settings.html',
-        status=service.get_status()
+        status=service.get_status(current_user.id)
     )
 
 
@@ -43,7 +43,7 @@ def notifications_settings():
 def api_status():
     """Get notification service status."""
     service = get_notification_service()
-    return json_response(service.get_status())
+    return json_response(service.get_status(current_user.id))
 
 
 @notifications_bp.route('/api/configure/slack', methods=['POST'])
@@ -64,6 +64,7 @@ def api_configure_slack():
 
     service = get_notification_service()
     service.configure_slack(
+        current_user.id,
         webhook_url=webhook_url,
         api_token=api_token,
         default_channel=default_channel
@@ -86,7 +87,7 @@ def api_configure_teams():
         return json_response({"error": "webhook_url required"}, 400)
 
     service = get_notification_service()
-    service.configure_teams(webhook_url=webhook_url)
+    service.configure_teams(current_user.id, webhook_url=webhook_url)
 
     return json_response({"success": True, "message": "Teams configured"})
 
@@ -97,7 +98,8 @@ def api_test_notification(channel: str):
     """Send a test notification to a channel."""
     service = get_notification_service()
 
-    if channel not in service.channels:
+    user_channels = service._get_user_channels(current_user.id)
+    if channel not in user_channels:
         return json_response({"error": f"Channel {channel} not configured"}, 404)
 
     notification = Notification(
@@ -114,7 +116,7 @@ def api_test_notification(channel: str):
         ]
     )
 
-    results = service.send(notification, channels=[channel])
+    results = service.send(current_user.id, notification, channels=[channel])
     success = results.get(channel, False)
 
     if success:
@@ -155,7 +157,7 @@ def api_send_notification():
     )
 
     service = get_notification_service()
-    results = service.send(notification, channels=channels)
+    results = service.send(current_user.id, notification, channels=channels)
 
     return json_response({
         "success": any(results.values()),
