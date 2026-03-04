@@ -90,14 +90,21 @@ class PredictiveScalingService:
     """
 
     def __init__(self):
-        self.metrics: dict[str, list[MetricDataPoint]] = defaultdict(list)
-        self.predictions: list[ScalingPrediction] = []
-        self.patterns: dict[str, ScalingPattern] = {}
-        self._load_sample_data()
+        # All keyed by user_id for data isolation
+        self.metrics: dict[int, dict[str, list[MetricDataPoint]]] = defaultdict(lambda: defaultdict(list))
+        self.predictions: dict[int, list[ScalingPrediction]] = defaultdict(list)
+        self.patterns: dict[int, dict[str, ScalingPattern]] = defaultdict(dict)
 
-    def _load_sample_data(self):
+    def _ensure_sample_data(self, user_id: int):
+        """Load sample metrics data for demonstration if not already loaded."""
+        if self.metrics[user_id]:
+            return
+        self._load_sample_data(user_id)
+
+    def _load_sample_data(self, user_id: int):
         """Load sample metrics data for demonstration."""
         now = datetime.utcnow()
+        import random
 
         # Generate sample historical data for a web server
         for i in range(168):  # 7 days of hourly data
@@ -109,11 +116,9 @@ class PredictiveScalingService:
             else:
                 base_cpu = 20 + (hour % 6) * 2  # Lower at night
 
-            # Add some randomness
-            import random
             cpu = base_cpu + random.uniform(-5, 10)
 
-            self.metrics['web-server-1'].append(MetricDataPoint(
+            self.metrics[user_id]['web-server-1'].append(MetricDataPoint(
                 timestamp=now - timedelta(hours=168-i),
                 value=min(95, max(5, cpu)),
                 resource_id='web-server-1'
@@ -130,10 +135,9 @@ class PredictiveScalingService:
             else:
                 base_conn = 25
 
-            import random
             connections = base_conn + random.uniform(-10, 15)
 
-            self.metrics['prod-database'].append(MetricDataPoint(
+            self.metrics[user_id]['prod-database'].append(MetricDataPoint(
                 timestamp=now - timedelta(hours=168-i),
                 value=min(100, max(5, connections)),
                 resource_id='prod-database'
@@ -151,26 +155,26 @@ class PredictiveScalingService:
             else:
                 base_requests = 100
 
-            import random
-            requests = base_requests + random.uniform(-50, 100)
+            reqs = base_requests + random.uniform(-50, 100)
 
-            self.metrics['api-deployment'].append(MetricDataPoint(
+            self.metrics[user_id]['api-deployment'].append(MetricDataPoint(
                 timestamp=now - timedelta(hours=168-i),
-                value=requests,
+                value=reqs,
                 resource_id='api-deployment'
             ))
 
-    def add_metric(self, resource_id: str, value: float, timestamp: datetime = None):
+    def add_metric(self, user_id: int, resource_id: str, value: float, timestamp: datetime = None):
         """Add a metric data point."""
-        self.metrics[resource_id].append(MetricDataPoint(
+        self.metrics[user_id][resource_id].append(MetricDataPoint(
             timestamp=timestamp or datetime.utcnow(),
             value=value,
             resource_id=resource_id
         ))
 
-    def analyze_patterns(self, resource_id: str) -> Optional[ScalingPattern]:
+    def analyze_patterns(self, user_id: int, resource_id: str) -> Optional[ScalingPattern]:
         """Analyze metrics to detect usage patterns."""
-        data = self.metrics.get(resource_id, [])
+        self._ensure_sample_data(user_id)
+        data = self.metrics[user_id].get(resource_id, [])
 
         if len(data) < 24:  # Need at least 24 hours of data
             return None
@@ -209,10 +213,10 @@ class PredictiveScalingService:
             growth_rate=growth_rate
         )
 
-        self.patterns[resource_id] = pattern
+        self.patterns[user_id][resource_id] = pattern
         return pattern
 
-    def predict_scaling_needs(self, resource_id: str, resource_name: str,
+    def predict_scaling_needs(self, user_id: int, resource_id: str, resource_name: str,
                               resource_type: str, category: ResourceCategory,
                               current_capacity: int, max_capacity: int,
                               utilization_threshold: float = 80) -> Optional[ScalingPrediction]:
@@ -220,12 +224,12 @@ class PredictiveScalingService:
         import uuid
 
         # Analyze patterns first
-        pattern = self.analyze_patterns(resource_id)
+        pattern = self.analyze_patterns(user_id, resource_id)
 
         if not pattern:
             return None
 
-        data = self.metrics.get(resource_id, [])
+        data = self.metrics[user_id].get(resource_id, [])
 
         # Simple forecasting: use exponential smoothing
         recent_values = [p.value for p in data[-24:]]  # Last 24 hours
@@ -313,11 +317,12 @@ class PredictiveScalingService:
             risk_if_ignored=risk
         )
 
-        self.predictions.append(prediction)
+        self.predictions[user_id].append(prediction)
         return prediction
 
-    def generate_all_predictions(self) -> list[ScalingPrediction]:
+    def generate_all_predictions(self, user_id: int) -> list[ScalingPrediction]:
         """Generate predictions for all known resources."""
+        self._ensure_sample_data(user_id)
         # Sample resources to analyze
         resources = [
             {
@@ -349,6 +354,7 @@ class PredictiveScalingService:
         predictions = []
         for r in resources:
             prediction = self.predict_scaling_needs(
+                user_id=user_id,
                 resource_id=r['id'],
                 resource_name=r['name'],
                 resource_type=r['type'],
@@ -361,10 +367,10 @@ class PredictiveScalingService:
 
         return predictions
 
-    def get_predictions(self, category: Optional[ResourceCategory] = None,
+    def get_predictions(self, user_id: int, category: Optional[ResourceCategory] = None,
                         direction: Optional[ScalingDirection] = None) -> list[ScalingPrediction]:
         """Get recent predictions with optional filtering."""
-        predictions = self.predictions
+        predictions = self.predictions.get(user_id, [])
 
         if category:
             predictions = [p for p in predictions if p.category == category]
@@ -374,26 +380,27 @@ class PredictiveScalingService:
 
         return sorted(predictions, key=lambda p: p.created_at, reverse=True)
 
-    def get_summary(self) -> dict:
+    def get_summary(self, user_id: int) -> dict:
         """Get summary of scaling recommendations."""
-        scale_up = [p for p in self.predictions if p.direction == ScalingDirection.SCALE_UP]
-        scale_down = [p for p in self.predictions if p.direction == ScalingDirection.SCALE_DOWN]
+        user_predictions = self.predictions.get(user_id, [])
+        scale_up = [p for p in user_predictions if p.direction == ScalingDirection.SCALE_UP]
+        scale_down = [p for p in user_predictions if p.direction == ScalingDirection.SCALE_DOWN]
 
         total_savings = sum(p.potential_savings for p in scale_down)
 
         return {
-            'total_predictions': len(self.predictions),
+            'total_predictions': len(user_predictions),
             'scale_up_recommendations': len(scale_up),
             'scale_down_recommendations': len(scale_down),
-            'no_change': len(self.predictions) - len(scale_up) - len(scale_down),
+            'no_change': len(user_predictions) - len(scale_up) - len(scale_down),
             'potential_monthly_savings': total_savings,
-            'high_confidence_count': sum(1 for p in self.predictions if p.confidence == ConfidenceLevel.HIGH),
-            'resources_analyzed': len(self.metrics)
+            'high_confidence_count': sum(1 for p in user_predictions if p.confidence == ConfidenceLevel.HIGH),
+            'resources_analyzed': len(self.metrics.get(user_id, {}))
         }
 
-    def get_pattern(self, resource_id: str) -> Optional[ScalingPattern]:
+    def get_pattern(self, user_id: int, resource_id: str) -> Optional[ScalingPattern]:
         """Get the detected pattern for a resource."""
-        return self.patterns.get(resource_id)
+        return self.patterns.get(user_id, {}).get(resource_id)
 
 
 # Global instance

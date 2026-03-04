@@ -221,14 +221,14 @@
 
         <div class="status-bar">
             <div class="status-indicator">
-                <div class="status-dot {{ 'running' if status.running else 'stopped' }}"></div>
-                <span>Monitoring Service: <strong>{{ 'Running' if status.running else 'Stopped' }}</strong></span>
+                <div class="status-dot {{ 'running' if user_monitoring_active else 'stopped' }}"></div>
+                <span>Your Monitoring: <strong>{{ 'Active' if user_monitoring_active else 'Inactive' }}</strong></span>
             </div>
             <div>
-                {% if status.running %}
-                <button class="btn btn-danger" onclick="stopService()">Stop Monitoring</button>
+                {% if user_monitoring_active %}
+                <button class="btn btn-danger" onclick="stopService()">Disable All Rules</button>
                 {% else %}
-                <button class="btn btn-success" onclick="startService()">Start Monitoring</button>
+                <button class="btn btn-success" onclick="startService()">Enable All Rules</button>
                 {% endif %}
                 <button class="btn btn-secondary" onclick="checkAll()">Check All Now</button>
             </div>

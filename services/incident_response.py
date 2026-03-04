@@ -850,9 +850,9 @@ class IncidentResponseEngine:
 
         logger.info(f"NOTIFY [{channel}] ({priority}): {message}")
 
-        if self._notification_service:
+        if self._notification_service and incident.user_id is not None:
             try:
-                self._notification_service.send_alert({
+                self._notification_service.send_alert(incident.user_id, {
                     'title': f'Incident: {incident.title}',
                     'message': message,
                     'severity': incident.severity.value,

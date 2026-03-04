@@ -99,8 +99,9 @@ class DriftDetectionService:
     """
 
     def __init__(self):
-        self.baselines: dict[str, BaselineResource] = {}
-        self.reports: list[DriftReport] = []
+        # Keyed by user_id for data isolation
+        self.baselines: dict[int, dict[str, BaselineResource]] = {}
+        self.reports: dict[int, list[DriftReport]] = {}
         self.drift_rules: list[dict] = []
         self._load_default_rules()
 
@@ -149,20 +150,22 @@ class DriftDetectionService:
             },
         ]
 
-    def add_baseline(self, resource: BaselineResource):
+    def add_baseline(self, user_id: int, resource: BaselineResource):
         """Add or update a baseline resource."""
         key = f"{resource.resource_type.value}:{resource.resource_id}"
-        self.baselines[key] = resource
+        user_baselines = self.baselines.setdefault(user_id, {})
+        user_baselines[key] = resource
         logger.info(f"Baseline added/updated: {key}")
 
-    def remove_baseline(self, resource_type: ResourceType, resource_id: str):
+    def remove_baseline(self, user_id: int, resource_type: ResourceType, resource_id: str):
         """Remove a baseline resource."""
         key = f"{resource_type.value}:{resource_id}"
-        if key in self.baselines:
-            del self.baselines[key]
+        user_baselines = self.baselines.get(user_id, {})
+        if key in user_baselines:
+            del user_baselines[key]
             logger.info(f"Baseline removed: {key}")
 
-    def import_terraform_state(self, state_data: dict):
+    def import_terraform_state(self, user_id: int, state_data: dict):
         """Import baselines from Terraform state."""
         resources = state_data.get('resources', [])
 
@@ -176,7 +179,7 @@ class DriftDetectionService:
                 resource_id = attributes.get('id', attributes.get('arn', ''))
 
                 if resource_id:
-                    self.add_baseline(BaselineResource(
+                    self.add_baseline(user_id, BaselineResource(
                         resource_type=resource_type,
                         resource_id=resource_id,
                         resource_name=resource.get('name', resource_id),
@@ -184,7 +187,8 @@ class DriftDetectionService:
                         tags=attributes.get('tags', {})
                     ))
 
-        logger.info(f"Imported {len(self.baselines)} resources from Terraform state")
+        user_baselines = self.baselines.get(user_id, {})
+        logger.info(f"Imported {len(user_baselines)} resources from Terraform state")
 
     def _map_terraform_type(self, tf_type: str) -> Optional[ResourceType]:
         """Map Terraform resource type to internal type."""
@@ -204,7 +208,7 @@ class DriftDetectionService:
         }
         return mapping.get(tf_type)
 
-    def scan_for_drift(self) -> DriftReport:
+    def scan_for_drift(self, user_id: int) -> DriftReport:
         """Scan all baselined resources for drift."""
         import uuid
         import time
@@ -212,8 +216,9 @@ class DriftDetectionService:
         report_id = str(uuid.uuid4())[:8]
         scan_start = datetime.utcnow()
         drift_items = []
+        user_baselines = self.baselines.get(user_id, {})
 
-        for key, baseline in self.baselines.items():
+        for key, baseline in user_baselines.items():
             # Get actual state
             actual_config = self._get_actual_state(baseline.resource_type, baseline.resource_id)
 
@@ -257,13 +262,14 @@ class DriftDetectionService:
             id=report_id,
             scan_started=scan_start,
             scan_completed=scan_end,
-            total_resources=len(self.baselines),
+            total_resources=len(user_baselines),
             drifted_resources=len(set(d.resource_id for d in drift_items)),
             drift_items=drift_items,
             summary=self._build_summary(drift_items)
         )
 
-        self.reports.append(report)
+        user_reports = self.reports.setdefault(user_id, [])
+        user_reports.append(report)
         logger.info(f"Drift scan completed: {len(drift_items)} drifts found in {report.drifted_resources} resources")
 
         return report
@@ -444,24 +450,27 @@ class DriftDetectionService:
             'security_issues': sum(1 for d in drift_items if d.drift_type == DriftType.SECURITY)
         }
 
-    def get_report(self, report_id: str) -> Optional[DriftReport]:
+    def get_report(self, user_id: int, report_id: str) -> Optional[DriftReport]:
         """Get a specific drift report."""
-        for report in self.reports:
+        user_reports = self.reports.get(user_id, [])
+        for report in user_reports:
             if report.id == report_id:
                 return report
         return None
 
-    def get_recent_reports(self, limit: int = 10) -> list[DriftReport]:
+    def get_recent_reports(self, user_id: int, limit: int = 10) -> list[DriftReport]:
         """Get recent drift reports."""
-        return sorted(self.reports, key=lambda r: r.scan_completed, reverse=True)[:limit]
+        user_reports = self.reports.get(user_id, [])
+        return sorted(user_reports, key=lambda r: r.scan_completed, reverse=True)[:limit]
 
-    def get_baseline_count(self) -> int:
+    def get_baseline_count(self, user_id: int) -> int:
         """Get number of baselined resources."""
-        return len(self.baselines)
+        return len(self.baselines.get(user_id, {}))
 
-    def get_baselines(self, resource_type: Optional[ResourceType] = None) -> list[BaselineResource]:
+    def get_baselines(self, user_id: int, resource_type: Optional[ResourceType] = None) -> list[BaselineResource]:
         """Get all baselines, optionally filtered by type."""
-        baselines = list(self.baselines.values())
+        user_baselines = self.baselines.get(user_id, {})
+        baselines = list(user_baselines.values())
         if resource_type:
             baselines = [b for b in baselines if b.resource_type == resource_type]
         return baselines

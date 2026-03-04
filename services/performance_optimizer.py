@@ -397,16 +397,24 @@ class PerformanceOptimizer:
     """
 
     def __init__(self):
-        self.recommendations: dict[str, Recommendation] = {}
+        # Keyed by user_id for data isolation
+        self.recommendations: dict[int, dict[str, Recommendation]] = {}
         self.analyzers = {
             ResourceType.EC2_INSTANCE: EC2Analyzer(),
             ResourceType.RDS_INSTANCE: RDSAnalyzer(),
             ResourceType.KUBERNETES_POD: KubernetesAnalyzer(),
         }
-        self._generate_sample_recommendations()
 
-    def _generate_sample_recommendations(self):
+    def _get_user_recommendations(self, user_id: int) -> dict[str, Recommendation]:
+        """Get or initialize per-user recommendations dict."""
+        if user_id not in self.recommendations:
+            self.recommendations[user_id] = {}
+            self._generate_sample_recommendations(user_id)
+        return self.recommendations[user_id]
+
+    def _generate_sample_recommendations(self, user_id: int):
         """Generate sample recommendations for demo purposes."""
+        user_recs = self.recommendations.setdefault(user_id, {})
         samples = [
             Recommendation(
                 id="rec-001",
@@ -512,9 +520,9 @@ class PerformanceOptimizer:
         ]
 
         for rec in samples:
-            self.recommendations[rec.id] = rec
+            user_recs[rec.id] = rec
 
-    def analyze_resource(self, resource_type: ResourceType, resource_data: dict) -> AnalysisResult:
+    def analyze_resource(self, user_id: int, resource_type: ResourceType, resource_data: dict) -> AnalysisResult:
         """Analyze a specific resource and generate recommendations."""
         analyzer = self.analyzers.get(resource_type)
         if not analyzer:
@@ -529,8 +537,9 @@ class PerformanceOptimizer:
 
         recommendations = analyzer.analyze(resource_data)
 
+        user_recs = self._get_user_recommendations(user_id)
         for rec in recommendations:
-            self.recommendations[rec.id] = rec
+            user_recs[rec.id] = rec
 
         health_score = self._calculate_health_score(recommendations)
 
@@ -560,15 +569,16 @@ class PerformanceOptimizer:
 
         return max(0.0, score)
 
-    def get_recommendations(self,
+    def get_recommendations(self, user_id: int,
                            optimization_type: OptimizationType = None,
                            resource_type: ResourceType = None,
                            priority: Priority = None,
                            status: Status = None) -> list[dict]:
         """Get recommendations with optional filters."""
+        user_recs = self._get_user_recommendations(user_id)
         results = []
 
-        for rec in self.recommendations.values():
+        for rec in user_recs.values():
             if optimization_type and rec.optimization_type != optimization_type:
                 continue
             if resource_type and rec.resource_type != resource_type:
@@ -587,17 +597,19 @@ class PerformanceOptimizer:
 
         return results
 
-    def get_recommendation(self, rec_id: str) -> Optional[dict]:
+    def get_recommendation(self, user_id: int, rec_id: str) -> Optional[dict]:
         """Get a specific recommendation by ID."""
-        rec = self.recommendations.get(rec_id)
+        user_recs = self._get_user_recommendations(user_id)
+        rec = user_recs.get(rec_id)
         return rec.to_dict() if rec else None
 
-    def update_recommendation_status(self, rec_id: str, status: Status) -> bool:
+    def update_recommendation_status(self, user_id: int, rec_id: str, status: Status) -> bool:
         """Update the status of a recommendation."""
-        if rec_id not in self.recommendations:
+        user_recs = self._get_user_recommendations(user_id)
+        if rec_id not in user_recs:
             return False
 
-        rec = self.recommendations[rec_id]
+        rec = user_recs[rec_id]
         rec.status = status
 
         if status == Status.IMPLEMENTED:
@@ -605,27 +617,29 @@ class PerformanceOptimizer:
 
         return True
 
-    def dismiss_recommendation(self, rec_id: str, reason: str = None) -> bool:
+    def dismiss_recommendation(self, user_id: int, rec_id: str, reason: str = None) -> bool:
         """Dismiss a recommendation."""
-        if rec_id not in self.recommendations:
+        user_recs = self._get_user_recommendations(user_id)
+        if rec_id not in user_recs:
             return False
 
-        rec = self.recommendations[rec_id]
+        rec = user_recs[rec_id]
         rec.status = Status.DISMISSED
         if reason:
             rec.metadata["dismiss_reason"] = reason
 
         return True
 
-    def get_summary(self) -> dict:
+    def get_summary(self, user_id: int) -> dict:
         """Get a summary of all recommendations."""
-        total = len(self.recommendations)
+        user_recs = self._get_user_recommendations(user_id)
+        total = len(user_recs)
         by_type = {}
         by_priority = {}
         by_status = {}
         total_savings = 0.0
 
-        for rec in self.recommendations.values():
+        for rec in user_recs.values():
             opt_type = rec.optimization_type.value
             by_type[opt_type] = by_type.get(opt_type, 0) + 1
 

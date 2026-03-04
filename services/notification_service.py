@@ -317,110 +317,95 @@ class NotificationService:
 
     def __init__(self, config: dict = None):
         self.config = config or {}
-        self.channels: dict[str, NotificationConfig] = {}
-        self._slack_client: Optional[SlackClient] = None
-        self._teams_client: Optional[TeamsClient] = None
+        # Per-user channel configs, keyed by user_id
+        self._user_channels: dict[int, dict[str, NotificationConfig]] = {}
+        self._user_slack_clients: dict[int, SlackClient] = {}
+        self._user_teams_clients: dict[int, TeamsClient] = {}
 
-        self._load_config()
+    def _get_user_channels(self, user_id: int) -> dict[str, NotificationConfig]:
+        """Get or initialize per-user channel configs."""
+        if user_id not in self._user_channels:
+            self._user_channels[user_id] = {}
+        return self._user_channels[user_id]
 
-    def _load_config(self):
-        """Load channel configurations."""
-        if "slack" in self.config:
-            slack_config = self.config["slack"]
-            self.channels["slack"] = NotificationConfig(
-                channel=NotificationChannel.SLACK,
-                enabled=slack_config.get("enabled", True),
-                webhook_url=slack_config.get("webhook_url"),
-                api_token=slack_config.get("api_token"),
-                default_channel=slack_config.get("default_channel", "#alerts")
-            )
-            self._slack_client = SlackClient(
-                webhook_url=slack_config.get("webhook_url"),
-                api_token=slack_config.get("api_token")
-            )
-
-        if "teams" in self.config:
-            teams_config = self.config["teams"]
-            self.channels["teams"] = NotificationConfig(
-                channel=NotificationChannel.TEAMS,
-                enabled=teams_config.get("enabled", True),
-                webhook_url=teams_config.get("webhook_url")
-            )
-            self._teams_client = TeamsClient(
-                webhook_url=teams_config.get("webhook_url")
-            )
-
-    def configure_slack(self, webhook_url: str = None, api_token: str = None,
+    def configure_slack(self, user_id: int, webhook_url: str = None, api_token: str = None,
                         default_channel: str = "#alerts") -> None:
-        """Configure Slack integration."""
-        self.channels["slack"] = NotificationConfig(
+        """Configure Slack integration for a user."""
+        user_channels = self._get_user_channels(user_id)
+        user_channels["slack"] = NotificationConfig(
             channel=NotificationChannel.SLACK,
             enabled=True,
             webhook_url=webhook_url,
             api_token=api_token,
             default_channel=default_channel
         )
-        self._slack_client = SlackClient(webhook_url=webhook_url, api_token=api_token)
+        self._user_slack_clients[user_id] = SlackClient(webhook_url=webhook_url, api_token=api_token)
         logger.info("Slack notification channel configured")
 
-    def configure_teams(self, webhook_url: str) -> None:
-        """Configure Microsoft Teams integration."""
-        self.channels["teams"] = NotificationConfig(
+    def configure_teams(self, user_id: int, webhook_url: str) -> None:
+        """Configure Microsoft Teams integration for a user."""
+        user_channels = self._get_user_channels(user_id)
+        user_channels["teams"] = NotificationConfig(
             channel=NotificationChannel.TEAMS,
             enabled=True,
             webhook_url=webhook_url
         )
-        self._teams_client = TeamsClient(webhook_url=webhook_url)
+        self._user_teams_clients[user_id] = TeamsClient(webhook_url=webhook_url)
         logger.info("Teams notification channel configured")
 
-    def send(self, notification: Notification, channels: list[str] = None) -> dict[str, bool]:
+    def send(self, user_id: int, notification: Notification, channels: list[str] = None) -> dict[str, bool]:
         """
-        Send notification to specified channels.
+        Send notification to specified channels for a user.
 
         Args:
+            user_id: The user ID
             notification: The notification to send
             channels: List of channel names to send to (defaults to all enabled)
 
         Returns:
             Dict mapping channel names to success status
         """
+        user_channels = self._get_user_channels(user_id)
         results = {}
-        target_channels = channels or list(self.channels.keys())
+        target_channels = channels or list(user_channels.keys())
 
         for channel_name in target_channels:
-            if channel_name not in self.channels:
+            if channel_name not in user_channels:
                 logger.warning(f"Unknown channel: {channel_name}")
                 results[channel_name] = False
                 continue
 
-            config = self.channels[channel_name]
+            config = user_channels[channel_name]
             if not config.enabled:
                 logger.debug(f"Channel {channel_name} is disabled")
                 results[channel_name] = False
                 continue
 
-            if config.channel == NotificationChannel.SLACK and self._slack_client:
+            slack_client = self._user_slack_clients.get(user_id)
+            teams_client = self._user_teams_clients.get(user_id)
+
+            if config.channel == NotificationChannel.SLACK and slack_client:
                 if config.webhook_url:
-                    results[channel_name] = self._slack_client.send_webhook(
+                    results[channel_name] = slack_client.send_webhook(
                         notification,
                         config.default_channel
                     )
                 elif config.api_token:
-                    results[channel_name] = self._slack_client.send_api(
+                    results[channel_name] = slack_client.send_api(
                         notification,
                         config.default_channel
                     )
                 else:
                     results[channel_name] = False
 
-            elif config.channel == NotificationChannel.TEAMS and self._teams_client:
-                results[channel_name] = self._teams_client.send(notification)
+            elif config.channel == NotificationChannel.TEAMS and teams_client:
+                results[channel_name] = teams_client.send(notification)
             else:
                 results[channel_name] = False
 
         return results
 
-    def send_alert(self, alert_data: dict, channels: list[str] = None) -> dict[str, bool]:
+    def send_alert(self, user_id: int, alert_data: dict, channels: list[str] = None) -> dict[str, bool]:
         """Send an alert notification."""
         severity = alert_data.get("severity", "medium")
         priority_map = {
@@ -445,9 +430,9 @@ class NotificationService:
         if alert_data.get("incident_id"):
             notification.fields["Incident"] = f"#{alert_data['incident_id']}"
 
-        return self.send(notification, channels)
+        return self.send(user_id, notification, channels)
 
-    def send_incident_notification(self, incident_data: dict,
+    def send_incident_notification(self, user_id: int, incident_data: dict,
                                    event: str = "created",
                                    channels: list[str] = None) -> dict[str, bool]:
         """Send an incident lifecycle notification."""
@@ -483,9 +468,9 @@ class NotificationService:
         if incident_data.get("playbook"):
             notification.fields["Playbook"] = incident_data["playbook"]
 
-        return self.send(notification, channels)
+        return self.send(user_id, notification, channels)
 
-    def send_deployment_notification(self, deployment_data: dict,
+    def send_deployment_notification(self, user_id: int, deployment_data: dict,
                                      status: str = "started",
                                      channels: list[str] = None) -> dict[str, bool]:
         """Send a deployment notification."""
@@ -514,9 +499,9 @@ class NotificationService:
                 "primary": True
             })
 
-        return self.send(notification, channels)
+        return self.send(user_id, notification, channels)
 
-    def send_change_notification(self, change_data: dict,
+    def send_change_notification(self, user_id: int, change_data: dict,
                                     event: str = "created",
                                     channels: list[str] = None) -> dict[str, bool]:
         """Send a change governance notification."""
@@ -549,9 +534,9 @@ class NotificationService:
         if change_data.get("approval_comment"):
             notification.fields["Comment"] = change_data["approval_comment"]
 
-        return self.send(notification, channels)
+        return self.send(user_id, notification, channels)
 
-    def send_security_notification(self, findings_data: dict,
+    def send_security_notification(self, user_id: int, findings_data: dict,
                                     channels: list[str] = None) -> dict[str, bool]:
         """Send security scan results notification."""
         critical = findings_data.get("critical", 0)
@@ -578,9 +563,9 @@ class NotificationService:
             }
         )
 
-        return self.send(notification, channels)
+        return self.send(user_id, notification, channels)
 
-    def send_cost_alert(self, cost_data: dict,
+    def send_cost_alert(self, user_id: int, cost_data: dict,
                         channels: list[str] = None) -> dict[str, bool]:
         """Send cost threshold alert."""
         notification = Notification(
@@ -595,10 +580,11 @@ class NotificationService:
             }
         )
 
-        return self.send(notification, channels)
+        return self.send(user_id, notification, channels)
 
-    def get_status(self) -> dict:
-        """Get the status of all notification channels."""
+    def get_status(self, user_id: int) -> dict:
+        """Get the status of all notification channels for a user."""
+        user_channels = self._get_user_channels(user_id)
         return {
             "channels": {
                 name: {
@@ -606,10 +592,10 @@ class NotificationService:
                     "enabled": config.enabled,
                     "configured": bool(config.webhook_url or config.api_token)
                 }
-                for name, config in self.channels.items()
+                for name, config in user_channels.items()
             },
             "total_configured": sum(
-                1 for c in self.channels.values()
+                1 for c in user_channels.values()
                 if c.webhook_url or c.api_token
             )
         }
