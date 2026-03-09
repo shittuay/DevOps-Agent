@@ -103,6 +103,7 @@ app = Flask(__name__)
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_limiter.errors import RateLimitExceeded
 from flask_talisman import Talisman
 
 # CSRF Protection
@@ -331,6 +332,23 @@ def ensure_clean_transaction():
             db.session.rollback()
         except Exception:
             pass
+
+@app.errorhandler(RateLimitExceeded)
+def handle_rate_limit(e):
+    """Return a clean 429 response instead of letting it bubble up as 500."""
+    limit = getattr(e, 'description', str(e))
+    if request.path.startswith('/api/') or request.path.startswith('/chat'):
+        return jsonify({'error': f'Rate limit exceeded. {limit}'}), 429
+    return render_template('429.html', limit=limit) if _template_exists('429.html') else (
+        f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
+    )
+
+
+def _template_exists(name):
+    from flask import current_app
+    import os
+    return os.path.exists(os.path.join(current_app.template_folder, name))
+
 
 # Error handler for database errors
 @app.errorhandler(Exception)
