@@ -192,4 +192,20 @@ class EmailService:
         return self.send_email(user.email, f"Welcome to {tier_name} - DevOps Agent", html)
 
 
+    def send_otp_email(self, user, code):
+        """Send a 6-digit MFA verification code via email."""
+        html = self._wrap_html(f"""
+            <h2 style="color: #333; margin-bottom: 12px;">Your Verification Code</h2>
+            <p>Hi {user.username},</p>
+            <p>Use the code below to complete your login:</p>
+            <div style="text-align: center; margin: 28px 0;">
+                <span style="display: inline-block; font-family: 'Courier New', monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #ff6b35; background: #fff5f0; padding: 16px 32px; border-radius: 12px; border: 2px dashed #ff6b35;">
+                    {code}
+                </span>
+            </div>
+            <p style="font-size: 13px; color: #666;">This code expires in 10 minutes. If you did not request this code, please change your password immediately.</p>
+        """)
+        return self.send_email(user.email, "Your Verification Code - DevOps Agent", html)
+
+
 email_service = EmailService()

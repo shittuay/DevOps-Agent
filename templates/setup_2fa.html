@@ -392,31 +392,132 @@
                 <div class="logo-icon">D</div>
                 <span class="logo-text">DevOps Agent</span>
             </div>
-            {% if user.two_factor_enabled %}
+            {% if user.has_mfa_enabled() %}
             <a href="/profile" class="back-button">&#8592; Back to Profile</a>
             {% else %}
-            <span class="back-button" style="cursor:default; opacity:0.5;">2FA Setup Required</span>
+            <span class="back-button" style="cursor:default; opacity:0.5;">MFA Setup Required</span>
             {% endif %}
         </div>
 
         <div class="container">
             <!-- Already enabled message -->
-            {% if user.two_factor_enabled %}
+            {% if user.has_mfa_enabled() %}
             <div class="step-card">
-                <h2 class="step-title">2FA Already Enabled</h2>
-                <p class="step-desc">Two-factor authentication is already enabled on your account. You can manage it from your profile page.</p>
+                <h2 class="step-title">MFA Already Enabled</h2>
+                <p class="step-desc">
+                    Multi-factor authentication is enabled on your account
+                    (method: <strong>{{ user.mfa_method|upper }}</strong>).
+                    You can manage it from your profile page.
+                </p>
                 <a href="/profile" class="btn-secondary" style="display:block; text-align:center; text-decoration:none;">Go to Profile</a>
             </div>
             {% else %}
 
-            <!-- Step 1: Scan QR Code -->
-            <div class="step-card" id="step1">
+            <!-- Step 0: Choose MFA Method -->
+            <div class="step-card" id="step0">
+                <h2 class="step-title">Choose Your MFA Method</h2>
+                <p class="step-desc">
+                    Multi-factor authentication is required for all accounts.
+                    Choose how you'd like to verify your identity at login.
+                </p>
+
+                <div id="step0Error" class="alert alert-error hidden"></div>
+
+                <div style="display:flex; flex-direction:column; gap:16px;">
+                    <!-- Email OTP Card -->
+                    <div class="method-card" onclick="selectMethod('email')" id="methodEmail"
+                         style="padding:20px 24px; border:2px solid var(--glass-border); border-radius:12px; cursor:pointer; transition:all 0.3s ease; display:flex; align-items:center; gap:16px;">
+                        <div style="font-size:32px; width:48px; text-align:center;">&#x2709;</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; font-size:16px; color:var(--text-primary); margin-bottom:4px;">
+                                Email OTP <span style="font-size:11px; padding:2px 8px; background:rgba(16,185,129,0.15); color:var(--accent-success); border-radius:4px; margin-left:8px;">Recommended</span>
+                            </div>
+                            <div style="font-size:13px; color:var(--text-secondary);">A 6-digit code is sent to your email each time you log in.</div>
+                        </div>
+                        <div style="font-size:20px; color:var(--text-tertiary);">&#8250;</div>
+                    </div>
+
+                    <!-- SMS OTP Card -->
+                    <div class="method-card" onclick="selectMethod('sms')" id="methodSms"
+                         style="padding:20px 24px; border:2px solid var(--glass-border); border-radius:12px; cursor:pointer; transition:all 0.3s ease; display:flex; align-items:center; gap:16px;">
+                        <div style="font-size:32px; width:48px; text-align:center;">&#x1f4f1;</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; font-size:16px; color:var(--text-primary); margin-bottom:4px;">SMS OTP</div>
+                            <div style="font-size:13px; color:var(--text-secondary);">A 6-digit code is sent to your phone via SMS each login.</div>
+                        </div>
+                        <div style="font-size:20px; color:var(--text-tertiary);">&#8250;</div>
+                    </div>
+
+                    <!-- Authenticator App Card -->
+                    <div class="method-card" onclick="selectMethod('totp')" id="methodTotp"
+                         style="padding:20px 24px; border:2px solid var(--glass-border); border-radius:12px; cursor:pointer; transition:all 0.3s ease; display:flex; align-items:center; gap:16px;">
+                        <div style="font-size:32px; width:48px; text-align:center;">&#x1f512;</div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700; font-size:16px; color:var(--text-primary); margin-bottom:4px;">
+                                Authenticator App <span style="font-size:11px; padding:2px 8px; background:rgba(0,212,255,0.1); color:var(--accent-electric); border-radius:4px; margin-left:8px;">Advanced</span>
+                            </div>
+                            <div style="font-size:13px; color:var(--text-secondary);">Use Google Authenticator, Authy, or 1Password to generate codes offline.</div>
+                        </div>
+                        <div style="font-size:20px; color:var(--text-tertiary);">&#8250;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Phone Number Step (for SMS only) -->
+            <div class="step-card hidden" id="stepPhone">
+                <h2 class="step-title">
+                    <span class="step-number">1</span>
+                    Add Phone Number
+                </h2>
+                <p class="step-desc">
+                    Enter your phone number in international format (e.g. +12125551234).
+                </p>
+                <div id="phoneError" class="alert alert-error hidden"></div>
+                <div id="phoneSuccess" class="alert alert-success hidden"></div>
+                <div class="form-group">
+                    <label for="phoneInput">Phone Number</label>
+                    <input type="tel" id="phoneInput" placeholder="+1234567890" style="letter-spacing:1px; text-align:left; font-size:18px;" />
+                </div>
+                <button class="btn-primary" id="phoneBtn" onclick="addPhone()">Send Verification Code</button>
+            </div>
+
+            <!-- Phone Verify Step -->
+            <div class="step-card hidden" id="stepPhoneVerify">
+                <h2 class="step-title">
+                    <span class="step-number">2</span>
+                    Verify Phone
+                </h2>
+                <p class="step-desc">Enter the 6-digit code sent to your phone.</p>
+                <div id="phoneVerifyError" class="alert alert-error hidden"></div>
+                <div class="form-group">
+                    <label for="phoneVerifyCode">Verification Code</label>
+                    <input type="text" id="phoneVerifyCode" placeholder="000000" maxlength="6" inputmode="numeric" />
+                </div>
+                <button class="btn-primary" id="phoneVerifyBtn" onclick="verifyPhone()">Verify Phone</button>
+            </div>
+
+            <!-- Email/SMS OTP Verify Step -->
+            <div class="step-card hidden" id="stepOtpVerify">
+                <h2 class="step-title">
+                    <span class="step-number" id="otpStepNum">2</span>
+                    Verify Code
+                </h2>
+                <p class="step-desc" id="otpVerifyDesc">Enter the 6-digit code we sent you.</p>
+                <div id="otpVerifyError" class="alert alert-error hidden"></div>
+                <div class="form-group">
+                    <label for="otpVerifyCode">Verification Code</label>
+                    <input type="text" id="otpVerifyCode" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code" />
+                </div>
+                <button class="btn-primary" id="otpVerifyBtn" onclick="verifyMethodOtp()">Enable MFA</button>
+            </div>
+
+            <!-- TOTP Step 1: Scan QR Code -->
+            <div class="step-card hidden" id="step1">
                 <h2 class="step-title">
                     <span class="step-number">1</span>
                     Scan QR Code
                 </h2>
                 <p class="step-desc">
-                    Two-factor authentication is required for all accounts.
                     Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.)
                     or manually enter the secret key below.
                 </p>
@@ -449,7 +550,7 @@
                 </div>
             </div>
 
-            <!-- Step 2: Verify Code -->
+            <!-- TOTP Step 2: Verify Code -->
             <div class="step-card hidden" id="step2">
                 <h2 class="step-title">
                     <span class="step-number">2</span>
@@ -479,7 +580,7 @@
                 </button>
             </div>
 
-            <!-- Step 3: Backup Codes -->
+            <!-- Step 3: Backup Codes (shared by all methods) -->
             <div class="step-card hidden" id="step3">
                 <h2 class="step-title">
                     <span class="step-number">3</span>
@@ -487,7 +588,7 @@
                 </h2>
                 <p class="step-desc">
                     Save these backup codes in a safe place. Each code can only be used once.
-                    If you lose your authenticator device, you can use these codes to sign in.
+                    If you lose access to your MFA method, you can use these codes to sign in.
                 </p>
 
                 <div class="backup-warning">
@@ -503,7 +604,7 @@
 
                 <div style="margin-top:20px;">
                     <a href="/profile" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">
-                        Done - Return to Profile
+                        Done - Go to Dashboard
                     </a>
                 </div>
             </div>
@@ -515,13 +616,183 @@
     <script>
         let secretKey = '';
         let backupCodes = [];
+        let selectedMethod = '';
 
-        // Start setup on page load
-        {% if not user.two_factor_enabled %}
-        window.addEventListener('DOMContentLoaded', startSetup);
-        {% endif %}
+        function hideAll() {
+            ['step0','stepPhone','stepPhoneVerify','stepOtpVerify','step1','step2','step3'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+        }
 
-        function startSetup() {
+        function showError(elId, msg) {
+            const el = document.getElementById(elId);
+            el.textContent = msg;
+            el.classList.remove('hidden');
+        }
+
+        function hideError(elId) {
+            const el = document.getElementById(elId);
+            if (el) el.classList.add('hidden');
+        }
+
+        // --- Method Selection ---
+        function selectMethod(method) {
+            selectedMethod = method;
+
+            // Highlight the selected card
+            document.querySelectorAll('.method-card').forEach(c => c.style.borderColor = 'var(--glass-border)');
+            const card = document.getElementById('method' + method.charAt(0).toUpperCase() + method.slice(1));
+            if (card) card.style.borderColor = 'var(--accent-primary)';
+
+            if (method === 'totp') {
+                hideAll();
+                document.getElementById('step1').classList.remove('hidden');
+                startTotpSetup();
+                return;
+            }
+
+            // For email/sms, call set-method API
+            fetch('/api/mfa/set-method', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ method: method })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.action === 'verify_otp') {
+                        hideAll();
+                        const desc = method === 'email'
+                            ? 'Enter the 6-digit code sent to your email.'
+                            : 'Enter the 6-digit code sent to your phone.';
+                        document.getElementById('otpVerifyDesc').textContent = desc;
+                        document.getElementById('otpStepNum').textContent = method === 'sms' ? '3' : '1';
+                        document.getElementById('stepOtpVerify').classList.remove('hidden');
+                        document.getElementById('otpVerifyCode').focus();
+                    }
+                } else {
+                    if (data.needs_phone) {
+                        // Need to add phone first
+                        hideAll();
+                        document.getElementById('stepPhone').classList.remove('hidden');
+                        document.getElementById('phoneInput').focus();
+                    } else {
+                        showError('step0Error', data.error || 'Failed to set method.');
+                    }
+                }
+            })
+            .catch(() => showError('step0Error', 'Network error. Please try again.'));
+        }
+
+        // --- Phone Add/Verify ---
+        function addPhone() {
+            const phone = document.getElementById('phoneInput').value.trim();
+            if (!phone) { showError('phoneError', 'Phone number is required.'); return; }
+            hideError('phoneError');
+
+            const btn = document.getElementById('phoneBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Sending...';
+
+            fetch('/api/mfa/phone/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone_number: phone })
+            })
+            .then(r => r.json())
+            .then(data => {
+                btn.disabled = false;
+                btn.textContent = 'Send Verification Code';
+                if (data.success) {
+                    hideAll();
+                    document.getElementById('stepPhoneVerify').classList.remove('hidden');
+                    document.getElementById('phoneVerifyCode').focus();
+                } else {
+                    showError('phoneError', data.error || 'Failed to send SMS.');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.textContent = 'Send Verification Code';
+                showError('phoneError', 'Network error.');
+            });
+        }
+
+        function verifyPhone() {
+            const code = document.getElementById('phoneVerifyCode').value.trim();
+            if (!code || code.length !== 6) { showError('phoneVerifyError', 'Enter a 6-digit code.'); return; }
+            hideError('phoneVerifyError');
+
+            const btn = document.getElementById('phoneVerifyBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Verifying...';
+
+            fetch('/api/mfa/phone/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code })
+            })
+            .then(r => r.json())
+            .then(data => {
+                btn.disabled = false;
+                btn.textContent = 'Verify Phone';
+                if (data.success) {
+                    // Phone verified, now activate SMS MFA
+                    selectMethod('sms');
+                } else {
+                    showError('phoneVerifyError', data.error || 'Invalid code.');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.textContent = 'Verify Phone';
+                showError('phoneVerifyError', 'Network error.');
+            });
+        }
+
+        // --- Email/SMS OTP Verify (final activation) ---
+        function verifyMethodOtp() {
+            const code = document.getElementById('otpVerifyCode').value.trim();
+            if (!code || code.length !== 6) { showError('otpVerifyError', 'Enter a 6-digit code.'); return; }
+            hideError('otpVerifyError');
+
+            const btn = document.getElementById('otpVerifyBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Enabling...';
+
+            fetch('/api/mfa/verify-method', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code, method: selectedMethod })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    backupCodes = data.backup_codes;
+                    showBackupCodes();
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Enable MFA';
+                    showError('otpVerifyError', data.error || 'Verification failed.');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.textContent = 'Enable MFA';
+                showError('otpVerifyError', 'Network error.');
+            });
+        }
+
+        function showBackupCodes() {
+            hideAll();
+            const grid = document.getElementById('backupCodesGrid');
+            grid.innerHTML = backupCodes.map(c => '<div class="backup-code">' + c + '</div>').join('');
+            document.getElementById('step3').classList.remove('hidden');
+        }
+
+        // --- TOTP Setup (existing flow) ---
+        function startTotpSetup() {
             fetch('/api/2fa/setup', { method: 'POST' })
                 .then(r => r.json())
                 .then(data => {
@@ -534,25 +805,19 @@
                         document.getElementById('continueBtn').disabled = false;
                     } else {
                         document.getElementById('qrLoading').classList.add('hidden');
-                        const err = document.getElementById('step1Error');
-                        err.textContent = data.error || 'Failed to generate 2FA secret.';
-                        err.classList.remove('hidden');
+                        showError('step1Error', data.error || 'Failed to generate 2FA secret.');
                     }
                 })
-                .catch(err => {
+                .catch(() => {
                     document.getElementById('qrLoading').classList.add('hidden');
-                    const errEl = document.getElementById('step1Error');
-                    errEl.textContent = 'Network error. Please try again.';
-                    errEl.classList.remove('hidden');
+                    showError('step1Error', 'Network error. Please try again.');
                 });
         }
 
         function copySecret() {
             navigator.clipboard.writeText(secretKey).then(() => {
                 document.getElementById('copyHint').textContent = 'Copied!';
-                setTimeout(() => {
-                    document.getElementById('copyHint').textContent = 'Click to copy';
-                }, 2000);
+                setTimeout(() => { document.getElementById('copyHint').textContent = 'Click to copy'; }, 2000);
             });
         }
 
@@ -565,9 +830,7 @@
         function verifyCode() {
             const code = document.getElementById('verifyCode').value.trim();
             if (!code || code.length !== 6) {
-                const err = document.getElementById('step2Error');
-                err.textContent = 'Please enter a 6-digit code.';
-                err.classList.remove('hidden');
+                showError('step2Error', 'Please enter a 6-digit code.');
                 return;
             }
 
@@ -584,40 +847,27 @@
             .then(data => {
                 if (data.success) {
                     backupCodes = data.backup_codes;
-
-                    // Render backup codes
-                    const grid = document.getElementById('backupCodesGrid');
-                    grid.innerHTML = backupCodes.map(c =>
-                        '<div class="backup-code">' + c + '</div>'
-                    ).join('');
-
-                    document.getElementById('step2').classList.add('hidden');
-                    document.getElementById('step3').classList.remove('hidden');
+                    showBackupCodes();
                 } else {
                     btn.disabled = false;
                     btn.textContent = 'Enable Two-Factor Authentication';
-                    const err = document.getElementById('step2Error');
-                    err.textContent = data.error || 'Verification failed.';
-                    err.classList.remove('hidden');
+                    showError('step2Error', data.error || 'Verification failed.');
                 }
             })
             .catch(() => {
                 btn.disabled = false;
                 btn.textContent = 'Enable Two-Factor Authentication';
-                const err = document.getElementById('step2Error');
-                err.textContent = 'Network error. Please try again.';
-                err.classList.remove('hidden');
+                showError('step2Error', 'Network error. Please try again.');
             });
         }
 
-        // Auto-submit verify on 6 digits
-        document.getElementById('verifyCode')?.addEventListener('input', function() {
-            this.value = this.value.replace(/\D/g, '');
+        // Auto-clean numeric inputs
+        document.querySelectorAll('input[inputmode="numeric"]').forEach(el => {
+            el.addEventListener('input', function() { this.value = this.value.replace(/\D/g, ''); });
         });
 
         function copyBackupCodes() {
-            const text = backupCodes.join('\n');
-            navigator.clipboard.writeText(text).then(() => {
+            navigator.clipboard.writeText(backupCodes.join('\n')).then(() => {
                 const btns = document.querySelectorAll('.button-group .btn-secondary');
                 btns[0].textContent = 'Copied!';
                 setTimeout(() => { btns[0].textContent = 'Copy Codes'; }, 2000);
@@ -625,11 +875,7 @@
         }
 
         function downloadBackupCodes() {
-            const text = 'DevOps Agent - 2FA Backup Codes\n'
-                + '================================\n\n'
-                + 'Each code can only be used once.\n'
-                + 'Store these codes in a safe place.\n\n'
-                + backupCodes.join('\n') + '\n';
+            const text = 'DevOps Agent - MFA Backup Codes\n================================\n\nEach code can only be used once.\n\n' + backupCodes.join('\n') + '\n';
             const blob = new Blob([text], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -638,6 +884,22 @@
             a.click();
             URL.revokeObjectURL(url);
         }
+
+        // Hover effects for method cards
+        document.querySelectorAll('.method-card').forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                if (this.style.borderColor !== 'var(--accent-primary)') {
+                    this.style.borderColor = 'var(--text-tertiary)';
+                    this.style.background = 'rgba(255,255,255,0.03)';
+                }
+            });
+            card.addEventListener('mouseleave', function() {
+                if (this.style.borderColor !== 'var(--accent-primary)') {
+                    this.style.borderColor = 'var(--glass-border)';
+                    this.style.background = 'transparent';
+                }
+            });
+        });
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>

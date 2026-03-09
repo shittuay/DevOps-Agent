@@ -289,7 +289,15 @@
 
             <div class="shield-icon">&#x1f510;</div>
             <h1>Two-Factor Authentication</h1>
-            <p class="subtitle">Enter the 6-digit code from your authenticator app to continue.</p>
+            <p class="subtitle">
+                {% if mfa_method == 'email' %}
+                    Enter the 6-digit code sent to your email.
+                {% elif mfa_method == 'sms' %}
+                    Enter the 6-digit code sent to your phone.
+                {% else %}
+                    Enter the 6-digit code from your authenticator app.
+                {% endif %}
+            </p>
 
             {% if error %}
             <div class="alert alert-error">{{ error }}</div>
@@ -298,7 +306,7 @@
             <form method="POST" action="/verify-2fa" id="verifyForm">
                 <div id="totpSection">
                     <div class="form-group">
-                        <label for="totpCode">Authentication Code</label>
+                        <label for="totpCode">Verification Code</label>
                         <input
                             type="text"
                             id="totpCode"
@@ -329,6 +337,13 @@
 
                 <button type="submit" class="btn-primary" id="submitBtn">Verify</button>
             </form>
+
+            {% if mfa_method in ('email', 'sms') %}
+            <div class="toggle-link" id="resendSection">
+                <a id="resendBtn" onclick="resendOTP()" style="cursor:pointer;">Resend code</a>
+                <span id="resendTimer" style="display:none; color: var(--text-tertiary); font-size:14px;"></span>
+            </div>
+            {% endif %}
 
             <div class="toggle-link">
                 <a id="toggleBackup" onclick="toggleMode()">Use a backup code instead</a>
@@ -390,6 +405,58 @@
             }
             this.value = val;
         });
+
+        // Resend OTP with 60s cooldown (email/SMS only)
+        let resendCooldown = 0;
+        function resendOTP() {
+            const btn = document.getElementById('resendBtn');
+            const timer = document.getElementById('resendTimer');
+            if (!btn || resendCooldown > 0) return;
+
+            btn.style.display = 'none';
+            timer.style.display = 'inline';
+            timer.textContent = 'Sending...';
+
+            fetch('/api/2fa/resend-otp', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        startResendTimer();
+                    } else {
+                        timer.textContent = data.error || 'Failed to resend.';
+                        setTimeout(() => {
+                            timer.style.display = 'none';
+                            btn.style.display = 'inline';
+                        }, 3000);
+                    }
+                })
+                .catch(() => {
+                    timer.textContent = 'Network error.';
+                    setTimeout(() => {
+                        timer.style.display = 'none';
+                        btn.style.display = 'inline';
+                    }, 3000);
+                });
+        }
+
+        function startResendTimer() {
+            resendCooldown = 60;
+            const btn = document.getElementById('resendBtn');
+            const timer = document.getElementById('resendTimer');
+            timer.style.display = 'inline';
+            if (btn) btn.style.display = 'none';
+
+            const interval = setInterval(() => {
+                resendCooldown--;
+                if (resendCooldown <= 0) {
+                    clearInterval(interval);
+                    timer.style.display = 'none';
+                    if (btn) btn.style.display = 'inline';
+                } else {
+                    timer.textContent = `Resend in ${resendCooldown}s`;
+                }
+            }, 1000);
+        }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
