@@ -57,6 +57,14 @@ class User(UserMixin, db.Model):
     two_factor_attempts = db.Column(db.Integer, default=0)
     two_factor_locked_until = db.Column(db.DateTime, nullable=True)
 
+    # Multi-method MFA
+    mfa_method = db.Column(db.String(10), default='none')  # 'none'|'email'|'sms'|'totp'
+    phone_number = db.Column(db.String(20), nullable=True)  # E.164: +1234567890
+    phone_verified = db.Column(db.Boolean, default=False)
+    mfa_otp_hash = db.Column(db.String(64), nullable=True)  # SHA-256 of 6-digit code
+    mfa_otp_expires = db.Column(db.DateTime, nullable=True)
+    mfa_otp_sent_at = db.Column(db.DateTime, nullable=True)  # Rate-limit resends
+
     # Onboarding
     onboarding_completed = db.Column(db.Boolean, default=False)
     onboarding_step = db.Column(db.Integer, default=0)
@@ -128,6 +136,42 @@ class User(UserMixin, db.Model):
             self.guardrail_violations = 0
             db.session.commit()
         return False
+
+    # --- MFA helper methods ---
+
+    def has_mfa_enabled(self):
+        """Check if any MFA method is active (email, sms, or totp)."""
+        return (self.mfa_method or 'none') not in ('none', '')
+
+    def set_mfa_otp(self, code):
+        """Hash and store a 6-digit OTP with 10-minute expiry."""
+        import hashlib
+        from datetime import timedelta
+        self.mfa_otp_hash = hashlib.sha256(code.encode()).hexdigest()
+        self.mfa_otp_expires = datetime.utcnow() + timedelta(minutes=10)
+        self.mfa_otp_sent_at = datetime.utcnow()
+
+    def verify_mfa_otp(self, code):
+        """Verify a 6-digit OTP against stored hash. Returns True if valid."""
+        import hashlib
+        if not self.mfa_otp_hash or not self.mfa_otp_expires:
+            return False
+        if datetime.utcnow() > self.mfa_otp_expires:
+            return False
+        return hashlib.sha256(code.encode()).hexdigest() == self.mfa_otp_hash
+
+    def clear_mfa_otp(self):
+        """Clear OTP after successful verification or expiry."""
+        self.mfa_otp_hash = None
+        self.mfa_otp_expires = None
+        self.mfa_otp_sent_at = None
+
+    def can_resend_otp(self):
+        """Check if 60-second cooldown has passed since last OTP send."""
+        from datetime import timedelta
+        if not self.mfa_otp_sent_at:
+            return True
+        return datetime.utcnow() > self.mfa_otp_sent_at + timedelta(seconds=60)
 
     def to_dict(self):
         """Convert user to dictionary"""

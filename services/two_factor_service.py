@@ -52,6 +52,10 @@ class TwoFactorService:
         app.extensions = getattr(app, 'extensions', {})
         app.extensions['two_factor'] = self
 
+    def generate_otp(self, length: int = 6) -> str:
+        """Generate a cryptographically random numeric OTP code."""
+        return ''.join(secrets.choice('0123456789') for _ in range(length))
+
     def generate_secret(self) -> str:
         """
         Generate a new TOTP secret for a user.
