@@ -3052,6 +3052,23 @@
         // Init learning mode on page load
         document.addEventListener('DOMContentLoaded', initLearningMode);
 
+        // If navigated from Settings with a "Start Lesson" link, pre-fill and send the starter prompt
+        document.addEventListener('DOMContentLoaded', function() {
+            const params = new URLSearchParams(window.location.search);
+            const starter = params.get('starter');
+            if (starter) {
+                const input = document.getElementById('messageInput');
+                if (input) {
+                    input.value = starter;
+                    // Remove param from URL without reload so it doesn't re-fire on refresh
+                    const cleanUrl = window.location.pathname;
+                    window.history.replaceState({}, '', cleanUrl);
+                    // Small delay to let the page finish initializing before sending
+                    setTimeout(() => sendMessage(), 600);
+                }
+            }
+        });
+
         // Load on page ready - handled in toggleSidebarCollapse function above
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
