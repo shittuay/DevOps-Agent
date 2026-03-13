@@ -847,39 +847,270 @@ def initialize_agent():
 # Learning Mode system prompt augmentation
 # ---------------------------------------------------------------------------
 LEARNING_MODE_CONTEXT = """
-LEARNING MODE IS ACTIVE. You are now a teaching assistant in addition to a DevOps agent.
-For EVERY action you take, follow this pattern:
+LEARNING MODE IS ACTIVE. You are both a senior DevOps engineer AND a patient teacher.
 
-BEFORE executing a tool:
-- Explain WHAT tool you are about to use and WHY
-- State what you expect the outcome to be
-- Mention any prerequisites or assumptions
+CORE TEACHING PHILOSOPHY:
+- Check the user's proficiency level provided in context. If a domain score is 0-15, assume ZERO prior knowledge and explain from absolute first principles.
+- Always teach the "why" before the "how". Never just run a command — explain what it does and why it matters.
+- Use real-world analogies to make abstract concepts concrete.
+- Define every acronym the first time you use it (e.g., "IAM — Identity and Access Management").
+- Never rush. Learning is the goal, not efficiency.
 
-AFTER receiving results:
-- Explain the results in plain language
-- Highlight key takeaways and important values
-- Point out common gotchas or mistakes beginners make
-- Mention relevant best practices
+FOR BRAND NEW LEARNERS (proficiency 0-15 in any domain):
+- Start with a plain-language paragraph explaining the concept before running any tools.
+- Use analogies: "An EC2 instance is like renting a computer in Amazon's data center. You pick how powerful it should be, you install your own software, and you pay by the hour."
+- Explain what DevOps IS if they ask. Connect cloud tools to real business scenarios.
+- If a user says "I don't know where to start" or "I'm completely new", respond warmly with:
+  1. A 30-second overview of the DevOps landscape: Cloud → Linux → Networking → Containers → Orchestration → CI/CD → IaC
+  2. A recommendation to start with AWS basics
+  3. A specific first action: "Let's start by exploring your sandbox. Try asking: show me my EC2 instances"
 
-TEACHING GUIDELINES:
-- Adjust depth based on proficiency: 0-30 = beginner (explain everything, define acronyms),
-  31-60 = intermediate (focus on why, mention alternatives), 61-100 = advanced (focus on edge cases, optimization)
-- Use headers (### Before, ### Results, ### Key Takeaway) for structure
-- Use blockquote callouts (> ) for tips and warnings
-- Suggest what the user should try next to deepen understanding
-- Connect concepts to real-world scenarios ("In a production environment, you would...")
-- When multiple approaches exist, briefly mention alternatives
+STRUCTURED TEACHING FORMAT — use this for every tool interaction:
 
-Keep answers complete and helpful — teaching is additive, not a replacement for doing the work.
+### What We're Doing
+[1-2 sentences: the goal in plain English — no jargon]
+
+### Before Running: [Tool Name]
+[Why this tool? What will it show? What should we expect to see?]
+
+### Results Explained
+[Plain-language breakdown of every important field in the output. Don't assume they know what any term means.]
+
+### Key Takeaway
+[2-4 bullet points the learner should remember from this interaction]
+
+> **Try Next:** [One specific follow-up they can do right now to deepen their understanding]
+
+TEACHING GUIDELINES BY PROFICIENCY LEVEL:
+- 0-30 (beginner): explain everything, define all acronyms, use analogies, name common beginner mistakes, add "In real life..." context
+- 31-60 (intermediate): focus on why, mention tradeoffs and alternatives, introduce best practices and security considerations
+- 61-100 (advanced): focus on edge cases, performance optimization, cost efficiency, production-grade patterns
+
+CURRICULUM PROGRESSION — suggest this order to absolute beginners:
+1. AWS Foundations: EC2 → S3 → IAM → VPC → Security Groups → RDS → Lambda
+2. Kubernetes Basics: Pods → Deployments → Services → Debugging
+3. CI/CD: GitHub Actions → pipelines → automated testing
+4. Infrastructure as Code: Terraform basics
+5. DevOps Culture: monitoring, incident response, SRE concepts
+
+Keep answers complete and thorough — teaching takes as many words as it needs to be clear.
 """
 
 SANDBOX_MODE_ADDENDUM = """
-SANDBOX MODE IS ACTIVE. All tool results are SIMULATED — no real infrastructure is affected.
-- Prefix key outputs with [SIMULATED] so the user knows this is practice data
-- Explain what would happen differently in a real environment (latency, eventual consistency, costs)
-- Encourage the user to experiment freely — nothing can break
-- Point out when a real execution would require specific permissions or incur costs
+SANDBOX MODE IS ACTIVE. All tool results are SIMULATED — no real cloud infrastructure is affected.
+
+SANDBOX TEACHING APPROACH:
+- Begin simulated results with "[SANDBOX]" so learners know this is practice data
+- After each result, add: "In a real AWS/Azure/GCP account, this would show YOUR actual resources with your real IPs, names, and configurations"
+- Explain what would be DIFFERENT in production: real costs, eventual consistency, IAM permissions required, risk of mistakes
+- Actively encourage experimentation: "Nothing can break here. Try deleting that instance, creating a new VPC, changing security group rules — learn by doing!"
+- When a user runs a destructive action (delete/terminate), execute it AND explain: "In a real environment, you'd want to double-check this and possibly create a snapshot first. In sandbox, practicing this workflow is exactly right."
+- Mention real-world costs: "A real t3.medium runs about $0.042/hour (~$30/month on-demand, ~$18/month reserved)"
+- Mention real-world permissions: "To run this in real AWS, your IAM user would need the ec2:DescribeInstances permission"
+
+DEBUGGING SCENARIOS — if user wants to practice troubleshooting, suggest:
+- "Simulate a pod in CrashLoopBackOff" — Kubernetes debugging workflow
+- "Simulate a security group blocking web traffic" — network troubleshooting
+- "Simulate a disk full node" — disk pressure and pod eviction
+- "Simulate high CPU on EC2" — performance investigation
+- "Simulate OOMKilled pod" — memory limit tuning
+- "Simulate database connection refused" — security group + networking debug
 """
+
+# ---------------------------------------------------------------------------
+# Structured learning curriculum (used by /api/learning/paths)
+# ---------------------------------------------------------------------------
+LEARNING_CURRICULUM = {
+    'devops_fundamentals': {
+        'title': 'DevOps Fundamentals',
+        'description': 'Start here if you are brand new to DevOps. Learn what it is, why it matters, and where to begin.',
+        'level': 'beginner',
+        'estimated_hours': 4,
+        'icon': 'compass',
+        'modules': [
+            {
+                'id': 'what_is_devops',
+                'title': 'What is DevOps?',
+                'starter_prompt': 'I am completely new to DevOps and cloud. Can you explain what DevOps is, why companies use it, what a DevOps engineer does day to day, and how I should start learning? Assume I know nothing.',
+                'topics': ['DevOps culture', 'CI/CD concept', 'infrastructure as code', 'monitoring', 'career path'],
+            },
+            {
+                'id': 'devops_toolchain',
+                'title': 'The DevOps Toolchain',
+                'starter_prompt': 'Walk me through the tools a DevOps engineer uses from writing code all the way to deploying it to production. Explain each tool and why it is used.',
+                'topics': ['Git', 'Docker', 'Kubernetes', 'Terraform', 'CI/CD pipelines', 'monitoring tools'],
+            },
+            {
+                'id': 'linux_basics',
+                'title': 'Linux for DevOps',
+                'starter_prompt': 'What Linux commands do I absolutely need to know as a DevOps engineer? Start from the very basics — file navigation, permissions, processes — and tell me why each one matters.',
+                'topics': ['bash shell', 'file system navigation', 'file permissions', 'processes', 'SSH', 'networking commands'],
+            },
+        ]
+    },
+    'aws_foundations': {
+        'title': 'AWS Foundations',
+        'description': 'Learn Amazon Web Services from scratch — the world\'s most popular cloud platform.',
+        'level': 'beginner',
+        'estimated_hours': 10,
+        'icon': 'cloud',
+        'modules': [
+            {
+                'id': 'cloud_intro',
+                'title': 'What is Cloud Computing?',
+                'starter_prompt': 'Explain cloud computing to me like I have never heard of it before. What is AWS, what is a region, what is an availability zone, and why do companies use cloud instead of buying their own servers?',
+                'topics': ['cloud computing', 'AWS overview', 'regions', 'availability zones', 'shared responsibility model'],
+            },
+            {
+                'id': 'ec2_intro',
+                'title': 'EC2 — Your First Virtual Server',
+                'starter_prompt': 'Teach me about EC2 instances from scratch. What are they, how do you choose an instance type, what is an AMI, and can you show me what running EC2 instances look like in the sandbox?',
+                'topics': ['EC2 instances', 'instance types', 'AMIs', 'key pairs', 'SSH access', 'instance states'],
+            },
+            {
+                'id': 's3_intro',
+                'title': 'S3 — Cloud Object Storage',
+                'starter_prompt': 'I want to understand S3 storage. What is it, what is the difference between a bucket and an object, when would I store things in S3 versus on an EC2 disk, and can we explore it in the sandbox?',
+                'topics': ['S3 buckets', 'objects and keys', 'storage classes', 'versioning', 'static website hosting', 'lifecycle policies'],
+            },
+            {
+                'id': 'iam_intro',
+                'title': 'IAM — Security and Permissions',
+                'starter_prompt': 'Explain AWS IAM to me. I know it stands for Identity and Access Management but I do not understand users, groups, roles, and policies. Walk me through it step by step with examples.',
+                'topics': ['IAM users', 'IAM groups', 'IAM roles', 'policies', 'least privilege principle', 'MFA'],
+            },
+            {
+                'id': 'vpc_intro',
+                'title': 'VPC and Networking',
+                'starter_prompt': 'I want to understand AWS networking. What is a VPC, what are subnets, what is the difference between public and private subnets, and why does it matter where I put my EC2 instance?',
+                'topics': ['VPC', 'subnets', 'route tables', 'internet gateway', 'NAT gateway', 'CIDR notation'],
+            },
+            {
+                'id': 'security_groups',
+                'title': 'Security Groups — Firewall Rules',
+                'starter_prompt': 'Explain security groups to me. How do they work, how are inbound and outbound rules different, and can we look at some security groups in the sandbox and understand what they are allowing?',
+                'topics': ['security groups', 'inbound rules', 'outbound rules', 'ports', 'protocols', 'CIDR blocks'],
+            },
+            {
+                'id': 'rds_intro',
+                'title': 'RDS — Managed Databases',
+                'starter_prompt': 'What is RDS and why would I use it instead of just installing PostgreSQL directly on my EC2 instance? What does AWS manage for me, and what do I still manage myself?',
+                'topics': ['RDS', 'managed databases', 'Multi-AZ', 'read replicas', 'automated backups', 'database security'],
+            },
+            {
+                'id': 'lambda_intro',
+                'title': 'Lambda — Serverless Computing',
+                'starter_prompt': 'I keep hearing the word serverless. What is AWS Lambda, how is it completely different from EC2, when should I use it, and what does serverless actually mean — there are still servers, right?',
+                'topics': ['Lambda', 'serverless', 'event-driven architecture', 'triggers', 'cold starts', 'pricing model'],
+            },
+        ]
+    },
+    'kubernetes_basics': {
+        'title': 'Kubernetes Basics',
+        'description': 'Master container orchestration — run apps reliably at any scale.',
+        'level': 'intermediate',
+        'estimated_hours': 12,
+        'prerequisite': 'Basic understanding of Docker containers recommended',
+        'icon': 'grid',
+        'modules': [
+            {
+                'id': 'k8s_intro',
+                'title': 'What is Kubernetes?',
+                'starter_prompt': 'I know what Docker containers are but I do not understand why I need Kubernetes. What problem does it solve, and what would go wrong if I just ran Docker containers directly on servers?',
+                'topics': ['container orchestration', 'Kubernetes architecture', 'control plane', 'worker nodes', 'etcd'],
+            },
+            {
+                'id': 'pods',
+                'title': 'Pods — The Atomic Unit',
+                'starter_prompt': 'Explain Kubernetes Pods to me. What exactly is a pod, how is it different from a container, and when would you put multiple containers in the same pod? Show me some pods in the sandbox.',
+                'topics': ['pods', 'containers vs pods', 'multi-container pods', 'pod lifecycle', 'pod IP addresses'],
+            },
+            {
+                'id': 'deployments',
+                'title': 'Deployments — Reliable Updates',
+                'starter_prompt': 'What is a Kubernetes Deployment and why is it better than running pods directly? How do rolling updates work, and how do I roll back if a deployment breaks production?',
+                'topics': ['deployments', 'replica sets', 'rolling updates', 'rollbacks', 'deployment strategies'],
+            },
+            {
+                'id': 'services_networking',
+                'title': 'Services — Kubernetes Networking',
+                'starter_prompt': 'How does networking work in Kubernetes? How do pods find each other, what is a Service, and how does traffic from the internet reach my application inside the cluster?',
+                'topics': ['services', 'ClusterIP', 'NodePort', 'LoadBalancer', 'Ingress', 'DNS in Kubernetes'],
+            },
+            {
+                'id': 'k8s_debugging',
+                'title': 'Debugging in Kubernetes',
+                'starter_prompt': 'Simulate a pod that is failing with CrashLoopBackOff so I can practice the debugging workflow. Teach me step by step how you would diagnose and fix a broken pod in production.',
+                'topics': ['kubectl logs', 'describe pod', 'CrashLoopBackOff', 'OOMKilled', 'ImagePullBackOff', 'events'],
+            },
+            {
+                'id': 'config_secrets',
+                'title': 'ConfigMaps and Secrets',
+                'starter_prompt': 'How do I manage configuration and secrets in Kubernetes? What is the difference between a ConfigMap and a Secret, and why should I not hardcode environment variables in my Docker image?',
+                'topics': ['ConfigMaps', 'Secrets', 'environment variables', 'volume mounts', 'secret management'],
+            },
+        ]
+    },
+    'cicd_pipelines': {
+        'title': 'CI/CD Pipelines',
+        'description': 'Automate testing and deployment so every code change ships safely and fast.',
+        'level': 'intermediate',
+        'estimated_hours': 8,
+        'prerequisite': 'Comfortable with Git and basic cloud concepts',
+        'icon': 'git-merge',
+        'modules': [
+            {
+                'id': 'cicd_concepts',
+                'title': 'CI/CD Concepts',
+                'starter_prompt': 'Explain CI/CD to me from scratch. What is Continuous Integration vs Continuous Delivery vs Continuous Deployment? Why do teams use it, and what does a typical pipeline look like?',
+                'topics': ['CI/CD concepts', 'build pipelines', 'automated testing', 'deployment stages', 'trunk-based development'],
+            },
+            {
+                'id': 'github_actions',
+                'title': 'GitHub Actions',
+                'starter_prompt': 'Teach me GitHub Actions. How do I create a workflow that runs my tests automatically when I push code, and then deploys to AWS if the tests pass? Walk me through writing the YAML.',
+                'topics': ['GitHub Actions', 'workflows', 'jobs', 'steps', 'runners', 'secrets', 'artifacts'],
+            },
+        ]
+    },
+    'infrastructure_as_code': {
+        'title': 'Infrastructure as Code',
+        'description': 'Manage cloud resources with code instead of clicking around consoles.',
+        'level': 'intermediate',
+        'estimated_hours': 10,
+        'prerequisite': 'Working knowledge of at least one cloud provider',
+        'icon': 'code',
+        'modules': [
+            {
+                'id': 'iac_concepts',
+                'title': 'What is Infrastructure as Code?',
+                'starter_prompt': 'What is Infrastructure as Code and why is everyone talking about Terraform? What is wrong with just clicking around in the AWS console, and how does writing infrastructure in code files solve those problems?',
+                'topics': ['IaC concepts', 'declarative vs imperative', 'idempotency', 'version control for infrastructure', 'Terraform overview'],
+            },
+            {
+                'id': 'terraform_basics',
+                'title': 'Terraform Basics',
+                'starter_prompt': 'Walk me through the core concepts of Terraform. What is a provider, a resource, a variable, an output, and a state file? How does terraform plan and terraform apply work?',
+                'topics': ['Terraform HCL', 'providers', 'resources', 'variables', 'outputs', 'state file', 'plan and apply'],
+            },
+        ]
+    },
+    'monitoring_observability': {
+        'title': 'Monitoring and Observability',
+        'description': 'Know when things go wrong before your users do.',
+        'level': 'intermediate',
+        'estimated_hours': 6,
+        'icon': 'activity',
+        'modules': [
+            {
+                'id': 'monitoring_concepts',
+                'title': 'Monitoring, Logging, and Tracing',
+                'starter_prompt': 'Explain the three pillars of observability: metrics, logs, and traces. What is the difference between them, which tools are used for each, and how do they help me understand what my application is doing?',
+                'topics': ['metrics', 'logs', 'distributed tracing', 'CloudWatch', 'Prometheus', 'Grafana', 'alerting'],
+            },
+        ]
+    },
+}
 
 
 @app.route('/')
@@ -4236,6 +4467,101 @@ def learning_proficiency():
     except Exception as e:
         logger = get_logger(__name__)
         logger.error(f"Error fetching proficiency: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/learning/paths', methods=['GET'])
+@login_required
+def learning_paths():
+    """Return structured learning curriculum with suggested path based on proficiency."""
+    try:
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        levels = prefs.learning_level if prefs and prefs.learning_level else {}
+
+        paths = []
+        for path_id, path_data in LEARNING_CURRICULUM.items():
+            paths.append({
+                'id': path_id,
+                'title': path_data['title'],
+                'description': path_data['description'],
+                'level': path_data['level'],
+                'estimated_hours': path_data.get('estimated_hours', 0),
+                'prerequisite': path_data.get('prerequisite'),
+                'icon': path_data.get('icon', 'book'),
+                'modules': path_data['modules'],
+                'module_count': len(path_data['modules']),
+            })
+
+        # Suggest next path based on current proficiency
+        if not levels:
+            suggested = 'devops_fundamentals'
+        elif levels.get('devops', 0) < 20:
+            suggested = 'devops_fundamentals'
+        elif levels.get('aws', 0) < 30:
+            suggested = 'aws_foundations'
+        elif levels.get('kubernetes', 0) < 30:
+            suggested = 'kubernetes_basics'
+        elif levels.get('cicd', 0) < 30:
+            suggested = 'cicd_pipelines'
+        else:
+            suggested = 'infrastructure_as_code'
+
+        return jsonify({
+            'paths': paths,
+            'suggested_path': suggested,
+            'proficiency': levels
+        })
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"Error fetching learning paths: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/learning/reset-proficiency', methods=['POST'])
+@login_required
+def reset_proficiency():
+    """Reset proficiency levels (allows user to start fresh or set initial level)."""
+    try:
+        data = request.get_json() or {}
+        initial_levels = data.get('levels', {})
+
+        # Validate — only known domains, values 0-100
+        valid_domains = {'aws', 'kubernetes', 'azure', 'gcp', 'devops', 'cicd',
+                         'terraform', 'docker', 'linux', 'networking', 'security', 'monitoring'}
+        sanitized = {}
+        for domain, val in initial_levels.items():
+            if domain in valid_domains:
+                sanitized[domain] = max(0, min(100, int(val)))
+
+        prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
+        if not prefs:
+            prefs = UserPreferences(user_id=current_user.id)
+            db.session.add(prefs)
+
+        prefs.learning_level = sanitized
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(prefs, 'learning_level')
+        db.session.commit()
+
+        return jsonify({'success': True, 'levels': sanitized})
+    except Exception as e:
+        db.session.rollback()
+        logger = get_logger(__name__)
+        logger.error(f"Error resetting proficiency: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/learning/scenarios', methods=['GET'])
+@login_required
+def learning_scenarios():
+    """Return available debugging scenarios for sandbox practice."""
+    try:
+        from services.learning_sandbox import get_failure_scenarios
+        scenarios = get_failure_scenarios()
+        return jsonify({'scenarios': scenarios})
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"Error fetching scenarios: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

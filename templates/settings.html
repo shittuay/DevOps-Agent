@@ -1005,28 +1005,92 @@
                 <div class="section-header">
                     <div>
                         <h2>Learning Mode</h2>
-                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Learn DevOps concepts as you work</p>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Become a DevOps engineer — complete beginners welcome</p>
                     </div>
                     <span id="learningStatusBadge" class="status-badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">Off</span>
                 </div>
 
-                <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="settingsLearningMode" onchange="updateLearningPref('learning_mode', this.checked)" style="accent-color: var(--accent-primary); width: 18px; height: 18px;">
-                        <span style="font-size: 0.9rem;">Enable Learning Mode</span>
+                <!-- What learning mode does -->
+                <div style="background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 16px; margin-bottom: 20px;">
+                    <p style="font-size: 0.875rem; color: var(--text-secondary); margin: 0 0 10px; line-height: 1.6;">
+                        Learning Mode turns the agent into a <strong style="color:var(--text-primary);">patient DevOps teacher</strong>. For every action it takes, it explains what the tool does, why it is being used, and what the results mean — adjusted to your experience level.
+                    </p>
+                    <p style="font-size: 0.875rem; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                        <strong style="color:var(--text-primary);">Sandbox Mode</strong> simulates all cloud operations — nothing touches real infrastructure. You can create, delete, and break things freely to learn without fear.
+                    </p>
+                </div>
+
+                <!-- Toggles -->
+                <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 24px;">
+                    <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 14px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                        <input type="checkbox" id="settingsLearningMode" onchange="updateLearningPref('learning_mode', this.checked)" style="accent-color: var(--accent-primary); width: 18px; height: 18px; margin-top: 1px; flex-shrink: 0;">
+                        <div>
+                            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); display: block;">Enable Learning Mode</span>
+                            <span style="font-size: 0.8rem; color: var(--text-tertiary);">Agent explains every concept, defines acronyms, and teaches as it works</span>
+                        </div>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding-left: 16px;">
-                        <input type="checkbox" id="settingsSandboxMode" onchange="updateLearningPref('sandbox_mode', this.checked)" style="accent-color: var(--accent-primary); width: 18px; height: 18px;">
-                        <span style="font-size: 0.9rem;">Enable Sandbox (simulated tools, safe to experiment)</span>
+                    <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 14px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                        <input type="checkbox" id="settingsSandboxMode" onchange="updateLearningPref('sandbox_mode', this.checked)" style="accent-color: var(--accent-primary); width: 18px; height: 18px; margin-top: 1px; flex-shrink: 0;">
+                        <div>
+                            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); display: block;">Enable Sandbox Mode</span>
+                            <span style="font-size: 0.8rem; color: var(--text-tertiary);">All tool calls are simulated — safe to experiment. No real cloud resources are created or modified.</span>
+                        </div>
                     </label>
                 </div>
 
-                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 20px 0 12px;">Proficiency Levels</h3>
+                <!-- Experience Level Setup -->
+                <div id="experienceLevelSetup" style="margin-bottom: 24px;">
+                    <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 0 0 10px;">Your Experience Level</h3>
+                    <p style="font-size: 0.8rem; color: var(--text-tertiary); margin: 0 0 12px;">Tell us where you are starting from so the agent calibrates its explanations.</p>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <button onclick="setExperienceLevel('beginner')" id="lvlBeginner" style="padding: 12px 8px; border: 2px solid var(--border-subtle); border-radius: 8px; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 0.8rem; text-align: center; transition: all 0.15s;">
+                            <div style="font-size: 1.2rem; margin-bottom: 4px;">🌱</div>
+                            <div style="font-weight: 600; color: var(--text-primary);">Brand New</div>
+                            <div style="font-size: 0.75rem; margin-top: 2px;">Never used cloud or DevOps tools</div>
+                        </button>
+                        <button onclick="setExperienceLevel('some')" id="lvlSome" style="padding: 12px 8px; border: 2px solid var(--border-subtle); border-radius: 8px; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 0.8rem; text-align: center; transition: all 0.15s;">
+                            <div style="font-size: 1.2rem; margin-bottom: 4px;">📘</div>
+                            <div style="font-weight: 600; color: var(--text-primary);">Some Experience</div>
+                            <div style="font-size: 0.75rem; margin-top: 2px;">Used cloud a little, know the basics</div>
+                        </button>
+                        <button onclick="setExperienceLevel('professional')" id="lvlPro" style="padding: 12px 8px; border: 2px solid var(--border-subtle); border-radius: 8px; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 0.8rem; text-align: center; transition: all 0.15s;">
+                            <div style="font-size: 1.2rem; margin-bottom: 4px;">🚀</div>
+                            <div style="font-weight: 600; color: var(--text-primary);">Professional</div>
+                            <div style="font-size: 0.75rem; margin-top: 2px;">Work with cloud/DevOps daily</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Start Learning Button -->
+                <div style="margin-bottom: 24px;">
+                    <a href="/chat" id="startLearningBtn" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; background: var(--accent-primary); color: white; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 600;">
+                        Start Learning Now
+                    </a>
+                    <p style="font-size: 0.78rem; color: var(--text-tertiary); margin: 8px 0 0;">Opens chat. Just say "I want to learn DevOps from the beginning" or click a lesson below.</p>
+                </div>
+
+                <!-- Learning Paths -->
+                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 0 0 4px;">Learning Paths</h3>
+                <p style="font-size: 0.8rem; color: var(--text-tertiary); margin: 0 0 14px;">Structured curriculum — click any lesson to start it in the chat.</p>
+                <div id="learningPathsList" style="display: flex; flex-direction: column; gap: 12px;">
+                    <p style="color: var(--text-tertiary); font-size: 0.85rem;">Loading curriculum...</p>
+                </div>
+
+                <!-- Debugging Scenarios -->
+                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 24px 0 4px;">Practice Debugging Scenarios</h3>
+                <p style="font-size: 0.8rem; color: var(--text-tertiary); margin: 0 0 14px;">Simulated real-world failures to practice troubleshooting. Enable Sandbox Mode first.</p>
+                <div id="scenariosList" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <p style="color: var(--text-tertiary); font-size: 0.85rem;">Loading scenarios...</p>
+                </div>
+
+                <!-- Proficiency Levels -->
+                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 24px 0 12px;">Your Skill Progress</h3>
                 <div id="proficiencyBars" style="display: flex; flex-direction: column; gap: 10px;">
                     <p style="color: var(--text-tertiary); font-size: 0.85rem;">No proficiency data yet. Complete learning sessions to build your skills.</p>
                 </div>
 
-                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 20px 0 12px;">Session History</h3>
+                <!-- Session History -->
+                <h3 style="font-size: 0.95rem; color: var(--text-primary); margin: 24px 0 12px;">Session History</h3>
                 <div id="learningHistoryList" style="display: flex; flex-direction: column; gap: 10px;">
                     <p style="color: var(--text-tertiary); font-size: 0.85rem;">No learning sessions yet.</p>
                 </div>
@@ -1541,21 +1605,29 @@
                     const keys = Object.keys(levels);
                     if (!keys.length) return;
                     container.innerHTML = '';
+                    const domainLabels = {
+                        aws: 'AWS', kubernetes: 'Kubernetes', azure: 'Azure', gcp: 'GCP',
+                        devops: 'DevOps', cicd: 'CI/CD', terraform: 'Terraform',
+                        docker: 'Docker', linux: 'Linux', networking: 'Networking',
+                        security: 'Security', monitoring: 'Monitoring'
+                    };
                     keys.sort((a, b) => levels[b] - levels[a]);
                     keys.forEach(domain => {
                         const pct = Math.min(100, levels[domain]);
                         const color = pct < 30 ? '#ef4444' : pct < 60 ? '#f59e0b' : '#22c55e';
+                        const label = domainLabels[domain] || domain.charAt(0).toUpperCase() + domain.slice(1);
+                        const tier = pct < 30 ? 'Beginner' : pct < 60 ? 'Intermediate' : 'Advanced';
                         container.innerHTML += `
                             <div style="display:flex;align-items:center;gap:10px;">
-                                <span style="width:90px;font-size:0.85rem;color:var(--text-secondary);text-transform:capitalize;">${domain}</span>
+                                <span style="width:90px;font-size:0.85rem;color:var(--text-secondary);">${label}</span>
                                 <div style="flex:1;height:8px;background:var(--bg-tertiary);border-radius:4px;overflow:hidden;">
                                     <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;transition:width 0.5s;"></div>
                                 </div>
-                                <span style="width:35px;text-align:right;font-size:0.8rem;color:var(--text-tertiary);">${pct}%</span>
+                                <span style="width:80px;text-align:right;font-size:0.78rem;color:var(--text-tertiary);">${tier} (${pct}%)</span>
                             </div>`;
                     });
                     if (data.session_count) {
-                        container.innerHTML += `<p style="color:var(--text-tertiary);font-size:0.8rem;margin-top:6px;">${data.session_count} session(s) completed</p>`;
+                        container.innerHTML += `<p style="color:var(--text-tertiary);font-size:0.8rem;margin-top:8px;">${data.session_count} learning session(s) completed</p>`;
                     }
                 })
                 .catch(() => {});
@@ -1570,18 +1642,151 @@
                     sessions.forEach(s => {
                         const date = s.created_at ? new Date(s.created_at).toLocaleDateString() : '';
                         const topics = (s.topics_covered || []).join(', ');
+                        const duration = s.duration_minutes ? `${s.duration_minutes}m` : '';
                         container.innerHTML += `
                             <div style="padding:12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px;">
                                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                                    <span style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">${topics || 'General'}</span>
-                                    <span style="font-size:0.75rem;color:var(--text-tertiary);">${date}</span>
+                                    <span style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">${topics || 'General DevOps'}</span>
+                                    <span style="font-size:0.75rem;color:var(--text-tertiary);">${duration ? duration + ' &bull; ' : ''}${date}</span>
                                 </div>
-                                <p style="font-size:0.8rem;color:var(--text-secondary);margin:0;line-height:1.4;">${s.summary || 'No summary'}</p>
-                                ${s.was_sandbox ? '<span style="font-size:0.7rem;color:var(--accent-primary);margin-top:4px;display:inline-block;">Sandbox session</span>' : ''}
+                                <p style="font-size:0.8rem;color:var(--text-secondary);margin:0 0 6px;line-height:1.4;">${s.summary || 'No summary available'}</p>
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                                    ${s.was_sandbox ? '<span style="font-size:0.7rem;padding:2px 6px;background:rgba(99,102,241,0.15);color:#818cf8;border-radius:4px;">Sandbox</span>' : ''}
+                                    ${(s.key_lessons || []).slice(0,2).map(l => `<span style="font-size:0.7rem;padding:2px 6px;background:var(--bg-tertiary);color:var(--text-tertiary);border-radius:4px;">${l.substring(0,40)}${l.length > 40 ? '...' : ''}</span>`).join('')}
+                                </div>
                             </div>`;
                     });
                 })
                 .catch(() => {});
+
+            loadLearningPaths();
+            loadScenarios();
+        }
+
+        function loadLearningPaths() {
+            fetch('/api/learning/paths')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('learningPathsList');
+                    const paths = data.paths || [];
+                    const suggested = data.suggested_path;
+                    if (!paths.length) { container.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.85rem;">No paths available.</p>'; return; }
+
+                    const levelColors = { beginner: '#22c55e', intermediate: '#f59e0b', advanced: '#ef4444' };
+                    container.innerHTML = '';
+                    paths.forEach(path => {
+                        const isRecommended = path.id === suggested;
+                        const levelColor = levelColors[path.level] || '#6366f1';
+                        const pathEl = document.createElement('div');
+                        pathEl.style.cssText = `border:1px solid ${isRecommended ? 'var(--accent-primary)' : 'var(--border-subtle)'};border-radius:10px;overflow:hidden;background:var(--bg-secondary);`;
+                        pathEl.innerHTML = `
+                            <div style="padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:flex-start;" onclick="togglePath('path-${path.id}')">
+                                <div style="flex:1;">
+                                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                        <span style="font-size:0.9rem;font-weight:600;color:var(--text-primary);">${path.title}</span>
+                                        ${isRecommended ? '<span style="font-size:0.7rem;padding:2px 6px;background:var(--accent-primary);color:white;border-radius:4px;">Recommended</span>' : ''}
+                                        <span style="font-size:0.7rem;padding:2px 6px;background:${levelColor}22;color:${levelColor};border-radius:4px;text-transform:capitalize;">${path.level}</span>
+                                    </div>
+                                    <p style="font-size:0.8rem;color:var(--text-secondary);margin:0;">${path.description}</p>
+                                    <span style="font-size:0.75rem;color:var(--text-tertiary);">${path.module_count} modules &bull; ~${path.estimated_hours}h</span>
+                                </div>
+                                <span id="chevron-${path.id}" style="font-size:0.8rem;color:var(--text-tertiary);padding-left:10px;">&#9660;</span>
+                            </div>
+                            <div id="path-${path.id}" style="display:none;border-top:1px solid var(--border-subtle);padding:12px 16px;">
+                                ${path.prerequisite ? `<p style="font-size:0.78rem;color:var(--text-tertiary);margin:0 0 10px;padding:6px 10px;background:rgba(245,158,11,0.1);border-radius:6px;">Prerequisite: ${path.prerequisite}</p>` : ''}
+                                <div style="display:flex;flex-direction:column;gap:8px;">
+                                    ${(path.modules || []).map((m, i) => `
+                                        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg-tertiary);border-radius:8px;">
+                                            <span style="font-size:0.75rem;color:var(--text-tertiary);font-weight:600;min-width:20px;">${i + 1}.</span>
+                                            <div style="flex:1;">
+                                                <div style="font-size:0.85rem;font-weight:500;color:var(--text-primary);">${m.title}</div>
+                                                <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:2px;">${(m.topics || []).slice(0,3).join(' &bull; ')}${m.topics && m.topics.length > 3 ? ' &bull; ...' : ''}</div>
+                                            </div>
+                                            <a href="/chat?starter=${encodeURIComponent(m.starter_prompt)}" style="font-size:0.78rem;padding:6px 12px;background:var(--accent-primary);color:white;border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0;">Start Lesson</a>
+                                        </div>`).join('')}
+                                </div>
+                            </div>`;
+                        container.appendChild(pathEl);
+                    });
+                })
+                .catch(() => {
+                    document.getElementById('learningPathsList').innerHTML = '<p style="color:var(--text-tertiary);font-size:0.85rem;">Unable to load curriculum.</p>';
+                });
+        }
+
+        function togglePath(id) {
+            const el = document.getElementById(id);
+            const pathId = id.replace('path-', '');
+            const chevron = document.getElementById('chevron-' + pathId);
+            if (el.style.display === 'none') {
+                el.style.display = 'block';
+                if (chevron) chevron.innerHTML = '&#9650;';
+            } else {
+                el.style.display = 'none';
+                if (chevron) chevron.innerHTML = '&#9660;';
+            }
+        }
+
+        function loadScenarios() {
+            fetch('/api/learning/scenarios')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('scenariosList');
+                    const scenarios = data.scenarios || [];
+                    if (!scenarios.length) { container.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.85rem;">No scenarios available.</p>'; return; }
+                    container.style.gridTemplateColumns = '1fr 1fr';
+                    container.innerHTML = '';
+                    scenarios.forEach(s => {
+                        const prompt = `Simulate a debugging scenario: ${s.title}. Walk me through diagnosing and fixing this problem step by step.`;
+                        container.innerHTML += `
+                            <div style="padding:12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px;display:flex;flex-direction:column;gap:8px;">
+                                <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">${s.title}</div>
+                                <div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.4;flex:1;">${s.description}</div>
+                                <div style="font-size:0.75rem;color:var(--text-tertiary);font-style:italic;">Hint: ${s.hint}</div>
+                                <a href="/chat?starter=${encodeURIComponent(prompt)}" style="font-size:0.78rem;padding:6px 10px;background:rgba(239,68,68,0.15);color:#f87171;border-radius:6px;text-decoration:none;text-align:center;border:1px solid rgba(239,68,68,0.3);">Practice This</a>
+                            </div>`;
+                    });
+                })
+                .catch(() => {
+                    document.getElementById('scenariosList').innerHTML = '<p style="color:var(--text-tertiary);font-size:0.85rem;">Unable to load scenarios.</p>';
+                });
+        }
+
+        function setExperienceLevel(level) {
+            const levelMaps = {
+                beginner: { devops: 0, aws: 0, kubernetes: 0, linux: 0, docker: 0 },
+                some: { devops: 20, aws: 25, kubernetes: 10, linux: 20, docker: 15 },
+                professional: { devops: 60, aws: 55, kubernetes: 50, linux: 60, docker: 55, cicd: 40, terraform: 35 }
+            };
+            const levels = levelMaps[level];
+            if (!levels) return;
+
+            // Highlight selected button
+            ['lvlBeginner', 'lvlSome', 'lvlPro'].forEach(id => {
+                const btn = document.getElementById(id);
+                btn.style.borderColor = 'var(--border-subtle)';
+                btn.style.background = 'var(--bg-secondary)';
+            });
+            const selectedId = level === 'beginner' ? 'lvlBeginner' : level === 'some' ? 'lvlSome' : 'lvlPro';
+            const selectedBtn = document.getElementById(selectedId);
+            selectedBtn.style.borderColor = 'var(--accent-primary)';
+            selectedBtn.style.background = 'rgba(99,102,241,0.1)';
+
+            fetch('/api/learning/reset-proficiency', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ levels })
+            }).then(r => r.json()).then(data => {
+                if (data.success) {
+                    if (typeof showToast === 'function') showToast('Experience level set — the agent will now calibrate to your level', 'success');
+                    // Refresh proficiency bars
+                    const container = document.getElementById('proficiencyBars');
+                    container.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.85rem;">Refreshing...</p>';
+                    setTimeout(() => loadLearningSettings(), 500);
+                }
+            }).catch(() => {
+                if (typeof showToast === 'function') showToast('Failed to set experience level', 'error');
+            });
         }
 
         function updateLearningPref(key, value) {
