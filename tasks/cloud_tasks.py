@@ -27,31 +27,33 @@ def sync_cloud_resources(self, user_id: int, provider: str):
         from app import app, db
         from models import User
 
+        from services.infrastructure_sync import (
+            sync_aws_resources,
+            sync_azure_resources,
+            sync_gcp_resources,
+        )
+
         with app.app_context():
             user = User.query.get(user_id)
             if not user:
                 logger.error(f"User {user_id} not found")
                 return {'status': 'error', 'message': 'User not found'}
 
-            # TODO: Implement actual cloud sync logic
-            # This would call the respective cloud provider APIs
-            resources = []
-
             if provider == 'aws':
-                # Sync AWS resources
-                pass
-            elif provider == 'gcp':
-                # Sync GCP resources
-                pass
+                result = sync_aws_resources(user_id)
             elif provider == 'azure':
-                # Sync Azure resources
-                pass
+                result = sync_azure_resources(user_id)
+            elif provider == 'gcp':
+                result = sync_gcp_resources(user_id)
+            else:
+                return {'status': 'error', 'message': f'Unknown provider: {provider}'}
 
             return {
                 'status': 'success',
                 'user_id': user_id,
                 'provider': provider,
-                'resources_synced': len(resources)
+                'resources_synced': result.get('synced', 0),
+                'errors': result.get('errors', []),
             }
 
     except Exception as e:
@@ -204,21 +206,116 @@ def run_cost_analysis(self, user_id: int, providers: list = None):
         providers = providers or ['aws', 'gcp', 'azure']
         logger.info(f"Running cost analysis for user {user_id}: {providers}")
 
-        results = {}
-        for provider in providers:
-            # TODO: Implement actual cost analysis
-            results[provider] = {
-                'current_month': 0,
-                'projected': 0,
-                'savings_opportunities': []
-            }
+        from app import app, db
+        from models import InfrastructureResource, CostOptimization
 
-        return {
-            'status': 'success',
-            'user_id': user_id,
-            'analysis': results
-        }
+        with app.app_context():
+            results = {}
+
+            for provider in providers:
+                if provider == 'aws':
+                    results['aws'] = _analyze_aws_costs(user_id)
+                else:
+                    results[provider] = _analyze_estimated_costs(user_id, provider)
+
+            return {
+                'status': 'success',
+                'user_id': user_id,
+                'analysis': results
+            }
 
     except Exception as e:
         logger.error(f"Cost analysis error: {e}")
         return {'status': 'error', 'message': str(e)}
+
+
+def _analyze_aws_costs(user_id: int) -> dict:
+    """Pull real AWS cost data via Cost Explorer and generate recommendations."""
+    from services.cost_explorer import (
+        get_actual_costs,
+        get_cost_forecast,
+        update_resource_costs_from_explorer,
+        generate_real_cost_recommendations,
+    )
+    from models import CostOptimization
+
+    # Update resource cost estimates with real CE data
+    try:
+        update_resource_costs_from_explorer(user_id)
+    except Exception as e:
+        logger.warning(f"Could not update resource costs from CE for user {user_id}: {e}")
+
+    # Pull current spend
+    try:
+        cost_data = get_actual_costs(user_id, days=30)
+        current_month = cost_data.get('total_cost', 0.0)
+        services = cost_data.get('services', [])
+        daily_trend = cost_data.get('daily_trend', [])
+    except Exception as e:
+        logger.warning(f"Could not fetch AWS actual costs for user {user_id}: {e}")
+        current_month = 0.0
+        services = []
+        daily_trend = []
+
+    # Pull forecast
+    try:
+        forecast_data = get_cost_forecast(user_id, forecast_days=30)
+        projected = forecast_data.get('forecast_total') or 0.0
+    except Exception as e:
+        logger.warning(f"Could not fetch AWS cost forecast for user {user_id}: {e}")
+        projected = 0.0
+
+    # Generate recommendations using real CloudWatch metrics
+    try:
+        generate_real_cost_recommendations(user_id)
+    except Exception as e:
+        logger.warning(f"Could not generate real cost recommendations for user {user_id}: {e}")
+
+    # Pull pending savings opportunities
+    savings_opportunities = [
+        opt.to_dict()
+        for opt in CostOptimization.query.filter_by(
+            user_id=user_id, status='pending'
+        ).all()
+        if opt.resource and opt.resource.cloud_provider == 'aws'
+    ]
+
+    return {
+        'current_month': current_month,
+        'projected': projected,
+        'services': services,
+        'daily_trend': daily_trend,
+        'savings_opportunities': savings_opportunities,
+    }
+
+
+def _analyze_estimated_costs(user_id: int, provider: str) -> dict:
+    """
+    Summarize costs for GCP/Azure using estimated monthly_cost from synced resources.
+    These providers lack a dedicated cost API integration, so we use the pricing
+    estimates stored during resource sync.
+    """
+    from models import InfrastructureResource, CostOptimization
+
+    resources = InfrastructureResource.query.filter_by(
+        user_id=user_id, cloud_provider=provider
+    ).filter(
+        InfrastructureResource.status.notin_(['terminated', 'deleted', 'stopped'])
+    ).all()
+
+    current_month = sum(r.monthly_cost or 0.0 for r in resources)
+
+    savings_opportunities = [
+        opt.to_dict()
+        for opt in CostOptimization.query.filter_by(
+            user_id=user_id, status='pending'
+        ).all()
+        if opt.resource and opt.resource.cloud_provider == provider
+    ]
+
+    return {
+        'current_month': round(current_month, 2),
+        'projected': round(current_month, 2),  # no forecast API — use current as estimate
+        'resource_count': len(resources),
+        'savings_opportunities': savings_opportunities,
+    }

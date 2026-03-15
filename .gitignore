@@ -70,3 +70,4 @@ app_output.log
 node_modules/
 
 cookies.txt
+.gstack/
