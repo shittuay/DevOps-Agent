@@ -350,6 +350,14 @@ def _template_exists(name):
     return os.path.exists(os.path.join(current_app.template_folder, name))
 
 
+@app.errorhandler(405)
+def handle_method_not_allowed(e):
+    """Return 405 instead of letting it bubble up as 500."""
+    if request.path.startswith('/api/') or request.path.startswith('/chat'):
+        return jsonify({'error': 'Method not allowed'}), 405
+    return render_template('404.html'), 405
+
+
 # Error handler for database errors
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -1129,6 +1137,12 @@ def login():
         return redirect(url_for('chat'))
 
     if request.method == 'POST':
+        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
+        try:
+            validate_csrf(request.form.get('csrf_token'))
+        except CSRFValidationError:
+            return render_template('login.html', error='Invalid or expired session. Please refresh and try again.'), 400
+
         email_or_username = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         ip_address = request.remote_addr
@@ -1214,6 +1228,12 @@ def signup():
         return redirect(url_for('chat'))
 
     if request.method == 'POST':
+        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
+        try:
+            validate_csrf(request.form.get('csrf_token'))
+        except CSRFValidationError:
+            return render_template('signup.html', error='Invalid or expired session. Please refresh and try again.'), 400
+
         email = request.form.get('email', '').strip().lower()
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
@@ -1331,6 +1351,12 @@ def forgot_password():
         return redirect(url_for('chat'))
 
     if request.method == 'POST':
+        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
+        try:
+            validate_csrf(request.form.get('csrf_token'))
+        except CSRFValidationError:
+            return render_template('forgot_password.html', error='Invalid or expired session. Please refresh and try again.'), 400
+
         email = request.form.get('email', '').strip().lower()
         ip_address = request.remote_addr
 
@@ -1384,6 +1410,12 @@ def reset_password():
         return render_template('reset_password.html', error='This reset link is invalid or has expired. Please request a new one.', token_valid=False)
 
     if request.method == 'POST':
+        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
+        try:
+            validate_csrf(request.form.get('csrf_token'))
+        except CSRFValidationError:
+            return render_template('reset_password.html', error='Invalid or expired session. Please refresh and try again.', token_valid=True, token=token, user_id=user_id), 400
+
         password = request.form.get('password', '')
         confirm_password = request.form.get('confirm_password', '')
 
