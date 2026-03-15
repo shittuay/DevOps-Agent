@@ -433,6 +433,32 @@ def enforce_two_factor():
             return redirect(url_for('onboarding_page'))
 
 
+# Routes that do NOT require email verification (auth pages, email verify flow, static)
+_EMAIL_VERIFY_EXEMPT_ROUTES = {
+    'login', 'signup', 'logout', 'verify_email', 'resend_verification',
+    'forgot_password', 'reset_password', 'static', 'page_not_found',
+    'handle_exception', 'ensure_clean_transaction', 'register_redirect',
+    'usage_policy', 'privacy_policy',
+}
+
+@app.before_request
+def enforce_email_verification():
+    """Require all logged-in users to verify their email before accessing the app."""
+    if app.config.get('TESTING'):
+        return
+    if not current_user.is_authenticated:
+        return
+    if request.endpoint in _EMAIL_VERIFY_EXEMPT_ROUTES:
+        return
+    if request.endpoint and request.endpoint.startswith('static'):
+        return
+    if not getattr(current_user, 'email_verified', True):
+        # API routes get JSON; page routes get a redirect
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Email verification required', 'email_unverified': True}), 403
+        return redirect(url_for('resend_verification'))
+
+
 @app.route('/register')
 def register_redirect():
     """Permanent redirect from /register to /signup."""

@@ -44,10 +44,24 @@ def execute_command(
         }
 
     try:
-        # Execute command with timeout
+        # Split command string into list to avoid shell=True injection risk
+        try:
+            command_args = shlex.split(command)
+        except ValueError as e:
+            return {
+                'success': False,
+                'command': command,
+                'stdout': '',
+                'stderr': f'Invalid command syntax: {e}',
+                'exit_code': -1,
+                'execution_time_ms': 0,
+                'dry_run': False,
+                'error': str(e)
+            }
+
         result = subprocess.run(
-            command,
-            shell=True,
+            command_args,
+            shell=False,
             capture_output=True,
             text=True,
             timeout=timeout or 300,
