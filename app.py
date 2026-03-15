@@ -433,6 +433,12 @@ def enforce_two_factor():
             return redirect(url_for('onboarding_page'))
 
 
+@app.route('/register')
+def register_redirect():
+    """Permanent redirect from /register to /signup."""
+    return redirect(url_for('signup'), 308)
+
+
 @app.errorhandler(404)
 def page_not_found(e):
     """Handle 404 errors."""
@@ -1194,11 +1200,12 @@ def login():
                 return redirect(url_for('verify_2fa'))
 
             # Successful login (no 2FA)
-            login_user(user, remember=True)
+            remember_me = request.form.get('remember') == 'on'
+            login_user(user, remember=remember_me)
             user.update_last_login(ip_address=ip_address)
 
-            # Make session permanent
-            session.permanent = True
+            # Make session permanent only if remember me is checked
+            session.permanent = remember_me
 
             security_logger.info(f"Successful login: {user.email} from {ip_address}")
 
@@ -5775,11 +5782,7 @@ def health():
     """Health check endpoint."""
     return jsonify({
         'status': 'healthy',
-        'agent_initialized': agent is not None,
-        'api_key_configured': check_api_key_configured(),
         'timestamp': datetime.now().isoformat(),
-        'version': '2026-02-11-v6',
-        'stripe_enabled': STRIPE_ENABLED,
     })
 
 
