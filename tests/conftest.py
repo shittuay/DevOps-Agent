@@ -2,7 +2,9 @@
 Pytest Configuration and Fixtures
 
 Provides shared fixtures for all tests.
-Uses PostgreSQL test database for consistency with production.
+Uses SQLite in-memory for unit/integration tests (no Postgres required).
+Set DATABASE_URL env var to point at a real Postgres instance for
+system-level tests that need production parity.
 """
 
 import os
@@ -13,8 +15,10 @@ from datetime import datetime
 os.environ['FLASK_ENV'] = 'testing'
 os.environ['TESTING'] = 'true'
 
-# Use PostgreSQL test database — same engine as production for consistency
-os.environ['DATABASE_URL'] = 'postgresql://devops:devops_local@localhost:5432/devops_agent_test'
+# Use SQLite in-memory so tests run without a running Postgres server.
+# Override by setting DATABASE_URL before running pytest if you need Postgres.
+if 'DATABASE_URL' not in os.environ:
+    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
 
 @pytest.fixture(scope='session')
@@ -40,8 +44,6 @@ def app():
         yield flask_app
         db.session.remove()
         db.drop_all()
-        # Dispose engine to release all PostgreSQL connections
-        db.engine.dispose()
 
 
 @pytest.fixture(scope='function')
