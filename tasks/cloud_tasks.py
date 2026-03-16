@@ -11,6 +11,62 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
+@shared_task(bind=True, max_retries=2, time_limit=300, soft_time_limit=240)
+def sync_user_infrastructure_task(self, user_id: int):
+    """
+    Full infrastructure sync for a single user: all providers + cost recommendations.
+    Triggered manually from the dashboard sync button.
+    """
+    try:
+        from app import app, db
+        from services.infrastructure_sync import sync_user_infrastructure
+
+        with app.app_context():
+            result = sync_user_infrastructure(user_id)
+
+            total_savings = 0
+            try:
+                from services.cost_explorer import (
+                    generate_real_cost_recommendations,
+                    update_resource_costs_from_explorer,
+                )
+                update_resource_costs_from_explorer(user_id)
+                generate_real_cost_recommendations(user_id)
+                db.session.commit()
+
+                from models import CostOptimization
+                active_recs = CostOptimization.query.filter_by(
+                    user_id=user_id, status='pending'
+                ).all()
+                total_savings = sum(r.potential_monthly_savings or 0 for r in active_recs)
+            except Exception as e:
+                logger.warning(f"Cost explorer unavailable for user {user_id}: {e}")
+
+            if total_savings > 50:
+                try:
+                    from services.notification_service import get_notification_service
+                    svc = get_notification_service()
+                    svc.send_cost_alert(user_id, {
+                        'amount': total_savings,
+                        'threshold': 50,
+                        'message': f'Infrastructure sync found ${total_savings:.2f}/month in potential savings',
+                        'period': 'Monthly',
+                        'top_service': 'AWS',
+                    })
+                except Exception:
+                    pass
+
+            return {
+                'status': 'success',
+                'total_resources': result.get('total_resources', 0),
+                'total_savings': total_savings,
+            }
+
+    except Exception as e:
+        logger.error(f"sync_user_infrastructure_task failed for user {user_id}: {e}")
+        raise self.retry(exc=e)
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def sync_cloud_resources(self, user_id: int, provider: str):
     """

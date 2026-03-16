@@ -22,11 +22,8 @@ Tracked from CEO plan review — 2026-03-15.
 ### [x] Streaming in-flight guard — DONE
 `models.py`: `Conversation.is_streaming` column. `api_chat_stream` checks and sets it before commit; `generate()` clears it in success path and `finally` safety net covers all error paths.
 
-### [ ] Dashboard sync async (30s page loads)
-**What:** Move cloud resource sync from synchronous request handler to Celery task with progress polling.
-**Why:** `infrastructure_sync.py` makes 10+ serial AWS API calls synchronously. A large AWS account causes 30+ second page loads or timeouts.
-**How to start:** Create a `sync_cloud_resources.delay(user_id)` Celery task. Return task_id immediately. Frontend polls `/api/sync/status/<task_id>`.
-**Effort:** M | **Depends on:** Redis/Celery already wired
+### [x] Dashboard sync async — DONE
+`tasks/cloud_tasks.sync_user_infrastructure_task`: full sync + cost explorer + notifications. Route returns `{task_id}` immediately. `GET /api/dashboard/sync/status/<task_id>` polls state. Frontend polls every 3s (60 attempts max).
 
 ---
 

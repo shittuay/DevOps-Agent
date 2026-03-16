@@ -1444,30 +1444,63 @@
             btn.classList.add('syncing');
             btn.innerHTML = '<span class="sync-icon"></span> Syncing...';
 
+            function resetBtn() {
+                syncing = false;
+                btn.disabled = false;
+                btn.classList.remove('syncing');
+                btn.innerHTML = '<span class="sync-icon"></span> Sync Now';
+            }
+
             try {
                 var res = await fetch('/api/dashboard/sync', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }
                 });
                 var data = await res.json();
 
-                if (data.success) {
-                    showToast('Infrastructure sync complete', 'success');
-                    // Reload
-                    $('dashContent').style.display = 'none';
-                    $('emptyState').style.display = 'none';
-                    $('loadingState').style.display = 'flex';
-                    utilCache = {};
-                    await loadDashboard();
-                } else {
+                if (!data.task_id) {
                     showToast('Sync failed: ' + (data.error || 'Unknown error'), 'error');
+                    resetBtn();
+                    return;
                 }
+
+                // Poll for task completion (up to 3 minutes)
+                var taskId = data.task_id;
+                var polls = 0;
+                var maxPolls = 60;
+
+                var poll = async function() {
+                    polls++;
+                    try {
+                        var sr = await fetch('/api/dashboard/sync/status/' + taskId);
+                        var sd = await sr.json();
+
+                        if (sd.status === 'complete') {
+                            showToast('Infrastructure sync complete', 'success');
+                            $('dashContent').style.display = 'none';
+                            $('emptyState').style.display = 'none';
+                            $('loadingState').style.display = 'flex';
+                            utilCache = {};
+                            await loadDashboard();
+                            resetBtn();
+                        } else if (sd.status === 'failed' || sd.status === 'error') {
+                            showToast('Sync failed: ' + (sd.error || 'Unknown error'), 'error');
+                            resetBtn();
+                        } else if (polls < maxPolls) {
+                            setTimeout(poll, 3000);
+                        } else {
+                            showToast('Sync is taking longer than expected — it will complete in the background.', 'warning');
+                            resetBtn();
+                        }
+                    } catch (e) {
+                        showToast('Sync error: ' + e.message, 'error');
+                        resetBtn();
+                    }
+                };
+
+                setTimeout(poll, 3000);
             } catch (e) {
                 showToast('Sync error: ' + e.message, 'error');
-            } finally {
-                syncing = false;
-                btn.disabled = false;
-                btn.classList.remove('syncing');
-                btn.innerHTML = '<span class="sync-icon"></span> Sync Now';
+                resetBtn();
             }
         };
 
