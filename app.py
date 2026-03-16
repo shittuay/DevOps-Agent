@@ -2027,17 +2027,17 @@ def api_chat():
             db.session.add(subscription)
             db.session.commit()
 
-        # Check if credits need to be reset
-        if subscription.should_reset_credits():
+        # Reset monthly credits for paid tiers only — free tier is a one-time trial
+        tier_name = subscription.tier.name if subscription.tier else 'free'
+        if tier_name != 'free' and subscription.should_reset_credits():
             subscription.reset_monthly_credits()
 
         # Check if user has credits
         if not subscription.has_credits():
-            tier_name = subscription.tier.name if subscription.tier else 'free'
             if tier_name == 'free':
                 # Free-tier exhausted: return upgrade pitch as a normal response
                 return jsonify({
-                    'response': _generate_upgrade_pitch(reset_date=subscription.current_period_end),
+                    'response': _generate_upgrade_pitch(),
                     'credits_remaining': 0,
                     'trial_ended': True,
                 })
@@ -2362,16 +2362,16 @@ def api_chat_stream():
             db.session.add(subscription)
             db.session.commit()
 
-        if subscription.should_reset_credits():
-            subscription.reset_monthly_credits()
-
+        # Reset monthly credits for paid tiers only — free tier is a one-time trial
         tier_name = subscription.tier.name if subscription.tier else 'free'
+        if tier_name != 'free' and subscription.should_reset_credits():
+            subscription.reset_monthly_credits()
 
         if not subscription.has_credits():
             if tier_name == 'free':
                 # Free-tier exhausted: stream the upgrade pitch as SSE
                 import json as _json_stream
-                pitch = _generate_upgrade_pitch(reset_date=subscription.current_period_end)
+                pitch = _generate_upgrade_pitch()
                 def generate_pitch():
                     yield f"data: {_json_stream.dumps({'type': 'chunk', 'content': pitch})}\n\n"
                     yield f"data: {_json_stream.dumps({'type': 'done', 'credits_remaining': 0, 'trial_ended': True})}\n\n"

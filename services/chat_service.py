@@ -41,30 +41,25 @@ GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'
 GROQ_FALLBACK_MAX_TOKENS = 4096
 
 
-def generate_upgrade_pitch(reset_date=None) -> str:
-    """Return a markdown upgrade pitch for free-tier users who exhausted their monthly credits."""
-    if reset_date:
-        reset_str = f" They will reset on **{reset_date.strftime('%B %d, %Y')}**."
-    else:
-        reset_str = " They reset at the start of your next monthly period."
+def generate_upgrade_pitch() -> str:
+    """Return a markdown upgrade pitch for free-tier users who exhausted their trial credits."""
+    return """## Your free trial has ended
 
-    return f"""## Your free credits are used up
+You've used all **20 trial credits** -- and you got the full experience: the same AI agent and real cloud tools that our paid users rely on every day.
 
-You've used all **20 free credits** for this month.{reset_str}
-
-Here's what you experienced:
+Here's what you accomplished during your trial:
 - **Real tool execution** -- not just chat, actual cloud operations
 - **AI-powered DevOps automation** with Kimi K2.5
 - **Security scans, cost analysis, infrastructure management** -- all hands-free
 
-### Want more right now?
+### Ready to keep going?
 
 **Starter Plan -- $29/month**
 - 200 credits/month
 - Full tool access (AWS, Azure, GCP, Kubernetes)
 - Priority support
 
-[Upgrade now](/billing) to keep going without waiting. Your conversations and settings are saved."""
+[Upgrade now](/billing) to pick up right where you left off. Your conversations and settings are saved."""
 
 
 def process_free_tier_chat(message: str, conversation_history: list, preferences_context: str = None) -> str:
