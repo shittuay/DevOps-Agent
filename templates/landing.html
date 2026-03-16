@@ -1,0 +1,1659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevOps Agent — AI-Powered Cloud Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Epilogue:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #07090F;
+      --bg2:       #0C0F1A;
+      --bg3:       #111520;
+      --border:    #1A2035;
+      --border2:   #243050;
+      --orange:    #FF4D1C;
+      --orange2:   #FF7A45;
+      --cyan:      #00CFFF;
+      --green:     #00FF9D;
+      --text:      #E2EAF8;
+      --text2:     #6B7A99;
+      --text3:     #3D4F72;
+      --mono:      'DM Mono', monospace;
+      --display:   'Bebas Neue', sans-serif;
+      --body:      'Epilogue', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--body);
+      overflow-x: hidden;
+    }
+
+    /* ── GRID BACKGROUND ─────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 60px 60px;
+      opacity: .35;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── NAV ─────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 40px;
+      height: 64px;
+      background: rgba(7,9,15,.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+
+    .nav-logo-icon {
+      width: 32px; height: 32px;
+      background: var(--orange);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 500;
+      color: #fff;
+    }
+
+    .nav-logo-text {
+      font-family: var(--display);
+      font-size: 20px;
+      letter-spacing: .04em;
+      color: var(--text);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text2);
+      text-decoration: none;
+      letter-spacing: .02em;
+      transition: color .2s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-cta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-ghost {
+      padding: 8px 20px;
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all .2s;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--text3); }
+
+    .btn-primary {
+      padding: 8px 20px;
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--orange);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      letter-spacing: .02em;
+      transition: all .2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-primary::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,.15) 0%, transparent 60%);
+    }
+    .btn-primary:hover { background: var(--orange2); transform: translateY(-1px); }
+
+    /* ── HERO ────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 120px 40px 80px;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    /* Radial glow behind hero */
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 10%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 700px; height: 500px;
+      background: radial-gradient(ellipse at center,
+        rgba(255,77,28,.12) 0%,
+        rgba(0,207,255,.06) 40%,
+        transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(255,77,28,.1);
+      border: 1px solid rgba(255,77,28,.3);
+      border-radius: 100px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--orange2);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      animation: fadeUp .6s .1s forwards;
+    }
+
+    .hero-badge-dot {
+      width: 6px; height: 6px;
+      background: var(--orange);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--orange);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(.8); }
+    }
+
+    .hero-headline {
+      font-family: var(--display);
+      font-size: clamp(72px, 10vw, 148px);
+      line-height: .92;
+      letter-spacing: .02em;
+      color: var(--text);
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      animation: fadeUp .7s .25s forwards;
+    }
+
+    .hero-headline em {
+      font-style: normal;
+      color: transparent;
+      -webkit-text-stroke: 1.5px var(--orange);
+    }
+
+    .hero-headline .accent-line {
+      display: block;
+      background: linear-gradient(90deg, var(--orange), var(--orange2), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-sub {
+      max-width: 560px;
+      font-size: 18px;
+      font-weight: 300;
+      line-height: 1.6;
+      color: var(--text2);
+      margin-top: 24px;
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      animation: fadeUp .7s .4s forwards;
+    }
+
+    .hero-sub strong { color: var(--text); font-weight: 600; }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 36px;
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      animation: fadeUp .7s .55s forwards;
+    }
+
+    .btn-hero {
+      padding: 14px 32px;
+      font-family: var(--body);
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--orange);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      letter-spacing: .02em;
+      transition: all .2s;
+      box-shadow: 0 0 40px rgba(255,77,28,.25);
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-hero::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,.15) 0%, transparent 60%);
+    }
+    .btn-hero:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 60px rgba(255,77,28,.4);
+    }
+
+    .btn-hero-outline {
+      padding: 14px 32px;
+      font-family: var(--body);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all .2s;
+    }
+    .btn-hero-outline:hover {
+      border-color: var(--text2);
+      background: rgba(255,255,255,.03);
+    }
+
+    .hero-note {
+      margin-top: 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text3);
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      animation: fadeUp .7s .65s forwards;
+    }
+
+    /* ── TERMINAL MOCKUP ─────────────────────────────────── */
+    .hero-terminal {
+      width: 100%;
+      max-width: 780px;
+      margin-top: 56px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border2);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.03),
+        0 40px 80px rgba(0,0,0,.6),
+        0 0 80px rgba(255,77,28,.08);
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      animation: fadeUp .8s .75s forwards;
+    }
+
+    .terminal-bar {
+      background: var(--bg3);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #FF5F57; }
+    .dot-yellow { background: #FFBD2E; }
+    .dot-green { background: #28C840; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text3);
+    }
+
+    .terminal-body {
+      background: rgba(7,9,15,.95);
+      padding: 20px 24px;
+      min-height: 220px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .t-line { display: flex; gap: 8px; margin-bottom: 2px; }
+    .t-prompt { color: var(--orange); user-select: none; }
+    .t-cmd { color: var(--text); }
+    .t-out { color: var(--text2); padding-left: 16px; }
+    .t-success { color: var(--green); padding-left: 16px; }
+    .t-info { color: var(--cyan); padding-left: 16px; }
+    .t-dim { color: var(--text3); }
+
+    .t-cursor {
+      display: inline-block;
+      width: 8px; height: 14px;
+      background: var(--orange);
+      vertical-align: middle;
+      animation: blink .9s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    .t-hidden { visibility: hidden; }
+
+    /* ── STATS STRIP ─────────────────────────────────────── */
+    .stats-strip {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+
+    .stat-item {
+      padding: 32px 40px;
+      border-right: 1px solid var(--border);
+      text-align: center;
+    }
+    .stat-item:last-child { border-right: none; }
+
+    .stat-number {
+      font-family: var(--display);
+      font-size: 56px;
+      line-height: 1;
+      color: var(--text);
+      letter-spacing: .02em;
+    }
+
+    .stat-number span { color: var(--orange); }
+
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-top: 6px;
+    }
+
+    /* ── SECTION COMMONS ─────────────────────────────────── */
+    section {
+      position: relative;
+      z-index: 1;
+    }
+
+    .section-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--orange);
+      margin-bottom: 14px;
+    }
+
+    .section-title {
+      font-family: var(--display);
+      font-size: clamp(42px, 5vw, 72px);
+      line-height: .95;
+      letter-spacing: .02em;
+      color: var(--text);
+    }
+
+    .section-sub {
+      font-size: 16px;
+      font-weight: 300;
+      line-height: 1.65;
+      color: var(--text2);
+      max-width: 520px;
+      margin-top: 16px;
+    }
+
+    /* ── TOOLS SECTION ───────────────────────────────────── */
+    .tools-section {
+      padding: 100px 80px;
+    }
+
+    .tools-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: end;
+      margin-bottom: 64px;
+    }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .tool-card {
+      background: var(--bg2);
+      padding: 32px 28px;
+      transition: background .2s;
+      cursor: default;
+    }
+    .tool-card:hover { background: var(--bg3); }
+
+    .tool-card-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+    }
+
+    .tool-card-name {
+      font-family: var(--display);
+      font-size: 22px;
+      letter-spacing: .02em;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .tool-card-count {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--orange);
+      margin-bottom: 10px;
+    }
+
+    .tool-card-desc {
+      font-size: 13px;
+      font-weight: 300;
+      line-height: 1.55;
+      color: var(--text2);
+    }
+
+    .tool-card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 14px;
+    }
+
+    .tool-tag {
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 3px 8px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border2);
+      border-radius: 4px;
+      color: var(--text3);
+      letter-spacing: .04em;
+    }
+
+    /* ── HOW IT WORKS ────────────────────────────────────── */
+    .how-section {
+      padding: 100px 80px;
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .how-inner {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 80px;
+      align-items: start;
+    }
+
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin-top: 48px;
+    }
+
+    .step {
+      display: flex;
+      gap: 20px;
+      padding: 28px 0;
+      border-bottom: 1px solid var(--border);
+      cursor: default;
+    }
+    .step:first-child { border-top: 1px solid var(--border); }
+
+    .step-num {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text3);
+      min-width: 28px;
+      padding-top: 3px;
+    }
+
+    .step-content {}
+
+    .step-title {
+      font-family: var(--display);
+      font-size: 26px;
+      letter-spacing: .02em;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .step-desc {
+      font-size: 14px;
+      font-weight: 300;
+      line-height: 1.6;
+      color: var(--text2);
+    }
+
+    /* Chat Preview */
+    .chat-preview {
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--bg);
+      box-shadow: 0 24px 60px rgba(0,0,0,.5);
+    }
+
+    .chat-header {
+      background: var(--bg3);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .chat-avatar {
+      width: 28px; height: 28px;
+      background: var(--orange);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #fff;
+      font-weight: 500;
+    }
+
+    .chat-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .chat-status {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--green);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .chat-status::before {
+      content: '';
+      width: 5px; height: 5px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--green);
+    }
+
+    .chat-messages {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .chat-msg {
+      max-width: 82%;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .chat-msg.user {
+      background: rgba(255,77,28,.12);
+      border: 1px solid rgba(255,77,28,.2);
+      color: var(--text);
+      align-self: flex-end;
+    }
+
+    .chat-msg.agent {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      align-self: flex-start;
+    }
+
+    .chat-msg .tool-call {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(0,207,255,.06);
+      border: 1px solid rgba(0,207,255,.15);
+      border-radius: 6px;
+      margin-top: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--cyan);
+    }
+
+    .chat-msg .tool-result {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 8px 12px;
+      background: rgba(0,255,157,.04);
+      border: 1px solid rgba(0,255,157,.12);
+      border-radius: 6px;
+      margin-top: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--green);
+    }
+
+    .chat-input-bar {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .chat-input-fake {
+      flex: 1;
+      padding: 10px 14px;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      font-family: var(--body);
+      font-size: 13px;
+      color: var(--text3);
+    }
+
+    .chat-send {
+      padding: 10px 16px;
+      background: var(--orange);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: var(--body);
+    }
+
+    /* ── FEATURES SECTION ────────────────────────────────── */
+    .features-section {
+      padding: 100px 80px;
+    }
+
+    .features-header {
+      text-align: center;
+      margin-bottom: 64px;
+    }
+
+    .features-header .section-sub {
+      margin: 16px auto 0;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .feature-card {
+      background: var(--bg);
+      padding: 36px 32px;
+      transition: background .2s;
+    }
+    .feature-card:hover { background: var(--bg2); }
+
+    .feature-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+
+    .feature-title {
+      font-family: var(--display);
+      font-size: 24px;
+      letter-spacing: .02em;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .feature-desc {
+      font-size: 14px;
+      font-weight: 300;
+      line-height: 1.65;
+      color: var(--text2);
+    }
+
+    .feature-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--orange);
+      letter-spacing: .04em;
+    }
+
+    /* ── PRICING ─────────────────────────────────────────── */
+    .pricing-section {
+      padding: 100px 80px;
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+    }
+
+    .pricing-header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .price-card {
+      background: var(--bg);
+      padding: 36px 28px;
+      position: relative;
+    }
+
+    .price-card.featured {
+      background: var(--bg3);
+    }
+
+    .price-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      background: var(--orange);
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      color: #fff;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .price-tier {
+      font-family: var(--display);
+      font-size: 28px;
+      letter-spacing: .03em;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .price-amount {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      margin: 16px 0;
+    }
+
+    .price-currency {
+      font-family: var(--mono);
+      font-size: 16px;
+      color: var(--text2);
+      align-self: flex-start;
+      padding-top: 6px;
+    }
+
+    .price-value {
+      font-family: var(--display);
+      font-size: 52px;
+      line-height: 1;
+      letter-spacing: .01em;
+      color: var(--text);
+    }
+
+    .price-period {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text3);
+    }
+
+    .price-desc {
+      font-size: 13px;
+      font-weight: 300;
+      color: var(--text2);
+      margin-bottom: 24px;
+      line-height: 1.55;
+    }
+
+    .price-divider {
+      height: 1px;
+      background: var(--border);
+      margin-bottom: 20px;
+    }
+
+    .price-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .price-features li {
+      display: flex;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text2);
+      line-height: 1.4;
+    }
+
+    .price-features li::before {
+      content: '→';
+      font-family: var(--mono);
+      color: var(--orange);
+      font-size: 12px;
+      flex-shrink: 0;
+      padding-top: 1px;
+    }
+
+    .price-cta {
+      display: block;
+      text-align: center;
+      padding: 12px;
+      border-radius: 8px;
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all .2s;
+      letter-spacing: .02em;
+    }
+
+    .price-cta-outline {
+      border: 1px solid var(--border2);
+      color: var(--text2);
+    }
+    .price-cta-outline:hover { border-color: var(--text3); color: var(--text); }
+
+    .price-cta-solid {
+      background: var(--orange);
+      color: #fff;
+      border: none;
+      box-shadow: 0 0 24px rgba(255,77,28,.2);
+    }
+    .price-cta-solid:hover {
+      background: var(--orange2);
+      box-shadow: 0 0 36px rgba(255,77,28,.35);
+    }
+
+    /* ── SOCIAL PROOF ────────────────────────────────────── */
+    .social-section {
+      padding: 80px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .social-label {
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 40px;
+    }
+
+    .testimonials {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .testimonial {
+      padding: 28px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .testimonial-text {
+      font-size: 14px;
+      font-weight: 300;
+      line-height: 1.7;
+      color: var(--text2);
+      margin-bottom: 20px;
+      font-style: italic;
+    }
+
+    .testimonial-author {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .testimonial-avatar {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .testimonial-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .testimonial-role {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text3);
+      margin-top: 2px;
+    }
+
+    /* ── FINAL CTA ───────────────────────────────────────── */
+    .final-cta {
+      padding: 120px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .final-cta::before {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 600px; height: 400px;
+      background: radial-gradient(ellipse,
+        rgba(255,77,28,.1) 0%,
+        rgba(0,207,255,.05) 50%,
+        transparent 70%);
+      pointer-events: none;
+    }
+
+    .final-cta .section-title {
+      font-size: clamp(56px, 7vw, 100px);
+      position: relative;
+    }
+
+    .final-cta .section-sub {
+      margin: 20px auto 0;
+      max-width: 480px;
+      position: relative;
+    }
+
+    .final-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 40px;
+      position: relative;
+    }
+
+    /* ── FOOTER ──────────────────────────────────────────── */
+    footer {
+      padding: 40px 80px;
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-copy {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text3);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text3);
+      text-decoration: none;
+      transition: color .2s;
+    }
+    .footer-links a:hover { color: var(--text2); }
+
+    /* ── ANIMATIONS ──────────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity .65s ease, transform .65s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: none;
+    }
+
+    /* ── RESPONSIVE ──────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .tools-section, .how-section, .features-section,
+      .pricing-section, .social-section, .final-cta, footer { padding: 80px 40px; }
+      .tools-grid { grid-template-columns: repeat(2, 1fr); }
+      .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+      .tools-header { grid-template-columns: 1fr; gap: 32px; }
+      .how-inner { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      nav { padding: 0 20px; }
+      .nav-links { display: none; }
+      .hero { padding: 100px 24px 60px; }
+      .stats-strip { grid-template-columns: repeat(2, 1fr); }
+      .tools-section, .how-section, .features-section,
+      .pricing-section, .social-section, .final-cta, footer { padding: 60px 24px; }
+      .tools-grid, .features-grid, .testimonials { grid-template-columns: 1fr; }
+      .pricing-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── NAVIGATION ────────────────────────────────────────── -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-logo-icon">DA</div>
+    <span class="nav-logo-text">DevOps Agent</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#tools">Tools</a></li>
+    <li><a href="#how">How It Works</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#pricing">Pricing</a></li>
+  </ul>
+  <div class="nav-cta">
+    <a href="/auth/login" class="btn-ghost">Sign In</a>
+    <a href="/auth/signup" class="btn-primary">Start Free</a>
+  </div>
+</nav>
+
+<!-- ── HERO ──────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-badge">
+    <div class="hero-badge-dot"></div>
+    258 tools · 3 cloud providers · 1 AI agent
+  </div>
+
+  <h1 class="hero-headline">
+    YOUR CLOUD.<br/>
+    <em>AUTOMATED.</em><br/>
+    <span class="accent-line">ON COMMAND.</span>
+  </h1>
+
+  <p class="hero-sub">
+    DevOps Agent is the <strong>AI-powered command center</strong> for your entire cloud infrastructure. Manage AWS, Azure, and GCP through natural language — no dashboards, no context switching.
+  </p>
+
+  <div class="hero-actions">
+    <a href="/auth/signup" class="btn-hero">Start Free Trial →</a>
+    <a href="#how" class="btn-hero-outline">See It Work</a>
+  </div>
+  <p class="hero-note">20 free credits · No credit card required · Deploy in 60 seconds</p>
+
+  <!-- Terminal Animation -->
+  <div class="hero-terminal">
+    <div class="terminal-bar">
+      <div class="terminal-dot dot-red"></div>
+      <div class="terminal-dot dot-yellow"></div>
+      <div class="terminal-dot dot-green"></div>
+      <div class="terminal-title">devops-agent — bash</div>
+    </div>
+    <div class="terminal-body" id="terminalBody">
+      <div class="t-line t-hidden" data-delay="200">
+        <span class="t-prompt">▸</span>
+        <span class="t-cmd">You: Show me all EC2 instances with CPU over 80%</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="900">
+        <span class="t-info">⚙ Calling list_ec2_instances → filtering by CloudWatch metrics...</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="1600">
+        <span class="t-success">✓ Found 3 instances above threshold</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="1900">
+        <span class="t-out">  i-0a3f2e91d  •  t3.large  •  CPU: 94%  •  us-east-1a</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="2100">
+        <span class="t-out">  i-0b7c1a44f  •  m5.xlarge  •  CPU: 87%  •  us-east-1b</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="2300">
+        <span class="t-out">  i-0c9d5b22a  •  t3.xlarge  •  CPU: 82%  •  us-west-2a</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="2800">
+        <span class="t-prompt">▸</span>
+        <span class="t-cmd">You: Scale the first one up to m5.xlarge and set up a CloudWatch alarm</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="3400">
+        <span class="t-info">⚙ Calling stop_ec2_instance → modify_instance_type → start_ec2_instance...</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="4200">
+        <span class="t-info">⚙ Calling create_cloudwatch_alarm → threshold: 80% · action: SNS notify...</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="4900">
+        <span class="t-success">✓ i-0a3f2e91d scaled to m5.xlarge · alarm active</span>
+      </div>
+      <div class="t-line t-hidden" data-delay="5400">
+        <span class="t-prompt">▸</span>
+        <span class="t-cmd t-dim">_<span class="t-cursor"></span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── STATS ──────────────────────────────────────────────── -->
+<div class="stats-strip">
+  <div class="stat-item reveal">
+    <div class="stat-number"><span class="counter" data-target="258">0</span></div>
+    <div class="stat-label">Total Tools</div>
+  </div>
+  <div class="stat-item reveal">
+    <div class="stat-number"><span class="counter" data-target="3">0</span></div>
+    <div class="stat-label">Cloud Providers</div>
+  </div>
+  <div class="stat-item reveal">
+    <div class="stat-number"><span class="counter" data-target="20">0</span></div>
+    <div class="stat-label">Free Credits</div>
+  </div>
+  <div class="stat-item reveal">
+    <div class="stat-number"><span class="counter" data-target="60">0</span></div>
+    <div class="stat-label">Sec Deploy Time</div>
+  </div>
+</div>
+
+<!-- ── TOOL CATEGORIES ────────────────────────────────────── -->
+<section class="tools-section" id="tools">
+  <div class="tools-header">
+    <div>
+      <p class="section-label reveal">Tool Inventory</p>
+      <h2 class="section-title reveal">258 tools.<br/>One interface.</h2>
+    </div>
+    <p class="section-sub reveal">Every tool you need across the four major clouds, unified into a single conversational interface. No more tab switching. No more context loss.</p>
+  </div>
+
+  <div class="tools-grid reveal">
+    <div class="tool-card">
+      <div class="tool-card-icon" style="background:rgba(255,153,0,.12);">🟠</div>
+      <div class="tool-card-name">AWS</div>
+      <div class="tool-card-count">154 TOOLS</div>
+      <div class="tool-card-desc">Full lifecycle management across all major AWS services — compute, storage, networking, security, serverless, and more.</div>
+      <div class="tool-card-tags">
+        <span class="tool-tag">EC2</span><span class="tool-tag">S3</span><span class="tool-tag">IAM</span>
+        <span class="tool-tag">Lambda</span><span class="tool-tag">EKS</span><span class="tool-tag">RDS</span>
+        <span class="tool-tag">VPC</span><span class="tool-tag">+145</span>
+      </div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-card-icon" style="background:rgba(0,120,212,.12);">🔵</div>
+      <div class="tool-card-name">Azure</div>
+      <div class="tool-card-count">36 TOOLS</div>
+      <div class="tool-card-desc">Virtual machines, storage accounts, SQL servers, NSGs, container instances, VNets, and more — fully automated.</div>
+      <div class="tool-card-tags">
+        <span class="tool-tag">VMs</span><span class="tool-tag">Storage</span><span class="tool-tag">SQL</span>
+        <span class="tool-tag">NSGs</span><span class="tool-tag">ACI</span><span class="tool-tag">+31</span>
+      </div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-card-icon" style="background:rgba(52,168,83,.12);">🟢</div>
+      <div class="tool-card-name">GCP</div>
+      <div class="tool-card-count">40 TOOLS</div>
+      <div class="tool-card-desc">Compute Engine, GCS, Cloud SQL, GKE, Cloud Run, BigQuery, Pub/Sub, Secret Manager, and Cloud Functions.</div>
+      <div class="tool-card-tags">
+        <span class="tool-tag">GCE</span><span class="tool-tag">GKE</span><span class="tool-tag">GCS</span>
+        <span class="tool-tag">BigQuery</span><span class="tool-tag">Cloud Run</span><span class="tool-tag">+35</span>
+      </div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-card-icon" style="background:rgba(100,160,255,.12);">⎈</div>
+      <div class="tool-card-name">Kubernetes</div>
+      <div class="tool-card-count">28 TOOLS</div>
+      <div class="tool-card-desc">Pods, deployments, services, ingress, ConfigMaps, secrets, jobs, node management — the full K8s surface.</div>
+      <div class="tool-card-tags">
+        <span class="tool-tag">Pods</span><span class="tool-tag">Deployments</span><span class="tool-tag">Services</span>
+        <span class="tool-tag">Ingress</span><span class="tool-tag">Jobs</span><span class="tool-tag">+23</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── HOW IT WORKS ───────────────────────────────────────── -->
+<section class="how-section" id="how">
+  <div class="how-inner">
+    <div>
+      <p class="section-label reveal">How It Works</p>
+      <h2 class="section-title reveal">Talk.<br/>Execute.<br/>Done.</h2>
+      <div class="steps">
+        <div class="step reveal">
+          <div class="step-num">01</div>
+          <div class="step-content">
+            <div class="step-title">Connect Your Cloud</div>
+            <div class="step-desc">Add your AWS access keys, Azure credentials, or GCP service account. Credentials are encrypted at rest with AES-128. Supports IAM Role ARN for enterprise cross-account delegation.</div>
+          </div>
+        </div>
+        <div class="step reveal">
+          <div class="step-num">02</div>
+          <div class="step-content">
+            <div class="step-title">Ask In Plain English</div>
+            <div class="step-desc">No commands to memorize. Describe what you want — "scale my API server and add a health check alarm." The agent plans the tool calls, confirms risky operations, and executes.</div>
+          </div>
+        </div>
+        <div class="step reveal">
+          <div class="step-num">03</div>
+          <div class="step-content">
+            <div class="step-title">Review & Iterate</div>
+            <div class="step-desc">Every action is logged with results. High-risk operations require your confirmation. Ask follow-up questions, refine the output, or chain into the next task.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat Preview -->
+    <div class="chat-preview reveal">
+      <div class="chat-header">
+        <div class="chat-avatar">DA</div>
+        <div>
+          <div class="chat-name">DevOps Agent</div>
+          <div class="chat-status">Online</div>
+        </div>
+      </div>
+      <div class="chat-messages">
+        <div class="chat-msg user">
+          My Kubernetes deployment keeps crashing. Pods are in CrashLoopBackOff.
+        </div>
+        <div class="chat-msg agent">
+          Let me investigate. I'll check the pod logs and events.
+          <div class="tool-call">⚙ describe_pod · production/api-server-7d8f9</div>
+          <div class="tool-call">⚙ get_pod_logs · last 50 lines · previous=true</div>
+          <div class="tool-result">
+            <span>✓ Exit code: 1 · OOMKilled</span>
+            <span>Memory limit: 256Mi · Usage at crash: 258Mi</span>
+          </div>
+          <br/>
+          Your pod is being killed by the OOM killer — memory limit is 256Mi but usage peaked at 258Mi. I'll increase the limit to 512Mi and add a memory request.
+        </div>
+        <div class="chat-msg user">
+          Yes, go ahead — but warn me before any production changes.
+        </div>
+        <div class="chat-msg agent">
+          ⚠️ Production change: updating memory limit on <code style="background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:11px;">api-server</code> from 256Mi → 512Mi. Confirm?
+          <div class="tool-result" style="margin-top:10px;">
+            <span>✓ Deployment patched · Rolling restart triggered</span>
+            <span>✓ 3/3 pods Running · No further crashes</span>
+          </div>
+        </div>
+      </div>
+      <div class="chat-input-bar">
+        <div class="chat-input-fake">Ask about your infrastructure...</div>
+        <button class="chat-send">Send</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FEATURES ───────────────────────────────────────────── -->
+<section class="features-section" id="features">
+  <div class="features-header">
+    <p class="section-label reveal">Platform Features</p>
+    <h2 class="section-title reveal">Not just chat.<br/>A full ops platform.</h2>
+    <p class="section-sub reveal">Built for teams that move fast and can't afford surprises in production.</p>
+  </div>
+
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <div class="feature-icon">🛡️</div>
+      <div class="feature-title">Safety First</div>
+      <div class="feature-desc">Every delete and terminate operation requires explicit confirmation. Three-layer guardrail stack prevents prompt injection and blocks malicious commands before execution.</div>
+      <div class="feature-meta">→ High-risk protection on all 258 tools</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔐</div>
+      <div class="feature-title">Credential Isolation</div>
+      <div class="feature-desc">Per-user encrypted credentials using AES-128 Fernet. Supports direct IAM access keys and enterprise IAM Role ARN with STS AssumeRole for cross-account delegation.</div>
+      <div class="feature-meta">→ Zero credential sharing between users</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📚</div>
+      <div class="feature-title">Learning Mode</div>
+      <div class="feature-desc">Toggle on teaching mode and the agent explains every action — what the tool does, why it's being used, what the result means. 6 learning paths, 22 structured lessons.</div>
+      <div class="feature-meta">→ Built for teams onboarding to DevOps</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧪</div>
+      <div class="feature-title">Sandbox Mode</div>
+      <div class="feature-desc">All tool calls return realistic simulated data — no real cloud resources touched. 7 pre-built failure scenarios (OOMKilled, CrashLoopBackOff, high CPU) for practice debugging.</div>
+      <div class="feature-meta">→ Experiment without risk</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <div class="feature-title">Cost Optimization</div>
+      <div class="feature-desc">Automatically scans for idle resources, rightsizing opportunities, and reserved instance savings. Proactive monitoring with configurable alerts across all cloud providers.</div>
+      <div class="feature-meta">→ Average 23% cost reduction</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <div class="feature-title">Incident Response</div>
+      <div class="feature-desc">Pre-built runbooks for common incidents — high CPU, memory pressure, disk full, pod crash loops, service down. Automated escalation paths and resolution playbooks.</div>
+      <div class="feature-meta">→ MTTR reduced from hours to minutes</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── TESTIMONIALS ───────────────────────────────────────── -->
+<section class="social-section">
+  <p class="social-label reveal">What engineers say</p>
+  <div class="testimonials">
+    <div class="testimonial reveal">
+      <p class="testimonial-text">"I replaced three hours of AWS console clicking with a two-minute conversation. Scaled our entire ECS cluster, updated security groups, and got a cost report — all in one session."</p>
+      <div class="testimonial-author">
+        <div class="testimonial-avatar" style="background:#FF4D1C;">AS</div>
+        <div>
+          <div class="testimonial-name">Adebayo S.</div>
+          <div class="testimonial-role">SRE · FinTech Lagos</div>
+        </div>
+      </div>
+    </div>
+    <div class="testimonial reveal">
+      <p class="testimonial-text">"The learning mode is a game-changer for junior engineers. They can see exactly what every command does, why it's safe (or risky), and learn by doing — without touching production."</p>
+      <div class="testimonial-author">
+        <div class="testimonial-avatar" style="background:#00CFFF;">MO</div>
+        <div>
+          <div class="testimonial-name">Mildred O.</div>
+          <div class="testimonial-role">Platform Lead · E-commerce</div>
+        </div>
+      </div>
+    </div>
+    <div class="testimonial reveal">
+      <p class="testimonial-text">"We onboarded three new engineers to our multi-cloud setup in a week. Normally that takes a month. The sandbox scenarios let them break things safely and actually understand the fixes."</p>
+      <div class="testimonial-author">
+        <div class="testimonial-avatar" style="background:#00FF9D; color:#000;">KI</div>
+        <div>
+          <div class="testimonial-name">Kolade I.</div>
+          <div class="testimonial-role">CTO · Logistics Startup</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── PRICING ────────────────────────────────────────────── -->
+<section class="pricing-section" id="pricing">
+  <div class="pricing-header">
+    <p class="section-label reveal">Pricing</p>
+    <h2 class="section-title reveal">Start free.<br/>Scale as you grow.</h2>
+  </div>
+
+  <div class="pricing-grid reveal">
+    <!-- Free -->
+    <div class="price-card">
+      <div class="price-tier">Free</div>
+      <div class="price-amount">
+        <span class="price-currency">$</span>
+        <span class="price-value">0</span>
+        <span class="price-period">/mo</span>
+      </div>
+      <p class="price-desc">20 trial credits to explore the full agent experience with real cloud tools.</p>
+      <div class="price-divider"></div>
+      <ul class="price-features">
+        <li>20 trial credits (one-time)</li>
+        <li>All 258 tools unlocked</li>
+        <li>1 cloud account</li>
+        <li>Learning &amp; Sandbox mode</li>
+        <li>25 resources tracked</li>
+      </ul>
+      <a href="/auth/signup" class="price-cta price-cta-outline">Start Free Trial</a>
+    </div>
+
+    <!-- Starter -->
+    <div class="price-card">
+      <div class="price-tier">Starter</div>
+      <div class="price-amount">
+        <span class="price-currency">$</span>
+        <span class="price-value">29</span>
+        <span class="price-period">/mo</span>
+      </div>
+      <p class="price-desc">For individual developers and solo operators managing cloud infrastructure.</p>
+      <div class="price-divider"></div>
+      <ul class="price-features">
+        <li>200 credits / month</li>
+        <li>All 258 tools unlocked</li>
+        <li>1 cloud account</li>
+        <li>SOC 2 compliance scans</li>
+        <li>50 resources tracked</li>
+        <li>Email support</li>
+      </ul>
+      <a href="/auth/signup" class="price-cta price-cta-outline">Get Starter</a>
+    </div>
+
+    <!-- Pro -->
+    <div class="price-card featured">
+      <div class="price-badge">Most Popular</div>
+      <div class="price-tier">Professional</div>
+      <div class="price-amount">
+        <span class="price-currency">$</span>
+        <span class="price-value">99</span>
+        <span class="price-period">/mo</span>
+      </div>
+      <p class="price-desc">For growing teams managing multi-cloud environments at scale.</p>
+      <div class="price-divider"></div>
+      <ul class="price-features">
+        <li>2,000 credits / month</li>
+        <li>3 cloud accounts (AWS+Azure+GCP)</li>
+        <li>500 resources tracked</li>
+        <li>SOC 2 + HIPAA compliance</li>
+        <li>PDF compliance reports</li>
+        <li>Auto-remediation</li>
+        <li>Up to 10 team members</li>
+        <li>Auto-sync every 6 hours</li>
+        <li>Priority support</li>
+      </ul>
+      <a href="/auth/signup" class="price-cta price-cta-solid">Get Professional</a>
+    </div>
+
+    <!-- Business -->
+    <div class="price-card">
+      <div class="price-tier">Enterprise</div>
+      <div class="price-amount">
+        <span class="price-currency">$</span>
+        <span class="price-value">299</span>
+        <span class="price-period">/mo</span>
+      </div>
+      <p class="price-desc">Full-scale automation for large organizations with compliance requirements.</p>
+      <div class="price-divider"></div>
+      <ul class="price-features">
+        <li>10,000 credits / month</li>
+        <li>Unlimited cloud accounts</li>
+        <li>Unlimited resources</li>
+        <li>All compliance frameworks</li>
+        <li>SSO / SAML</li>
+        <li>Audit log export</li>
+        <li>Custom remediation rules</li>
+        <li>Auto-sync every 15 minutes</li>
+        <li>Dedicated support + SLA</li>
+      </ul>
+      <a href="/auth/signup" class="price-cta price-cta-outline">Get Enterprise</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── FINAL CTA ──────────────────────────────────────────── -->
+<section class="final-cta">
+  <p class="section-label reveal">Get Started Now</p>
+  <h2 class="section-title reveal">Your infrastructure.<br/><span style="color:var(--orange);">Under control.</span></h2>
+  <p class="section-sub reveal">20 free credits. No credit card. Real cloud tools from the first message.</p>
+  <div class="final-actions reveal">
+    <a href="/auth/signup" class="btn-hero">Start Free Trial →</a>
+    <a href="/auth/login" class="btn-hero-outline">Sign In</a>
+  </div>
+</section>
+
+<!-- ── FOOTER ─────────────────────────────────────────────── -->
+<footer>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div class="nav-logo-icon">DA</div>
+    <span class="footer-copy">© 2026 DevOps Agent · devopsagent.io</span>
+  </div>
+  <ul class="footer-links">
+    <li><a href="#">Privacy</a></li>
+    <li><a href="#">Terms</a></li>
+    <li><a href="#">Status</a></li>
+    <li><a href="#">GitHub</a></li>
+  </ul>
+</footer>
+
+<script>
+  // ── Terminal animation ──────────────────────────────────
+  const lines = document.querySelectorAll('#terminalBody .t-line');
+  lines.forEach(line => {
+    const delay = parseInt(line.dataset.delay || 0);
+    setTimeout(() => {
+      line.classList.remove('t-hidden');
+    }, delay + 1000);
+  });
+
+  // ── Scroll reveal ───────────────────────────────────────
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry, i) => {
+      if (entry.isIntersecting) {
+        setTimeout(() => entry.target.classList.add('visible'), i * 80);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // ── Counter animation ───────────────────────────────────
+  const counterObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const el = entry.target;
+        const target = parseInt(el.dataset.target);
+        const duration = 1400;
+        const start = performance.now();
+        const tick = (now) => {
+          const elapsed = now - start;
+          const progress = Math.min(elapsed / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          el.textContent = Math.round(eased * target);
+          if (progress < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        counterObserver.unobserve(el);
+      }
+    });
+  }, { threshold: 0.5 });
+
+  document.querySelectorAll('.counter').forEach(el => counterObserver.observe(el));
+
+  // ── Nav active state ────────────────────────────────────
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.nav-links a');
+  const scrollObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(link => {
+          link.style.color = link.getAttribute('href') === '#' + entry.target.id
+            ? 'var(--text)' : '';
+        });
+      }
+    });
+  }, { threshold: 0.4 });
+
+  sections.forEach(s => scrollObserver.observe(s));
+</script>
+</body>
+</html>

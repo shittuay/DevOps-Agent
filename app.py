@@ -1155,9 +1155,9 @@ LEARNING_CURRICULUM = {
 
 @app.route('/')
 def index():
-    """Redirect to appropriate page based on auth status."""
+    """Show landing page for unauthenticated users, chat for authenticated."""
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.login'))
+        return render_template('landing.html')
     return redirect(url_for('chat'))
 
 
