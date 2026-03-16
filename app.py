@@ -416,6 +416,8 @@ def enforce_two_factor():
     if request.endpoint and request.endpoint.startswith('static'):
         return
     if not current_user.has_mfa_enabled():
+        if request.path.startswith('/api/'):
+            return jsonify({'error': '2FA setup required', 'mfa_required': True}), 403
         return redirect(url_for('auth.setup_2fa_page'))
     # Redirect to onboarding if not completed (after 2FA is set up)
     if not getattr(current_user, 'onboarding_completed', True):
