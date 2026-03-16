@@ -397,6 +397,11 @@ _2FA_EXEMPT_ROUTES = {
     'update_onboarding_step',
     'auth.api_mfa_set_method', 'auth.api_mfa_verify_method', 'auth.api_mfa_phone_add',
     'auth.api_mfa_phone_verify', 'auth.api_2fa_resend_otp',
+    # Email verification routes must also be exempt — otherwise new users loop between
+    # "setup 2FA" and "verify email" before they can do either
+    'auth.verify_email', 'auth.resend_verification',
+    'auth.forgot_password', 'auth.reset_password',
+    'register_redirect', 'usage_policy', 'privacy_policy',
 }
 
 @app.before_request
@@ -424,6 +429,11 @@ _EMAIL_VERIFY_EXEMPT_ROUTES = {
     'auth.forgot_password', 'auth.reset_password', 'static', 'page_not_found',
     'handle_exception', 'ensure_clean_transaction', 'register_redirect',
     'usage_policy', 'privacy_policy',
+    # 2FA setup routes must also be exempt — otherwise new users loop between
+    # "verify email" and "setup 2FA" before they can do either
+    'auth.setup_2fa_page', 'auth.verify_2fa', 'auth.api_2fa_setup', 'auth.api_2fa_verify_setup',
+    'auth.api_mfa_set_method', 'auth.api_mfa_verify_method', 'auth.api_mfa_phone_add',
+    'auth.api_mfa_phone_verify', 'auth.api_2fa_resend_otp',
 }
 
 @app.before_request
