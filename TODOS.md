@@ -35,16 +35,11 @@ Tracked from CEO plan review — 2026-03-15.
 **How to start:** Create `CreditService.deduct(user, amount, reason)`, `CreditService.grant(user, amount, reason)`, `CreditService.balance(user)`. Replace usages gradually.
 **Effort:** M | **Depends on:** Green test suite (to catch regressions)
 
-### [ ] Fix `json.JSONDecodeError` and `BrokenPipeError` catches in chat stream
-**What:** Explicitly catch `json.JSONDecodeError` from malformed AI responses and `BrokenPipeError` from dropped SSE connections.
-**Why:** These fall through to broad `except Exception` — `BrokenPipeError` causes log noise; `JSONDecodeError` leaves the client with a broken stream and no error message.
-**Effort:** S | **Depends on:** Nothing
+### [x] Fix `json.JSONDecodeError` and `BrokenPipeError` catches in chat stream — DONE
+`app.py` `generate()`: explicit `except _json.JSONDecodeError` clause added before `except Exception`. Logs the malformed response with user context and yields a clear client-facing error message. `BrokenPipeError` was already caught at the earlier disconnect clause.
 
-### [ ] Extract `_ensure_subscription()` helper
-**What:** Create a shared `_ensure_subscription(user)` helper in `routes/billing.py` that ensures a free `UserSubscription` row exists for a user, returning it.
-**Why:** The same "get-or-create free subscription" block is copy-pasted in 3 places across `billing.py` (in `stripe_webhook`, `billing_success`, and `handle_checkout_completed`). Any change to free-tier seeding logic must be applied in all 3 places.
-**How to start:** Extract the block into a function, replace all 3 call sites. Covered by existing `test_billing.py` suite.
-**Effort:** S | **Depends on:** Nothing
+### [x] Extract `_ensure_subscription()` helper — DONE
+`routes/billing.py`: `_ensure_subscription(user_id, initial_credits, stripe_customer_id, payment_gateway)` added after `_get_ngn_price_id()`. Two call sites replaced: `billing()` route (get-or-create free sub on page load) and `handle_checkout_completed` credit_pack branch (seed free sub when user has no subscription at time of credit pack purchase).
 
 ### [ ] Move credit pack prices to config/DB (hardcoded USD price drift)
 **What:** Replace hardcoded credit pack USD prices in `get_credit_packs()` and `get_billing_prices()` in `routes/billing.py` with values read from `NGNPriceConfig` or a new `CreditPackConfig` table.

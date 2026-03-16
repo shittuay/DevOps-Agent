@@ -2603,6 +2603,14 @@ def api_chat_stream():
                 # Client disconnected mid-stream — silently clean up, do not try to yield
                 with app.app_context():
                     db.session.rollback()
+            except _json.JSONDecodeError as e:
+                logger.error(f"Malformed JSON from AI provider in stream for user {uid}: {e}")
+                with app.app_context():
+                    db.session.rollback()
+                try:
+                    yield f"data: {_json.dumps({'type': 'error', 'content': 'The AI returned an unreadable response. Please try again.'})}\n\n"
+                except (BrokenPipeError, GeneratorExit, ConnectionResetError):
+                    pass
             except Exception as e:
                 with app.app_context():
                     db.session.rollback()

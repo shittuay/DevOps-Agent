@@ -58,6 +58,46 @@ def _get_ngn_price_id(product_key: str, product_type: str):
     return None
 
 
+def _ensure_subscription(
+    user_id: int,
+    initial_credits: int = None,
+    stripe_customer_id: str = None,
+    payment_gateway: str = None,
+) -> 'UserSubscription | None':
+    """Get-or-create a free-tier subscription for a user. Does not commit.
+
+    Returns the existing subscription if found, otherwise creates and adds
+    a free-tier one. Pass initial_credits to override the tier's monthly_credits
+    (e.g. when seeding from a credit pack purchase).
+    """
+    from dateutil.relativedelta import relativedelta
+
+    subscription = UserSubscription.query.filter_by(user_id=user_id).first()
+    if subscription:
+        return subscription
+
+    free_tier = SubscriptionTier.query.filter_by(name='free').first()
+    if not free_tier:
+        return None
+
+    now = datetime.utcnow()
+    credits = initial_credits if initial_credits is not None else free_tier.monthly_credits
+    subscription = UserSubscription(
+        user_id=user_id,
+        tier_id=free_tier.id,
+        credits_remaining=credits,
+        current_period_start=now,
+        current_period_end=now + relativedelta(months=1),
+        last_reset_date=now,
+    )
+    if stripe_customer_id:
+        subscription.stripe_customer_id = stripe_customer_id
+    if payment_gateway:
+        subscription.payment_gateway = payment_gateway
+    db.session.add(subscription)
+    return subscription
+
+
 # ==================== PAGE ROUTES ====================
 
 
@@ -65,22 +105,9 @@ def _get_ngn_price_id(product_key: str, product_type: str):
 @login_required
 def billing():
     """Billing and credits management page."""
-    subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-    if not subscription:
-        free_tier = SubscriptionTier.query.filter_by(name='free').first()
-        if free_tier:
-            from dateutil.relativedelta import relativedelta
-            subscription = UserSubscription(
-                user_id=current_user.id,
-                tier_id=free_tier.id,
-                credits_remaining=free_tier.monthly_credits,
-                current_period_start=datetime.utcnow(),
-                current_period_end=datetime.utcnow() + relativedelta(months=1),
-                last_reset_date=datetime.utcnow(),
-            )
-            db.session.add(subscription)
-            db.session.commit()
-    elif subscription.should_reset_credits():
+    subscription = _ensure_subscription(current_user.id)
+    db.session.commit()
+    if subscription and subscription.should_reset_credits():
         subscription.reset_monthly_credits()
     tiers = _get_active_tiers()
     stripe_pub_key = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
@@ -631,15 +658,12 @@ def handle_checkout_completed(session):
                     subscription.stripe_customer_id = stripe_customer_id
                 subscription.add_credits(pack_size)
             else:
-                free_tier = SubscriptionTier.query.filter_by(name='free').first()
-                subscription = UserSubscription(
-                    user_id=user.id,
-                    tier_id=free_tier.id if free_tier else 1,
-                    credits_remaining=pack_size,
+                _ensure_subscription(
+                    user.id,
+                    initial_credits=pack_size,
                     stripe_customer_id=stripe_customer_id,
                     payment_gateway='stripe',
                 )
-                db.session.add(subscription)
 
             try:
                 db.session.commit()
