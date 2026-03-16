@@ -437,6 +437,9 @@ def enforce_email_verification():
         return
     if request.endpoint and request.endpoint.startswith('static'):
         return
+    # Users who have set up TOTP have already proven account ownership — exempt them
+    if getattr(current_user, 'two_factor_enabled', False):
+        return
     if not getattr(current_user, 'email_verified', True):
         # API routes get JSON; page routes get a redirect
         if request.path.startswith('/api/'):

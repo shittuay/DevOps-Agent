@@ -545,6 +545,7 @@ def api_2fa_verify_setup():
         current_user.mfa_method = 'totp'
         current_user.two_factor_verified_at = datetime.utcnow()
         current_user.two_factor_attempts = 0
+        current_user.email_verified = True  # TOTP setup proves account ownership
 
         backup_codes = two_factor_service.generate_backup_codes()
         current_user.backup_codes = [
@@ -681,6 +682,7 @@ def api_mfa_verify_method():
     current_user.two_factor_enabled = True
     current_user.two_factor_verified_at = datetime.utcnow()
     current_user.two_factor_attempts = 0
+    current_user.email_verified = True  # MFA setup proves account ownership
 
     backup_codes = two_factor_service.generate_backup_codes()
     current_user.backup_codes = [
