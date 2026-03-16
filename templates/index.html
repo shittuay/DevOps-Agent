@@ -3013,14 +3013,14 @@
             })
             .then(r => r.json())
             .then(data => {
-                btn.disabled = false;
-                btn.textContent = 'End Session';
                 if (data.error) {
+                    btn.disabled = false;
+                    btn.textContent = 'End Session';
                     addMessage('assistant', 'Could not generate summary: ' + data.error);
                     return;
                 }
                 const s = data.session;
-                let html = '### Learning Session Summary\n\n';
+                let html = '### Learning Session Complete\n\n';
                 html += (s.summary || 'No summary available.') + '\n\n';
                 if (s.topics_covered && s.topics_covered.length) {
                     html += '**Topics:** ' + s.topics_covered.join(', ') + '\n\n';
@@ -3041,6 +3041,22 @@
                     html += '\n';
                 }
                 addMessage('assistant', html);
+
+                // Session is over — lock the input and replace button with "New Conversation"
+                btn.style.display = 'none';
+                const input = document.getElementById('messageInput');
+                const sendBtn = document.getElementById('sendButton');
+                if (input) { input.disabled = true; input.placeholder = 'Session ended — start a new conversation to continue'; }
+                if (sendBtn) sendBtn.disabled = true;
+
+                // Inject a "New Conversation" button below the summary
+                const newConvBtn = document.createElement('button');
+                newConvBtn.textContent = 'Start New Conversation';
+                newConvBtn.style.cssText = 'margin:12px 0 0 40px;padding:8px 18px;background:var(--accent-primary);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;';
+                newConvBtn.onclick = () => { window.location.href = '/chat'; };
+                const messages = document.getElementById('chatMessages');
+                if (messages) messages.appendChild(newConvBtn);
+                setTimeout(() => newConvBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
             })
             .catch(err => {
                 btn.disabled = false;
