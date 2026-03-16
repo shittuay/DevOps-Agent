@@ -19,7 +19,7 @@ _stop_event = threading.Event()
 
 def start_scheduler(app, db):
     """Start the background scheduler in a daemon thread."""
-    global _scheduler_thread, _stop_event
+    global _scheduler_thread
 
     if _scheduler_thread and _scheduler_thread.is_alive():
         logger.info("Scheduler already running")
@@ -38,7 +38,6 @@ def start_scheduler(app, db):
 
 def stop_scheduler():
     """Stop the background scheduler."""
-    global _stop_event
     _stop_event.set()
     logger.info("Scheduler stop requested")
 

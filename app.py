@@ -1962,7 +1962,6 @@ def _chat_rate_limit() -> str:
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
 def api_chat():
     """Handle chat messages."""
-    global agent
     if agent is None:
         # Try to initialize the agent
         if check_api_key_configured():
@@ -2297,7 +2296,6 @@ def api_chat():
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
 def api_chat_stream():
     """Handle chat messages with Server-Sent Events streaming."""
-    global agent
     if agent is None:
         if check_api_key_configured():
             success, error = initialize_agent()
@@ -2839,7 +2837,7 @@ def sync_infrastructure():
         task = sync_user_infrastructure_task.delay(current_user.id)
         return jsonify({'task_id': task.id, 'status': 'queued'})
     except Exception as e:
-        logger.error(f"Failed to queue sync task for user {current_user.id}: {e}")
+        app.logger.error(f"Failed to queue sync task for user {current_user.id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
