@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Test script for Stripe integration
-Verifies that Stripe is properly configured and can create checkout sessions
+Stripe diagnostic script — NOT a pytest test suite.
+
+This script manually tests the live Stripe configuration (API keys, price IDs,
+webhook secrets) by making real Stripe API calls. It uses print() instead of
+assertions, so pytest collects it but all functions trivially pass.
+
+Run directly for diagnostics: python tests/test_stripe.py
+For real Stripe integration tests, see: tests/test_billing.py
 """
 import os
 import sys

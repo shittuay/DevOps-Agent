@@ -55,3 +55,15 @@ Tracked from CEO plan review — 2026-03-15.
 **What:** Explicitly catch `json.JSONDecodeError` from malformed AI responses and `BrokenPipeError` from dropped SSE connections.
 **Why:** These fall through to broad `except Exception` — `BrokenPipeError` causes log noise; `JSONDecodeError` leaves the client with a broken stream and no error message.
 **Effort:** S | **Depends on:** Nothing
+
+### [ ] Extract `_ensure_subscription()` helper
+**What:** Create a shared `_ensure_subscription(user)` helper in `routes/billing.py` that ensures a free `UserSubscription` row exists for a user, returning it.
+**Why:** The same "get-or-create free subscription" block is copy-pasted in 3 places across `billing.py` (in `stripe_webhook`, `billing_success`, and `handle_checkout_completed`). Any change to free-tier seeding logic must be applied in all 3 places.
+**How to start:** Extract the block into a function, replace all 3 call sites. Covered by existing `test_billing.py` suite.
+**Effort:** S | **Depends on:** Nothing
+
+### [ ] Move credit pack prices to config/DB (hardcoded USD price drift)
+**What:** Replace hardcoded credit pack USD prices in `get_credit_packs()` and `get_billing_prices()` in `routes/billing.py` with values read from `NGNPriceConfig` or a new `CreditPackConfig` table.
+**Why:** Pack prices ($10/$20/$35/$60) are currently hardcoded in two places inside the billing route. If prices change in Stripe, the billing page will show wrong amounts until code is manually updated.
+**How to start:** Add a `usd_price` column to `NGNPriceConfig` (already has `price_ngn`), seed it from the existing price constants, and read from DB in both helper functions.
+**Effort:** S | **Depends on:** DB migration
