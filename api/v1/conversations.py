@@ -24,10 +24,16 @@ def _ensure_subscription(user_id):
         free_tier = SubscriptionTier.query.filter_by(name='free').first()
         if not free_tier:
             return None, (jsonify({'error': 'Subscription system not initialized'}), 500)
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+        now = datetime.utcnow()
         subscription = UserSubscription(
             user_id=user_id,
             tier_id=free_tier.id,
-            credits_remaining=free_tier.monthly_credits
+            credits_remaining=free_tier.monthly_credits,
+            current_period_start=now,
+            current_period_end=now + relativedelta(months=1),
+            last_reset_date=now,
         )
         db.session.add(subscription)
         db.session.commit()
@@ -45,7 +51,7 @@ def _check_and_deduct_credit(subscription):
         if tier_name == 'free':
             from services.chat_service import generate_upgrade_pitch
             return jsonify({
-                'response': generate_upgrade_pitch(),
+                'response': generate_upgrade_pitch(reset_date=subscription.current_period_end),
                 'credits_remaining': 0,
                 'trial_ended': True,
             })

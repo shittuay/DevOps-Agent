@@ -2014,10 +2014,15 @@ def api_chat():
             if not free_tier:
                 return jsonify({'error': 'Subscription system not initialized. Please contact support.'}), 500
 
+            from dateutil.relativedelta import relativedelta
+            now = datetime.utcnow()
             subscription = UserSubscription(
                 user_id=current_user.id,
                 tier_id=free_tier.id,
-                credits_remaining=free_tier.monthly_credits
+                credits_remaining=free_tier.monthly_credits,
+                current_period_start=now,
+                current_period_end=now + relativedelta(months=1),
+                last_reset_date=now,
             )
             db.session.add(subscription)
             db.session.commit()
@@ -2032,7 +2037,7 @@ def api_chat():
             if tier_name == 'free':
                 # Free-tier exhausted: return upgrade pitch as a normal response
                 return jsonify({
-                    'response': _generate_upgrade_pitch(),
+                    'response': _generate_upgrade_pitch(reset_date=subscription.current_period_end),
                     'credits_remaining': 0,
                     'trial_ended': True,
                 })
@@ -2344,10 +2349,15 @@ def api_chat_stream():
             free_tier = SubscriptionTier.query.filter_by(name='free').first()
             if not free_tier:
                 return jsonify({'error': 'Subscription system not initialized.'}), 500
+            from dateutil.relativedelta import relativedelta
+            now = datetime.utcnow()
             subscription = UserSubscription(
                 user_id=current_user.id,
                 tier_id=free_tier.id,
-                credits_remaining=free_tier.monthly_credits
+                credits_remaining=free_tier.monthly_credits,
+                current_period_start=now,
+                current_period_end=now + relativedelta(months=1),
+                last_reset_date=now,
             )
             db.session.add(subscription)
             db.session.commit()
@@ -2361,7 +2371,7 @@ def api_chat_stream():
             if tier_name == 'free':
                 # Free-tier exhausted: stream the upgrade pitch as SSE
                 import json as _json_stream
-                pitch = _generate_upgrade_pitch()
+                pitch = _generate_upgrade_pitch(reset_date=subscription.current_period_end)
                 def generate_pitch():
                     yield f"data: {_json_stream.dumps({'type': 'chunk', 'content': pitch})}\n\n"
                     yield f"data: {_json_stream.dumps({'type': 'done', 'credits_remaining': 0, 'trial_ended': True})}\n\n"
