@@ -2825,52 +2825,42 @@ def get_resource_utilization(resource_db_id):
 @login_required
 @limiter.limit("3 per minute")
 def sync_infrastructure():
-    """Trigger infrastructure sync for current user."""
+    """Queue an async infrastructure sync for the current user."""
     try:
-        from services.infrastructure_sync import sync_user_infrastructure
-        result = sync_user_infrastructure(current_user.id)
-
-        # Generate real cost recommendations using CloudWatch metrics
-        total_savings = 0
-        try:
-            from services.cost_explorer import generate_real_cost_recommendations, update_resource_costs_from_explorer
-            update_resource_costs_from_explorer(current_user.id)
-            generate_real_cost_recommendations(current_user.id)
-            db.session.commit()
-
-            # Calculate total potential savings for notification
-            active_recs = CostOptimization.query.filter_by(
-                user_id=current_user.id, status='pending'
-            ).all()
-            total_savings = sum(r.potential_monthly_savings or 0 for r in active_recs)
-        except Exception:
-            pass  # Cost Explorer may not be enabled for all accounts
-
-        # Notify if significant savings found (> $50/month)
-        if total_savings > 50:
-            try:
-                from services.notification_service import get_notification_service
-                svc = get_notification_service()
-                svc.send_cost_alert(current_user.id, {
-                    'amount': total_savings,
-                    'threshold': 50,
-                    'message': f'Infrastructure sync found ${total_savings:.2f}/month in potential savings',
-                    'period': 'Monthly',
-                    'top_service': 'AWS'
-                })
-            except Exception:
-                pass
-
-        return jsonify({
-            'success': True,
-            'message': 'Infrastructure sync completed',
-            'result': result
-        })
+        from tasks.cloud_tasks import sync_user_infrastructure_task
+        task = sync_user_infrastructure_task.delay(current_user.id)
+        return jsonify({'task_id': task.id, 'status': 'queued'})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        logger.error(f"Failed to queue sync task for user {current_user.id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/sync/status/<task_id>', methods=['GET'])
+@login_required
+def sync_status(task_id):
+    """Poll the status of a queued infrastructure sync task."""
+    try:
+        from celery_app import celery as _celery
+        task = _celery.AsyncResult(task_id)
+
+        if task.state == 'PENDING':
+            return jsonify({'status': 'pending'})
+        elif task.state in ('STARTED', 'RETRY'):
+            return jsonify({'status': 'running'})
+        elif task.state == 'SUCCESS':
+            result = task.result or {}
+            return jsonify({
+                'status': 'complete',
+                'success': True,
+                'total_resources': result.get('total_resources', 0),
+                'total_savings': result.get('total_savings', 0),
+            })
+        elif task.state == 'FAILURE':
+            return jsonify({'status': 'failed', 'error': str(task.result)})
+        else:
+            return jsonify({'status': task.state.lower()})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
 @app.route('/api/dashboard/recommendations/<int:rec_id>/apply', methods=['POST'])
