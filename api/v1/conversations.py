@@ -48,6 +48,7 @@ def _ensure_subscription(user_id):
 
 def _check_and_deduct_credit(subscription):
     """Check credits and deduct one. Returns error_response or None."""
+    subscription.repair_if_never_used()
     if not subscription.has_credits():
         tier_name = subscription.tier.name if subscription.tier else 'free'
         if tier_name == 'free':

@@ -588,6 +588,22 @@ class UserSubscription(db.Model):
         """Check if user has available credits"""
         return self.credits_remaining > 0
 
+    def repair_if_never_used(self) -> bool:
+        """
+        Detect and fix a bad initialization: credits_remaining=0 but total_credits_used=0
+        means the subscription was created with 0 credits (e.g. free tier had monthly_credits=0
+        at the time of signup). Gives the user their proper trial credits.
+        Returns True if a repair was made.
+        """
+        if self.credits_remaining > 0 or (self.total_credits_used or 0) > 0:
+            return False
+        monthly = self.tier.monthly_credits if self.tier else 0
+        if monthly <= 0:
+            return False
+        self.credits_remaining = monthly
+        db.session.commit()
+        return True
+
     def use_credit(self, commit: bool = True) -> bool:
         """
         Deduct one credit from user's account.
