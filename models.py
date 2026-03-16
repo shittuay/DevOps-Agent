@@ -2440,6 +2440,7 @@ class NGNPriceConfig(db.Model):
     product_type = db.Column(db.String(20), nullable=False)  # subscription, credit_pack
     product_key = db.Column(db.String(50), nullable=False, unique=True)  # e.g. "starter", "pack_100"
     price_ngn = db.Column(db.Integer, nullable=False)  # Whole naira (not kobo)
+    price_usd = db.Column(db.Numeric(10, 2), nullable=True)  # USD price (whole dollars)
     stripe_price_id_ngn = db.Column(db.String(100), nullable=True)  # Stripe Price ID for NGN product
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -2451,6 +2452,7 @@ class NGNPriceConfig(db.Model):
             'product_type': self.product_type,
             'product_key': self.product_key,
             'price_ngn': self.price_ngn,
+            'price_usd': float(self.price_usd) if self.price_usd is not None else None,
             'stripe_price_id_ngn': self.stripe_price_id_ngn,
             'is_active': self.is_active,
         }
