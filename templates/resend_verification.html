@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your Email - DevOps Agent</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .card {
+            position: relative;
+            z-index: 1;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 52px 44px;
+            max-width: 460px;
+            width: 90%;
+            text-align: center;
+            box-shadow: var(--glass-shadow);
+        }
+
+        .icon {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, rgba(255,107,53,0.15), rgba(0,212,255,0.15));
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 32px;
+        }
+
+        h1 {
+            font-family: 'Syne', sans-serif;
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        .subtitle {
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .email-badge {
+            display: inline-block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--accent-primary, #ff6b35);
+            background: rgba(255,107,53,0.08);
+            border: 1px solid rgba(255,107,53,0.2);
+            border-radius: 6px;
+            padding: 4px 10px;
+            margin-bottom: 28px;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            border-radius: 10px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary, linear-gradient(135deg, #ff6b35, #00d4ff));
+            color: #fff;
+        }
+
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+            margin-top: 10px;
+        }
+
+        .btn-ghost:hover { background: var(--glass-bg); color: var(--text-primary); }
+
+        .message {
+            margin-top: 18px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .message.success {
+            background: rgba(0, 212, 100, 0.1);
+            border: 1px solid rgba(0, 212, 100, 0.25);
+            color: #00d464;
+        }
+
+        .message.error {
+            background: rgba(255, 80, 80, 0.1);
+            border: 1px solid rgba(255, 80, 80, 0.25);
+            color: #ff5050;
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--glass-border);
+            margin: 24px 0;
+        }
+
+        .hint {
+            font-size: 13px;
+            color: var(--text-tertiary, #666);
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">✉️</div>
+
+        <h1>Verify your email</h1>
+        <p class="subtitle">We sent a verification link to</p>
+        <div class="email-badge">{{ user.email }}</div>
+
+        <p class="subtitle" style="margin-bottom: 28px;">
+            Click the link in that email to activate your account.
+            Didn't get it? Check spam or request a new one below.
+        </p>
+
+        <button class="btn btn-primary" id="resendBtn" onclick="resend()">
+            Resend verification email
+        </button>
+
+        <a href="{{ url_for('auth.logout') }}" class="btn btn-ghost">
+            Sign out
+        </a>
+
+        <div class="message" id="message"></div>
+
+        <div class="divider"></div>
+        <p class="hint">
+            Wrong email address? Sign out and register again with the correct one.
+        </p>
+    </div>
+
+    <script>
+        async function resend() {
+            const btn = document.getElementById('resendBtn');
+            const msg = document.getElementById('message');
+
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            msg.style.display = 'none';
+
+            try {
+                const res = await fetch('/resend-verification', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'X-CSRFToken': document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '' }
+                });
+                const data = await res.json();
+
+                msg.className = 'message ' + (data.success ? 'success' : 'error');
+                msg.textContent = data.message;
+                msg.style.display = 'block';
+
+                if (data.success) {
+                    btn.textContent = 'Email sent';
+                    // Re-enable after 60s (allow retry)
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.textContent = 'Resend verification email';
+                    }, 60000);
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Resend verification email';
+                }
+            } catch (e) {
+                msg.className = 'message error';
+                msg.textContent = 'Something went wrong. Please try again.';
+                msg.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Resend verification email';
+            }
+        }
+    </script>
+</body>
+</html>

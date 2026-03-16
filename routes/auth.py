@@ -355,11 +355,18 @@ def verify_email():
     return render_template('login.html', error=None, success='Your email has been verified. Please sign in.')
 
 
-@auth_bp.route('/resend-verification', methods=['POST'])
+@auth_bp.route('/resend-verification', methods=['GET', 'POST'])
 @login_required
-@limiter.limit("3 per hour")
+@limiter.limit("3 per hour", exempt_when=lambda: request.method == 'GET')
 def resend_verification():
-    """Resend email verification for the currently logged-in user."""
+    """GET: render the resend-verification page.
+    POST: send a new verification email (rate-limited to 3/hr).
+    """
+    if request.method == 'GET':
+        if current_user.email_verified:
+            return redirect(url_for('index'))
+        return render_template('resend_verification.html', user=current_user)
+
     user = current_user
 
     if user.email_verified:
