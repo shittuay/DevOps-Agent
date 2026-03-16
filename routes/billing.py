@@ -48,6 +48,14 @@ def _get_ngn_prices():
     return g._cached_ngn
 
 
+def _get_pack_configs():
+    """Get credit pack config dict {product_key: NGNPriceConfig}, cached per-request in Flask g."""
+    if not hasattr(g, '_cached_pack_configs'):
+        rows = NGNPriceConfig.query.filter_by(product_type='credit_pack', is_active=True).all()
+        g._cached_pack_configs = {r.product_key: r for r in rows}
+    return g._cached_pack_configs
+
+
 def _get_ngn_price_id(product_key: str, product_type: str):
     """Return the NGN Stripe price ID for a product, or None if not configured."""
     config = NGNPriceConfig.query.filter_by(
@@ -342,12 +350,20 @@ def create_credits_checkout_session():
 @billing_bp.route('/api/credits/packs', methods=['GET'])
 def get_credit_packs():
     """Get available credit pack options (public endpoint)."""
-    credit_packs = [
-        {'credits': 100, 'price': 10.0, 'price_per_credit': 0.10, 'popular': False},
-        {'credits': 250, 'price': 20.0, 'price_per_credit': 0.08, 'popular': True},
-        {'credits': 500, 'price': 35.0, 'price_per_credit': 0.07, 'popular': False},
-        {'credits': 1000, 'price': 60.0, 'price_per_credit': 0.06, 'popular': False}
-    ]
+    configs = _get_pack_configs()
+    # Fallback prices match Stripe configuration — used when DB row has no price_usd yet
+    _USD_FALLBACK = {'pack_100': 10.0, 'pack_250': 20.0, 'pack_500': 35.0, 'pack_1000': 60.0}
+    _PACKS = [('pack_100', 100, False), ('pack_250', 250, True), ('pack_500', 500, False), ('pack_1000', 1000, False)]
+    credit_packs = []
+    for key, size, popular in _PACKS:
+        cfg = configs.get(key)
+        price = float(cfg.price_usd) if (cfg and cfg.price_usd is not None) else _USD_FALLBACK[key]
+        credit_packs.append({
+            'credits': size,
+            'price': price,
+            'price_per_credit': round(price / size, 4),
+            'popular': popular,
+        })
     return jsonify({'packs': credit_packs})
 
 
@@ -390,12 +406,17 @@ def get_billing_prices():
             'monthly_credits': tier.monthly_credits,
         })
 
-    credit_packs = [
-        {'size': 100, 'price_usd': 10, 'price_ngn': ngn_configs.get('pack_100', {}).get('price_ngn')},
-        {'size': 250, 'price_usd': 20, 'price_ngn': ngn_configs.get('pack_250', {}).get('price_ngn')},
-        {'size': 500, 'price_usd': 35, 'price_ngn': ngn_configs.get('pack_500', {}).get('price_ngn')},
-        {'size': 1000, 'price_usd': 60, 'price_ngn': ngn_configs.get('pack_1000', {}).get('price_ngn')},
-    ]
+    pack_configs = _get_pack_configs()
+    _USD_FALLBACK = {'pack_100': 10, 'pack_250': 20, 'pack_500': 35, 'pack_1000': 60}
+    credit_packs = []
+    for key, size in [('pack_100', 100), ('pack_250', 250), ('pack_500', 500), ('pack_1000', 1000)]:
+        cfg = pack_configs.get(key)
+        price_usd = float(cfg.price_usd) if (cfg and cfg.price_usd is not None) else _USD_FALLBACK[key]
+        credit_packs.append({
+            'size': size,
+            'price_usd': price_usd,
+            'price_ngn': cfg.price_ngn if cfg else ngn_configs.get(key, {}).get('price_ngn'),
+        })
 
     return jsonify({
         'subscriptions': subscriptions,
