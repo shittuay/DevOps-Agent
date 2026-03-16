@@ -38,7 +38,9 @@ def _ensure_subscription(user_id):
         db.session.add(subscription)
         db.session.commit()
 
-    if subscription.should_reset_credits():
+    # Reset monthly credits for paid tiers only — free tier is a one-time trial
+    tier_name = subscription.tier.name if subscription.tier else 'free'
+    if tier_name != 'free' and subscription.should_reset_credits():
         subscription.reset_monthly_credits()
 
     return subscription, None
@@ -51,7 +53,7 @@ def _check_and_deduct_credit(subscription):
         if tier_name == 'free':
             from services.chat_service import generate_upgrade_pitch
             return jsonify({
-                'response': generate_upgrade_pitch(reset_date=subscription.current_period_end),
+                'response': generate_upgrade_pitch(),
                 'credits_remaining': 0,
                 'trial_ended': True,
             })
