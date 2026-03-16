@@ -2032,6 +2032,11 @@ def api_chat():
         if tier_name != 'free' and subscription.should_reset_credits():
             subscription.reset_monthly_credits()
 
+        # Guard: if user has 0 credits but has never used any, their subscription
+        # was mis-initialized (e.g. free tier had monthly_credits=0 at signup time).
+        # Repair silently so they get their proper trial credits.
+        subscription.repair_if_never_used()
+
         # Check if user has credits
         if not subscription.has_credits():
             if tier_name == 'free':
@@ -2366,6 +2371,8 @@ def api_chat_stream():
         tier_name = subscription.tier.name if subscription.tier else 'free'
         if tier_name != 'free' and subscription.should_reset_credits():
             subscription.reset_monthly_credits()
+
+        subscription.repair_if_never_used()
 
         if not subscription.has_credits():
             if tier_name == 'free':
