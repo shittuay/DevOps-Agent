@@ -1943,8 +1943,23 @@ from services.chat_service import (
 )
 
 
+def _chat_rate_limit() -> str:
+    """Return the rate limit string for the current user's subscription tier."""
+    if not current_user.is_authenticated:
+        return "10 per hour"
+    sub = UserSubscription.query.filter_by(user_id=current_user.id).first()
+    tier = sub.tier.name if (sub and sub.tier) else 'free'
+    return {
+        'free': '10 per hour',
+        'starter': '60 per hour',
+        'professional': '200 per hour',
+        'business': '1000 per hour',
+    }.get(tier, '10 per hour')
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
+@limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
 def api_chat():
     """Handle chat messages."""
     global agent
@@ -2279,6 +2294,7 @@ def api_chat():
 
 @app.route('/api/chat/stream', methods=['POST'])
 @login_required
+@limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
 def api_chat_stream():
     """Handle chat messages with Server-Sent Events streaming."""
     global agent
@@ -2396,6 +2412,10 @@ def api_chat_stream():
                 )
                 db.session.add(conversation)
 
+        # In-flight guard: reject double-submit while a stream is already running
+        if conversation and conversation.is_streaming:
+            return jsonify({'error': 'A response is already being generated. Please wait.'}), 409
+
         # Save user message and update conversation preview
         user_msg = ChatMessage(
             user_id=current_user.id,
@@ -2452,6 +2472,8 @@ def api_chat_stream():
         tc = trial_context
         sb = sandbox_active
 
+        if conversation:
+            conversation.is_streaming = True
         db.session.commit()
 
         def generate():
@@ -2557,13 +2579,13 @@ def api_chat_stream():
                     )
                     db.session.add(usage_log)
 
-                    if is_first and conv:
-                        title = msg_text.strip()
-                        if len(title) > 50:
-                            title = title[:47] + '...'
-                        c = Conversation.query.filter_by(id=cid, user_id=uid).first()
-                        if c:
-                            c.title = title
+                    # Update conversation: title (first message) + clear streaming flag
+                    c = Conversation.query.filter_by(id=cid, user_id=uid).first()
+                    if c:
+                        if is_first:
+                            title = msg_text.strip()
+                            c.title = title[:47] + '...' if len(title) > 50 else title
+                        c.is_streaming = False
 
                     # Deduct credit AFTER successful response (not before)
                     fresh_sub = UserSubscription.query.filter_by(user_id=uid).first()
@@ -2587,6 +2609,16 @@ def api_chat_stream():
                 try:
                     yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
+                    pass
+            finally:
+                # Safety net: clear is_streaming even if an error occurred before the success path
+                try:
+                    with app.app_context():
+                        c = Conversation.query.filter_by(id=cid, user_id=uid).first()
+                        if c and c.is_streaming:
+                            c.is_streaming = False
+                            db.session.commit()
+                except Exception:
                     pass
 
         return app.response_class(

@@ -6,34 +6,21 @@ Tracked from CEO plan review — 2026-03-15.
 
 ## P1 — Must fix before public launch
 
-### [ ] Sentry error tracking
-**What:** Integrate `sentry-sdk[flask]` to capture all unhandled exceptions in production.
-**Why:** 94 broad `except Exception` handlers swallow errors silently. Production failures go undetected until users complain.
-**How to start:** `pip install sentry-sdk[flask]`, add `sentry_sdk.init(dsn=os.getenv('SENTRY_DSN'))` before `app = Flask(...)`, set `SENTRY_DSN` env var.
-**Effort:** S | **Depends on:** Nothing
+### [x] Sentry error tracking — DONE
+`app.py:74-89`: `sentry_sdk.init()` with `FlaskIntegration` + `SqlalchemyIntegration`, `traces_sample_rate=0.1`. Set `SENTRY_DSN` env var to enable.
 
-### [ ] Log rotation
-**What:** Cap `logs/agent.log` at 50MB with 5 rotations using `RotatingFileHandler`.
-**Why:** Log file is already 19MB after 4 months. On a small VPS this will fill disk and crash the app.
-**How to start:** Replace `FileHandler` with `logging.handlers.RotatingFileHandler(maxBytes=50*1024*1024, backupCount=5)` in logging config.
-**Effort:** S | **Depends on:** Nothing
+### [x] Log rotation — DONE
+`src/utils/logging.py:139-143`: `RotatingFileHandler` with configurable `max_size_mb` (default 100MB) and 5 backups.
 
 ---
 
 ## P2 — Fix before paying customers
 
-### [ ] Per-tier chat rate limiting
-**What:** Apply tier-aware `@limiter.limit()` to `/api/chat` and `/api/chat/stream`.
-**Suggested limits:** free: 10/hour, starter: 60/hour, pro: 200/hour, business: unlimited.
-**Why:** Free-tier users can spam chat as fast as the server allows. Credit system helps but doesn't prevent burst abuse.
-**How to start:** `limiter.limit(get_tier_limit)(chat)` — use a callable limit that reads `current_user.subscription.tier`.
-**Effort:** S | **Depends on:** Nothing
+### [x] Per-tier chat rate limiting — DONE
+`app.py`: `_chat_rate_limit()` callable + `@limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))` on both `/api/chat` and `/api/chat/stream`. Limits: free 10/hr, starter 60/hr, professional 200/hr, business 1000/hr.
 
-### [ ] Streaming in-flight guard
-**What:** Track a per-conversation `is_streaming` boolean flag; reject new messages while True.
-**Why:** Double-click or rapid resubmit creates two concurrent AI streams on the same conversation — corrupts context and burns 2× credits.
-**How to start:** Add `is_streaming = db.Column(db.Boolean, default=False)` to `Conversation` model. Set True at stream start, False on completion/error. Return 409 if True when new message arrives.
-**Effort:** S | **Depends on:** Alembic (for migration)
+### [x] Streaming in-flight guard — DONE
+`models.py`: `Conversation.is_streaming` column. `api_chat_stream` checks and sets it before commit; `generate()` clears it in success path and `finally` safety net covers all error paths.
 
 ### [ ] Dashboard sync async (30s page loads)
 **What:** Move cloud resource sync from synchronous request handler to Celery task with progress polling.
