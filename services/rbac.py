@@ -189,7 +189,7 @@ def require_role(role: str, redirect_to: str = None):
             if not current_user.is_authenticated:
                 if redirect_to:
                     flash('Please log in to access this page.', 'warning')
-                    return redirect(url_for('login', next=request.url))
+                    return redirect(url_for('auth.login', next=request.url))
                 return jsonify({'error': 'Authentication required'}), 401
 
             if not user_has_role(current_user, role):
@@ -232,7 +232,7 @@ def require_permission(permission: Permission, redirect_to: str = None):
             if not current_user.is_authenticated:
                 if redirect_to:
                     flash('Please log in to access this page.', 'warning')
-                    return redirect(url_for('login', next=request.url))
+                    return redirect(url_for('auth.login', next=request.url))
                 return jsonify({'error': 'Authentication required'}), 401
 
             if not user_has_permission(current_user, permission):
@@ -262,7 +262,7 @@ def admin_required(f: Callable):
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
             flash('Please log in to access this page.', 'warning')
-            return redirect(url_for('login', next=request.url))
+            return redirect(url_for('auth.login', next=request.url))
 
         if not user_is_admin(current_user):
             logger.warning(
@@ -289,7 +289,7 @@ def approver_required(f: Callable):
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
             flash('Please log in to access this page.', 'warning')
-            return redirect(url_for('login', next=request.url))
+            return redirect(url_for('auth.login', next=request.url))
 
         if not user_is_approver(current_user):
             logger.warning(
@@ -316,7 +316,7 @@ def write_required(f: Callable):
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
             flash('Please log in to access this page.', 'warning')
-            return redirect(url_for('login', next=request.url))
+            return redirect(url_for('auth.login', next=request.url))
 
         if not user_has_permission(current_user, Permission.WRITE):
             logger.warning(

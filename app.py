@@ -69,42 +69,33 @@ from models import (
 )
 
 
-def _get_active_tiers():
-    """Get active subscription tiers, cached per-request in Flask g."""
-    if not hasattr(g, '_cached_tiers'):
-        g._cached_tiers = SubscriptionTier.query.filter_by(is_active=True).all()
-    return g._cached_tiers
-
-
-def _get_ngn_prices():
-    """Get NGN price config, cached per-request in Flask g."""
-    if not hasattr(g, '_cached_ngn'):
-        g._cached_ngn = {p.product_key: p.price_ngn for p in NGNPriceConfig.query.filter_by(is_active=True).all()}
-    return g._cached_ngn
-
-
-# Import Stripe integration
-try:
-    import stripe
-    from stripe_integration import (
-        StripePaymentService,
-        create_subscription_checkout,
-        create_credit_pack_checkout
-    )
-    STRIPE_ENABLED = True
-except ImportError:
-    STRIPE_ENABLED = False
-    print("Warning: Stripe not installed. Payment features will be disabled.")
-
-
 app = Flask(__name__)
+
+# Error tracking — captures unhandled exceptions to Sentry in production.
+# Set SENTRY_DSN env var to enable. Safe no-op if not configured or SDK not installed.
+_sentry_dsn = os.environ.get('SENTRY_DSN')
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.flask import FlaskIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            integrations=[FlaskIntegration(), SqlalchemyIntegration()],
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+        )
+    except ImportError:
+        print("Warning: SENTRY_DSN set but sentry-sdk not installed. Run: pip install sentry-sdk[flask]")
 
 # Initialize security features
 from flask_wtf.csrf import CSRFProtect
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_limiter.errors import RateLimitExceeded
 from flask_talisman import Talisman
+
+# Import shared extension instances (limiter + security_logger live in extensions.py
+# so blueprints can import them without circular imports)
+from extensions import limiter, security_logger
 
 # CSRF Protection
 csrf = CSRFProtect(app)
@@ -112,13 +103,8 @@ app.config['WTF_CSRF_ENABLED'] = True
 app.config['WTF_CSRF_TIME_LIMIT'] = None  # No time limit for CSRF tokens
 app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Exempt JSON API routes; CSRF enforced on form endpoints via @csrf.protect
 
-# Rate Limiting
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["500 per day", "100 per hour"],
-    storage_uri="memory://"
-)
+# Bind limiter to this app instance
+limiter.init_app(app)
 
 _is_production = os.environ.get('FLASK_ENV') == 'production'
 Talisman(app,
@@ -136,14 +122,8 @@ Talisman(app,
     },
 )
 
-# Security logging
-security_logger = logging.getLogger('security')
-security_logger.setLevel(logging.INFO)
-# Create logs directory if it doesn't exist
+# security_logger and limiter are now imported from extensions.py above
 os.makedirs('logs', exist_ok=True)
-security_handler = logging.FileHandler('logs/security.log')
-security_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-security_logger.addHandler(security_handler)
 
 # Session configuration
 # Check environment variable first (for production), then load or generate persistent secret key
@@ -188,14 +168,19 @@ db.init_app(app)
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
+login_manager.login_view = 'auth.login'
 login_manager.login_message = 'Please log in to access this page.'
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Register admin blueprint
+# Register blueprints
+from routes.auth import auth_bp
+app.register_blueprint(auth_bp)
+from routes.billing import billing_bp
+app.register_blueprint(billing_bp)
+
 from routes.admin import admin_bp
 app.register_blueprint(admin_bp)
 
@@ -406,12 +391,12 @@ def handle_exception(e):
 
 # Enforce 2FA setup for all authenticated users
 _2FA_EXEMPT_ROUTES = {
-    'login', 'signup', 'logout', 'static', 'verify_2fa', 'setup_2fa_page',
-    'api_2fa_setup', 'api_2fa_verify_setup', 'page_not_found', 'handle_exception',
+    'auth.login', 'auth.signup', 'auth.logout', 'static', 'auth.verify_2fa', 'auth.setup_2fa_page',
+    'auth.api_2fa_setup', 'auth.api_2fa_verify_setup', 'page_not_found', 'handle_exception',
     'ensure_clean_transaction', 'onboarding_page', 'complete_onboarding',
     'update_onboarding_step',
-    'api_mfa_set_method', 'api_mfa_verify_method', 'api_mfa_phone_add',
-    'api_mfa_phone_verify', 'api_2fa_resend_otp',
+    'auth.api_mfa_set_method', 'auth.api_mfa_verify_method', 'auth.api_mfa_phone_add',
+    'auth.api_mfa_phone_verify', 'auth.api_2fa_resend_otp',
 }
 
 @app.before_request
@@ -426,7 +411,7 @@ def enforce_two_factor():
     if request.endpoint and request.endpoint.startswith('static'):
         return
     if not current_user.has_mfa_enabled():
-        return redirect(url_for('setup_2fa_page'))
+        return redirect(url_for('auth.setup_2fa_page'))
     # Redirect to onboarding if not completed (after 2FA is set up)
     if not getattr(current_user, 'onboarding_completed', True):
         if request.endpoint not in ('onboarding_page', 'complete_onboarding', 'update_onboarding_step'):
@@ -435,8 +420,8 @@ def enforce_two_factor():
 
 # Routes that do NOT require email verification (auth pages, email verify flow, static)
 _EMAIL_VERIFY_EXEMPT_ROUTES = {
-    'login', 'signup', 'logout', 'verify_email', 'resend_verification',
-    'forgot_password', 'reset_password', 'static', 'page_not_found',
+    'auth.login', 'auth.signup', 'auth.logout', 'auth.verify_email', 'auth.resend_verification',
+    'auth.forgot_password', 'auth.reset_password', 'static', 'page_not_found',
     'handle_exception', 'ensure_clean_transaction', 'register_redirect',
     'usage_policy', 'privacy_policy',
 }
@@ -456,13 +441,13 @@ def enforce_email_verification():
         # API routes get JSON; page routes get a redirect
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Email verification required', 'email_unverified': True}), 403
-        return redirect(url_for('resend_verification'))
+        return redirect(url_for('auth.resend_verification'))
 
 
 @app.route('/register')
 def register_redirect():
     """Permanent redirect from /register to /signup."""
-    return redirect(url_for('signup'), 308)
+    return redirect(url_for('auth.signup'), 308)
 
 
 @app.errorhandler(404)
@@ -1157,402 +1142,20 @@ LEARNING_CURRICULUM = {
 def index():
     """Redirect to appropriate page based on auth status."""
     if not current_user.is_authenticated:
-        return redirect(url_for('login'))
+        return redirect(url_for('auth.login'))
     return redirect(url_for('chat'))
-
-
-@app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")  # Max 10 login attempts per minute
-def login():
-    """User login page with security features."""
-    if current_user.is_authenticated:
-        return redirect(url_for('chat'))
-
-    if request.method == 'POST':
-        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
-        try:
-            validate_csrf(request.form.get('csrf_token'))
-        except CSRFValidationError:
-            return render_template('login.html', error='Invalid or expired session. Please refresh and try again.'), 400
-
-        email_or_username = request.form.get('email', '').strip()
-        password = request.form.get('password', '')
-        ip_address = request.remote_addr
-
-        # Security logging
-        security_logger.info(f"Login attempt from IP: {ip_address} for user: {email_or_username}")
-
-        if not email_or_username or not password:
-            security_logger.warning(f"Failed login attempt from {ip_address}: Missing credentials")
-            return render_template('login.html', error='Email/Username and password are required')
-
-        # Try to find user by email or username
-        user = User.query.filter(
-            (User.email == email_or_username) | (User.username == email_or_username)
-        ).first()
-
-        if not user:
-            security_logger.warning(f"Failed login attempt from {ip_address}: User not found - {email_or_username}")
-            return render_template('login.html', error='Invalid email/username or password')
-
-        # Check if account is locked
-        if user.is_locked():
-            security_logger.warning(f"Login attempt for locked account: {user.email} from {ip_address}")
-            return render_template('login.html', error=f'Account temporarily locked due to multiple failed login attempts. Try again in 15 minutes.')
-
-        # Verify password
-        if user.check_password(password):
-            # Check if MFA is enabled (any method)
-            if user.has_mfa_enabled():
-                session['2fa_pending_user'] = user.id
-                session['2fa_pending_time'] = datetime.utcnow().isoformat()
-                session['2fa_next'] = request.args.get('next', '')
-                session['2fa_method'] = user.mfa_method or 'totp'
-                security_logger.info(f"MFA ({user.mfa_method}) required for {user.email} from {ip_address}")
-
-                # For email/SMS methods, generate and send OTP now
-                if user.mfa_method in ('email', 'sms'):
-                    from services.two_factor_service import two_factor_service
-                    code = two_factor_service.generate_otp()
-                    user.set_mfa_otp(code)
-                    db.session.commit()
-                    if user.mfa_method == 'email':
-                        from services.email_service import email_service
-                        email_service.send_otp_email(user, code)
-                    else:
-                        from services.sms_service import sms_service
-                        sms_service.send_otp(user.phone_number, code)
-
-                return redirect(url_for('verify_2fa'))
-
-            # Successful login (no 2FA)
-            remember_me = request.form.get('remember') == 'on'
-            login_user(user, remember=remember_me)
-            user.update_last_login(ip_address=ip_address)
-
-            # Make session permanent only if remember me is checked
-            session.permanent = remember_me
-
-            security_logger.info(f"Successful login: {user.email} from {ip_address}")
-
-            # Redirect to next page or chat
-            next_page = request.args.get('next')
-            return redirect(next_page if next_page else url_for('chat'))
-        else:
-            # Failed login - record attempt
-            user.record_failed_login()
-            attempts_remaining = max(0, 5 - user.failed_login_attempts)
-
-            security_logger.warning(f"Failed login attempt for {user.email} from {ip_address}. Attempts remaining: {attempts_remaining}")
-
-            if attempts_remaining == 0:
-                return render_template('login.html', error='Account locked due to multiple failed login attempts. Try again in 15 minutes.')
-            else:
-                return render_template('login.html', error=f'Invalid email/username or password. {attempts_remaining} attempts remaining before account lockout.')
-
-    return render_template('login.html')
-
-
-@app.route('/signup', methods=['GET', 'POST'])
-@limiter.limit("5 per hour")  # Max 5 signup attempts per hour
-def signup():
-    """User registration page with input validation."""
-    if current_user.is_authenticated:
-        return redirect(url_for('chat'))
-
-    if request.method == 'POST':
-        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
-        try:
-            validate_csrf(request.form.get('csrf_token'))
-        except CSRFValidationError:
-            return render_template('signup.html', error='Invalid or expired session. Please refresh and try again.'), 400
-
-        email = request.form.get('email', '').strip().lower()
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        full_name = request.form.get('full_name', '').strip()
-        ip_address = request.remote_addr
-
-        # Security logging
-        security_logger.info(f"Signup attempt from IP: {ip_address} for email: {email}")
-
-        # Basic validation
-        if not email or not username or not password:
-            return render_template('signup.html', error='Email, username, and password are required')
-
-        # Email validation
-        try:
-            valid = validate_email(email, check_deliverability=False)
-            email = valid.email
-        except EmailNotValidError as e:
-            security_logger.warning(f"Invalid email format from {ip_address}: {email}")
-            return render_template('signup.html', error=f'Invalid email address: {str(e)}')
-
-        # Username validation (alphanumeric, underscore, 3-20 characters)
-        if not re.match(r'^[a-zA-Z0-9_]{3,20}$', username):
-            return render_template('signup.html', error='Username must be 3-20 characters long and contain only letters, numbers, and underscores')
-
-        # Password strength validation
-        if len(password) < 8:
-            return render_template('signup.html', error='Password must be at least 8 characters long')
-
-        # Check password complexity
-        if not re.search(r'[A-Z]', password):
-            return render_template('signup.html', error='Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', password):
-            return render_template('signup.html', error='Password must contain at least one lowercase letter')
-        if not re.search(r'[0-9]', password):
-            return render_template('signup.html', error='Password must contain at least one number')
-
-        # Check if user already exists
-        if User.query.filter_by(email=email).first():
-            security_logger.warning(f"Signup attempt with existing email from {ip_address}: {email}")
-            return render_template('signup.html', error='Email already registered')
-
-        if User.query.filter_by(username=username).first():
-            security_logger.warning(f"Signup attempt with existing username from {ip_address}: {username}")
-            return render_template('signup.html', error='Username already taken')
-
-        # Create new user
-        try:
-            # Generate email verification token
-            verification_token = secrets.token_urlsafe(32)
-            hashed_verification_token = hashlib.sha256(verification_token.encode()).hexdigest()
-
-            user = User(
-                email=email,
-                username=username,
-                full_name=full_name if full_name else None,
-                last_login_ip=ip_address,
-                email_verified=False,
-                email_verification_token=hashed_verification_token,
-                email_verification_sent_at=datetime.utcnow()
-            )
-            user.set_password(password)
-
-            db.session.add(user)
-            db.session.commit()
-
-            security_logger.info(f"New user registered: {email} from {ip_address}")
-
-            # Create free-tier subscription so credits are visible immediately
-            free_tier = SubscriptionTier.query.filter_by(name='free').first()
-            if free_tier:
-                from dateutil.relativedelta import relativedelta
-                sub = UserSubscription(
-                    user_id=user.id,
-                    tier_id=free_tier.id,
-                    credits_remaining=free_tier.monthly_credits,
-                    current_period_start=datetime.utcnow(),
-                    current_period_end=datetime.utcnow() + relativedelta(months=1),
-                    last_reset_date=datetime.utcnow(),
-                )
-                db.session.add(sub)
-                db.session.commit()
-
-            # Send verification email (non-blocking, don't fail signup if email fails)
-            try:
-                email_service.send_verification_email(user, token=verification_token)
-            except Exception as email_err:
-                app.logger.warning(f"Failed to send verification email to {email}: {email_err}")
-
-            # Log the user in
-            login_user(user, remember=True)
-            user.update_last_login(ip_address=ip_address)
-
-            return redirect(url_for('chat'))
-        except Exception as e:
-            db.session.rollback()
-            return render_template('signup.html', error=f'Error creating account: {str(e)}')
-
-    return render_template('signup.html')
-
-
-@app.route('/logout')
-@login_required
-def logout():
-    """Logout user."""
-    logout_user()
-    return redirect(url_for('login'))
-
-
-@app.route('/forgot-password', methods=['GET', 'POST'])
-@limiter.limit("5 per hour")
-def forgot_password():
-    """Request a password reset link via email."""
-    if current_user.is_authenticated:
-        return redirect(url_for('chat'))
-
-    if request.method == 'POST':
-        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
-        try:
-            validate_csrf(request.form.get('csrf_token'))
-        except CSRFValidationError:
-            return render_template('forgot_password.html', error='Invalid or expired session. Please refresh and try again.'), 400
-
-        email = request.form.get('email', '').strip().lower()
-        ip_address = request.remote_addr
-
-        if not email:
-            return render_template('forgot_password.html', error='Please enter your email address.')
-
-        # Always show the same success message to avoid user enumeration
-        success_msg = 'If an account with that email exists, we have sent a password reset link. Please check your inbox.'
-
-        user = User.query.filter_by(email=email).first()
-        if user:
-            # Generate token and store hashed version
-            raw_token = secrets.token_urlsafe(32)
-            hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-
-            user.password_reset_token = hashed_token
-            user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
-            db.session.commit()
-
-            try:
-                email_service.send_password_reset_email(user, token=raw_token)
-                security_logger.info(f"Password reset email sent to {email} from {ip_address}")
-            except Exception as e:
-                app.logger.warning(f"Failed to send password reset email to {email}: {e}")
-        else:
-            security_logger.info(f"Password reset requested for non-existent email: {email} from {ip_address}")
-
-        return render_template('forgot_password.html', success=success_msg)
-
-    return render_template('forgot_password.html')
-
-
-@app.route('/reset-password', methods=['GET', 'POST'])
-@limiter.limit("10 per hour")
-def reset_password():
-    """Reset password using a tokenized link from email."""
-    if current_user.is_authenticated:
-        return redirect(url_for('chat'))
-
-    token = request.args.get('token', '')
-    user_id = request.args.get('user_id', '')
-
-    if not token or not user_id:
-        return render_template('reset_password.html', error='Invalid or missing reset link.', token_valid=False)
-
-    # Hash the provided token and look up user
-    hashed_token = hashlib.sha256(token.encode()).hexdigest()
-    user = User.query.filter_by(id=user_id, password_reset_token=hashed_token).first()
-
-    if not user or not user.password_reset_expires or user.password_reset_expires < datetime.utcnow():
-        return render_template('reset_password.html', error='This reset link is invalid or has expired. Please request a new one.', token_valid=False)
-
-    if request.method == 'POST':
-        from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
-        try:
-            validate_csrf(request.form.get('csrf_token'))
-        except CSRFValidationError:
-            return render_template('reset_password.html', error='Invalid or expired session. Please refresh and try again.', token_valid=True, token=token, user_id=user_id), 400
-
-        password = request.form.get('password', '')
-        confirm_password = request.form.get('confirm_password', '')
-
-        if not password:
-            return render_template('reset_password.html', error='Please enter a new password.', token_valid=True, token=token, user_id=user_id)
-
-        if password != confirm_password:
-            return render_template('reset_password.html', error='Passwords do not match.', token_valid=True, token=token, user_id=user_id)
-
-        if len(password) < 8:
-            return render_template('reset_password.html', error='Password must be at least 8 characters long.', token_valid=True, token=token, user_id=user_id)
-
-        if not re.search(r'[A-Z]', password):
-            return render_template('reset_password.html', error='Password must contain at least one uppercase letter.', token_valid=True, token=token, user_id=user_id)
-
-        if not re.search(r'[a-z]', password):
-            return render_template('reset_password.html', error='Password must contain at least one lowercase letter.', token_valid=True, token=token, user_id=user_id)
-
-        if not re.search(r'[0-9]', password):
-            return render_template('reset_password.html', error='Password must contain at least one number.', token_valid=True, token=token, user_id=user_id)
-
-        # Reset the password and clear the token
-        user.set_password(password)
-        user.password_reset_token = None
-        user.password_reset_expires = None
-        db.session.commit()
-
-        security_logger.info(f"Password reset successfully for user {user.email}")
-        return render_template('reset_password.html', success='Your password has been reset successfully. You can now sign in.', token_valid=False)
-
-    return render_template('reset_password.html', token_valid=True, token=token, user_id=user_id)
-
-
-@app.route('/verify-email')
-def verify_email():
-    """Verify user email address via tokenized link."""
-    token = request.args.get('token', '')
-    user_id = request.args.get('user_id', '')
-
-    if not token or not user_id:
-        return render_template('login.html', error='Invalid verification link.')
-
-    hashed_token = hashlib.sha256(token.encode()).hexdigest()
-    user = User.query.filter_by(id=user_id, email_verification_token=hashed_token).first()
-
-    if not user:
-        return render_template('login.html', error='Invalid or expired verification link.')
-
-    # Check 24-hour expiry
-    if user.email_verification_sent_at and (datetime.utcnow() - user.email_verification_sent_at).total_seconds() > 86400:
-        return render_template('login.html', error='Verification link has expired. Please request a new one.')
-
-    user.email_verified = True
-    user.email_verification_token = None
-    db.session.commit()
-
-    security_logger.info(f"Email verified for user {user.email}")
-
-    if current_user.is_authenticated and current_user.id == user.id:
-        return redirect(url_for('chat'))
-
-    return render_template('login.html', error=None, success='Your email has been verified. Please sign in.')
-
-
-@app.route('/resend-verification', methods=['POST'])
-@login_required
-@limiter.limit("3 per hour")
-def resend_verification():
-    """Resend email verification for the currently logged-in user."""
-    user = current_user
-
-    if user.email_verified:
-        return jsonify({'success': False, 'message': 'Email is already verified.'}), 400
-
-    # Generate new token
-    raw_token = secrets.token_urlsafe(32)
-    hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-
-    user.email_verification_token = hashed_token
-    user.email_verification_sent_at = datetime.utcnow()
-    db.session.commit()
-
-    try:
-        email_service.send_verification_email(user, token=raw_token)
-        security_logger.info(f"Verification email resent to {user.email}")
-        return jsonify({'success': True, 'message': 'Verification email sent. Please check your inbox.'})
-    except Exception as e:
-        app.logger.warning(f"Failed to resend verification email to {user.email}: {e}")
-        return jsonify({'success': False, 'message': 'Failed to send verification email. Please try again later.'}), 500
 
 
 @app.route('/chat')
 @login_required
 def chat():
     """Render the main chat interface or setup page."""
-    # Check if API key is configured
     if not check_api_key_configured():
         return render_template('setup.html')
 
-    # Initialize session if needed
     if 'conversation_id' not in session:
         session['conversation_id'] = secrets.token_hex(8)
 
-    # Ensure subscription exists so credits display correctly
     subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
     if not subscription:
         free_tier = SubscriptionTier.query.filter_by(name='free').first()
@@ -1598,7 +1201,6 @@ def profile():
             current_user.avatar_color = request.form.get('avatar_color', '#cd7c48')
             current_user.theme = request.form.get('theme', 'light')
             current_user.language = request.form.get('language', 'en')
-
             db.session.commit()
 
             return render_template('profile.html', user=current_user, success='Profile updated successfully!')
@@ -1607,408 +1209,6 @@ def profile():
             return render_template('profile.html', user=current_user, error=f'Error updating profile: {str(e)}')
 
     return render_template('profile.html', user=current_user)
-
-
-# ==========================================
-# Two-Factor Authentication Routes
-# ==========================================
-
-@app.route('/verify-2fa', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")
-def verify_2fa():
-    """Verify MFA code after password authentication (supports TOTP, email OTP, SMS OTP)."""
-    from services.two_factor_service import two_factor_service
-
-    # Must have a pending 2FA session
-    pending_user_id = session.get('2fa_pending_user')
-    pending_time = session.get('2fa_pending_time')
-
-    if not pending_user_id or not pending_time:
-        return redirect(url_for('login'))
-
-    # Check 5-minute expiry
-    pending_dt = datetime.fromisoformat(pending_time)
-    if datetime.utcnow() - pending_dt > timedelta(minutes=5):
-        session.pop('2fa_pending_user', None)
-        session.pop('2fa_pending_time', None)
-        session.pop('2fa_next', None)
-        session.pop('2fa_method', None)
-        return redirect(url_for('login'))
-
-    user = User.query.get(pending_user_id)
-    if not user:
-        session.pop('2fa_pending_user', None)
-        session.pop('2fa_pending_time', None)
-        session.pop('2fa_next', None)
-        session.pop('2fa_method', None)
-        return redirect(url_for('login'))
-
-    mfa_method = session.get('2fa_method', user.mfa_method or 'totp')
-
-    if request.method == 'POST':
-        code = request.form.get('code', '').strip()
-        ip_address = request.remote_addr
-
-        if not code:
-            return render_template('verify_2fa.html', mfa_method=mfa_method,
-                                   error='Please enter a verification code.')
-
-        # Check lockout
-        if user.two_factor_locked_until and datetime.utcnow() < user.two_factor_locked_until:
-            remaining = int((user.two_factor_locked_until - datetime.utcnow()).total_seconds() / 60) + 1
-            return render_template('verify_2fa.html', mfa_method=mfa_method,
-                                   error=f'Too many failed attempts. Try again in {remaining} minutes.')
-
-        # Reset lockout if expired
-        if user.two_factor_locked_until and datetime.utcnow() >= user.two_factor_locked_until:
-            user.two_factor_locked_until = None
-            user.two_factor_attempts = 0
-
-        verified = False
-
-        # Verify based on method
-        if mfa_method == 'totp':
-            verified = two_factor_service.verify_totp(user.two_factor_secret, code)
-        elif mfa_method in ('email', 'sms'):
-            verified = user.verify_mfa_otp(code)
-            if verified:
-                user.clear_mfa_otp()
-
-        # If primary method failed, try backup code (works for all methods)
-        if not verified and user.backup_codes:
-            is_backup_valid, matched_hash = two_factor_service.verify_backup_code(
-                code, user.backup_codes
-            )
-            if is_backup_valid:
-                verified = True
-                user.backup_codes = [h for h in user.backup_codes if h != matched_hash]
-                if mfa_method in ('email', 'sms'):
-                    user.clear_mfa_otp()
-
-        if verified:
-            user.two_factor_attempts = 0
-            db.session.commit()
-
-            # Complete login
-            login_user(user, remember=True)
-            user.update_last_login(ip_address=ip_address)
-            session.permanent = True
-
-            # Clean up 2FA session data
-            next_page = session.pop('2fa_next', '')
-            session.pop('2fa_pending_user', None)
-            session.pop('2fa_pending_time', None)
-            session.pop('2fa_method', None)
-
-            security_logger.info(f"MFA ({mfa_method}) verified for {user.email} from {ip_address}")
-            return redirect(next_page if next_page else url_for('chat'))
-        else:
-            # Record failed attempt
-            user.two_factor_attempts = (user.two_factor_attempts or 0) + 1
-            if user.two_factor_attempts >= 5:
-                user.two_factor_locked_until = datetime.utcnow() + timedelta(minutes=15)
-                security_logger.warning(f"MFA locked for {user.email} from {ip_address}")
-            db.session.commit()
-
-            attempts_remaining = max(0, 5 - (user.two_factor_attempts or 0))
-            security_logger.warning(f"Failed MFA for {user.email} from {ip_address}. Remaining: {attempts_remaining}")
-
-            if attempts_remaining == 0:
-                return render_template('verify_2fa.html', mfa_method=mfa_method,
-                                       error='Too many failed attempts. Account locked for 15 minutes.')
-            return render_template('verify_2fa.html', mfa_method=mfa_method,
-                                   error=f'Invalid code. {attempts_remaining} attempts remaining.')
-
-    return render_template('verify_2fa.html', mfa_method=mfa_method)
-
-
-@app.route('/setup-2fa')
-@login_required
-def setup_2fa_page():
-    """Render the 2FA setup page."""
-    return render_template('setup_2fa.html', user=current_user)
-
-
-@app.route('/api/2fa/setup', methods=['POST'])
-@login_required
-def api_2fa_setup():
-    """Generate 2FA secret and QR code."""
-    from services.two_factor_service import two_factor_service
-
-    if current_user.mfa_method == 'totp' and current_user.two_factor_enabled:
-        return jsonify({'error': 'TOTP is already enabled'}), 400
-
-    secret = two_factor_service.generate_secret()
-    qr_code = two_factor_service.generate_qr_code(secret, current_user.email)
-
-    # Store secret temporarily (not enabled yet)
-    current_user.two_factor_secret = secret
-    db.session.commit()
-
-    return jsonify({
-        'success': True,
-        'secret': secret,
-        'qr_code': qr_code
-    })
-
-
-@app.route('/api/2fa/verify-setup', methods=['POST'])
-@login_required
-def api_2fa_verify_setup():
-    """Verify TOTP code to complete 2FA setup."""
-    from services.two_factor_service import two_factor_service
-
-    data = request.get_json()
-    if not data or not data.get('code'):
-        return jsonify({'error': 'Verification code is required'}), 400
-
-    code = data['code'].strip()
-
-    if not current_user.two_factor_secret:
-        return jsonify({'error': 'Please start 2FA setup first'}), 400
-
-    if current_user.mfa_method == 'totp' and current_user.two_factor_enabled:
-        return jsonify({'error': 'TOTP is already enabled'}), 400
-
-    if two_factor_service.verify_totp(current_user.two_factor_secret, code):
-        # Enable 2FA
-        current_user.two_factor_enabled = True
-        current_user.mfa_method = 'totp'
-        current_user.two_factor_verified_at = datetime.utcnow()
-        current_user.two_factor_attempts = 0
-
-        # Generate backup codes
-        backup_codes = two_factor_service.generate_backup_codes()
-        current_user.backup_codes = [
-            two_factor_service.hash_backup_code(c) for c in backup_codes
-        ]
-        db.session.commit()
-
-        security_logger.info(f"2FA (TOTP) enabled for {current_user.email}")
-
-        return jsonify({
-            'success': True,
-            'backup_codes': backup_codes
-        })
-    else:
-        return jsonify({'error': 'Invalid verification code. Please try again.'}), 400
-
-
-@app.route('/api/2fa/disable', methods=['POST'])
-@login_required
-def api_2fa_disable():
-    """Disable 2FA (requires password confirmation)."""
-    data = request.get_json()
-    if not data or not data.get('password'):
-        return jsonify({'error': 'Password is required to disable 2FA'}), 400
-
-    if not current_user.check_password(data['password']):
-        return jsonify({'error': 'Incorrect password'}), 403
-
-    current_user.two_factor_enabled = False
-    current_user.mfa_method = 'none'
-    current_user.two_factor_secret = None
-    current_user.backup_codes = None
-    current_user.two_factor_verified_at = None
-    current_user.two_factor_attempts = 0
-    current_user.two_factor_locked_until = None
-    current_user.mfa_otp_hash = None
-    current_user.mfa_otp_expires = None
-    current_user.mfa_otp_sent_at = None
-    db.session.commit()
-
-    security_logger.info(f"MFA disabled for {current_user.email}")
-
-    return jsonify({'success': True, 'message': '2FA has been disabled.'})
-
-
-@app.route('/api/2fa/regenerate-backup-codes', methods=['POST'])
-@login_required
-def api_2fa_regenerate_backup_codes():
-    """Generate new backup codes (invalidates old ones)."""
-    from services.two_factor_service import two_factor_service
-
-    if not current_user.has_mfa_enabled():
-        return jsonify({'error': 'MFA is not enabled'}), 400
-
-    data = request.get_json()
-    if not data or not data.get('password'):
-        return jsonify({'error': 'Password is required'}), 400
-
-    if not current_user.check_password(data['password']):
-        return jsonify({'error': 'Incorrect password'}), 403
-
-    backup_codes = two_factor_service.generate_backup_codes()
-    current_user.backup_codes = [
-        two_factor_service.hash_backup_code(c) for c in backup_codes
-    ]
-    db.session.commit()
-
-    security_logger.info(f"Backup codes regenerated for {current_user.email}")
-
-    return jsonify({
-        'success': True,
-        'backup_codes': backup_codes
-    })
-
-
-# ==========================================
-# Multi-Method MFA Routes
-# ==========================================
-
-@app.route('/api/mfa/set-method', methods=['POST'])
-@login_required
-def api_mfa_set_method():
-    """Choose an MFA method (email, sms, totp). Sends verification OTP for email/sms."""
-    from services.two_factor_service import two_factor_service
-
-    data = request.get_json()
-    method = (data or {}).get('method', '').strip().lower()
-
-    if method not in ('email', 'sms', 'totp'):
-        return jsonify({'error': 'Invalid method. Choose email, sms, or totp.'}), 400
-
-    if method == 'totp':
-        # Redirect to existing TOTP setup flow
-        return jsonify({'success': True, 'method': 'totp', 'action': 'totp_setup'})
-
-    if method == 'email':
-        if not current_user.email_verified:
-            return jsonify({'error': 'Please verify your email address first (check Settings).'}), 400
-        code = two_factor_service.generate_otp()
-        current_user.set_mfa_otp(code)
-        db.session.commit()
-        from services.email_service import email_service
-        email_service.send_otp_email(current_user, code)
-        return jsonify({'success': True, 'method': 'email', 'action': 'verify_otp'})
-
-    if method == 'sms':
-        if not current_user.phone_number or not current_user.phone_verified:
-            return jsonify({'error': 'Please add and verify a phone number first.', 'needs_phone': True}), 400
-        code = two_factor_service.generate_otp()
-        current_user.set_mfa_otp(code)
-        db.session.commit()
-        from services.sms_service import sms_service
-        sms_service.send_otp(current_user.phone_number, code)
-        return jsonify({'success': True, 'method': 'sms', 'action': 'verify_otp'})
-
-
-@app.route('/api/mfa/verify-method', methods=['POST'])
-@login_required
-def api_mfa_verify_method():
-    """Confirm OTP to activate email or SMS MFA. Generates backup codes."""
-    from services.two_factor_service import two_factor_service
-
-    data = request.get_json()
-    code = (data or {}).get('code', '').strip()
-    method = (data or {}).get('method', '').strip().lower()
-
-    if not code or method not in ('email', 'sms'):
-        return jsonify({'error': 'Code and method are required.'}), 400
-
-    if not current_user.verify_mfa_otp(code):
-        return jsonify({'error': 'Invalid or expired code. Please try again.'}), 400
-
-    # Activate MFA
-    current_user.clear_mfa_otp()
-    current_user.mfa_method = method
-    current_user.two_factor_enabled = True
-    current_user.two_factor_verified_at = datetime.utcnow()
-    current_user.two_factor_attempts = 0
-
-    # Generate backup codes
-    backup_codes = two_factor_service.generate_backup_codes()
-    current_user.backup_codes = [
-        two_factor_service.hash_backup_code(c) for c in backup_codes
-    ]
-    db.session.commit()
-
-    security_logger.info(f"MFA ({method}) enabled for {current_user.email}")
-    return jsonify({'success': True, 'backup_codes': backup_codes})
-
-
-@app.route('/api/mfa/phone/add', methods=['POST'])
-@login_required
-@limiter.limit("5 per hour")
-def api_mfa_phone_add():
-    """Add a phone number and send verification SMS."""
-    import re
-    from services.two_factor_service import two_factor_service
-    from services.sms_service import sms_service
-
-    data = request.get_json()
-    phone = (data or {}).get('phone_number', '').strip()
-
-    if not phone:
-        return jsonify({'error': 'Phone number is required.'}), 400
-
-    # Basic E.164 validation
-    if not re.match(r'^\+[1-9]\d{6,14}$', phone):
-        return jsonify({'error': 'Invalid phone number. Use E.164 format (e.g. +12125551234).'}), 400
-
-    current_user.phone_number = phone
-    current_user.phone_verified = False
-
-    code = two_factor_service.generate_otp()
-    current_user.set_mfa_otp(code)
-    db.session.commit()
-
-    sms_service.send_otp(phone, code)
-    return jsonify({'success': True, 'message': 'Verification code sent to your phone.'})
-
-
-@app.route('/api/mfa/phone/verify', methods=['POST'])
-@login_required
-@limiter.limit("10 per minute")
-def api_mfa_phone_verify():
-    """Verify phone ownership via OTP."""
-    data = request.get_json()
-    code = (data or {}).get('code', '').strip()
-
-    if not code:
-        return jsonify({'error': 'Verification code is required.'}), 400
-
-    if not current_user.verify_mfa_otp(code):
-        return jsonify({'error': 'Invalid or expired code.'}), 400
-
-    current_user.phone_verified = True
-    current_user.clear_mfa_otp()
-    db.session.commit()
-
-    return jsonify({'success': True, 'message': 'Phone number verified.'})
-
-
-@app.route('/api/2fa/resend-otp', methods=['POST'])
-@limiter.limit("3 per 5 minutes")
-def api_2fa_resend_otp():
-    """Resend email/SMS OTP during login flow (60s cooldown)."""
-    from services.two_factor_service import two_factor_service
-
-    pending_user_id = session.get('2fa_pending_user')
-    mfa_method = session.get('2fa_method')
-
-    if not pending_user_id or mfa_method not in ('email', 'sms'):
-        return jsonify({'error': 'No pending MFA session.'}), 400
-
-    user = User.query.get(pending_user_id)
-    if not user:
-        return jsonify({'error': 'User not found.'}), 400
-
-    if not user.can_resend_otp():
-        return jsonify({'error': 'Please wait 60 seconds before resending.'}), 429
-
-    code = two_factor_service.generate_otp()
-    user.set_mfa_otp(code)
-    db.session.commit()
-
-    if mfa_method == 'email':
-        from services.email_service import email_service
-        email_service.send_otp_email(user, code)
-    else:
-        from services.sms_service import sms_service
-        sms_service.send_otp(user.phone_number, code)
-
-    return jsonify({'success': True, 'message': f'Code resent via {mfa_method}.'})
 
 
 @app.route('/doctor')
@@ -2097,53 +1297,6 @@ def settings():
 def templates_page():
     """Command templates management page."""
     return render_template('templates.html', user=current_user)
-
-
-@app.route('/billing')
-@login_required
-def billing():
-    """Billing and credits management page."""
-    subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-    if not subscription:
-        free_tier = SubscriptionTier.query.filter_by(name='free').first()
-        if free_tier:
-            from dateutil.relativedelta import relativedelta
-            subscription = UserSubscription(
-                user_id=current_user.id,
-                tier_id=free_tier.id,
-                credits_remaining=free_tier.monthly_credits,
-                current_period_start=datetime.utcnow(),
-                current_period_end=datetime.utcnow() + relativedelta(months=1),
-                last_reset_date=datetime.utcnow(),
-            )
-            db.session.add(subscription)
-            db.session.commit()
-    elif subscription.should_reset_credits():
-        subscription.reset_monthly_credits()
-    tiers = _get_active_tiers()
-    stripe_pub_key = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
-
-    # NGN pricing support
-    from services.currency_detection import detect_user_currency
-    from models import NGNPriceConfig
-    user_prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
-    detected_currency = detect_user_currency(request, user_prefs)
-    ngn_prices = _get_ngn_prices()
-    ngn_defaults = {'starter': 15000, 'professional': 45000, 'business': 120000,
-                    'pack_100': 5000, 'pack_250': 9000, 'pack_500': 15000, 'pack_1000': 25000}
-    for _k, _v in ngn_defaults.items():
-        ngn_prices.setdefault(_k, _v)
-
-    return render_template(
-        'billing.html',
-        user=current_user,
-        subscription=subscription,
-        tiers=tiers,
-        stripe_enabled=STRIPE_ENABLED,
-        stripe_publishable_key=stripe_pub_key,
-        detected_currency=detected_currency,
-        ngn_prices=ngn_prices,
-    )
 
 
 @app.route('/usage-policy')
@@ -3424,10 +2577,17 @@ def api_chat_stream():
 
                 yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
 
+            except (BrokenPipeError, GeneratorExit, ConnectionResetError):
+                # Client disconnected mid-stream — silently clean up, do not try to yield
+                with app.app_context():
+                    db.session.rollback()
             except Exception as e:
                 with app.app_context():
                     db.session.rollback()
-                yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                try:
+                    yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                except (BrokenPipeError, GeneratorExit, ConnectionResetError):
+                    pass
 
         return app.response_class(
             generate(),
@@ -4851,62 +4011,6 @@ def feedback_stats():
         return jsonify({'error': str(e)}), 500
 
 
-# ===== SUBSCRIPTION & CREDITS API =====
-
-@app.route('/api/subscription', methods=['GET'])
-@login_required
-def get_subscription():
-    """Get current user's subscription details."""
-    try:
-        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-
-        if not subscription:
-            # Return free tier info if no subscription
-            free_tier = SubscriptionTier.query.filter_by(name='free').first()
-            return jsonify({
-                'subscription': None,
-                'available_tiers': [t.to_dict() for t in _get_active_tiers()],
-                'suggested_tier': free_tier.to_dict() if free_tier else None
-            })
-
-        # Check if credits need reset
-        if subscription.should_reset_credits():
-            subscription.reset_monthly_credits()
-
-        return jsonify({
-            'subscription': subscription.to_dict(),
-            'available_tiers': [t.to_dict() for t in _get_active_tiers()]
-        })
-
-    except Exception as e:
-        logger = get_logger(__name__)
-        logger.error(f"Error retrieving subscription: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/subscription/tiers', methods=['GET'])
-def get_subscription_tiers():
-    """Get all available subscription tiers (public endpoint)."""
-    try:
-        tiers = _get_active_tiers()
-        return jsonify({
-            'tiers': [tier.to_dict() for tier in tiers]
-        })
-    except Exception as e:
-        logger = get_logger(__name__)
-        logger.error(f"Error retrieving tiers: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/subscription/upgrade', methods=['POST'])
-@login_required
-def upgrade_subscription():
-    """Upgrade user's subscription tier. Requires Stripe payment."""
-    return jsonify({
-        'error': 'Direct subscription upgrade is disabled. Please use the billing page to subscribe via Stripe checkout.'
-    }), 403
-
-
 @app.route('/api/language/available', methods=['GET'])
 def get_available_languages():
     """Get list of available languages."""
@@ -4972,651 +4076,6 @@ def get_translations():
         logger = get_logger(__name__)
         logger.error(f"Error getting translations: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/subscription/create-checkout', methods=['POST'])
-@login_required
-def create_subscription_checkout_session():
-    """Create Stripe checkout session for subscription upgrade."""
-    logger = get_logger(__name__)
-
-    if not STRIPE_ENABLED:
-        logger.error("Stripe not enabled - stripe_integration import failed")
-        return jsonify({'error': 'Payment processing is not enabled'}), 503
-
-    try:
-        import stripe as stripe_mod
-        data = request.get_json()
-        tier_name = data.get('tier_name')
-        currency = data.get('currency')  # 'NGN' or None/USD
-
-        if not tier_name:
-            return jsonify({'error': 'Tier name is required'}), 400
-
-        # Debug: log Stripe config state
-        api_key = stripe_mod.api_key
-        logger.info(f"Stripe checkout: tier={tier_name}, currency={currency}, api_key_set={bool(api_key)}, api_key_prefix={api_key[:12] + '...' if api_key else 'None'}")
-
-        # NGN currency: look up NGN Stripe price ID, fall back to USD price if not configured
-        ngn_price_id = None
-        if currency and currency.upper() == 'NGN':
-            from models import NGNPriceConfig
-            config = NGNPriceConfig.query.filter_by(
-                product_key=tier_name.lower(), product_type='subscription', is_active=True
-            ).first()
-            if config and config.stripe_price_id_ngn:
-                ngn_price_id = config.stripe_price_id_ngn
-            else:
-                # Fall back to USD Stripe price when NGN price ID not configured
-                logger.info(f"NGN Stripe price not configured for {tier_name}, falling back to USD")
-                currency = None
-
-        if not ngn_price_id:
-            from stripe_integration import STRIPE_PRICES
-            price_id = STRIPE_PRICES['subscriptions'].get(tier_name.lower())
-            logger.info(f"Stripe price_id for {tier_name}: {price_id}")
-            if not price_id:
-                logger.error(f"No Stripe price ID found for tier '{tier_name}'. Available: {list(STRIPE_PRICES['subscriptions'].keys())} -> {list(STRIPE_PRICES['subscriptions'].values())}")
-                return jsonify({'error': f'Payments are not yet configured. Please contact support or set STRIPE_PRICE_{tier_name.upper()} in your environment.'}), 400
-
-        result = create_subscription_checkout(
-            current_user, tier_name,
-            currency=currency.lower() if currency else None,
-            ngn_price_id=ngn_price_id,
-        )
-
-        if result['success']:
-            logger.info(f"Checkout session created: {result['session_id']}")
-            return jsonify({
-                'success': True,
-                'checkout_url': result['checkout_url'],
-                'session_id': result['session_id']
-            })
-        else:
-            logger.error(f"Checkout creation failed: {result.get('error')}")
-            return jsonify({'error': result.get('error', 'Failed to create checkout')}), 500
-
-    except Exception as e:
-        logger.error(f"Error creating checkout: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/credits/purchase', methods=['POST'])
-@login_required
-def purchase_credits():
-    """Purchase additional credit packs. Requires Stripe payment."""
-    return jsonify({
-        'error': 'Direct credit purchase is disabled. Please use the billing page to purchase via Stripe checkout.'
-    }), 403
-
-
-@app.route('/api/stripe/status', methods=['GET'])
-@login_required
-def stripe_status():
-    """Diagnostic endpoint to check Stripe configuration (no secrets exposed)."""
-    try:
-        api_key = os.getenv('STRIPE_SECRET_KEY', '')
-        status = {
-            'stripe_enabled': STRIPE_ENABLED,
-            'api_key_set': bool(api_key),
-            'api_key_prefix': api_key[:7] + '...' if api_key else None,
-            'webhook_secret_set': bool(os.getenv('STRIPE_WEBHOOK_SECRET')),
-            'publishable_key_set': bool(os.getenv('STRIPE_PUBLISHABLE_KEY')),
-            'base_url': os.getenv('BASE_URL', 'https://devopsagent.io'),
-            'price_ids': {
-                'starter': bool(os.getenv('STRIPE_PRICE_STARTER')),
-                'professional': bool(os.getenv('STRIPE_PRICE_PROFESSIONAL')),
-                'business': bool(os.getenv('STRIPE_PRICE_BUSINESS')),
-                'pack_100': bool(os.getenv('STRIPE_PRICE_PACK_100')),
-                'pack_250': bool(os.getenv('STRIPE_PRICE_PACK_250')),
-                'pack_500': bool(os.getenv('STRIPE_PRICE_PACK_500')),
-                'pack_1000': bool(os.getenv('STRIPE_PRICE_PACK_1000')),
-            }
-        }
-        all_configured = (
-            status['stripe_enabled'] and
-            status['api_key_set'] and
-            status['webhook_secret_set'] and
-            all(status['price_ids'].values())
-        )
-        status['all_configured'] = all_configured
-        return jsonify(status)
-    except Exception as e:
-        return jsonify({'error': str(e), 'endpoint': 'stripe_status'}), 500
-
-
-@app.route('/api/credits/create-checkout', methods=['POST'])
-@login_required
-def create_credits_checkout_session():
-    """Create Stripe checkout session for credit pack purchase."""
-    if not STRIPE_ENABLED:
-        return jsonify({'error': 'Payment processing is not enabled'}), 503
-
-    try:
-        data = request.get_json()
-        pack_size = data.get('pack_size', 100)
-        currency = data.get('currency')  # 'NGN' or None/USD
-
-        if pack_size not in [100, 250, 500, 1000]:
-            return jsonify({'error': 'Invalid pack size'}), 400
-
-        # NGN currency: look up NGN Stripe price ID, fall back to USD if not configured
-        ngn_price_id = None
-        if currency and currency.upper() == 'NGN':
-            from models import NGNPriceConfig
-            config = NGNPriceConfig.query.filter_by(
-                product_key=f'pack_{pack_size}', product_type='credit_pack', is_active=True
-            ).first()
-            if config and config.stripe_price_id_ngn:
-                ngn_price_id = config.stripe_price_id_ngn
-            else:
-                logger.info(f"NGN Stripe price not configured for pack_{pack_size}, falling back to USD")
-                currency = None
-
-        result = create_credit_pack_checkout(
-            current_user, pack_size,
-            currency=currency.lower() if currency else None,
-            ngn_price_id=ngn_price_id,
-        )
-
-        if result['success']:
-            return jsonify({
-                'success': True,
-                'checkout_url': result['checkout_url'],
-                'session_id': result['session_id']
-            })
-        else:
-            return jsonify({'error': result.get('error', 'Failed to create checkout')}), 500
-
-    except Exception as e:
-        logger = get_logger(__name__)
-        logger.error(f"Error creating checkout: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/credits/packs', methods=['GET'])
-def get_credit_packs():
-    """Get available credit pack options (public endpoint)."""
-    credit_packs = [
-        {'credits': 100, 'price': 10.0, 'price_per_credit': 0.10, 'popular': False},
-        {'credits': 250, 'price': 20.0, 'price_per_credit': 0.08, 'popular': True},
-        {'credits': 500, 'price': 35.0, 'price_per_credit': 0.07, 'popular': False},
-        {'credits': 1000, 'price': 60.0, 'price_per_credit': 0.06, 'popular': False}
-    ]
-    return jsonify({'packs': credit_packs})
-
-
-@app.route('/api/billing/currency', methods=['POST'])
-@login_required
-def set_billing_currency():
-    """Save user's preferred billing currency."""
-    data = request.get_json()
-    currency = data.get('currency')
-    if currency not in ('USD', 'NGN', None):
-        return jsonify({'error': 'Invalid currency. Must be USD, NGN, or null (auto-detect)'}), 400
-
-    prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
-    if not prefs:
-        prefs = UserPreferences(user_id=current_user.id)
-        db.session.add(prefs)
-    prefs.preferred_currency = currency
-    db.session.commit()
-    return jsonify({'success': True, 'currency': currency})
-
-
-@app.route('/api/billing/prices', methods=['GET'])
-@login_required
-def get_billing_prices():
-    """Return all prices in both USD and NGN."""
-    from models import NGNPriceConfig
-    tiers = _get_active_tiers()
-    ngn_configs = {p.product_key: p.to_dict() for p in NGNPriceConfig.query.filter_by(is_active=True).all()}
-
-    subscriptions = []
-    for tier in tiers:
-        ngn = ngn_configs.get(tier.name, {})
-        subscriptions.append({
-            'name': tier.name,
-            'display_name': tier.display_name,
-            'price_usd': tier.monthly_price,
-            'price_ngn': ngn.get('price_ngn'),
-            'monthly_credits': tier.monthly_credits,
-        })
-
-    credit_packs = [
-        {'size': 100, 'price_usd': 10, 'price_ngn': ngn_configs.get('pack_100', {}).get('price_ngn')},
-        {'size': 250, 'price_usd': 20, 'price_ngn': ngn_configs.get('pack_250', {}).get('price_ngn')},
-        {'size': 500, 'price_usd': 35, 'price_ngn': ngn_configs.get('pack_500', {}).get('price_ngn')},
-        {'size': 1000, 'price_usd': 60, 'price_ngn': ngn_configs.get('pack_1000', {}).get('price_ngn')},
-    ]
-
-    return jsonify({
-        'subscriptions': subscriptions,
-        'credit_packs': credit_packs,
-    })
-
-
-@app.route('/api/usage/history', methods=['GET'])
-@login_required
-def get_usage_history():
-    """Get user's credit usage history."""
-    try:
-        # Get query parameters
-        limit = request.args.get('limit', 50, type=int)
-        offset = request.args.get('offset', 0, type=int)
-
-        # Query usage logs
-        logs = UsageLog.query.filter_by(
-            user_id=current_user.id
-        ).order_by(
-            UsageLog.created_at.desc()
-        ).limit(limit).offset(offset).all()
-
-        total_count = UsageLog.query.filter_by(user_id=current_user.id).count()
-
-        return jsonify({
-            'logs': [log.to_dict() for log in logs],
-            'total_count': total_count,
-            'limit': limit,
-            'offset': offset
-        })
-
-    except Exception as e:
-        logger = get_logger(__name__)
-        logger.error(f"Error retrieving usage history: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/usage/stats', methods=['GET'])
-@login_required
-def get_usage_stats():
-    """Get usage statistics for current user."""
-    try:
-        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-
-        if not subscription:
-            return jsonify({
-                'credits_remaining': 0,
-                'credits_used_this_month': 0,
-                'total_credits_used': 0,
-                'tier': None
-            })
-
-        # Get this month's usage breakdown
-        from sqlalchemy import func
-        from datetime import timedelta
-
-        month_start = subscription.current_period_start or (datetime.utcnow() - timedelta(days=30))
-
-        tool_usage = db.session.query(
-            UsageLog.tool_name,
-            func.count(UsageLog.id).label('count')
-        ).filter(
-            UsageLog.user_id == current_user.id,
-            UsageLog.created_at >= month_start
-        ).group_by(UsageLog.tool_name).all()
-
-        return jsonify({
-            'credits_remaining': subscription.credits_remaining,
-            'credits_used_this_month': subscription.credits_used_this_month,
-            'total_credits_used': subscription.total_credits_used,
-            'tier': subscription.tier.to_dict() if subscription.tier else None,
-            'current_period_start': subscription.current_period_start.isoformat() if subscription.current_period_start else None,
-            'current_period_end': subscription.current_period_end.isoformat() if subscription.current_period_end else None,
-            'tool_usage_breakdown': [{'tool': tool or 'agent_message', 'count': count} for tool, count in tool_usage]
-        })
-
-    except Exception as e:
-        logger = get_logger(__name__)
-        logger.error(f"Error retrieving usage stats: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/stripe/webhook', methods=['POST'])
-def stripe_webhook():
-    """Handle Stripe webhook events."""
-    if not STRIPE_ENABLED:
-        return jsonify({'error': 'Stripe not enabled'}), 503
-
-    payload = request.get_data()
-    sig_header = request.headers.get('Stripe-Signature')
-
-    try:
-        event = StripePaymentService.construct_webhook_event(payload, sig_header)
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-
-    logger = get_logger(__name__)
-    logger.info(f"Received Stripe webhook: {event['type']}")
-
-    # Idempotency check (unified across all gateways)
-    from models import PaymentWebhookEvent
-    event_id = event.get('id')
-    webhook_key = f"stripe:{event_id}" if event_id else None
-    if webhook_key and PaymentWebhookEvent.query.get(webhook_key):
-        logger.info(f"Duplicate webhook event {webhook_key}, skipping")
-        return jsonify({'success': True, 'duplicate': True})
-
-    # Handle different event types
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        handle_checkout_completed(session)
-
-    elif event['type'] == 'invoice.payment_succeeded':
-        invoice = event['data']['object']
-        handle_invoice_payment_succeeded(invoice)
-
-    elif event['type'] == 'invoice.payment_failed':
-        invoice = event['data']['object']
-        handle_invoice_payment_failed(invoice)
-
-    elif event['type'] == 'customer.subscription.updated':
-        subscription = event['data']['object']
-        handle_customer_subscription_updated(subscription)
-
-    elif event['type'] == 'customer.subscription.deleted':
-        subscription = event['data']['object']
-        handle_subscription_deleted(subscription)
-
-    # Record processed event for idempotency
-    if webhook_key:
-        try:
-            db.session.add(PaymentWebhookEvent(id=webhook_key, gateway='stripe', event_type=event['type']))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-
-    return jsonify({'success': True})
-
-
-def handle_checkout_completed(session):
-    """Handle successful checkout session."""
-    logger = get_logger(__name__)
-
-    try:
-        customer_email = session.get('customer_email')
-        metadata = session.get('metadata', {})
-        product_type = metadata.get('product_type')
-        stripe_customer_id = session.get('customer')
-
-        # Find user: prefer user_id from metadata, fall back to email
-        user = None
-        user_id_str = metadata.get('user_id')
-        if user_id_str:
-            user = User.query.get(int(user_id_str))
-        if not user and customer_email:
-            user = User.query.filter_by(email=customer_email).first()
-        if not user:
-            logger.error(f"User not found for checkout session. user_id={user_id_str}, email={customer_email}")
-            return
-
-        if product_type == 'subscription':
-            # Handle subscription purchase
-            tier_name = metadata.get('tier_name')
-            tier = SubscriptionTier.query.filter_by(name=tier_name).first()
-
-            if not tier:
-                logger.error(f"Tier '{tier_name}' not found in database")
-                return
-
-            from dateutil.relativedelta import relativedelta
-            subscription = UserSubscription.query.filter_by(user_id=user.id).first()
-            if subscription:
-                old_credits = subscription.tier.monthly_credits if subscription.tier else 0
-                subscription.tier_id = tier.id
-                subscription.stripe_subscription_id = session.get('subscription')
-                subscription.stripe_customer_id = stripe_customer_id
-                subscription.payment_status = 'active'
-                subscription.payment_gateway = 'stripe'
-                subscription.payment_failed_at = None
-                # Reset period and grant full credits for the new tier
-                subscription.credits_remaining = tier.monthly_credits
-                subscription.credits_used_this_month = 0
-                subscription.current_period_start = datetime.utcnow()
-                subscription.current_period_end = datetime.utcnow() + relativedelta(months=1)
-                subscription.last_reset_date = datetime.utcnow()
-            else:
-                subscription = UserSubscription(
-                    user_id=user.id,
-                    tier_id=tier.id,
-                    credits_remaining=tier.monthly_credits,
-                    stripe_subscription_id=session.get('subscription'),
-                    stripe_customer_id=stripe_customer_id,
-                    payment_status='active',
-                    payment_gateway='stripe',
-                    current_period_start=datetime.utcnow(),
-                    current_period_end=datetime.utcnow() + relativedelta(months=1),
-                    last_reset_date=datetime.utcnow(),
-                )
-                db.session.add(subscription)
-
-            db.session.commit()
-            logger.info(f"Subscription '{tier_name}' activated for user {user.id} (customer={stripe_customer_id})")
-
-        elif product_type == 'credit_pack':
-            # Handle credit pack purchase
-            pack_size = int(metadata.get('pack_size', 0))
-            amount_paid = session.get('amount_total', 0) / 100  # Convert from cents
-
-            # Create purchase record
-            purchase = CreditPurchase(
-                user_id=user.id,
-                credits_amount=pack_size,
-                price_paid=amount_paid,
-                stripe_payment_intent_id=session.get('payment_intent'),
-                payment_status='completed',
-                completed_at=datetime.utcnow()
-            )
-            db.session.add(purchase)
-
-            # Add credits to user
-            subscription = UserSubscription.query.filter_by(user_id=user.id).first()
-            if subscription:
-                if stripe_customer_id and not subscription.stripe_customer_id:
-                    subscription.stripe_customer_id = stripe_customer_id
-                subscription.add_credits(pack_size)
-            else:
-                # Create subscription if doesn't exist
-                free_tier = SubscriptionTier.query.filter_by(name='free').first()
-                subscription = UserSubscription(
-                    user_id=user.id,
-                    tier_id=free_tier.id if free_tier else 1,
-                    credits_remaining=pack_size,
-                    stripe_customer_id=stripe_customer_id,
-                    payment_gateway='stripe',
-                )
-                db.session.add(subscription)
-
-            db.session.commit()
-            logger.info(f"Credit pack ({pack_size}) purchased for user {user.id}")
-
-    except Exception as e:
-        logger.error(f"Error handling checkout: {str(e)}", exc_info=True)
-        db.session.rollback()
-
-
-def handle_invoice_payment_succeeded(invoice):
-    """Handle successful subscription invoice payment (recurring billing)."""
-    logger = get_logger(__name__)
-
-    try:
-        customer_id = invoice.get('customer')
-        subscription_id = invoice.get('subscription')
-        if not customer_id and not subscription_id:
-            return
-
-        # Look up by customer_id first, then subscription_id
-        user_subscription = None
-        if customer_id:
-            user_subscription = UserSubscription.query.filter_by(
-                stripe_customer_id=customer_id
-            ).first()
-        if not user_subscription and subscription_id:
-            user_subscription = UserSubscription.query.filter_by(
-                stripe_subscription_id=subscription_id
-            ).first()
-
-        if not user_subscription:
-            logger.warning(f"No subscription found for Stripe customer={customer_id} sub={subscription_id}")
-            return
-
-        # Save customer_id if we found by subscription_id
-        if customer_id and not user_subscription.stripe_customer_id:
-            user_subscription.stripe_customer_id = customer_id
-
-        # Reset monthly credits for the new billing period
-        from dateutil.relativedelta import relativedelta
-        user_subscription.payment_status = 'active'
-        user_subscription.payment_failed_at = None
-        user_subscription.credits_remaining = user_subscription.tier.monthly_credits
-        user_subscription.credits_used_this_month = 0
-        user_subscription.last_reset_date = datetime.utcnow()
-        user_subscription.current_period_start = datetime.utcnow()
-        user_subscription.current_period_end = datetime.utcnow() + relativedelta(months=1)
-
-        db.session.commit()
-        logger.info(f"Recurring payment processed for user {user_subscription.user_id}")
-
-    except Exception as e:
-        logger.error(f"Error handling invoice payment: {str(e)}", exc_info=True)
-        db.session.rollback()
-
-
-def handle_subscription_deleted(subscription):
-    """Handle subscription cancellation."""
-    logger = get_logger(__name__)
-
-    try:
-        stripe_sub_id = subscription.get('id')
-        user_subscription = UserSubscription.query.filter_by(
-            stripe_subscription_id=stripe_sub_id
-        ).first()
-
-        if user_subscription:
-            user_subscription.payment_status = 'cancelled'
-            db.session.commit()
-            logger.info(f"Subscription cancelled for user {user_subscription.user_id}")
-
-    except Exception as e:
-        logger.error(f"Error handling subscription deletion: {str(e)}", exc_info=True)
-        db.session.rollback()
-
-
-def handle_invoice_payment_failed(invoice):
-    """Handle failed subscription invoice payment."""
-    logger = get_logger(__name__)
-
-    try:
-        customer_id = invoice.get('customer')
-        subscription_id = invoice.get('subscription')
-        if not customer_id and not subscription_id:
-            return
-
-        user_subscription = None
-        if customer_id:
-            user_subscription = UserSubscription.query.filter_by(
-                stripe_customer_id=customer_id
-            ).first()
-        if not user_subscription and subscription_id:
-            user_subscription = UserSubscription.query.filter_by(
-                stripe_subscription_id=subscription_id
-            ).first()
-
-        if not user_subscription:
-            return
-
-        user_subscription.payment_status = 'past_due'
-        if not user_subscription.payment_failed_at:
-            user_subscription.payment_failed_at = datetime.utcnow()
-
-        # If past_due for > 3 days, downgrade to free tier
-        if user_subscription.payment_failed_at:
-            days_overdue = (datetime.utcnow() - user_subscription.payment_failed_at).days
-            if days_overdue > 3:
-                free_tier = SubscriptionTier.query.filter_by(name='free').first()
-                if free_tier:
-                    user_subscription.tier_id = free_tier.id
-                    user_subscription.credits_remaining = min(
-                        user_subscription.credits_remaining, free_tier.monthly_credits
-                    )
-                    logger.warning(f"Downgraded user {user_subscription.user_id} to free tier after {days_overdue} days overdue")
-
-        db.session.commit()
-        logger.info(f"Payment failed for user {user_subscription.user_id}")
-
-        # Queue email notification
-        try:
-            from tasks.email_tasks import send_email_async
-            user = User.query.get(user_subscription.user_id)
-            if user and user.email:
-                send_email_async.delay(
-                    to_email=user.email,
-                    subject="Payment Failed - DevOps Agent",
-                    html_content=f"""
-                    <h2>Payment Failed</h2>
-                    <p>Hi {user.username},</p>
-                    <p>We were unable to process your subscription payment. Please update your payment method to avoid service interruption.</p>
-                    <a href="/billing">Update Payment Method</a>
-                    """
-                )
-        except Exception:
-            pass
-
-    except Exception as e:
-        logger.error(f"Error handling payment failure: {str(e)}", exc_info=True)
-        db.session.rollback()
-
-
-def handle_customer_subscription_updated(stripe_subscription):
-    """Handle subscription changes (upgrades/downgrades)."""
-    logger = get_logger(__name__)
-
-    try:
-        stripe_sub_id = stripe_subscription.get('id')
-        user_subscription = UserSubscription.query.filter_by(
-            stripe_subscription_id=stripe_sub_id
-        ).first()
-
-        if not user_subscription:
-            return
-
-        # Update payment status
-        status = stripe_subscription.get('status', 'active')
-        status_map = {
-            'active': 'active',
-            'past_due': 'past_due',
-            'canceled': 'cancelled',
-            'unpaid': 'past_due',
-            'trialing': 'active',
-        }
-        user_subscription.payment_status = status_map.get(status, 'active')
-
-        # Check if plan/price changed via metadata
-        items = stripe_subscription.get('items', {}).get('data', [])
-        if items:
-            price_id = items[0].get('price', {}).get('id')
-            if price_id:
-                # Try to match tier by Stripe price ID from environment
-                import os
-                for tier_name in ['starter', 'professional', 'business']:
-                    env_price = os.getenv(f'STRIPE_PRICE_{tier_name.upper()}')
-                    if env_price == price_id:
-                        new_tier = SubscriptionTier.query.filter_by(name=tier_name).first()
-                        if new_tier and new_tier.id != user_subscription.tier_id:
-                            old_tier = user_subscription.tier
-                            user_subscription.tier_id = new_tier.id
-                            # Add credit difference on upgrade
-                            if new_tier.monthly_credits > old_tier.monthly_credits:
-                                diff = new_tier.monthly_credits - old_tier.monthly_credits
-                                user_subscription.add_credits(diff)
-                            logger.info(f"User {user_subscription.user_id} changed plan: {old_tier.name} -> {new_tier.name}")
-                        break
-
-        db.session.commit()
-
-    except Exception as e:
-        logger.error(f"Error handling subscription update: {str(e)}", exc_info=True)
-        db.session.rollback()
 
 
 @app.route('/api/webhooks/<source>', methods=['POST'])
@@ -5764,43 +4223,6 @@ def search_user_memories():
         return jsonify({'error': 'Query parameter q required'}), 400
     results = search_memories(db, current_user.id, query)
     return jsonify({'results': results})
-
-
-@app.route('/billing/success')
-@login_required
-def billing_success():
-    """Success page after Stripe checkout."""
-    logger = get_logger(__name__)
-    session_id = request.args.get('session_id')
-
-    if session_id and STRIPE_ENABLED:
-        result = StripePaymentService.retrieve_session(session_id)
-        if result['success']:
-            session_obj = result['session']
-            # If webhook hasn't fired yet, process it now as a safety net
-            metadata = session_obj.get('metadata', {})
-            product_type = metadata.get('product_type')
-            payment_status = session_obj.get('payment_status', '')
-            if payment_status == 'paid' or session_obj.get('status') == 'complete':
-                user_sub = UserSubscription.query.filter_by(user_id=current_user.id).first()
-                if product_type == 'subscription':
-                    tier_name = metadata.get('tier_name')
-                    expected_tier = SubscriptionTier.query.filter_by(name=tier_name).first()
-                    # Check if webhook already processed this
-                    if not user_sub or (expected_tier and user_sub.tier_id != expected_tier.id):
-                        logger.info(f"Processing checkout inline (webhook may not have fired yet) for user {current_user.id}")
-                        handle_checkout_completed(session_obj)
-                elif product_type == 'credit_pack':
-                    # For credit packs, check if payment_intent already recorded
-                    payment_intent = session_obj.get('payment_intent')
-                    existing = CreditPurchase.query.filter_by(
-                        stripe_payment_intent_id=payment_intent
-                    ).first() if payment_intent else None
-                    if not existing:
-                        logger.info(f"Processing credit pack inline for user {current_user.id}")
-                        handle_checkout_completed(session_obj)
-
-    return redirect(url_for('billing') + '?success=true')
 
 
 @app.route('/health', methods=['GET'])

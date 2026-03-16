@@ -15,7 +15,7 @@ class TestRegistration:
         response = client.get('/signup')
         assert response.status_code == 200
 
-    def test_successful_registration(self, client, app):
+    def test_successful_registration(self, client, app, db_session):
         """Test successful user registration."""
         from models import User, db
 
@@ -29,12 +29,11 @@ class TestRegistration:
 
         assert response.status_code == 200
 
-        with app.app_context():
-            user = User.query.filter_by(email='newuser@example.com').first()
-            assert user is not None
-            assert user.username == 'newuser'
-            db.session.delete(user)
-            db.session.commit()
+        user = User.query.filter_by(email='newuser@example.com').first()
+        assert user is not None
+        assert user.username == 'newuser'
+        db.session.delete(user)
+        db.session.commit()
 
     def test_registration_duplicate_email(self, client, test_user):
         """Test registration with existing email fails."""
