@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase {{ phase.phase }}: {{ phase.title }} — DevOps Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+
+.header {
+    background: var(--glass-bg); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border);
+    padding: 18px 32px; display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+}
+.logo-section { display: flex; align-items: center; gap: 12px; }
+.logo-icon { width: 38px; height: 38px; background: var(--gradient-primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 800; font-size: 18px; font-family: 'Syne', sans-serif; }
+.logo-text { font-size: 18px; font-weight: 700; font-family: 'Syne', sans-serif; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.back-btn { padding: 8px 18px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.2s; }
+.back-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+
+/* Phase hero */
+.phase-hero {
+    border-bottom: 1px solid var(--glass-border);
+    padding: 40px 32px;
+    background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(255,255,255,0.01) 100%);
+    position: relative;
+    overflow: hidden;
+}
+.phase-hero::before {
+    content: 'Phase {{ phase.phase }}';
+    position: absolute; right: 40px; top: 50%; transform: translateY(-50%);
+    font-family: 'Syne', sans-serif; font-size: 140px; font-weight: 800;
+    color: rgba(255,255,255,0.02); pointer-events: none; line-height: 1;
+}
+.phase-hero-inner { max-width: 1200px; margin: 0 auto; }
+.phase-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; }
+.phase-title { font-family: 'Syne', sans-serif; font-size: clamp(28px, 4vw, 44px); font-weight: 800; margin-bottom: 10px; }
+.phase-desc { font-size: 15px; color: var(--text-secondary); margin-bottom: 20px; }
+.phase-meta { display: flex; gap: 20px; flex-wrap: wrap; }
+.meta-chip { font-size: 12px; color: var(--text-tertiary); font-family: 'IBM Plex Mono', monospace; padding: 5px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 100px; }
+
+/* Layout */
+.content { max-width: 1200px; margin: 0 auto; padding: 40px 32px; display: grid; grid-template-columns: 1fr 380px; gap: 32px; align-items: start; }
+
+/* Modules */
+.modules-list { display: flex; flex-direction: column; gap: 20px; }
+.module-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 16px; overflow: hidden; transition: border-color 0.2s; }
+.module-card.completed { border-color: rgba(34,197,94,0.3); }
+.module-header { padding: 24px 28px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.module-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.module-status { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.check-btn {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.12); background: transparent;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: transparent; font-size: 14px; transition: all 0.2s;
+}
+.check-btn.done { background: #22c55e; border-color: #22c55e; color: white; }
+.check-btn:hover:not(.done) { border-color: rgba(34,197,94,0.5); }
+.project-check-btn {
+    font-size: 11px; font-family: 'IBM Plex Mono', monospace;
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1); background: transparent;
+    color: var(--text-tertiary); cursor: pointer; transition: all 0.2s; white-space: nowrap;
+}
+.project-check-btn.done { border-color: rgba(247,147,30,0.4); color: #f7931e; background: rgba(247,147,30,0.08); }
+
+.module-body { padding: 16px 28px 24px; }
+.topics-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.topics-list li { font-size: 14px; color: var(--text-secondary); display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
+.topics-list li::before { content: '--'; font-family: 'IBM Plex Mono', monospace; color: var(--accent-primary); font-size: 12px; flex-shrink: 0; margin-top: 2px; }
+
+.project-box { background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; }
+.project-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-primary); margin-bottom: 6px; }
+.project-text { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+.resources { display: flex; flex-wrap: wrap; gap: 8px; }
+.resource-link { font-size: 12px; color: var(--accent-electric); text-decoration: none; padding: 4px 10px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.15); border-radius: 6px; font-family: 'IBM Plex Mono', monospace; transition: all 0.2s; }
+.resource-link:hover { background: rgba(0,212,255,0.15); }
+
+.ask-btn { margin-top: 16px; padding: 10px 18px; background: var(--gradient-primary); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; }
+.ask-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,107,53,0.3); }
+
+/* Sidebar */
+.sidebar { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 20px; }
+.sidebar-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 16px; padding: 24px; }
+.sidebar-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; margin-bottom: 16px; }
+
+/* AI Panel */
+.ai-panel { display: flex; flex-direction: column; gap: 12px; }
+#ai-module-select { width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-primary); font-size: 13px; font-family: 'Outfit', sans-serif; appearance: none; }
+#ai-question { width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-primary); font-size: 13px; font-family: 'Outfit', sans-serif; resize: vertical; min-height: 80px; }
+#ai-question:focus, #ai-module-select:focus { outline: none; border-color: var(--accent-primary); }
+.ai-submit-btn { padding: 12px; background: var(--gradient-primary); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; }
+.ai-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+#ai-output {
+    background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); border-radius: 8px;
+    padding: 14px; font-size: 13px; color: var(--text-secondary); line-height: 1.6;
+    max-height: 320px; overflow-y: auto; display: none;
+    font-family: 'IBM Plex Mono', monospace;
+    white-space: pre-wrap; word-break: break-word;
+}
+
+/* Progress sidebar list */
+.prog-list { display: flex; flex-direction: column; gap: 10px; }
+.prog-item { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.prog-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.1); flex-shrink: 0; }
+.prog-dot.done { background: #22c55e; }
+.prog-label { flex: 1; color: var(--text-secondary); }
+.prog-label.done { color: var(--text-primary); text-decoration: line-through; opacity: 0.6; }
+
+@media (max-width: 900px) {
+    .content { grid-template-columns: 1fr; }
+    .sidebar { position: static; }
+    .phase-hero { padding: 28px 20px; }
+    .content { padding: 28px 20px; }
+}
+</style>
+</head>
+<body>
+<div class="header">
+    <div class="logo-section">
+        <div class="logo-icon">D</div>
+        <span class="logo-text">DevOps Agent</span>
+    </div>
+    <a href="/curriculum" class="back-btn">&#8592; All Phases</a>
+</div>
+
+<div class="phase-hero">
+    <div class="phase-hero-inner">
+        <p class="phase-eyebrow">Phase {{ phase.phase }} &nbsp;/&nbsp; {{ phase.duration }}</p>
+        <h1 class="phase-title" style="color: {{ phase.color }}">{{ phase.title }}</h1>
+        <p class="phase-desc">{{ phase.description }}</p>
+        <div class="phase-meta">
+            <span class="meta-chip">{{ phase.modules|length }} modules</span>
+            <span class="meta-chip">{{ phase.duration }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="content">
+    <!-- Modules -->
+    <div class="modules-list">
+        {% for module in phase.modules %}
+        {% set mod_p = progress.get(module.id, {}) %}
+        {% set is_done = mod_p.get('completed', False) %}
+        {% set proj_done = mod_p.get('project_done', False) %}
+
+        <div class="module-card {% if is_done %}completed{% endif %}" id="mod-{{ module.id }}">
+            <div class="module-header">
+                <h2 class="module-title">{{ module.title }}</h2>
+                <div class="module-status">
+                    <button class="check-btn {% if is_done %}done{% endif %}"
+                            onclick="toggleModule('{{ module.id }}', '{{ phase.phase }}')"
+                            title="Mark complete">
+                        &#10003;
+                    </button>
+                    <button class="project-check-btn {% if proj_done %}done{% endif %}"
+                            onclick="toggleProject('{{ module.id }}', '{{ phase.phase }}')"
+                            title="Mark project done">
+                        {% if proj_done %}Project Done{% else %}Mark Project{% endif %}
+                    </button>
+                </div>
+            </div>
+            <div class="module-body">
+                <ul class="topics-list">
+                    {% for topic in module.topics %}
+                    <li>{{ topic }}</li>
+                    {% endfor %}
+                </ul>
+
+                <div class="project-box">
+                    <div class="project-label">Capstone Project</div>
+                    <div class="project-text">{{ module.project }}</div>
+                </div>
+
+                {% if module.resources %}
+                <div class="resources">
+                    {% for r in module.resources %}
+                    <a href="{{ r.url }}" target="_blank" rel="noopener" class="resource-link">{{ r.title }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <button class="ask-btn" onclick="askAI('{{ module.id }}', '{{ module.title }}')">
+                    Ask AI Coach
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <!-- AI Coach -->
+        <div class="sidebar-card">
+            <h3 class="sidebar-title">AI Study Coach</h3>
+            <div class="ai-panel">
+                <select id="ai-module-select">
+                    {% for module in phase.modules %}
+                    <option value="{{ module.id }}">{{ module.title }}</option>
+                    {% endfor %}
+                </select>
+                <textarea id="ai-question" placeholder="Ask anything about this module...
+e.g. Explain PromQL with examples"></textarea>
+                <button class="ai-submit-btn" id="ai-submit-btn" onclick="submitAIQuestion()">Ask AI Coach</button>
+                <div id="ai-output"></div>
+            </div>
+        </div>
+
+        <!-- Module progress -->
+        <div class="sidebar-card">
+            <h3 class="sidebar-title">Phase Progress</h3>
+            <div class="prog-list">
+                {% for module in phase.modules %}
+                {% set mod_p = progress.get(module.id, {}) %}
+                {% set is_done = mod_p.get('completed', False) %}
+                <div class="prog-item">
+                    <div class="prog-dot {% if is_done %}done{% endif %}"></div>
+                    <span class="prog-label {% if is_done %}done{% endif %}">{{ module.title }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Progress toggle ──────────────────────────────────────────────────────────
+function toggleModule(moduleId, phaseId) {
+    const card = document.getElementById('mod-' + moduleId);
+    const btn = card.querySelector('.check-btn');
+    const nowDone = !btn.classList.contains('done');
+
+    fetch('/curriculum/api/progress', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            module_id: moduleId,
+            phase_id: phaseId,
+            completed: nowDone,
+            project_done: card.querySelector('.project-check-btn').classList.contains('done'),
+        }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            btn.classList.toggle('done', nowDone);
+            card.classList.toggle('completed', nowDone);
+            // Update sidebar dot
+            updateSidebarDot(moduleId, nowDone);
+        }
+    })
+    .catch(console.error);
+}
+
+function toggleProject(moduleId, phaseId) {
+    const card = document.getElementById('mod-' + moduleId);
+    const btn = card.querySelector('.project-check-btn');
+    const nowDone = !btn.classList.contains('done');
+
+    fetch('/curriculum/api/progress', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            module_id: moduleId,
+            phase_id: phaseId,
+            completed: card.querySelector('.check-btn').classList.contains('done'),
+            project_done: nowDone,
+        }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            btn.classList.toggle('done', nowDone);
+            btn.textContent = nowDone ? 'Project Done' : 'Mark Project';
+        }
+    })
+    .catch(console.error);
+}
+
+function updateSidebarDot(moduleId, done) {
+    const dots = document.querySelectorAll('.prog-dot');
+    const labels = document.querySelectorAll('.prog-label');
+    const modules = document.querySelectorAll('.module-card');
+    modules.forEach((card, i) => {
+        if (card.id === 'mod-' + moduleId) {
+            if (dots[i]) dots[i].classList.toggle('done', done);
+            if (labels[i]) labels[i].classList.toggle('done', done);
+        }
+    });
+}
+
+// ── AI Coach ─────────────────────────────────────────────────────────────────
+function askAI(moduleId, moduleTitle) {
+    document.getElementById('ai-module-select').value = moduleId;
+    document.getElementById('ai-question').value = 'Explain ' + moduleTitle + ' with real-world examples and commands I should know.';
+    document.getElementById('ai-question').focus();
+    document.querySelector('.sidebar').scrollIntoView({behavior: 'smooth'});
+}
+
+function submitAIQuestion() {
+    const moduleId = document.getElementById('ai-module-select').value;
+    const question = document.getElementById('ai-question').value.trim();
+    if (!question) return;
+
+    const btn = document.getElementById('ai-submit-btn');
+    const output = document.getElementById('ai-output');
+    btn.disabled = true;
+    btn.textContent = 'Thinking...';
+    output.style.display = 'block';
+    output.textContent = '';
+
+    fetch('/curriculum/api/ai-guide', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({module_id: moduleId, question: question}),
+    })
+    .then(res => {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        function read() {
+            reader.read().then(({done, value}) => {
+                if (done) { btn.disabled = false; btn.textContent = 'Ask AI Coach'; return; }
+                const chunk = decoder.decode(value);
+                chunk.split('\n').forEach(line => {
+                    if (!line.startsWith('data: ')) return;
+                    const payload = line.slice(6);
+                    if (payload === '[DONE]') { btn.disabled = false; btn.textContent = 'Ask AI Coach'; return; }
+                    try {
+                        const json = JSON.parse(payload);
+                        if (json.text) { output.textContent += json.text; output.scrollTop = output.scrollHeight; }
+                    } catch(_) {}
+                });
+                read();
+            });
+        }
+        read();
+    })
+    .catch(e => {
+        output.textContent = 'Error: ' + e.message;
+        btn.disabled = false;
+        btn.textContent = 'Ask AI Coach';
+    });
+}
+</script>
+<script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

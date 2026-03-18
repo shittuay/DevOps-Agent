@@ -1,0 +1,301 @@
+"""
+Static curriculum data — source of truth.
+No database needed for content; only progress is persisted.
+"""
+
+CURRICULUM = [
+    {
+        "phase": "01",
+        "title": "Foundations",
+        "duration": "4-6 weeks",
+        "color": "#00FFB2",
+        "description": "Build the bedrock. No shortcuts here.",
+        "modules": [
+            {
+                "id": "foundations-linux",
+                "title": "Linux & Shell Mastery",
+                "topics": [
+                    "File system hierarchy & permissions",
+                    "Bash scripting: loops, functions, conditionals",
+                    "Process management: ps, top, kill, systemd",
+                    "Networking basics: ip, ss, netstat, curl",
+                    "Text processing: grep, awk, sed, jq",
+                    "Cron jobs & scheduled tasks",
+                ],
+                "project": "Build a server health-check script that emails alerts",
+                "resources": [
+                    {"title": "Linux Command Line", "url": "https://linuxcommand.org"},
+                    {"title": "Bash Scripting Guide", "url": "https://tldp.org/LDP/abs/html/"},
+                ],
+            },
+            {
+                "id": "foundations-networking",
+                "title": "Networking Fundamentals",
+                "topics": [
+                    "TCP/IP, DNS, HTTP/S, SSH protocols",
+                    "Subnetting, VPCs, CIDRs",
+                    "Load balancers & reverse proxies",
+                    "Firewalls & security groups",
+                    "VPNs & NAT gateways",
+                ],
+                "project": "Design a 3-tier network architecture on paper + AWS",
+                "resources": [],
+            },
+            {
+                "id": "foundations-git",
+                "title": "Version Control with Git",
+                "topics": [
+                    "Branching strategies: GitFlow, trunk-based",
+                    "Merge vs rebase, conflict resolution",
+                    "Pull requests & code reviews",
+                    "Git hooks for automation",
+                    "Monorepo vs multi-repo patterns",
+                ],
+                "project": "Contribute to an open-source DevOps project",
+                "resources": [],
+            },
+        ],
+    },
+    {
+        "phase": "02",
+        "title": "Containerization",
+        "duration": "3-4 weeks",
+        "color": "#00C2FF",
+        "description": "Package once, run anywhere.",
+        "modules": [
+            {
+                "id": "containers-docker",
+                "title": "Docker Deep Dive",
+                "topics": [
+                    "Image layering & Dockerfile best practices",
+                    "Multi-stage builds for lean images",
+                    "Volumes, networks & bind mounts",
+                    "Docker Compose for local orchestration",
+                    "Container security scanning",
+                    "Docker registry & image tagging strategy",
+                ],
+                "project": "Containerize a full-stack app with optimized multi-stage builds",
+                "resources": [],
+            },
+            {
+                "id": "containers-kubernetes",
+                "title": "Kubernetes Mastery",
+                "topics": [
+                    "Pods, Deployments, StatefulSets, DaemonSets",
+                    "Services, Ingress, NetworkPolicies",
+                    "ConfigMaps, Secrets, PersistentVolumes",
+                    "HPA, VPA & Cluster Autoscaler",
+                    "RBAC & ServiceAccounts",
+                    "Taints, tolerations & affinity rules",
+                ],
+                "project": "Deploy a microservices app with zero-downtime rolling updates",
+                "resources": [],
+            },
+            {
+                "id": "containers-helm",
+                "title": "Helm & Package Management",
+                "topics": [
+                    "Chart structure & templating",
+                    "Values files & environment overrides",
+                    "Hooks & test harnesses",
+                    "Helmfile for multi-chart orchestration",
+                    "Publishing to private/public chart repos",
+                ],
+                "project": "Build and publish a Helm chart for your containerized app",
+                "resources": [],
+            },
+        ],
+    },
+    {
+        "phase": "03",
+        "title": "Cloud & Infrastructure",
+        "duration": "5-6 weeks",
+        "color": "#FF6B35",
+        "description": "Infrastructure is code. Treat it like code.",
+        "modules": [
+            {
+                "id": "cloud-aws",
+                "title": "AWS Core Services",
+                "topics": [
+                    "EC2, ASG, ELB -- compute at scale",
+                    "S3, EFS, EBS -- storage hierarchy",
+                    "RDS, DynamoDB, ElastiCache",
+                    "IAM: roles, policies, SCP, SSO",
+                    "VPC design: subnets, routing, peering",
+                    "Route 53, CloudFront, ACM",
+                ],
+                "project": "Architect a production-grade 3-tier AWS app",
+                "resources": [],
+            },
+            {
+                "id": "cloud-terraform",
+                "title": "Terraform (IaC)",
+                "topics": [
+                    "HCL syntax, providers & modules",
+                    "State management: remote backends (S3 + DynamoDB)",
+                    "Workspaces for environment separation",
+                    "Terragrunt for DRY configurations",
+                    "Drift detection & import strategies",
+                    "Security scanning with tfsec/checkov",
+                ],
+                "project": "Provision full AWS infra with Terraform -- VPC to EKS",
+                "resources": [],
+            },
+            {
+                "id": "cloud-secrets",
+                "title": "Secrets & Security",
+                "topics": [
+                    "AWS Secrets Manager & SSM Parameter Store",
+                    "HashiCorp Vault basics",
+                    "SAST/DAST integration in pipelines",
+                    "CIS Benchmarks & compliance scanning",
+                    "Key rotation & least-privilege access",
+                ],
+                "project": "Build a secrets rotation pipeline with zero downtime",
+                "resources": [],
+            },
+        ],
+    },
+    {
+        "phase": "04",
+        "title": "CI/CD Pipelines",
+        "duration": "4-5 weeks",
+        "color": "#FFD700",
+        "description": "Ship fast. Ship safe. Ship always.",
+        "modules": [
+            {
+                "id": "cicd-pipelines",
+                "title": "Pipeline Architecture",
+                "topics": [
+                    "GitHub Actions: workflows, jobs, matrices",
+                    "Jenkins: declarative pipelines, shared libs",
+                    "GitLab CI/CD: stages, artifacts, caching",
+                    "Pipeline-as-code best practices",
+                    "Approval gates & manual interventions",
+                ],
+                "project": "Build a full CI/CD pipeline with test, build, scan, deploy stages",
+                "resources": [],
+            },
+            {
+                "id": "cicd-testing",
+                "title": "Testing in Pipelines",
+                "topics": [
+                    "Unit, integration & end-to-end test hooks",
+                    "Code coverage enforcement",
+                    "Container image vulnerability scanning",
+                    "Infrastructure compliance tests (Terratest)",
+                    "Smoke tests & canary deployments",
+                ],
+                "project": "Integrate Trivy + Snyk + unit tests in GitHub Actions",
+                "resources": [],
+            },
+            {
+                "id": "cicd-deployment",
+                "title": "Deployment Strategies",
+                "topics": [
+                    "Blue/Green deployments",
+                    "Canary releases with traffic splitting",
+                    "Feature flags (LaunchDarkly/Flagsmith)",
+                    "ArgoCD & GitOps with Flux",
+                    "Rollback automation",
+                ],
+                "project": "Implement GitOps-driven canary deployment with ArgoCD",
+                "resources": [],
+            },
+        ],
+    },
+    {
+        "phase": "05",
+        "title": "Observability",
+        "duration": "3-4 weeks",
+        "color": "#BF5FFF",
+        "description": "You can't fix what you can't see.",
+        "modules": [
+            {
+                "id": "obs-monitoring",
+                "title": "Monitoring & Metrics",
+                "topics": [
+                    "Prometheus: scraping, PromQL, alerting rules",
+                    "Grafana: dashboards, panels, templating",
+                    "Node Exporter, kube-state-metrics",
+                    "SLOs, SLIs, error budgets",
+                    "PagerDuty / OpsGenie integration",
+                ],
+                "project": "Build a full Kubernetes observability stack with SLO dashboards",
+                "resources": [],
+            },
+            {
+                "id": "obs-logging",
+                "title": "Logging & Tracing",
+                "topics": [
+                    "ELK Stack: Elasticsearch, Logstash, Kibana",
+                    "Loki + Promtail (lightweight alternative)",
+                    "Structured logging best practices",
+                    "Distributed tracing with Jaeger / Tempo",
+                    "OpenTelemetry instrumentation",
+                ],
+                "project": "Implement distributed tracing across a microservices app",
+                "resources": [],
+            },
+        ],
+    },
+    {
+        "phase": "06",
+        "title": "Advanced & SRE",
+        "duration": "4-6 weeks",
+        "color": "#FF2D7A",
+        "description": "From engineer to reliability architect.",
+        "modules": [
+            {
+                "id": "sre-practices",
+                "title": "Site Reliability Engineering",
+                "topics": [
+                    "Chaos engineering with LitmusChaos",
+                    "Incident management & postmortems",
+                    "Capacity planning & performance tuning",
+                    "On-call runbooks & escalation paths",
+                    "Toil reduction strategies",
+                ],
+                "project": "Run a game day: inject failures, measure MTTR",
+                "resources": [],
+            },
+            {
+                "id": "sre-platform",
+                "title": "Platform Engineering",
+                "topics": [
+                    "Internal Developer Platforms (IDP)",
+                    "Backstage developer portal",
+                    "Golden paths & paved roads",
+                    "Self-service infrastructure with Crossplane",
+                    "Cost optimization: Spot instances, rightsizing",
+                ],
+                "project": "Build a self-service deployment portal using Backstage",
+                "resources": [],
+            },
+            {
+                "id": "sre-ai",
+                "title": "AI-Augmented DevOps",
+                "topics": [
+                    "LLM-powered runbook automation",
+                    "AI-driven anomaly detection in metrics",
+                    "Claude API for DevOps workflow automation",
+                    "Prompt engineering for infra code generation",
+                    "Building DevOps AI agents",
+                ],
+                "project": "Build an AI-powered incident triage bot using Claude API",
+                "resources": [],
+            },
+        ],
+    },
+]
+
+CERTIFICATIONS = [
+    {"name": "AWS Solutions Architect", "level": "Associate -> Professional", "color": "#FF6B35"},
+    {"name": "Certified Kubernetes Admin (CKA)", "level": "Foundational", "color": "#00C2FF"},
+    {"name": "Certified Kubernetes App Dev (CKAD)", "level": "Intermediate", "color": "#00FFB2"},
+    {"name": "HashiCorp Terraform Associate", "level": "Foundational", "color": "#BF5FFF"},
+    {"name": "AWS DevOps Engineer Professional", "level": "Advanced", "color": "#FFD700"},
+    {"name": "CKS - Kubernetes Security", "level": "Advanced", "color": "#FF2D7A"},
+]
+
+TOTAL_MODULES = sum(len(p["modules"]) for p in CURRICULUM)
