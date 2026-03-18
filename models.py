@@ -2474,4 +2474,36 @@ class NGNPriceConfig(db.Model):
         }
 
     def __repr__(self):
-        return f'<NGNPriceConfig {self.product_key} ₦{self.price_ngn:,}>'
+        return f'<NGNPriceConfig {self.product_key} NGN{self.price_ngn:,}>'
+
+
+class UserCurriculumProgress(db.Model):
+    """Tracks which curriculum modules a user has completed."""
+    __tablename__ = 'user_curriculum_progress'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    module_id = db.Column(db.String(80), nullable=False)   # e.g. "foundations-linux"
+    phase_id = db.Column(db.String(10), nullable=False)    # e.g. "01"
+    completed = db.Column(db.Boolean, default=False)
+    project_done = db.Column(db.Boolean, default=False)
+    notes = db.Column(db.Text, nullable=True)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'module_id', name='uq_user_curriculum_module'),
+    )
+
+    def to_dict(self):
+        return {
+            'module_id': self.module_id,
+            'phase_id': self.phase_id,
+            'completed': self.completed,
+            'project_done': self.project_done,
+            'notes': self.notes,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def __repr__(self):
+        return f'<UserCurriculumProgress user={self.user_id} module={self.module_id}>'

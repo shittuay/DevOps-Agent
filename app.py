@@ -244,6 +244,9 @@ app.register_blueprint(organizations_bp)
 from routes.changes import changes_bp
 app.register_blueprint(changes_bp)
 
+from routes.curriculum import curriculum_bp
+app.register_blueprint(curriculum_bp)
+
 # Register REST API v1 blueprint (CLI + programmatic access)
 from api import api_bp
 app.register_blueprint(api_bp)
