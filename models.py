@@ -2507,3 +2507,33 @@ class UserCurriculumProgress(db.Model):
 
     def __repr__(self):
         return f'<UserCurriculumProgress user={self.user_id} module={self.module_id}>'
+
+
+class UserQuizAttempt(db.Model):
+    """Stores a single quiz attempt for a curriculum module."""
+    __tablename__ = 'user_quiz_attempts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    module_id = db.Column(db.String(80), nullable=False, index=True)
+    score = db.Column(db.Integer, nullable=False)       # number correct
+    total = db.Column(db.Integer, nullable=False)       # total questions
+    questions = db.Column(db.JSON, nullable=False)      # list of question dicts
+    user_answers = db.Column(db.JSON, nullable=False)   # list of chosen answer indices
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def pct(self):
+        return round((self.score / self.total) * 100) if self.total else 0
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'module_id': self.module_id,
+            'score': self.score,
+            'total': self.total,
+            'pct': self.pct(),
+            'created_at': self.created_at.isoformat(),
+        }
+
+    def __repr__(self):
+        return f'<UserQuizAttempt user={self.user_id} module={self.module_id} {self.score}/{self.total}>'

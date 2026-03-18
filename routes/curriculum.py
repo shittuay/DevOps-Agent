@@ -9,7 +9,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context
 from flask_login import login_required, current_user
 
-from models import db, UserCurriculumProgress
+from models import db, UserCurriculumProgress, UserQuizAttempt
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
 
 logger = logging.getLogger(__name__)
@@ -201,3 +201,156 @@ def api_ai_guide():
             'X-Accel-Buffering': 'no',
         },
     )
+
+
+# ─── Quiz Routes ─────────────────────────────────────────────────────────────
+
+def _get_module_ctx(module_id):
+    for phase in CURRICULUM:
+        for module in phase["modules"]:
+            if module["id"] == module_id:
+                return {"phase": phase, "module": module}
+    return None
+
+
+@curriculum_bp.route('/api/quiz/generate', methods=['POST'])
+@login_required
+def api_quiz_generate():
+    """Ask Claude to generate 5 multiple-choice questions for a module."""
+    data = request.get_json() or {}
+    module_id = data.get('module_id', '').strip()
+
+    ctx = _get_module_ctx(module_id)
+    if not ctx:
+        return jsonify({'error': 'Module not found'}), 404
+
+    module = ctx['module']
+    phase = ctx['phase']
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
+
+        prompt = f"""Generate exactly 5 multiple-choice quiz questions for a DevOps student studying:
+
+Module: {module['title']} (Phase {phase['phase']}: {phase['title']})
+Topics covered: {json.dumps(module['topics'])}
+
+Return ONLY valid JSON — no markdown, no explanation, just the JSON array.
+
+Format:
+[
+  {{
+    "question": "Question text here?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correct": 0,
+    "explanation": "Brief explanation of why the correct answer is right."
+  }}
+]
+
+Rules:
+- correct is the index (0-3) of the right answer in options
+- Questions must be practical and relevant to real DevOps work
+- Vary difficulty: 2 easy, 2 medium, 1 hard
+- No trick questions — test genuine understanding"""
+
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'):
+                raw = raw[4:]
+        questions = json.loads(raw.strip())
+
+        return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Quiz JSON parse error: {e}")
+        return jsonify({'error': 'Failed to parse quiz questions. Please try again.'}), 500
+    except Exception as e:
+        logger.error(f"Quiz generation error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@curriculum_bp.route('/api/quiz/submit', methods=['POST'])
+@login_required
+def api_quiz_submit():
+    """Score a completed quiz and save the attempt."""
+    data = request.get_json() or {}
+    module_id = data.get('module_id', '').strip()
+    questions = data.get('questions', [])
+    user_answers = data.get('answers', [])
+
+    if not module_id or not questions or not user_answers:
+        return jsonify({'error': 'module_id, questions and answers are required'}), 400
+
+    if len(user_answers) != len(questions):
+        return jsonify({'error': 'Answer count does not match question count'}), 400
+
+    # Score it
+    results = []
+    score = 0
+    for i, q in enumerate(questions):
+        chosen = user_answers[i]
+        correct = q.get('correct', -1)
+        is_correct = (chosen == correct)
+        if is_correct:
+            score += 1
+        results.append({
+            'question': q['question'],
+            'options': q['options'],
+            'correct': correct,
+            'chosen': chosen,
+            'is_correct': is_correct,
+            'explanation': q.get('explanation', ''),
+        })
+
+    # Save attempt
+    attempt = UserQuizAttempt(
+        user_id=current_user.id,
+        module_id=module_id,
+        score=score,
+        total=len(questions),
+        questions=questions,
+        user_answers=user_answers,
+    )
+    db.session.add(attempt)
+    db.session.commit()
+
+    pct = round((score / len(questions)) * 100)
+    passed = pct >= 70
+
+    return jsonify({
+        'success': True,
+        'score': score,
+        'total': len(questions),
+        'pct': pct,
+        'passed': passed,
+        'results': results,
+        'attempt_id': attempt.id,
+    })
+
+
+@curriculum_bp.route('/api/quiz/history/<module_id>')
+@login_required
+def api_quiz_history(module_id):
+    """Get past quiz attempts for a module."""
+    attempts = (
+        UserQuizAttempt.query
+        .filter_by(user_id=current_user.id, module_id=module_id)
+        .order_by(UserQuizAttempt.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    best = max((a.pct() for a in attempts), default=None)
+    return jsonify({
+        'attempts': [a.to_dict() for a in attempts],
+        'best_pct': best,
+        'attempt_count': len(attempts),
+    })
