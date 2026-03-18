@@ -499,6 +499,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
         {% set mod_p = progress.get(module.id, {}) %}
         {% set is_done = mod_p.get('completed', False) %}
         {% set proj_done = mod_p.get('project_done', False) %}
+        {% set best_pct = best_scores.get(module.id) %}
 
         <div class="module-card {% if is_done %}completed{% endif %}" id="mod-{{ module.id }}">
             <div class="module-header">
@@ -512,6 +513,11 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
                             title="Mark project done">
                         {% if proj_done %}Project Done{% else %}Mark Project{% endif %}
                     </button>
+                    {% if best_pct is not none %}
+                    <span class="best-score-badge {% if best_pct >= 70 %}pass{% else %}fail{% endif %}">
+                        &#x270F; {{ best_pct }}%
+                    </span>
+                    {% endif %}
                 </div>
             </div>
             <div class="module-body">
@@ -553,8 +559,8 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
                 {% set mod_p = progress.get(module.id, {}) %}
                 {% set is_done = mod_p.get('completed', False) %}
                 <div class="prog-item">
-                    <div class="prog-dot {% if is_done %}done{% endif %}"></div>
-                    <span class="prog-label {% if is_done %}done{% endif %}">{{ module.title }}</span>
+                    <div class="prog-dot {% if is_done %}done{% endif %}" data-module-id="{{ module.id }}"></div>
+                    <span class="prog-label {% if is_done %}done{% endif %}" data-module-id="{{ module.id }}">{{ module.title }}</span>
                 </div>
                 {% endfor %}
             </div>
@@ -606,7 +612,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 
                 <button class="ai-submit-btn" id="ai-submit-btn" onclick="submitAIQuestion()">
                     <span id="submit-label">Ask AI Coach</span>
-                    <div id="submit-spinner" style="display:none; display:none; gap:4px; align-items:center;">
+                    <div id="submit-spinner" style="display:none; gap:4px; align-items:center;">
                         <div class="spinner-dot"></div>
                         <div class="spinner-dot"></div>
                         <div class="spinner-dot"></div>
@@ -684,15 +690,10 @@ function toggleProject(moduleId, phaseId) {
 }
 
 function updateSidebarDot(moduleId, done) {
-    const modules = document.querySelectorAll('.module-card');
-    const dots = document.querySelectorAll('.prog-dot');
-    const labels = document.querySelectorAll('.prog-label');
-    modules.forEach((card, i) => {
-        if (card.id === 'mod-' + moduleId) {
-            if (dots[i]) dots[i].classList.toggle('done', done);
-            if (labels[i]) labels[i].classList.toggle('done', done);
-        }
-    });
+    const dot = document.querySelector(`.prog-dot[data-module-id="${moduleId}"]`);
+    const label = document.querySelector(`.prog-label[data-module-id="${moduleId}"]`);
+    if (dot) dot.classList.toggle('done', done);
+    if (label) label.classList.toggle('done', done);
 }
 
 // ── AI Coach ──────────────────────────────────────────────────────────────────
@@ -855,8 +856,8 @@ function showQuizLoading() {
 function showQuizError(msg) {
     document.getElementById('quizModalBody').innerHTML = `
         <div class="quiz-loading">
-            <div style="font-size:40px;margin-bottom:16px;">❌</div>
-            <div class="quiz-loading-text" style="color:#ef4444">${msg}</div>
+            <div style="font-size:40px;margin-bottom:16px;">&#10060;</div>
+            <div class="quiz-loading-text" style="color:#ef4444">${escHtml(msg)}</div>
             <button onclick="closeQuiz()" style="margin-top:20px;padding:10px 24px;background:#bf5fff;color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-family:'Outfit',sans-serif;">Close</button>
         </div>`;
 }
@@ -934,7 +935,6 @@ function submitQuiz() {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             module_id: quizState.moduleId,
-            questions: quizState.questions,
             answers: quizState.answers,
         }),
     })
@@ -997,19 +997,8 @@ function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Load existing best scores on page load
-(function loadQuizScores() {
-    const moduleIds = [...document.querySelectorAll('.module-card')].map(c => c.id.replace('mod-',''));
-    moduleIds.forEach(mid => {
-        fetch(`/curriculum/api/quiz/history/${mid}`)
-            .then(r => r.json())
-            .then(data => {
-                if (data.best_pct !== null) {
-                    updateQuizBadge(mid, data.best_pct, data.best_pct >= 70);
-                }
-            }).catch(() => {});
-    });
-})();
+// Quiz badges are rendered server-side on page load (no N+1 fetches needed).
+// updateQuizBadge() still updates the badge after a quiz is completed in-session.
 </script>
 <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
