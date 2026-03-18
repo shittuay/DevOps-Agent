@@ -71,18 +71,13 @@
 
         /* Theme Toggle */
         .theme-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            border-radius: 50px;
-            padding: 8px;
             display: flex;
             gap: 4px;
-            box-shadow: var(--glass-shadow);
+            align-items: center;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 50px;
+            padding: 4px;
         }
 
         .theme-toggle-btn {
@@ -1273,7 +1268,6 @@
                 grid-template-columns: 1fr;
             }
 
-            /* Hide theme toggle on mobile - it overlaps the chat interface */
             .theme-toggle {
                 display: none;
             }
@@ -1762,16 +1756,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
 <body>
-    <!-- Theme Toggle -->
-    <div class="theme-toggle">
-        <button class="theme-toggle-btn active" data-theme="dark" title="Dark Mode">
-            🌙
-        </button>
-        <button class="theme-toggle-btn" data-theme="light" title="Light Mode">
-            ☀️
-        </button>
-    </div>
-
     <!-- Sidebar Overlay for Mobile -->
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
@@ -1850,10 +1834,6 @@
                     <div id="learningBadge" class="learning-badge" style="display:none;">
                         Learning<span id="sandboxBadgeTag"></span>
                     </div>
-                    <button id="voiceToggle" class="header-button voice-button" onclick="toggleVoice()" title="Voice Narration" style="display:none;">
-                        <span class="voice-icon">🔇</span>
-                        <span>Voice</span>
-                    </button>
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
                         💰 <span id="credits-count">{{ initial_credits if initial_credits is defined else '--' }}</span> credits
                     </div>
@@ -1865,6 +1845,10 @@
                         <span>🗑️</span>
                         <span>Clear</span>
                     </button>
+                    <div class="theme-toggle">
+                        <button class="theme-toggle-btn active" data-theme="dark" title="Dark Mode">🌙</button>
+                        <button class="theme-toggle-btn" data-theme="light" title="Light Mode">☀️</button>
+                    </div>
                     <div class="menu-button" style="position: relative;">
                         <button class="profile-button" onclick="toggleMenu()" title="Profile Menu">
                             👤
@@ -1991,6 +1975,9 @@
                                 onkeydown="handleKeyDown(event)"
                                 oninput="autoResize(this)"
                             ></textarea>
+                            <button id="voiceToggle" class="end-session-btn voice-button" onclick="toggleVoice()" title="Voice Narration" style="display:none;">
+                                <span class="voice-icon">🔇</span> Voice
+                            </button>
                             <button id="endSessionBtn" class="end-session-btn" style="display:none;" onclick="endLearningSession()">
                                 End Session
                             </button>
