@@ -872,9 +872,7 @@
         }
 
         .welcome-icon {
-            font-size: 72px;
             margin-bottom: 24px;
-            animation: float 3s ease-in-out infinite;
         }
 
         @keyframes float {
@@ -1926,8 +1924,7 @@
                 <div class="chat-wrapper" id="chatWrapper">
                     <div class="chat-container" id="chatContainer">
                         <div class="welcome">
-                            <div class="welcome-icon">🚀</div>
-                            <h2>Welcome to DevOps Agent</h2>
+                            <div class="welcome-icon"><div class="logo-icon" style="width:72px;height:72px;border-radius:16px;font-size:22px;margin:0 auto;">&gt;_</div></div>
                             <p>Your AI-powered DevOps automation platform. Let's build something amazing together.</p>
 
                             <div class="welcome-examples">
@@ -2609,7 +2606,7 @@
                     const container = document.getElementById('chatContainer');
                     container.innerHTML = `
                         <div class="welcome">
-                            <h2>Welcome to DevOps Agent</h2>
+                            <div class="welcome-icon"><div class="logo-icon" style="width:72px;height:72px;border-radius:16px;font-size:22px;margin:0 auto;">&gt;_</div></div>
                             <p>I'm an AI assistant powered by Claude that can help you manage your infrastructure</p>
                         </div>
                     `;
