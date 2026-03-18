@@ -1,9 +1,10 @@
 """
 Email Service
 
-Supports SMTP and SendGrid for transactional email delivery.
+Supports Brevo, SMTP, and SendGrid for transactional email delivery.
 Configure via environment variables:
-  EMAIL_PROVIDER=smtp|sendgrid
+  EMAIL_PROVIDER=brevo|smtp|sendgrid   (default: brevo if BREVO_API_KEY set, else smtp)
+  BREVO_API_KEY   — Brevo API key (also used by SMS service)
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
   SENDGRID_API_KEY
   EMAIL_FROM, EMAIL_FROM_NAME
@@ -16,13 +17,18 @@ from email.mime.multipart import MIMEMultipart
 
 logger = logging.getLogger(__name__)
 
+BREVO_EMAIL_URL = "https://api.brevo.com/v3/smtp/email"
+
 
 class EmailService:
     def __init__(self):
-        self.provider = os.getenv('EMAIL_PROVIDER', 'smtp')
+        self.brevo_key = os.getenv('BREVO_API_KEY', '')
+        # Default to brevo if API key present, otherwise smtp
+        default_provider = 'brevo' if self.brevo_key else 'smtp'
+        self.provider = os.getenv('EMAIL_PROVIDER', default_provider)
         self.from_email = os.getenv('EMAIL_FROM', 'noreply@devopsagent.io')
         self.from_name = os.getenv('EMAIL_FROM_NAME', 'DevOps Agent')
-        self.smtp_host = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+        self.smtp_host = os.getenv('SMTP_HOST', 'smtp-relay.brevo.com')
         self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
         self.smtp_user = os.getenv('SMTP_USER')
         self.smtp_pass = os.getenv('SMTP_PASS')
@@ -31,9 +37,46 @@ class EmailService:
 
     def send_email(self, to_email, subject, html_content, text_content=None):
         """Send email via configured provider. Returns bool."""
+        if self.provider == 'brevo' and self.brevo_key:
+            return self._send_brevo(to_email, subject, html_content, text_content)
         if self.provider == 'sendgrid' and self.sendgrid_key:
             return self._send_sendgrid(to_email, subject, html_content, text_content)
         return self._send_smtp(to_email, subject, html_content, text_content)
+
+    def _send_brevo(self, to_email, subject, html_content, text_content=None):
+        """Send via Brevo transactional email API."""
+        try:
+            import requests
+
+            payload = {
+                "sender": {"name": self.from_name, "email": self.from_email},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "htmlContent": html_content,
+            }
+            if text_content:
+                payload["textContent"] = text_content
+
+            resp = requests.post(
+                BREVO_EMAIL_URL,
+                json=payload,
+                headers={
+                    "api-key": self.brevo_key,
+                    "Content-Type": "application/json",
+                },
+                timeout=10,
+            )
+
+            if resp.status_code in (200, 201):
+                logger.info(f"Brevo email sent to {to_email}: {subject}")
+                return True
+            else:
+                logger.error(f"Brevo email error {resp.status_code}: {resp.text}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Brevo email send failed: {e}")
+            return False
 
     def _send_smtp(self, to_email, subject, html_content, text_content=None):
         """Send via SMTP."""
