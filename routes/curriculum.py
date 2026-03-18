@@ -6,9 +6,10 @@ import os
 import logging
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context
+from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context, session
 from flask_login import login_required, current_user
 
+from extensions import limiter
 from models import db, UserCurriculumProgress, UserQuizAttempt
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
 
@@ -75,7 +76,25 @@ def phase_detail(phase_id):
     if not phase:
         return render_template('404.html'), 404
     progress = _get_user_progress(current_user.id)
-    return render_template('curriculum/phase.html', phase=phase, progress=progress)
+
+    # Load best quiz scores for all modules in one query (avoids N+1 fetches client-side)
+    module_ids = [m["id"] for m in phase["modules"]]
+    attempts = (
+        UserQuizAttempt.query
+        .filter(
+            UserQuizAttempt.user_id == current_user.id,
+            UserQuizAttempt.module_id.in_(module_ids),
+        )
+        .all()
+    )
+    best_scores = {}
+    for a in attempts:
+        pct = a.pct()
+        if a.module_id not in best_scores or pct > best_scores[a.module_id]:
+            best_scores[a.module_id] = pct
+
+    return render_template('curriculum/phase.html', phase=phase, progress=progress,
+                           best_scores=best_scores)
 
 
 # ─── API Routes ──────────────────────────────────────────────────────────────
@@ -136,6 +155,7 @@ def api_progress_summary():
 
 @curriculum_bp.route('/api/ai-guide', methods=['POST'])
 @login_required
+@limiter.limit("15 per minute", key_func=lambda: str(current_user.id))
 def api_ai_guide():
     """Stream Claude's study guidance for a specific module."""
     data = request.get_json() or {}
@@ -215,6 +235,7 @@ def _get_module_ctx(module_id):
 
 @curriculum_bp.route('/api/quiz/generate', methods=['POST'])
 @login_required
+@limiter.limit("10 per minute", key_func=lambda: str(current_user.id))
 def api_quiz_generate():
     """Ask Claude to generate 5 multiple-choice questions for a module."""
     data = request.get_json() or {}
@@ -268,6 +289,9 @@ Rules:
                 raw = raw[4:]
         questions = json.loads(raw.strip())
 
+        # Store questions server-side so submit can't be faked by the client
+        session[f'quiz_{module_id}'] = questions
+
         return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
 
     except json.JSONDecodeError as e:
@@ -284,11 +308,15 @@ def api_quiz_submit():
     """Score a completed quiz and save the attempt."""
     data = request.get_json() or {}
     module_id = data.get('module_id', '').strip()
-    questions = data.get('questions', [])
     user_answers = data.get('answers', [])
 
-    if not module_id or not questions or not user_answers:
-        return jsonify({'error': 'module_id, questions and answers are required'}), 400
+    if not module_id or not user_answers:
+        return jsonify({'error': 'module_id and answers are required'}), 400
+
+    # Use server-side questions (generated and stored in session) to prevent score manipulation
+    questions = session.get(f'quiz_{module_id}')
+    if not questions:
+        return jsonify({'error': 'No active quiz session for this module. Please generate a quiz first.'}), 400
 
     if len(user_answers) != len(questions):
         return jsonify({'error': 'Answer count does not match question count'}), 400
@@ -311,7 +339,7 @@ def api_quiz_submit():
             'explanation': q.get('explanation', ''),
         })
 
-    # Save attempt
+    # Save attempt (using server-side questions, not client-supplied)
     attempt = UserQuizAttempt(
         user_id=current_user.id,
         module_id=module_id,
@@ -322,6 +350,9 @@ def api_quiz_submit():
     )
     db.session.add(attempt)
     db.session.commit()
+
+    # Clear session slot so the same quiz can't be submitted twice
+    session.pop(f'quiz_{module_id}', None)
 
     pct = round((score / len(questions)) * 100)
     passed = pct >= 70

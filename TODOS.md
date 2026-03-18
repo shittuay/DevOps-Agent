@@ -46,3 +46,21 @@ Tracked from CEO plan review — 2026-03-15.
 **Why:** Pack prices ($10/$20/$35/$60) are currently hardcoded in two places inside the billing route. If prices change in Stripe, the billing page will show wrong amounts until code is manually updated.
 **How to start:** Add a `usd_price` column to `NGNPriceConfig` (already has `price_ngn`), seed it from the existing price constants, and read from DB in both helper functions.
 **Effort:** S | **Depends on:** DB migration
+
+---
+
+## Curriculum / Quiz
+
+### [ ] Cache Claude-generated quiz questions per module
+**What:** Cache generated quiz questions (1-hour TTL, per-module) using a simple in-process dict or Flask-Caching.
+**Why:** Every quiz attempt currently generates fresh questions from Claude (~$0.003/call). Users see different questions each attempt, making it hard to track genuine skill improvement vs. question-set variance.
+**How to start:** Add a module-level `_quiz_cache: dict[str, tuple[list, float]]` in `routes/curriculum.py`. In `api_quiz_generate`, check cache before calling Claude; populate cache on miss. TTL = `time.time() + 3600`.
+**Trade-off:** Fresh questions each time could also be considered a feature (harder to memorize). Consider making TTL configurable or per-user vs. shared.
+**Effort:** S | **Depends on:** Nothing
+
+### [ ] Auto-mark module complete on quiz pass
+**What:** When a user scores ≥70% on a quiz, automatically upsert `UserCurriculumProgress.completed = True` for that module.
+**Why:** Quiz completion and module completion are currently disconnected. Passing the quiz should reflect as progress.
+**How to start:** In `api_quiz_submit` (routes/curriculum.py), after `db.session.commit()` on the attempt, if `passed` is True: upsert a `UserCurriculumProgress` record with `completed=True` and `completed_at=datetime.utcnow()` (reuse the same upsert logic from `api_update_progress`).
+**Trade-off:** Some users may want to study without the quiz marking their progress. Consider adding a user preference toggle.
+**Effort:** S | **Depends on:** Nothing
