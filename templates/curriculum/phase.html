@@ -8,10 +8,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+<!-- marked.js for markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
 
+/* ── Header ── */
 .header {
     background: var(--glass-bg); backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--glass-border);
@@ -24,13 +27,11 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 .back-btn { padding: 8px 18px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.2s; }
 .back-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
 
-/* Phase hero */
+/* ── Phase Hero ── */
 .phase-hero {
     border-bottom: 1px solid var(--glass-border);
     padding: 40px 32px;
-    background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(255,255,255,0.01) 100%);
-    position: relative;
-    overflow: hidden;
+    position: relative; overflow: hidden;
 }
 .phase-hero::before {
     content: 'Phase {{ phase.phase }}';
@@ -45,69 +46,38 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 .phase-meta { display: flex; gap: 20px; flex-wrap: wrap; }
 .meta-chip { font-size: 12px; color: var(--text-tertiary); font-family: 'IBM Plex Mono', monospace; padding: 5px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 100px; }
 
-/* Layout */
-.content { max-width: 1200px; margin: 0 auto; padding: 40px 32px; display: grid; grid-template-columns: 1fr 380px; gap: 32px; align-items: start; }
+/* ── Two-column layout ── */
+.content { max-width: 1200px; margin: 0 auto; padding: 40px 32px 32px; display: grid; grid-template-columns: 1fr 280px; gap: 28px; align-items: start; }
 
-/* Modules */
+/* ── Modules ── */
 .modules-list { display: flex; flex-direction: column; gap: 20px; }
 .module-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 16px; overflow: hidden; transition: border-color 0.2s; }
 .module-card.completed { border-color: rgba(34,197,94,0.3); }
 .module-header { padding: 24px 28px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .module-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
 .module-status { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
-.check-btn {
-    width: 32px; height: 32px; border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.12); background: transparent;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    color: transparent; font-size: 14px; transition: all 0.2s;
-}
+.check-btn { width: 32px; height: 32px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.12); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 14px; transition: all 0.2s; }
 .check-btn.done { background: #22c55e; border-color: #22c55e; color: white; }
 .check-btn:hover:not(.done) { border-color: rgba(34,197,94,0.5); }
-.project-check-btn {
-    font-size: 11px; font-family: 'IBM Plex Mono', monospace;
-    padding: 4px 10px; border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.1); background: transparent;
-    color: var(--text-tertiary); cursor: pointer; transition: all 0.2s; white-space: nowrap;
-}
+.project-check-btn { font-size: 11px; font-family: 'IBM Plex Mono', monospace; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: var(--text-tertiary); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
 .project-check-btn.done { border-color: rgba(247,147,30,0.4); color: #f7931e; background: rgba(247,147,30,0.08); }
-
 .module-body { padding: 16px 28px 24px; }
 .topics-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
 .topics-list li { font-size: 14px; color: var(--text-secondary); display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
 .topics-list li::before { content: '--'; font-family: 'IBM Plex Mono', monospace; color: var(--accent-primary); font-size: 12px; flex-shrink: 0; margin-top: 2px; }
-
 .project-box { background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; }
 .project-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-primary); margin-bottom: 6px; }
 .project-text { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
-
 .resources { display: flex; flex-wrap: wrap; gap: 8px; }
 .resource-link { font-size: 12px; color: var(--accent-electric); text-decoration: none; padding: 4px 10px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.15); border-radius: 6px; font-family: 'IBM Plex Mono', monospace; transition: all 0.2s; }
 .resource-link:hover { background: rgba(0,212,255,0.15); }
-
-.ask-btn { margin-top: 16px; padding: 10px 18px; background: var(--gradient-primary); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; }
+.ask-btn { margin-top: 16px; padding: 10px 20px; background: var(--gradient-primary); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
 .ask-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,107,53,0.3); }
 
-/* Sidebar */
+/* ── Sidebar (progress only) ── */
 .sidebar { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 20px; }
 .sidebar-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 16px; padding: 24px; }
 .sidebar-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; margin-bottom: 16px; }
-
-/* AI Panel */
-.ai-panel { display: flex; flex-direction: column; gap: 12px; }
-#ai-module-select { width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-primary); font-size: 13px; font-family: 'Outfit', sans-serif; appearance: none; }
-#ai-question { width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-primary); font-size: 13px; font-family: 'Outfit', sans-serif; resize: vertical; min-height: 80px; }
-#ai-question:focus, #ai-module-select:focus { outline: none; border-color: var(--accent-primary); }
-.ai-submit-btn { padding: 12px; background: var(--gradient-primary); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; }
-.ai-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-#ai-output {
-    background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); border-radius: 8px;
-    padding: 14px; font-size: 13px; color: var(--text-secondary); line-height: 1.6;
-    max-height: 320px; overflow-y: auto; display: none;
-    font-family: 'IBM Plex Mono', monospace;
-    white-space: pre-wrap; word-break: break-word;
-}
-
-/* Progress sidebar list */
 .prog-list { display: flex; flex-direction: column; gap: 10px; }
 .prog-item { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .prog-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.1); flex-shrink: 0; }
@@ -115,11 +85,288 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 .prog-label { flex: 1; color: var(--text-secondary); }
 .prog-label.done { color: var(--text-primary); text-decoration: line-through; opacity: 0.6; }
 
-@media (max-width: 900px) {
-    .content { grid-template-columns: 1fr; }
+/* ── AI Coach Panel (full-width below) ── */
+.ai-coach-section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px 60px;
+}
+
+.ai-coach-panel {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.ai-coach-header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+    background: rgba(255,107,53,0.04);
+}
+
+.ai-coach-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ai-coach-icon {
+    width: 44px; height: 44px;
+    background: var(--gradient-primary);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+}
+
+.ai-coach-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.ai-coach-sub {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+}
+
+.ai-active-module {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 6px 14px;
+    background: rgba(255,107,53,0.1);
+    border: 1px solid rgba(255,107,53,0.2);
+    border-radius: 100px;
+    color: var(--accent-primary);
+    display: none;
+}
+.ai-active-module.visible { display: block; }
+
+.ai-coach-body {
+    display: grid;
+    grid-template-columns: 400px 1fr;
+    min-height: 500px;
+}
+
+.ai-input-pane {
+    border-right: 1px solid var(--glass-border);
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.ai-input-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-tertiary);
+    margin-bottom: 6px;
+}
+
+.ai-module-select {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: 'Outfit', sans-serif;
+    appearance: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+.ai-module-select:focus { outline: none; border-color: var(--accent-primary); }
+
+.ai-question-input {
+    width: 100%;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 15px;
+    font-family: 'Outfit', sans-serif;
+    resize: none;
+    flex: 1;
+    min-height: 160px;
+    line-height: 1.6;
+    transition: border-color 0.2s;
+}
+.ai-question-input:focus { outline: none; border-color: var(--accent-primary); }
+.ai-question-input::placeholder { color: var(--text-tertiary); }
+
+.quick-prompts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.quick-prompt-btn {
+    text-align: left;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Outfit', sans-serif;
+    line-height: 1.4;
+}
+.quick-prompt-btn:hover { background: rgba(255,107,53,0.08); border-color: rgba(255,107,53,0.2); color: var(--text-primary); }
+
+.ai-submit-btn {
+    padding: 14px;
+    background: var(--gradient-primary);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Outfit', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    letter-spacing: 0.3px;
+}
+.ai-submit-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(255,107,53,0.35); }
+.ai-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.spinner-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: white;
+    animation: blink 1.2s ease-in-out infinite;
+}
+.spinner-dot:nth-child(2) { animation-delay: 0.2s; }
+.spinner-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%,80%,100% { opacity: 0.2; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1); } }
+
+/* AI Output pane */
+.ai-output-pane {
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.ai-output-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text-tertiary);
+    text-align: center;
+}
+.ai-output-empty-icon { font-size: 48px; opacity: 0.4; }
+.ai-output-empty-text { font-size: 15px; max-width: 300px; line-height: 1.6; }
+
+#ai-output {
+    flex: 1;
+    overflow-y: auto;
+    display: none;
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--text-primary);
+}
+
+/* Markdown styles inside output */
+#ai-output h1, #ai-output h2, #ai-output h3 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    margin: 20px 0 10px;
+    color: var(--text-primary);
+}
+#ai-output h1 { font-size: 22px; }
+#ai-output h2 { font-size: 18px; }
+#ai-output h3 { font-size: 16px; color: var(--accent-primary); }
+#ai-output p { margin-bottom: 14px; color: var(--text-secondary); }
+#ai-output ul, #ai-output ol { margin: 10px 0 14px 20px; color: var(--text-secondary); }
+#ai-output li { margin-bottom: 6px; line-height: 1.6; }
+#ai-output code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px;
+    padding: 2px 6px;
+    color: #a3e635;
+}
+#ai-output pre {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    margin: 14px 0;
+}
+#ai-output pre code {
+    background: none; border: none; padding: 0;
+    font-size: 13px; line-height: 1.7; color: #a3e635;
+}
+#ai-output strong { color: var(--text-primary); font-weight: 600; }
+#ai-output blockquote {
+    border-left: 3px solid var(--accent-primary);
+    padding-left: 16px;
+    margin: 14px 0;
+    color: var(--text-tertiary);
+    font-style: italic;
+}
+#ai-output hr { border: none; border-top: 1px solid var(--glass-border); margin: 20px 0; }
+
+.cursor-blink {
+    display: inline-block;
+    width: 2px; height: 1em;
+    background: var(--accent-primary);
+    vertical-align: text-bottom;
+    animation: cursorBlink 0.8s step-end infinite;
+    margin-left: 2px;
+}
+@keyframes cursorBlink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+.ai-output-footer {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 16px;
+    margin-top: 16px;
+    border-top: 1px solid var(--glass-border);
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+.ai-output-footer.visible { display: flex; }
+.copy-output-btn {
+    padding: 6px 14px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border);
+    border-radius: 6px; color: var(--text-secondary); font-size: 12px; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; transition: all 0.2s;
+}
+.copy-output-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+
+@media (max-width: 1024px) {
+    .ai-coach-body { grid-template-columns: 1fr; }
+    .ai-input-pane { border-right: none; border-bottom: 1px solid var(--glass-border); }
+    .ai-output-pane { min-height: 300px; }
+}
+@media (max-width: 768px) {
+    .content { grid-template-columns: 1fr; padding: 24px 20px 20px; }
     .sidebar { position: static; }
     .phase-hero { padding: 28px 20px; }
-    .content { padding: 28px 20px; }
+    .ai-coach-section { padding: 0 20px 48px; }
+    .ai-coach-header { padding: 20px; }
+    .ai-input-pane, .ai-output-pane { padding: 20px; }
 }
 </style>
 </head>
@@ -132,6 +379,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
     <a href="/curriculum" class="back-btn">&#8592; All Phases</a>
 </div>
 
+<!-- Phase hero -->
 <div class="phase-hero">
     <div class="phase-hero-inner">
         <p class="phase-eyebrow">Phase {{ phase.phase }} &nbsp;/&nbsp; {{ phase.duration }}</p>
@@ -144,8 +392,8 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
     </div>
 </div>
 
+<!-- Modules + sidebar -->
 <div class="content">
-    <!-- Modules -->
     <div class="modules-list">
         {% for module in phase.modules %}
         {% set mod_p = progress.get(module.id, {}) %}
@@ -158,9 +406,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
                 <div class="module-status">
                     <button class="check-btn {% if is_done %}done{% endif %}"
                             onclick="toggleModule('{{ module.id }}', '{{ phase.phase }}')"
-                            title="Mark complete">
-                        &#10003;
-                    </button>
+                            title="Mark complete">&#10003;</button>
                     <button class="project-check-btn {% if proj_done %}done{% endif %}"
                             onclick="toggleProject('{{ module.id }}', '{{ phase.phase }}')"
                             title="Mark project done">
@@ -174,12 +420,10 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
                     <li>{{ topic }}</li>
                     {% endfor %}
                 </ul>
-
                 <div class="project-box">
                     <div class="project-label">Capstone Project</div>
                     <div class="project-text">{{ module.project }}</div>
                 </div>
-
                 {% if module.resources %}
                 <div class="resources">
                     {% for r in module.resources %}
@@ -187,34 +431,16 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
                     {% endfor %}
                 </div>
                 {% endif %}
-
                 <button class="ask-btn" onclick="askAI('{{ module.id }}', '{{ module.title }}')">
-                    Ask AI Coach
+                    🎓 Ask AI Coach about this module
                 </button>
             </div>
         </div>
         {% endfor %}
     </div>
 
-    <!-- Sidebar -->
+    <!-- Sidebar: progress only -->
     <div class="sidebar">
-        <!-- AI Coach -->
-        <div class="sidebar-card">
-            <h3 class="sidebar-title">AI Study Coach</h3>
-            <div class="ai-panel">
-                <select id="ai-module-select">
-                    {% for module in phase.modules %}
-                    <option value="{{ module.id }}">{{ module.title }}</option>
-                    {% endfor %}
-                </select>
-                <textarea id="ai-question" placeholder="Ask anything about this module...
-e.g. Explain PromQL with examples"></textarea>
-                <button class="ai-submit-btn" id="ai-submit-btn" onclick="submitAIQuestion()">Ask AI Coach</button>
-                <div id="ai-output"></div>
-            </div>
-        </div>
-
-        <!-- Module progress -->
         <div class="sidebar-card">
             <h3 class="sidebar-title">Phase Progress</h3>
             <div class="prog-list">
@@ -231,64 +457,115 @@ e.g. Explain PromQL with examples"></textarea>
     </div>
 </div>
 
+<!-- ── AI Coach Panel (full width) ── -->
+<div class="ai-coach-section" id="ai-coach-section">
+    <div class="ai-coach-panel">
+        <div class="ai-coach-header">
+            <div class="ai-coach-title">
+                <div class="ai-coach-icon">🎓</div>
+                <div>
+                    <div class="ai-coach-label">AI Study Coach</div>
+                    <div class="ai-coach-sub">Powered by Claude — ask anything about these modules</div>
+                </div>
+            </div>
+            <div class="ai-active-module" id="ai-active-module"></div>
+        </div>
+
+        <div class="ai-coach-body">
+            <!-- Input pane -->
+            <div class="ai-input-pane">
+                <div>
+                    <div class="ai-input-label">Select Module</div>
+                    <select class="ai-module-select" id="ai-module-select"
+                            onchange="updateActiveModule()">
+                        {% for module in phase.modules %}
+                        <option value="{{ module.id }}">{{ module.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+                    <div class="ai-input-label">Your Question</div>
+                    <textarea class="ai-question-input" id="ai-question"
+                        placeholder="What would you like to learn?&#10;&#10;e.g. Explain Kubernetes Deployments with a real example&#10;e.g. Show me a Dockerfile for a Node.js app&#10;e.g. How does PromQL work?"></textarea>
+                </div>
+
+                <div>
+                    <div class="ai-input-label" style="margin-bottom:8px;">Quick Prompts</div>
+                    <div class="quick-prompts" id="quick-prompts">
+                        <button class="quick-prompt-btn" onclick="setPrompt(this)">Explain the key concepts with real-world examples</button>
+                        <button class="quick-prompt-btn" onclick="setPrompt(this)">Show me the most important commands I need to know</button>
+                        <button class="quick-prompt-btn" onclick="setPrompt(this)">Help me understand the capstone project step by step</button>
+                    </div>
+                </div>
+
+                <button class="ai-submit-btn" id="ai-submit-btn" onclick="submitAIQuestion()">
+                    <span id="submit-label">Ask AI Coach</span>
+                    <div id="submit-spinner" style="display:none; display:none; gap:4px; align-items:center;">
+                        <div class="spinner-dot"></div>
+                        <div class="spinner-dot"></div>
+                        <div class="spinner-dot"></div>
+                    </div>
+                </button>
+            </div>
+
+            <!-- Output pane -->
+            <div class="ai-output-pane">
+                <div class="ai-output-empty" id="ai-output-empty">
+                    <div class="ai-output-empty-icon">💡</div>
+                    <div class="ai-output-empty-text">Select a module and ask a question to get AI-powered study guidance</div>
+                </div>
+                <div id="ai-output"></div>
+                <div class="ai-output-footer" id="ai-output-footer">
+                    <span id="ai-output-meta"></span>
+                    <button class="copy-output-btn" onclick="copyOutput()">Copy Response</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
-// ── Progress toggle ──────────────────────────────────────────────────────────
+let rawMarkdown = '';
+
+// ── Progress toggle ───────────────────────────────────────────────────────────
 function toggleModule(moduleId, phaseId) {
     const card = document.getElementById('mod-' + moduleId);
     const btn = card.querySelector('.check-btn');
     const nowDone = !btn.classList.contains('done');
-
     fetch('/curriculum/api/progress', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            module_id: moduleId,
-            phase_id: phaseId,
-            completed: nowDone,
-            project_done: card.querySelector('.project-check-btn').classList.contains('done'),
-        }),
-    })
-    .then(r => r.json())
-    .then(data => {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ module_id: moduleId, phase_id: phaseId, completed: nowDone,
+            project_done: card.querySelector('.project-check-btn').classList.contains('done') }),
+    }).then(r => r.json()).then(data => {
         if (data.success) {
             btn.classList.toggle('done', nowDone);
             card.classList.toggle('completed', nowDone);
-            // Update sidebar dot
             updateSidebarDot(moduleId, nowDone);
         }
-    })
-    .catch(console.error);
+    }).catch(console.error);
 }
 
 function toggleProject(moduleId, phaseId) {
     const card = document.getElementById('mod-' + moduleId);
     const btn = card.querySelector('.project-check-btn');
     const nowDone = !btn.classList.contains('done');
-
     fetch('/curriculum/api/progress', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            module_id: moduleId,
-            phase_id: phaseId,
-            completed: card.querySelector('.check-btn').classList.contains('done'),
-            project_done: nowDone,
-        }),
-    })
-    .then(r => r.json())
-    .then(data => {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ module_id: moduleId, phase_id: phaseId,
+            completed: card.querySelector('.check-btn').classList.contains('done'), project_done: nowDone }),
+    }).then(r => r.json()).then(data => {
         if (data.success) {
             btn.classList.toggle('done', nowDone);
             btn.textContent = nowDone ? 'Project Done' : 'Mark Project';
         }
-    })
-    .catch(console.error);
+    }).catch(console.error);
 }
 
 function updateSidebarDot(moduleId, done) {
+    const modules = document.querySelectorAll('.module-card');
     const dots = document.querySelectorAll('.prog-dot');
     const labels = document.querySelectorAll('.prog-label');
-    const modules = document.querySelectorAll('.module-card');
     modules.forEach((card, i) => {
         if (card.id === 'mod-' + moduleId) {
             if (dots[i]) dots[i].classList.toggle('done', done);
@@ -297,59 +574,120 @@ function updateSidebarDot(moduleId, done) {
     });
 }
 
-// ── AI Coach ─────────────────────────────────────────────────────────────────
+// ── AI Coach ──────────────────────────────────────────────────────────────────
+function updateActiveModule() {
+    const sel = document.getElementById('ai-module-select');
+    const label = sel.options[sel.selectedIndex].text;
+    const badge = document.getElementById('ai-active-module');
+    badge.textContent = label;
+    badge.classList.add('visible');
+}
+
 function askAI(moduleId, moduleTitle) {
     document.getElementById('ai-module-select').value = moduleId;
-    document.getElementById('ai-question').value = 'Explain ' + moduleTitle + ' with real-world examples and commands I should know.';
+    updateActiveModule();
+    document.getElementById('ai-question').value =
+        'Explain ' + moduleTitle + ' with real-world examples and commands I should know.';
+    document.getElementById('ai-coach-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => document.getElementById('ai-question').focus(), 600);
+}
+
+function setPrompt(btn) {
+    document.getElementById('ai-question').value = btn.textContent.trim();
     document.getElementById('ai-question').focus();
-    document.querySelector('.sidebar').scrollIntoView({behavior: 'smooth'});
 }
 
 function submitAIQuestion() {
     const moduleId = document.getElementById('ai-module-select').value;
     const question = document.getElementById('ai-question').value.trim();
-    if (!question) return;
+    if (!question) { document.getElementById('ai-question').focus(); return; }
 
-    const btn = document.getElementById('ai-submit-btn');
+    const submitBtn = document.getElementById('ai-submit-btn');
     const output = document.getElementById('ai-output');
-    btn.disabled = true;
-    btn.textContent = 'Thinking...';
+    const empty = document.getElementById('ai-output-empty');
+    const footer = document.getElementById('ai-output-footer');
+    const spinner = document.getElementById('submit-spinner');
+    const label = document.getElementById('submit-label');
+
+    submitBtn.disabled = true;
+    label.textContent = 'Thinking';
+    spinner.style.display = 'flex';
+
+    empty.style.display = 'none';
     output.style.display = 'block';
-    output.textContent = '';
+    output.innerHTML = '<span class="cursor-blink"></span>';
+    footer.classList.remove('visible');
+    rawMarkdown = '';
+
+    const startTime = Date.now();
 
     fetch('/curriculum/api/ai-guide', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({module_id: moduleId, question: question}),
-    })
-    .then(res => {
+        body: JSON.stringify({ module_id: moduleId, question }),
+    }).then(res => {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
 
         function read() {
-            reader.read().then(({done, value}) => {
-                if (done) { btn.disabled = false; btn.textContent = 'Ask AI Coach'; return; }
-                const chunk = decoder.decode(value);
-                chunk.split('\n').forEach(line => {
+            reader.read().then(({ done, value }) => {
+                if (done) { finishStream(startTime); return; }
+                decoder.decode(value).split('\n').forEach(line => {
                     if (!line.startsWith('data: ')) return;
                     const payload = line.slice(6);
-                    if (payload === '[DONE]') { btn.disabled = false; btn.textContent = 'Ask AI Coach'; return; }
+                    if (payload === '[DONE]') { finishStream(startTime); return; }
                     try {
                         const json = JSON.parse(payload);
-                        if (json.text) { output.textContent += json.text; output.scrollTop = output.scrollHeight; }
+                        if (json.text) {
+                            rawMarkdown += json.text;
+                            output.innerHTML = marked.parse(rawMarkdown) + '<span class="cursor-blink"></span>';
+                            output.scrollTop = output.scrollHeight;
+                        }
+                        if (json.error) {
+                            output.innerHTML = '<p style="color:#ef4444">Error: ' + json.error + '</p>';
+                            finishStream(startTime);
+                        }
                     } catch(_) {}
                 });
                 read();
             });
         }
         read();
-    })
-    .catch(e => {
-        output.textContent = 'Error: ' + e.message;
-        btn.disabled = false;
-        btn.textContent = 'Ask AI Coach';
+    }).catch(e => {
+        output.innerHTML = '<p style="color:#ef4444">Network error: ' + e.message + '</p>';
+        finishStream(startTime);
     });
 }
+
+function finishStream(startTime) {
+    const submitBtn = document.getElementById('ai-submit-btn');
+    const output = document.getElementById('ai-output');
+    const footer = document.getElementById('ai-output-footer');
+    const spinner = document.getElementById('submit-spinner');
+    const label = document.getElementById('submit-label');
+
+    // Remove cursor
+    output.innerHTML = marked.parse(rawMarkdown);
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    document.getElementById('ai-output-meta').textContent = 'Response in ' + elapsed + 's';
+
+    footer.classList.add('visible');
+    submitBtn.disabled = false;
+    label.textContent = 'Ask AI Coach';
+    spinner.style.display = 'none';
+}
+
+function copyOutput() {
+    navigator.clipboard.writeText(rawMarkdown).then(() => {
+        const btn = document.querySelector('.copy-output-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy Response'; }, 2000);
+    });
+}
+
+// Init active module badge
+updateActiveModule();
 </script>
 <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
