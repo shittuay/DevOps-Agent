@@ -103,6 +103,11 @@ def api_create_rule():
     except ValueError as e:
         return json_response({"error": str(e)}, 400)
 
+    try:
+        threshold = float(data['threshold'])
+    except (ValueError, TypeError):
+        return json_response({"error": "threshold must be a numeric value"}, 400)
+
     import uuid
     rule = MonitoringRuleState(
         id=data.get('id', str(uuid.uuid4())[:8]),
@@ -111,7 +116,7 @@ def api_create_rule():
         source=source,
         query=data['query'],
         condition=condition,
-        threshold=float(data['threshold']),
+        threshold=threshold,
         duration_seconds=int(data.get('duration_seconds', 60)),
         severity=data.get('severity', 'medium'),
         labels=data.get('labels', {}),
