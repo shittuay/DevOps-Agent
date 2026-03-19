@@ -6,6 +6,7 @@ Integrates with the incident response system for automated remediation.
 Persists rules and alerts to DB with per-user isolation.
 """
 
+import os
 import threading
 import time
 import logging
@@ -152,7 +153,7 @@ class MetricCollector:
             return None
 
     def _collect_prometheus(self, query: str) -> Optional[float]:
-        prometheus_url = self.config.get("prometheus_url", "http://localhost:9090")
+        prometheus_url = os.environ.get('PROMETHEUS_URL', self.config.get("prometheus_url", "http://localhost:9090"))
         try:
             response = requests.get(
                 f"{prometheus_url}/api/v1/query",
