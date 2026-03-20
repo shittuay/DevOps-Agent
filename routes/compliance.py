@@ -20,10 +20,23 @@ def dashboard():
 @login_required
 def frameworks():
     """List compliance frameworks"""
-    from services.compliance_service import ComplianceService
+    from services.compliance_service import ComplianceService, DEFAULT_CONTROLS
     service = ComplianceService(current_user.id)
-    frameworks_data = service.get_enabled_frameworks()
-    return render_template('compliance/frameworks.html', frameworks=frameworks_data)
+    enabled = service.get_enabled_frameworks()
+    score_map = {f.name: (f.compliance_score or 0) for f in enabled}
+
+    all_frameworks = [
+        {'id': 'soc2', 'name': 'SOC 2', 'description': 'Service Organization Control 2 - Trust Services Criteria', 'controls_count': len(DEFAULT_CONTROLS.get('soc2', []))},
+        {'id': 'hipaa', 'name': 'HIPAA', 'description': 'Health Insurance Portability and Accountability Act', 'controls_count': len(DEFAULT_CONTROLS.get('hipaa', []))},
+        {'id': 'pci_dss', 'name': 'PCI-DSS', 'description': 'Payment Card Industry Data Security Standard', 'controls_count': len(DEFAULT_CONTROLS.get('pci_dss', []))},
+        {'id': 'gdpr', 'name': 'GDPR', 'description': 'General Data Protection Regulation', 'controls_count': 0},
+        {'id': 'iso27001', 'name': 'ISO 27001', 'description': 'Information Security Management System', 'controls_count': 0},
+        {'id': 'nist', 'name': 'NIST', 'description': 'National Institute of Standards and Technology', 'controls_count': 0},
+    ]
+    for fw in all_frameworks:
+        fw['score'] = score_map.get(fw['id'], 0)
+
+    return render_template('compliance/frameworks.html', frameworks=all_frameworks)
 
 
 @compliance_bp.route('/frameworks/<framework_id>')
@@ -218,7 +231,14 @@ def create_policy():
             'created_by': current_user.id
         }
 
-        policy = service.create_policy(data)
+        policy = service.create_policy(
+            user_id=current_user.id,
+            name=data.get('name'),
+            policy_type=data.get('policy_type'),
+            rules=data.get('conditions', []),
+            enforcement=data.get('enforcement', 'warn'),
+            description=data.get('description')
+        )
         if policy:
             flash('Policy created successfully!', 'success')
             return redirect(url_for('compliance.policies'))
@@ -365,18 +385,44 @@ def api_audit_log():
 
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
+    action_filter = request.args.get('action')
+    from_date = request.args.get('from')
+    to_date = request.args.get('to')
 
-    logs = service.get_audit_logs(user_id=current_user.id, limit=per_page)
+    start_date = None
+    end_date = None
+    if from_date:
+        try:
+            start_date = datetime.fromisoformat(from_date)
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            end_date = datetime.fromisoformat(to_date)
+        except ValueError:
+            pass
+
+    logs = service.get_audit_logs(
+        user_id=current_user.id,
+        action=action_filter,
+        start_date=start_date,
+        end_date=end_date,
+        limit=per_page
+    )
+
+    timestamp_attr = 'created_at'  # AuditLog uses created_at not timestamp
 
     return jsonify({
         'logs': [{
             'id': getattr(log, 'id', None),
-            'action': getattr(log, 'action_type', None),
+            'action': getattr(log, 'action', None),
             'resource_type': getattr(log, 'resource_type', None),
             'resource_id': getattr(log, 'resource_id', None),
             'details': getattr(log, 'details', None),
             'ip_address': getattr(log, 'ip_address', None),
-            'timestamp': log.timestamp.isoformat() if getattr(log, 'timestamp', None) else None
+            'user': getattr(log, 'user_id', None),
+            'status': 'success' if getattr(log, 'success', True) else 'failure',
+            'timestamp': getattr(log, 'created_at', None).isoformat() if getattr(log, 'created_at', None) else None
         } for log in logs],
         'total': len(logs),
         'pages': 1,
@@ -419,6 +465,74 @@ def api_resolve_violation(violation_id):
         return jsonify({'success': True})
     else:
         return jsonify({'error': 'Failed to resolve violation'}), 400
+
+
+@compliance_bp.route('/api/controls')
+@login_required
+def api_controls():
+    """Get all compliance controls"""
+    from services.compliance_service import ComplianceService, DEFAULT_CONTROLS
+
+    framework_filter = request.args.get('framework')
+    status_filter = request.args.get('status')
+
+    fw_names = [framework_filter] if framework_filter else list(DEFAULT_CONTROLS.keys())
+    controls = []
+    for fw_name in fw_names:
+        for ctrl_id, ctrl_title, ctrl_desc, ctrl_category in DEFAULT_CONTROLS.get(fw_name, []):
+            ctrl = {
+                'id': ctrl_id,
+                'framework': fw_name,
+                'title': ctrl_title,
+                'description': ctrl_desc,
+                'category': ctrl_category,
+                'status': 'pending'
+            }
+            if not status_filter or ctrl['status'] == status_filter:
+                controls.append(ctrl)
+
+    return jsonify({'controls': controls, 'total': len(controls)})
+
+
+@compliance_bp.route('/api/policies')
+@login_required
+def api_policies():
+    """Get all policies"""
+    from services.compliance_service import ComplianceService
+    service = ComplianceService(current_user.id)
+
+    policies = service.get_policies()
+    return jsonify({
+        'policies': [{
+            'id': p.id,
+            'name': p.name,
+            'description': getattr(p, 'description', None),
+            'policy_type': getattr(p, 'policy_type', None),
+            'enforcement_action': getattr(p, 'enforcement_action', 'warn'),
+            'is_active': getattr(p, 'is_active', True),
+            'violations_count': 0
+        } for p in policies]
+    })
+
+
+@compliance_bp.route('/api/reports')
+@login_required
+def api_reports():
+    """Get compliance reports"""
+    from services.compliance_service import ComplianceService
+    service = ComplianceService(current_user.id)
+
+    reports = service.get_recent_reports()
+    return jsonify({
+        'reports': [{
+            'id': r.id,
+            'name': r.name,
+            'framework': getattr(r, 'framework', None),
+            'overall_score': getattr(r, 'overall_score', 0),
+            'generated_at': r.generated_at.isoformat() if getattr(r, 'generated_at', None) else None,
+            'file_format': 'json'
+        } for r in reports]
+    })
 
 
 @compliance_bp.route('/api/export/audit-log')
