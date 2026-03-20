@@ -3,7 +3,7 @@ Incident Response API routes for DevOps Agent.
 All engine methods receive user_id for per-user isolation.
 """
 
-from flask import Blueprint, request, jsonify, render_template, make_response
+from flask import Blueprint, request, jsonify, render_template, make_response, flash, redirect, url_for
 from flask_login import login_required, current_user
 from services.incident_response import (
     get_incident_engine, IncidentSeverity, IncidentStatus,
@@ -50,7 +50,8 @@ def view_incident(incident_id):
     incident = engine.get_incident(user_id, incident_id)
 
     if not incident:
-        return jsonify({'error': 'Incident not found'}), 404
+        flash('Incident not found', 'error')
+        return redirect(url_for('incidents.incidents_dashboard'))
 
     playbook = None
     if incident.playbook_id:
@@ -630,7 +631,7 @@ def api_update_playbook(playbook_id):
         playbook.actions = actions
 
     playbook.updated_at = datetime.utcnow()
-    engine._save_playbook_to_db(user_id, playbook)
+    engine.register_playbook(user_id, playbook)
 
     logger.info(f"Playbook '{playbook.name}' updated by {current_user.email}")
 
