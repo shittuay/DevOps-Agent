@@ -253,6 +253,10 @@ def send_message(conversation_id):
     from models import db, Conversation, ChatMessage, UsageLog, UserPreferences
     from services.model_router import resolve_model_with_preference
 
+    from models import db
+    from services.input_sanitizer import validate_message
+    from src.agent.guardrails import screen_message
+
     user_id = g.api_user.id
     data = request.get_json() or {}
 
@@ -261,6 +265,24 @@ def send_message(conversation_id):
             'error': 'Bad request',
             'message': 'Message content is required'
         }), 400
+
+    # Guardrail layer 1: check if user is blocked
+    if g.api_user.is_guardrail_blocked():
+        return jsonify({'error': 'Account temporarily restricted due to repeated policy violations.'}), 403
+
+    # Guardrail layer 2: injection pattern check
+    is_valid, validation_reason = validate_message(data['content'])
+    if not is_valid:
+        g.api_user.record_guardrail_violation()
+        db.session.commit()
+        return jsonify({'error': validation_reason}), 400
+
+    # Guardrail layer 3: Haiku harmlessness screen
+    guardrail_result = screen_message(data['content'])
+    if guardrail_result.blocked:
+        g.api_user.record_guardrail_violation()
+        db.session.commit()
+        return jsonify({'error': 'Message blocked by content policy. Repeated violations may result in account suspension.'}), 400
 
     conversation = Conversation.query.filter_by(
         id=conversation_id,
@@ -288,6 +310,9 @@ def send_message(conversation_id):
 
     message = data['content']
 
+    # Query history BEFORE adding the new message to avoid autoflush bug
+    conversation_history = _get_conversation_history(user_id, conversation_id)
+
     user_message = ChatMessage(
         user_id=user_id,
         conversation_id=conversation_id,
@@ -298,8 +323,6 @@ def send_message(conversation_id):
     db.session.commit()
 
     preferences_context = prefs.get_context_for_prompt() if prefs else None
-
-    conversation_history = _get_conversation_history(user_id, conversation_id)
 
     agent = current_app.config.get('DEVOPS_AGENT')
 
@@ -402,12 +425,35 @@ def api_v1_chat_stream():
     from services.model_router import resolve_model_with_preference
     from services.chat_service import stream_free_tier_chat, is_anthropic_error
 
+    from services.input_sanitizer import validate_message
+    from src.agent.guardrails import screen_message
+
     user_id = g.api_user.id
     data = request.get_json() or {}
     message = (data.get('message') or '').strip()
 
     if not message:
         return jsonify({'error': 'Message is required'}), 400
+
+    # Guardrail layer 1: check if user is blocked
+    if g.api_user.is_guardrail_blocked():
+        return jsonify({'error': 'Account temporarily restricted due to repeated policy violations.'}), 403
+
+    # Guardrail layer 2: injection pattern check
+    is_valid, validation_reason = validate_message(message)
+    if not is_valid:
+        g.api_user.record_guardrail_violation()
+        from models import db
+        db.session.commit()
+        return jsonify({'error': validation_reason}), 400
+
+    # Guardrail layer 3: Haiku harmlessness screen
+    guardrail_result = screen_message(message)
+    if guardrail_result.blocked:
+        g.api_user.record_guardrail_violation()
+        from models import db
+        db.session.commit()
+        return jsonify({'error': 'Message blocked by content policy. Repeated violations may result in account suspension.'}), 400
 
     # Subscription / credits
     subscription, err = _ensure_subscription(user_id)
@@ -446,6 +492,9 @@ def api_v1_chat_stream():
         )
         db.session.add(conversation)
 
+    # Query history BEFORE adding the new message to avoid autoflush bug
+    conversation_history = _get_conversation_history(user_id, conversation_id)
+
     # Save user message
     user_msg = ChatMessage(
         user_id=user_id,
@@ -457,9 +506,6 @@ def api_v1_chat_stream():
 
     # Preferences
     preferences_context = prefs.get_context_for_prompt() if prefs else None
-
-    # History
-    conversation_history = _get_conversation_history(user_id, conversation_id)
 
     # Build trial context for free-tier users
     trial_context = None

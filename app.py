@@ -2173,6 +2173,18 @@ def api_chat():
                 )
                 db.session.add(conversation)
 
+        # Load prior messages BEFORE adding the new message to avoid autoflush
+        # including the pending insert in the SELECT result
+        prior_messages = ChatMessage.query.filter_by(
+            user_id=current_user.id,
+            conversation_id=conversation_id
+        ).order_by(ChatMessage.timestamp).all()
+
+        conversation_history = [
+            {'role': msg.role, 'content': msg.content}
+            for msg in prior_messages
+        ]
+
         # Save user message and update conversation preview
         user_message = ChatMessage(
             user_id=current_user.id,
@@ -2204,18 +2216,6 @@ def api_chat():
                 preferences_context = (preferences_context or '') + '\n\n' + memory_ctx
         except Exception:
             pass
-
-        # Load prior messages for this user's conversation from database
-        prior_messages = ChatMessage.query.filter_by(
-            user_id=current_user.id,
-            conversation_id=conversation_id
-        ).order_by(ChatMessage.timestamp).all()
-
-        # Convert to format expected by agent (exclude the message we just added)
-        conversation_history = [
-            {'role': msg.role, 'content': msg.content}
-            for msg in prior_messages
-        ]
 
         # Build trial context for free-tier users
         trial_context = None
@@ -2509,6 +2509,18 @@ def api_chat_stream():
         if conversation and conversation.is_streaming:
             return jsonify({'error': 'A response is already being generated. Please wait.'}), 409
 
+        # Load prior messages BEFORE adding the new message to avoid autoflush
+        # including the pending insert in the SELECT result
+        prior_messages = ChatMessage.query.filter_by(
+            user_id=current_user.id,
+            conversation_id=conversation_id
+        ).order_by(ChatMessage.timestamp).all()
+
+        conversation_history = [
+            {'role': msg.role, 'content': msg.content}
+            for msg in prior_messages
+        ]
+
         # Save user message and update conversation preview
         user_msg = ChatMessage(
             user_id=current_user.id,
@@ -2528,16 +2540,6 @@ def api_chat_stream():
             if prefs.sandbox_mode:
                 preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
                 sandbox_active = True
-
-        prior_messages = ChatMessage.query.filter_by(
-            user_id=current_user.id,
-            conversation_id=conversation_id
-        ).order_by(ChatMessage.timestamp).all()
-
-        conversation_history = [
-            {'role': msg.role, 'content': msg.content}
-            for msg in prior_messages
-        ]
 
         # Build trial context for free-tier users
         trial_context = None
