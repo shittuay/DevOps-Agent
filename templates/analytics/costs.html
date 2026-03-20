@@ -36,23 +36,45 @@
         </div>
     </div>
     <div class="card">
-        <h3>Cost Breakdown</h3>
-        <div class="empty-state" id="costChart">
-            <i class="fas fa-chart-pie"></i>
-            <h3>Loading cost data...</h3>
-            <p>Connect cloud accounts in Settings to see cost analytics</p>
+        <h3>Cost Breakdown by Service</h3>
+        <div style="height: 300px; position: relative;">
+            <canvas id="costChart"></canvas>
         </div>
     </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-fetch('/analytics/api/costs/summary')
-    .then(r => r.json())
-    .then(d => {
-        if (d.total_cost !== undefined) {
-            document.getElementById('monthlySpend').textContent = '$' + (d.total_cost || 0).toFixed(2);
-            document.getElementById('forecast').textContent = '$' + (d.forecast || 0).toFixed(2);
-            document.getElementById('savings').textContent = '$' + (d.potential_savings || 0).toFixed(2);
+document.addEventListener('DOMContentLoaded', function() {
+    Promise.all([
+        fetch('/analytics/api/costs/summary').then(r => r.json()),
+        fetch('/analytics/api/costs/forecast').then(r => r.json())
+    ]).then(([summary, forecast]) => {
+        document.getElementById('monthlySpend').textContent = '$' + (summary.total || 0).toFixed(2);
+        document.getElementById('forecast').textContent = '$' + (forecast.monthly_projection || 0).toFixed(2);
+        document.getElementById('savings').textContent = '$0.00';
+
+        const byService = summary.by_service || {};
+        const labels = Object.keys(byService);
+        const values = Object.values(byService);
+        if (labels.length) {
+            const ctx = document.getElementById('costChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ['#667eea', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#06b6d4']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
         }
-    }).catch(() => {});
+    }).catch(console.error);
+});
 </script>
 {% endblock %}
