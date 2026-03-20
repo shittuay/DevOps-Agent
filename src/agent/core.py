@@ -189,52 +189,50 @@ class DevOpsAgent:
         # Set user context for cloud operations (thread-local)
         self._set_cloud_user_context(user_id)
 
-        # Use lock to ensure thread safety
-        with self._conversation_lock:
-            # Save current conversation state
-            original_conversation = self.conversation
-            original_pending_download = self.pending_download
+        # Save current conversation state (no lock — each call creates its own ConversationManager)
+        original_conversation = self.conversation
+        original_pending_download = self.pending_download
 
-            try:
-                # Create fresh conversation context for this request
-                self.conversation = ConversationManager()
-                self.pending_download = None
-                self._sandbox_mode = sandbox_mode
+        try:
+            # Create fresh conversation context for this request
+            self.conversation = ConversationManager()
+            self.pending_download = None
+            self._sandbox_mode = sandbox_mode
 
-                # Load conversation history
-                for msg in conversation_history:
-                    if msg['role'] == 'user':
-                        self.conversation.add_user_message(msg['content'])
-                    elif msg['role'] == 'assistant':
-                        self.conversation.add_assistant_message([{
-                            'type': 'text',
-                            'text': msg['content']
-                        }])
+            # Load conversation history
+            for msg in conversation_history:
+                if msg['role'] == 'user':
+                    self.conversation.add_user_message(msg['content'])
+                elif msg['role'] == 'assistant':
+                    self.conversation.add_assistant_message([{
+                        'type': 'text',
+                        'text': msg['content']
+                    }])
 
-                # Add the new user message
-                self.conversation.add_user_message(user_message)
+            # Add the new user message
+            self.conversation.add_user_message(user_message)
 
-                # Route to appropriate provider
-                if provider == 'kimi':
-                    response_text = self._call_kimi_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
-                else:
-                    response_text = self._call_claude_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
+            # Route to appropriate provider
+            if provider == 'kimi':
+                response_text = self._call_kimi_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
+            else:
+                response_text = self._call_claude_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
 
-                # Capture pending download before restoring state
-                result_pending_download = self.pending_download
+            # Capture pending download before restoring state
+            result_pending_download = self.pending_download
 
-                return response_text
+            return response_text
 
-            finally:
-                # Clear cloud user context
-                self._clear_cloud_user_context()
-                self._sandbox_mode = False
+        finally:
+            # Clear cloud user context
+            self._clear_cloud_user_context()
+            self._sandbox_mode = False
 
-                # Restore original conversation state for backwards compatibility
-                # Note: pending_download is kept from this request if it was set
-                if self.pending_download is None:
-                    self.pending_download = original_pending_download
-                self.conversation = original_conversation
+            # Restore original conversation state for backwards compatibility
+            # Note: pending_download is kept from this request if it was set
+            if self.pending_download is None:
+                self.pending_download = original_pending_download
+            self.conversation = original_conversation
 
     def process_message_streaming(
         self,
@@ -257,92 +255,92 @@ class DevOpsAgent:
 
         self._set_cloud_user_context(user_id)
 
-        with self._conversation_lock:
-            original_conversation = self.conversation
-            original_pending_download = self.pending_download
+        # No lock — each call creates its own ConversationManager, no shared state to protect
+        original_conversation = self.conversation
+        original_pending_download = self.pending_download
 
-            try:
-                self.conversation = ConversationManager()
-                self.pending_download = None
-                self._sandbox_mode = sandbox_mode
+        try:
+            self.conversation = ConversationManager()
+            self.pending_download = None
+            self._sandbox_mode = sandbox_mode
 
-                for msg in conversation_history:
-                    if msg['role'] == 'user':
-                        self.conversation.add_user_message(msg['content'])
-                    elif msg['role'] == 'assistant':
-                        self.conversation.add_assistant_message([{
-                            'type': 'text',
-                            'text': msg['content']
-                        }])
+            for msg in conversation_history:
+                if msg['role'] == 'user':
+                    self.conversation.add_user_message(msg['content'])
+                elif msg['role'] == 'assistant':
+                    self.conversation.add_assistant_message([{
+                        'type': 'text',
+                        'text': msg['content']
+                    }])
 
-                self.conversation.add_user_message(user_message)
+            self.conversation.add_user_message(user_message)
 
-                # Route to Kimi streaming if requested
-                if provider == 'kimi':
-                    yield from self._call_kimi_api_streaming(user_preferences_context, model_override=model_override, trial_context=trial_context)
+            # Route to Kimi streaming if requested
+            if provider == 'kimi':
+                yield from self._call_kimi_api_streaming(user_preferences_context, model_override=model_override, trial_context=trial_context)
+                return
+
+            # Streaming loop for Claude (handles tool calls)
+            max_iterations = 50
+            for iteration in range(max_iterations):
+                try:
+                    system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
+                    api_params = {
+                        'model': model_override or self.config.claude_model,
+                        'max_tokens': self.config.claude_max_tokens,
+                        'temperature': self.config.claude_temperature,
+                        'tools': self.tool_definitions if self.tool_definitions else None,
+                        'messages': self.conversation.get_messages_for_api()
+                    }
+                    if system_prompt:
+                        api_params['system'] = system_prompt
+
+                    collected_content = []
+                    current_text = ""
+
+                    with self.client.messages.stream(**api_params) as stream:
+                        for event in stream:
+                            if hasattr(event, 'type'):
+                                if event.type == 'content_block_start':
+                                    if hasattr(event, 'content_block') and event.content_block.type == 'text':
+                                        current_text = ""
+                                elif event.type == 'content_block_delta':
+                                    if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
+                                        chunk = event.delta.text
+                                        current_text += chunk
+                                        yield chunk
+
+                        response = stream.get_final_message()
+
+                    self.conversation.add_assistant_message(response.content)
+
+                    if response.stop_reason == 'end_turn':
+                        return
+                    elif response.stop_reason == 'tool_use':
+                        yield "\n\n_[Executing tool...]_\n\n"
+                        self._handle_tool_uses(response.content)
+                    elif response.stop_reason == 'max_tokens':
+                        yield "\n\n[Response truncated]"
+                        return
+                    else:
+                        return
+
+                except anthropic.RateLimitError:
+                    yield "\n\nRate limit reached. Please wait a moment."
+                    return
+                except anthropic.APIError as e:
+                    yield f"\n\nAPI error: {str(e)}"
+                    return
+                except Exception as e:
+                    yield f"\n\nError: {str(e)}"
                     return
 
-                # Streaming loop for Claude (handles tool calls)
-                max_iterations = 50
-                for iteration in range(max_iterations):
-                    try:
-                        system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
-                        api_params = {
-                            'model': model_override or self.config.claude_model,
-                            'max_tokens': self.config.claude_max_tokens,
-                            'temperature': self.config.claude_temperature,
-                            'tools': self.tool_definitions if self.tool_definitions else None,
-                            'messages': self.conversation.get_messages_for_api()
-                        }
-                        if system_prompt:
-                            api_params['system'] = system_prompt
-
-                        collected_content = []
-                        current_text = ""
-
-                        with self.client.messages.stream(**api_params) as stream:
-                            for event in stream:
-                                if hasattr(event, 'type'):
-                                    if event.type == 'content_block_start':
-                                        if hasattr(event, 'content_block') and event.content_block.type == 'text':
-                                            current_text = ""
-                                    elif event.type == 'content_block_delta':
-                                        if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
-                                            chunk = event.delta.text
-                                            current_text += chunk
-                                            yield chunk
-
-                            response = stream.get_final_message()
-
-                        self.conversation.add_assistant_message(response.content)
-
-                        if response.stop_reason == 'end_turn':
-                            return
-                        elif response.stop_reason == 'tool_use':
-                            yield "\n\n_[Executing tool...]_\n\n"
-                            self._handle_tool_uses(response.content)
-                        elif response.stop_reason == 'max_tokens':
-                            yield "\n\n[Response truncated]"
-                            return
-                        else:
-                            return
-
-                    except anthropic.RateLimitError:
-                        yield "\n\nRate limit reached. Please wait a moment."
-                        return
-                    except anthropic.APIError as e:
-                        yield f"\n\nAPI error: {str(e)}"
-                        return
-                    except Exception as e:
-                        yield f"\n\nError: {str(e)}"
-                        return
-
-            finally:
-                self._clear_cloud_user_context()
-                self._sandbox_mode = False
-                if self.pending_download is None:
-                    self.pending_download = original_pending_download
-                self.conversation = original_conversation
+        finally:
+            self._clear_cloud_user_context()
+            self._sandbox_mode = False
+            if self.pending_download is None:
+                self.pending_download = original_pending_download
+            self.conversation = original_conversation
 
     def _build_system_prompt(self, user_preferences_context: Optional[str] = None, trial_context: Optional[str] = None) -> Optional[str]:
         """
