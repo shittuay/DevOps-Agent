@@ -1335,7 +1335,9 @@ def teams():
     """Team management page."""
     # Get users for team management (limit to 200)
     users = User.query.order_by(User.created_at.desc()).limit(200).all()
-    return render_template('teams.html', users=users, current_user=current_user)
+    subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
+    team_credits = subscription.credits_remaining if subscription else 0
+    return render_template('teams.html', users=users, current_user=current_user, team_credits=team_credits)
 
 
 @app.route('/about')
@@ -1727,27 +1729,6 @@ def azure_config():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/azure/test', methods=['GET'])
-@login_required
-def test_azure_connection():
-    """Test Azure connection using saved credentials."""
-    try:
-        from services.credential_service import get_user_azure_credential
-        from azure.mgmt.resource import ResourceManagementClient
-
-        credential, subscription_id, location = get_user_azure_credential(current_user.id)
-        client = ResourceManagementClient(credential, subscription_id)
-        rg_list = list(client.resource_groups.list())
-        return jsonify({
-            'success': True,
-            'message': f"Connected to subscription {subscription_id}",
-            'subscription_id': subscription_id,
-            'resource_groups': len(rg_list)
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 502
-
-
 @app.route('/api/gcp-config', methods=['GET', 'POST', 'DELETE'])
 @app.route('/api/gcp/config', methods=['GET', 'POST', 'DELETE'])
 @login_required
@@ -1814,35 +1795,6 @@ def gcp_config():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/gcp/test', methods=['GET'])
-@login_required
-def test_gcp_connection():
-    """Test GCP connection using saved credentials."""
-    import os
-    try:
-        from services.credential_service import get_user_gcp_credentials_file
-        from google.oauth2 import service_account
-        from google.cloud import storage
-
-        creds_path, project_id, region, zone = get_user_gcp_credentials_file(current_user.id)
-        try:
-            credentials = service_account.Credentials.from_service_account_file(creds_path)
-            client = storage.Client(project=project_id, credentials=credentials)
-            list(client.list_buckets(max_results=1))
-        finally:
-            try:
-                os.remove(creds_path)
-            except OSError:
-                pass
-        return jsonify({
-            'success': True,
-            'message': f"Connected to GCP project {project_id}",
-            'project_id': project_id
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 502
 
 
 @app.route('/api/cloud-credentials', methods=['GET'])
