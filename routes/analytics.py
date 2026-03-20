@@ -59,7 +59,7 @@ def api_cost_summary():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     start_date = datetime.utcnow() - timedelta(days=days)
     end_date = datetime.utcnow()
@@ -88,7 +88,7 @@ def api_costs_by_service():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     start_date = datetime.utcnow() - timedelta(days=days)
     end_date = datetime.utcnow()
@@ -105,7 +105,7 @@ def api_costs_by_resource():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     start_date = datetime.utcnow() - timedelta(days=days)
     end_date = datetime.utcnow()
@@ -164,7 +164,7 @@ def api_resource_trends():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     start_date = datetime.utcnow() - timedelta(days=days)
     end_date = datetime.utcnow()
@@ -190,7 +190,7 @@ def api_alerts_summary():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '7d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     data = service.get_alerts_summary(days=days)
     return jsonify(data)
@@ -204,7 +204,7 @@ def api_deployment_stats():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     data = service.get_deployment_stats(days=days)
     return jsonify(data)
@@ -218,7 +218,7 @@ def api_incident_stats():
     service = AnalyticsService(current_user.id)
 
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     data = service.get_incident_stats(days=days)
     return jsonify(data)
@@ -237,7 +237,7 @@ def api_export_data():
     export_type = request.args.get('type', 'costs')
     format_type = request.args.get('format', 'json')
     period = request.args.get('period', '30d')
-    days = int(period.replace('d', ''))
+    days = int(period.rstrip('dh'))
 
     start_date = datetime.utcnow() - timedelta(days=days)
     end_date = datetime.utcnow()

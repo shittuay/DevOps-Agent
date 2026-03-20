@@ -396,41 +396,69 @@ async function loadDashboardData() {
         const response = await fetch(`/analytics/api/dashboard?period=${period}`);
         const data = await response.json();
         updateMetrics(data);
-        updateCharts(data);
-        updateInsights(data);
     } catch (error) {
-        console.error('Failed to load analytics:', error);
+        console.error('Failed to load dashboard metrics:', error);
+    }
+
+    try {
+        await updateCharts(period);
+    } catch (error) {
+        console.error('Failed to load chart data:', error);
     }
 }
 
 function updateMetrics(data) {
-    document.getElementById('totalCost').textContent = `$${(data.total_cost || 0).toFixed(2)}`;
-    document.getElementById('activeResources').textContent = data.active_resources || 0;
-    document.getElementById('deployments').textContent = data.deployments || 0;
-    document.getElementById('incidents').textContent = data.incidents || 0;
+    document.getElementById('totalCost').textContent = `$${(data.cost?.current_month || 0).toFixed(2)}`;
+    document.getElementById('activeResources').textContent = data.resources?.total || 0;
+    document.getElementById('deployments').textContent = data.deployments?.this_month || 0;
+    document.getElementById('incidents').textContent = data.incidents?.this_month || 0;
 
-    if (data.cost_change) {
+    const costTrend = data.cost?.trend;
+    if (costTrend) {
         const change = document.getElementById('costChange');
-        change.textContent = `${data.cost_change > 0 ? '+' : ''}${data.cost_change.toFixed(1)}%`;
-        change.className = `metric-change ${data.cost_change > 0 ? 'negative' : 'positive'}`;
+        change.textContent = costTrend === 'up' ? 'Trending up' : costTrend === 'down' ? 'Trending down' : 'Stable';
+        change.className = `metric-change ${costTrend === 'up' ? 'negative' : 'positive'}`;
+    }
+
+    const depTrend = data.deployments?.trend;
+    if (depTrend) {
+        document.getElementById('deploymentSuccess').textContent = depTrend;
+    }
+
+    const mttr = data.incidents?.trend;
+    if (mttr) {
+        document.getElementById('mttr').textContent = `Trend: ${mttr}`;
     }
 }
 
-function updateCharts(data) {
+async function updateCharts(period) {
     const isDark = document.body.classList.contains('dark-theme');
     const textColor = isDark ? '#a1a1aa' : '#71717a';
     const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
 
+    const [metricsRes, serviceRes, utilRes] = await Promise.all([
+        fetch(`/analytics/api/performance/metrics?metric=cost&period=${period}`),
+        fetch(`/analytics/api/costs/by-service?period=${period}`),
+        fetch(`/analytics/api/resources/utilization`)
+    ]);
+    const metricsData = await metricsRes.json();
+    const serviceData = await serviceRes.json();
+    const utilData = await utilRes.json();
+
     // Cost trend chart
+    const costPoints = metricsData.data || [];
+    const costLabels = costPoints.map(p => (p.label || p.timestamp || '').slice(0, 10));
+    const costValues = costPoints.map(p => p.value);
+
     if (costChart) costChart.destroy();
     const costCtx = document.getElementById('costChart').getContext('2d');
     costChart = new Chart(costCtx, {
         type: 'line',
         data: {
-            labels: data.cost_trend?.labels || [],
+            labels: costLabels,
             datasets: [{
                 label: 'Cost',
-                data: data.cost_trend?.values || [],
+                data: costValues,
                 borderColor: '#667eea',
                 backgroundColor: 'rgba(102, 126, 234, 0.1)',
                 fill: true,
@@ -447,7 +475,7 @@ function updateCharts(data) {
                     grid: { color: gridColor }
                 },
                 x: {
-                    ticks: { color: textColor },
+                    ticks: { color: textColor, maxTicksLimit: 10 },
                     grid: { display: false }
                 }
             }
@@ -455,15 +483,19 @@ function updateCharts(data) {
     });
 
     // Service breakdown chart
+    const byService = serviceData.by_service || {};
+    const serviceLabels = Object.keys(byService);
+    const serviceValues = Object.values(byService);
+
     if (serviceChart) serviceChart.destroy();
     const serviceCtx = document.getElementById('serviceChart').getContext('2d');
     serviceChart = new Chart(serviceCtx, {
         type: 'doughnut',
         data: {
-            labels: data.by_service?.labels || ['EC2', 'S3', 'RDS', 'Other'],
+            labels: serviceLabels.length ? serviceLabels : ['No Data'],
             datasets: [{
-                data: data.by_service?.values || [40, 25, 20, 15],
-                backgroundColor: ['#667eea', '#10b981', '#f59e0b', '#ef4444']
+                data: serviceValues.length ? serviceValues : [1],
+                backgroundColor: ['#667eea', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#06b6d4']
             }]
         },
         options: {
@@ -478,15 +510,19 @@ function updateCharts(data) {
         }
     });
 
-    // Utilization chart
+    // Resource utilization chart (by type)
+    const byType = utilData.by_type || {};
+    const utilLabels = Object.keys(byType).map(k => k.toUpperCase());
+    const utilValues = Object.values(byType);
+
     if (utilizationChart) utilizationChart.destroy();
     const utilCtx = document.getElementById('utilizationChart').getContext('2d');
     utilizationChart = new Chart(utilCtx, {
         type: 'bar',
         data: {
-            labels: ['CPU', 'Memory', 'Disk', 'Network'],
+            labels: utilLabels.length ? utilLabels : ['No Data'],
             datasets: [{
-                data: data.utilization || [65, 72, 45, 38],
+                data: utilValues.length ? utilValues : [0],
                 backgroundColor: ['#667eea', '#10b981', '#f59e0b', '#3b82f6']
             }]
         },
@@ -496,8 +532,8 @@ function updateCharts(data) {
             plugins: { legend: { display: false } },
             scales: {
                 y: {
-                    max: 100,
-                    ticks: { color: textColor, callback: v => v + '%' },
+                    beginAtZero: true,
+                    ticks: { color: textColor },
                     grid: { color: gridColor }
                 },
                 x: {
@@ -507,11 +543,6 @@ function updateCharts(data) {
             }
         }
     });
-}
-
-function updateInsights(data) {
-    const insights = data.insights || [];
-    // Update insight cards with actual recommendations
 }
 
 function exportData() {
