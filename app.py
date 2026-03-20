@@ -1598,6 +1598,66 @@ def test_aws_connection():
         return jsonify({'success': False, 'error': str(e)}), 502
 
 
+@app.route('/api/azure/test', methods=['GET'])
+@login_required
+def test_azure_connection():
+    """Test Azure connection using saved credentials."""
+    from models import UserCloudCredential
+    cred = UserCloudCredential.query.filter_by(
+        user_id=current_user.id,
+        cloud_provider='azure'
+    ).first()
+    if not cred or not cred.is_active:
+        return jsonify({'success': False, 'error': 'No Azure credentials configured'})
+    try:
+        creds = cred.get_credentials()
+        from azure.identity import ClientSecretCredential
+        from azure.mgmt.resource import SubscriptionClient
+        credential = ClientSecretCredential(
+            tenant_id=creds.get('tenant_id'),
+            client_id=creds.get('client_id'),
+            client_secret=creds.get('client_secret')
+        )
+        sub_client = SubscriptionClient(credential)
+        subscriptions = list(sub_client.subscriptions.list())
+        return jsonify({'success': True, 'message': f'Azure credentials are valid ({len(subscriptions)} subscription(s) accessible)'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/gcp/test', methods=['GET'])
+@login_required
+def test_gcp_connection():
+    """Test GCP connection using saved credentials."""
+    from models import UserCloudCredential
+    cred = UserCloudCredential.query.filter_by(
+        user_id=current_user.id,
+        cloud_provider='gcp'
+    ).first()
+    if not cred or not cred.is_active:
+        return jsonify({'success': False, 'error': 'No GCP credentials configured'})
+    try:
+        creds = cred.get_credentials()
+        import json
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        credentials_json = creds.get('credentials_json', '')
+        if isinstance(credentials_json, str):
+            sa_info = json.loads(credentials_json)
+        else:
+            sa_info = credentials_json
+        google_creds = service_account.Credentials.from_service_account_info(
+            sa_info,
+            scopes=['https://www.googleapis.com/auth/cloud-platform']
+        )
+        project_id = creds.get('project_id') or sa_info.get('project_id')
+        service = build('cloudresourcemanager', 'v1', credentials=google_creds)
+        service.projects().get(projectId=project_id).execute()
+        return jsonify({'success': True, 'message': f'GCP credentials are valid (project: {project_id})'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/azure-config', methods=['GET', 'POST', 'DELETE'])
 @app.route('/api/azure/config', methods=['GET', 'POST', 'DELETE'])
 @login_required
