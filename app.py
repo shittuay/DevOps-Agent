@@ -2555,9 +2555,22 @@ def api_chat_stream():
                 )
                 db.session.add(conversation)
 
-        # In-flight guard: reject double-submit while a stream is already running
-        if conversation and conversation.is_streaming:
-            return jsonify({'error': 'A response is already being generated. Please wait.'}), 409
+        # In-flight guard: atomic UPDATE — only sets is_streaming=True if it was False
+        from sqlalchemy import update as _sa_update
+        if conversation:
+            _guard_result = db.session.execute(
+                _sa_update(Conversation).where(
+                    Conversation.id == conversation.id,
+                    Conversation.is_streaming == False  # noqa: E712
+                ).values(is_streaming=True)
+            )
+            db.session.commit()
+            if _guard_result.rowcount == 0:
+                return jsonify({'error': 'Another request is already streaming for this conversation.'}), 409
+            # Refresh so the in-memory object reflects the DB state
+            db.session.refresh(conversation)
+        else:
+            db.session.commit()
 
         # Load prior messages BEFORE adding the new message to avoid autoflush
         # including the pending insert in the SELECT result
@@ -2617,8 +2630,6 @@ def api_chat_stream():
         tc = trial_context
         sb = sandbox_active
 
-        if conversation:
-            conversation.is_streaming = True
         db.session.commit()
 
         def generate():
@@ -2667,7 +2678,7 @@ def api_chat_stream():
                                 # Looks like a real response, emit buffered chunks
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
-                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': buf_chunk})}\n\n"
+                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
                                 break
                         else:
                             # Generator exhausted during initial check
@@ -2679,7 +2690,7 @@ def api_chat_stream():
                                 # Short but valid response, emit it
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
-                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': buf_chunk})}\n\n"
+                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
                                 stream_source = iter([])  # already consumed
                     except Exception:
                         # Actual exception (not swallowed by agent) — fallback to Groq
@@ -2688,7 +2699,7 @@ def api_chat_stream():
 
                 for chunk in stream_source:
                     full_response.append(chunk)
-                    yield f"data: {_json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(chunk)})}\n\n"
 
                 # Append fallback note if we switched providers
                 if actual_mc.provider != mc.provider:

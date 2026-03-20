@@ -46,8 +46,8 @@ def _ensure_subscription(user_id):
     return subscription, None
 
 
-def _check_and_deduct_credit(subscription):
-    """Check credits and deduct one. Returns error_response or None."""
+def _check_credits(subscription):
+    """Check credits are available. Returns error_response or None. Does NOT deduct."""
     subscription.repair_if_never_used()
     if not subscription.has_credits():
         tier_name = subscription.tier.name if subscription.tier else 'free'
@@ -62,11 +62,6 @@ def _check_and_deduct_credit(subscription):
             'error': 'insufficient_credits',
             'message': 'You have no credits remaining',
             'credits_remaining': 0
-        }), 402
-    if not subscription.use_credit():
-        return jsonify({
-            'error': 'insufficient_credits',
-            'message': 'Failed to deduct credit'
         }), 402
     return None
 
@@ -299,7 +294,7 @@ def send_message(conversation_id):
     if err:
         return err
 
-    credit_err = _check_and_deduct_credit(subscription)
+    credit_err = _check_credits(subscription)
     if credit_err:
         return credit_err
 
@@ -348,6 +343,8 @@ def send_message(conversation_id):
         )
         success = True
         error_msg = None
+        # Deduct credit only after successful AI response
+        subscription.use_credit()
     except Exception as e:
         response = f"Error processing request: {str(e)}"
         actual_mc = model_config
@@ -368,7 +365,7 @@ def send_message(conversation_id):
         user_id=user_id,
         conversation_id=conversation_id,
         action_type='agent_message',
-        credits_used=1,
+        credits_used=1 if success else 0,
         success=success,
         error_message=error_msg,
         ai_model=actual_mc.model
@@ -460,11 +457,22 @@ def api_v1_chat_stream():
     if err:
         return err
 
-    credit_err = _check_and_deduct_credit(subscription)
-    if credit_err:
-        return credit_err
-
+    subscription.repair_if_never_used()
     tier_name = subscription.tier.name if subscription.tier else 'free'
+    if not subscription.has_credits():
+        if tier_name == 'free':
+            from services.chat_service import generate_upgrade_pitch as _gup
+            pitch = _gup()
+            def _pitch_stream():
+                yield f"data: {json.dumps({'type': 'chunk', 'content': pitch})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'credits_remaining': 0, 'trial_ended': True})}\n\n"
+            return current_app.response_class(
+                _pitch_stream(),
+                mimetype='text/event-stream',
+                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'},
+            )
+        return jsonify({'error': 'insufficient_credits', 'credits_remaining': 0}), 402
+
     prefs = UserPreferences.query.filter_by(user_id=user_id).first()
     preferred_provider = prefs.preferred_model_provider if prefs else None
     model_config = resolve_model_with_preference(tier_name, preferred_provider)
@@ -627,9 +635,13 @@ def api_v1_chat_stream():
                             title = title[:47] + '...'
                         c.title = title
 
+                # Deduct credit AFTER successful AI response
+                fresh_sub = UserSubscription.query.filter_by(user_id=uid).first()
+                if fresh_sub:
+                    fresh_sub.use_credit(commit=False)
+
                 db.session.commit()
 
-                fresh_sub = UserSubscription.query.filter_by(user_id=uid).first()
                 remaining = fresh_sub.credits_remaining if fresh_sub else 0
 
             yield f"data: {json.dumps({'type': 'done', 'conversation_id': cid, 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
