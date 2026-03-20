@@ -49,7 +49,15 @@ class Priority(Enum):
 
 
 class Status(Enum):
-    """Recommendation status."""
+    """Recommendation status (in-memory only — not persisted to DB).
+
+    Note: This service stores recommendations in memory, not in the CostOptimization
+    DB model. The DB model uses different status strings: 'pending', 'applied',
+    'dismissed'. If these two systems are ever bridged, map:
+      Status.IMPLEMENTED -> 'applied'
+      Status.IN_PROGRESS -> 'in_progress' (add to DB model first)
+      Status.SCHEDULED   -> 'scheduled'   (add to DB model first)
+    """
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     IMPLEMENTED = "implemented"
