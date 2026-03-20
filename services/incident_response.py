@@ -341,6 +341,8 @@ class IncidentResponseEngine:
         self.action_handlers[ActionType.FAILOVER] = self._handle_failover
         self.action_handlers[ActionType.ROLLBACK] = self._handle_rollback
         self.action_handlers[ActionType.ROTATE_CREDENTIALS] = self._handle_rotate_credentials
+        self.action_handlers[ActionType.ANSIBLE_PLAYBOOK] = self._handle_ansible_playbook
+        self.action_handlers[ActionType.CUSTOM] = self._handle_custom
 
     # ==================== DB PERSISTENCE ====================
 
@@ -441,7 +443,7 @@ class IncidentResponseEngine:
             return
         with self._app.app_context():
             from models import db, IncidentModel
-            row = IncidentModel.query.filter_by(incident_key=incident.id).first()
+            row = IncidentModel.query.filter_by(user_id=user_id, incident_key=incident.id).first()
             if not row:
                 row = IncidentModel(
                     user_id=user_id,
@@ -1337,6 +1339,8 @@ class IncidentResponseEngine:
                         group_id=sg_id, protocol='-1', from_port=0, to_port=65535,
                         cidr=f'{ip}/32', description=f'Block {ip} - incident {incident.id}',
                         region=meta.get('region'))
+                    if not result.get('success'):
+                        return {'success': False, 'error': result.get('error', 'Failed to block IP')}
                     return {'success': True, 'platform': 'aws', 'ip': ip,
                             'message': f'Security group rule added for {ip} (note: SGs are allow-only, use NACL for deny)',
                             'details': result}
@@ -1499,6 +1503,14 @@ class IncidentResponseEngine:
         return {'success': True, 'credential_type': credential_type, 'platform': platform,
                 'message': f'Credential rotation for {credential_type} logged '
                 '(provide iam_user in metadata for automated AWS key rotation)'}
+
+    def _handle_ansible_playbook(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
+        """Stub: Ansible playbook execution not yet configured."""
+        return {'success': False, 'error': 'Ansible playbook execution not configured. Please set up Ansible integration.'}
+
+    def _handle_custom(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
+        """Stub: Custom action handler not yet configured."""
+        return {'success': False, 'error': 'Custom action handler not configured.'}
 
 
 # Global instance
