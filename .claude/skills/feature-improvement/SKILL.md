@@ -166,10 +166,7 @@ grep -rn -A2 "def .*():" routes/ --include="*.py" | grep -B1 "pass$"
 ```
 
 ### Check Known TODOs from CLAUDE.md
-- `pharmacy.py` — placeholder routes needing Google Places integration
-- `notifications.py` — device registration needs FCM integration
-- `records.py` — file upload needs S3 integration
-- Agora token generation for video calls
+- `notifications.py` — device registration / push notification wiring
 - WebSocket for real-time chat
 - Rate limiting middleware
 
