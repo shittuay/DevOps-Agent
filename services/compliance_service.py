@@ -575,7 +575,13 @@ class ComplianceService:
         return self.get_compliance_report(report_id)
 
     def generate_report(self, framework_id, report_type: str = 'summary') -> Optional[Any]:
-        return None
+        if not framework_id:
+            return None
+        try:
+            return self.run_compliance_check(self.user_id, framework_id)
+        except Exception as e:
+            logger.error(f"Failed to generate report for {framework_id}: {e}")
+            return None
 
     def export_report(self, report_id: int, format_type: str = 'json') -> Optional[bytes]:
         report = self.get_compliance_report(report_id)
@@ -586,11 +592,12 @@ class ComplianceService:
 
     def get_overall_compliance_score(self) -> float:
         summary = self.get_compliance_summary(self.user_id)
-        return summary.get('overall_score', 0.0)
+        scores = [v.get('score', 0) for v in summary.values() if isinstance(v, dict)]
+        return round(sum(scores) / len(scores), 1) if scores else 0.0
 
     def get_framework_scores(self) -> List[Dict]:
         summary = self.get_compliance_summary(self.user_id)
-        return summary.get('frameworks', [])
+        return [{'name': k, **v} for k, v in summary.items()]
 
     def get_critical_findings(self) -> List[Dict]:
         return []
@@ -608,7 +615,7 @@ class ComplianceService:
         return True
 
     def export_audit_log(self, start_date, end_date, format_type: str = 'csv') -> bytes:
-        return self.export_audit_logs(self.user_id, start_date, end_date)
+        return self.export_audit_logs(self.user_id, start_date, end_date, format=format_type)
 
 
 def get_compliance_service(user_id: Optional[int] = None) -> ComplianceService:
