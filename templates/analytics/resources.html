@@ -36,12 +36,48 @@
         </div>
     </div>
     <div class="card">
-        <h3>Resource Utilization</h3>
-        <div class="empty-state">
-            <i class="fas fa-th-large"></i>
-            <h3>Resource Overview</h3>
-            <p>Connect cloud accounts in Settings to see resource utilization across providers</p>
+        <h3>Resource Utilization by Type</h3>
+        <div style="height: 300px; position: relative;">
+            <canvas id="resourceChart"></canvas>
         </div>
     </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/analytics/api/resources/utilization')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('totalResources').textContent = data.total_resources || 0;
+            document.getElementById('avgCpu').textContent = (data.utilization_avg || 0).toFixed(1) + '%';
+            const byType = data.by_type || {};
+            const total = data.total_resources || 1;
+            const rdsCount = byType.rds || 0;
+            document.getElementById('avgMemory').textContent = ((rdsCount / total) * 100).toFixed(1) + '%';
+
+            const labels = Object.keys(byType).map(k => k.toUpperCase());
+            const values = Object.values(byType);
+            if (labels.length) {
+                const ctx = document.getElementById('resourceChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'Count',
+                            data: values,
+                            backgroundColor: ['#667eea', '#10b981', '#f59e0b']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            }
+        }).catch(console.error);
+});
+</script>
 {% endblock %}

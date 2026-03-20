@@ -37,11 +37,55 @@
     </div>
     <div class="card">
         <h3>Performance Trends</h3>
-        <div class="empty-state">
-            <i class="fas fa-chart-area"></i>
-            <h3>Performance Monitoring</h3>
-            <p>Connect cloud accounts and set up monitoring to see performance trends</p>
+        <div style="height: 300px; position: relative;">
+            <canvas id="perfChart"></canvas>
         </div>
     </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    Promise.all([
+        fetch('/analytics/api/resources/utilization').then(r => r.json()),
+        fetch('/analytics/api/alerts/summary').then(r => r.json()),
+        fetch('/analytics/api/performance/metrics?metric=cpu').then(r => r.json())
+    ]).then(([util, alerts, metrics]) => {
+        document.getElementById('avgResponse').textContent = (util.utilization_avg || 0).toFixed(1) + '%';
+        const uptime = alerts.total > 0 ? ((1 - (alerts.open || 0) / alerts.total) * 100).toFixed(1) : '100.0';
+        document.getElementById('uptime').textContent = uptime + '%';
+        const errRate = alerts.total > 0 ? ((alerts.critical || 0) / alerts.total * 100).toFixed(1) : '0.0';
+        document.getElementById('errorRate').textContent = errRate + '%';
+
+        const points = metrics.data || [];
+        if (points.length) {
+            const labels = points.map(p => (p.label || p.timestamp || '').slice(0, 10));
+            const values = points.map(p => p.value);
+            const ctx = document.getElementById('perfChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Resource Count',
+                        data: values,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true },
+                        x: { ticks: { maxTicksLimit: 10 } }
+                    }
+                }
+            });
+        }
+    }).catch(console.error);
+});
+</script>
 {% endblock %}
