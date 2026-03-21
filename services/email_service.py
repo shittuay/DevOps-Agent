@@ -251,4 +251,46 @@ class EmailService:
         return self.send_email(user.email, "Your Verification Code - DevOps Agent", html)
 
 
+    def send_welcome_email(self, user):
+        """Send welcome email after account creation."""
+        html = self._wrap_html(f"""
+            <h2 style="color: #333; margin-bottom: 12px;">Welcome to DevOps Agent</h2>
+            <p>Hi {user.username},</p>
+            <p>Your account is set up and ready to go. You're on the <strong>Free plan</strong> with 20 credits to get started.</p>
+            <p style="margin-top: 16px; margin-bottom: 8px;"><strong>What you can do:</strong></p>
+            <ul style="color: #555; padding-left: 20px; line-height: 1.8;">
+                <li>Manage AWS, Azure, and GCP resources via chat</li>
+                <li>Deploy and monitor Kubernetes clusters</li>
+                <li>Automate CI/CD pipelines</li>
+                <li>Get AI-powered infrastructure recommendations</li>
+            </ul>
+            <div style="text-align: center; margin: 28px 0;">
+                <a href="{self.base_url}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Start Managing Infrastructure
+                </a>
+            </div>
+            <p style="font-size: 13px; color: #666;">
+                Need help? Reply to this email or check the
+                <a href="{self.base_url}/docs" style="color: #ff6b35;">documentation</a>.
+            </p>
+        """)
+        return self.send_email(user.email, "Welcome to DevOps Agent", html)
+
+    def send_credit_low_warning(self, user, remaining_credits):
+        """Warn user when credits are running low."""
+        html = self._wrap_html(f"""
+            <h2 style="color: #f59e0b; margin-bottom: 12px;">Low Credits Warning</h2>
+            <p>Hi {user.username},</p>
+            <p>You have <strong>{remaining_credits} credits</strong> remaining this month.</p>
+            <p>Top up now to keep your infrastructure automation running without interruption.</p>
+            <div style="text-align: center; margin: 24px 0;">
+                <a href="{self.base_url}/billing" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Get More Credits
+                </a>
+            </div>
+            <p style="font-size: 13px; color: #666;">Credit packs start at $10 for 100 credits. Subscriptions include monthly credits automatically.</p>
+        """)
+        return self.send_email(user.email, "Low Credits Warning - DevOps Agent", html)
+
+
 email_service = EmailService()
