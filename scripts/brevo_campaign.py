@@ -24,6 +24,21 @@ import base64
 import time
 import requests
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Load .env files from the project root (one level up from scripts/)
+def _load_env(path):
+    if path.exists():
+        with open(path, encoding='utf-8') as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith('#') and '=' in _line:
+                    _k, _, _v = _line.partition('=')
+                    os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
+_root = Path(__file__).resolve().parent.parent
+_load_env(_root / 'config' / '.env')
+_load_env(_root / '.env')
 
 BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
 BASE_URL = os.getenv('BASE_URL', 'https://devopsagent.io')
