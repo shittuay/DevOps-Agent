@@ -2537,3 +2537,26 @@ class UserQuizAttempt(db.Model):
 
     def __repr__(self):
         return f'<UserQuizAttempt user={self.user_id} module={self.module_id} {self.score}/{self.total}>'
+
+
+class StatusSubscriber(db.Model):
+    """Email subscribers for public status page notifications."""
+    __tablename__ = 'status_subscribers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    token = db.Column(db.String(64), nullable=False, unique=True)
+    confirmed = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    confirmed_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'confirmed': self.confirmed,
+            'created_at': self.created_at.isoformat(),
+        }
+
+    def __repr__(self):
+        return f'<StatusSubscriber {self.email} confirmed={self.confirmed}>'

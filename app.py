@@ -35,6 +35,7 @@ import logging
 import re
 from email_validator import validate_email, EmailNotValidError
 from services.email_service import email_service
+from services.status_service import status_service
 from models import InfrastructureResource, CostOptimization, SecurityFinding, Alert
 
 # Add src to path
@@ -272,11 +273,21 @@ root_cause_analyzer.set_app(app)
 
 monitoring_service.set_incident_engine(incident_engine)
 
+# Initialise status service (public status page + Brevo subscriber broadcasts)
+status_service.set_app(app)
+status_service.set_email_service(email_service)
+
 # Add notification callback to monitoring service for alert notifications
 def send_alert_notification(event_type, alert_data, user_id=None):
     """Send notifications when alerts fire or resolve."""
     if event_type in ("firing", "resolved") and user_id is not None:
         notification_service.send_alert(user_id, alert_data)
+    # Broadcast to public status page subscribers via Brevo
+    if event_type in ("firing", "resolved"):
+        try:
+            status_service.broadcast_incident(event_type, alert_data)
+        except Exception:
+            pass  # never let broadcast failure break the alert pipeline
 
 monitoring_service.add_alert_callback(send_alert_notification)
 monitoring_service.start()
@@ -408,6 +419,8 @@ _2FA_EXEMPT_ROUTES = {
     'auth.verify_email', 'auth.resend_verification',
     'auth.forgot_password', 'auth.reset_password',
     'register_redirect', 'usage_policy', 'privacy_policy', 'docs',
+    'status_page', 'status_confirm', 'status_unsubscribe',
+    'api_status_subscribe', 'api_status_health',
 }
 
 @app.before_request
@@ -437,6 +450,8 @@ _EMAIL_VERIFY_EXEMPT_ROUTES = {
     'auth.forgot_password', 'auth.reset_password', 'static', 'page_not_found',
     'handle_exception', 'ensure_clean_transaction', 'register_redirect',
     'usage_policy', 'privacy_policy', 'docs',
+    'status_page', 'status_confirm', 'status_unsubscribe',
+    'api_status_subscribe', 'api_status_health',
     # 2FA setup routes must also be exempt — otherwise new users loop between
     # "verify email" and "setup 2FA" before they can do either
     'auth.setup_2fa_page', 'auth.verify_2fa', 'auth.api_2fa_setup', 'auth.api_2fa_verify_setup',
@@ -1330,6 +1345,90 @@ def docs():
 def usage_policy():
     """Usage Policy (Terms of Service) page - Public access."""
     return render_template('usage-policy.html')
+
+
+# ---------------------------------------------------------------------------
+# Status page
+# ---------------------------------------------------------------------------
+
+@app.route('/status')
+def status_page():
+    """Public status page — no login required."""
+    services = status_service.check_health()
+    overall = status_service.get_overall_status(services)
+    # Grab last 5 resolved/firing incidents from DB for history section
+    from models import IncidentModel
+    recent_incidents = (
+        IncidentModel.query
+        .filter(IncidentModel.status.in_(['resolved', 'firing']))
+        .order_by(IncidentModel.created_at.desc())
+        .limit(5).all()
+    )
+    return render_template(
+        'status.html',
+        services=services,
+        overall=overall,
+        incidents=[i.to_dict() if hasattr(i, 'to_dict') else {} for i in recent_incidents],
+    )
+
+
+@app.route('/status/confirm/<token>')
+def status_confirm(token):
+    """Confirm a status-page email subscription."""
+    ok, email = status_service.confirm(token)
+    if ok:
+        return render_template('status.html',
+            services=status_service.check_health(),
+            overall=status_service.get_overall_status(),
+            incidents=[],
+            flash_msg='You are now subscribed to status notifications.',
+            flash_type='success',
+        )
+    return render_template('status.html',
+        services=status_service.check_health(),
+        overall=status_service.get_overall_status(),
+        incidents=[],
+        flash_msg='Invalid or expired confirmation link.',
+        flash_type='error',
+    )
+
+
+@app.route('/status/unsubscribe/<token>')
+def status_unsubscribe(token):
+    """Unsubscribe from status-page emails."""
+    ok, email = status_service.unsubscribe(token)
+    msg = 'You have been unsubscribed.' if ok else 'Invalid unsubscribe link.'
+    return render_template('status.html',
+        services=status_service.check_health(),
+        overall=status_service.get_overall_status(),
+        incidents=[],
+        flash_msg=msg,
+        flash_type='success' if ok else 'error',
+    )
+
+
+@app.route('/api/status/subscribe', methods=['POST'])
+def api_status_subscribe():
+    """Subscribe an email to status page notifications."""
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email or '@' not in email:
+        return jsonify({'error': 'Valid email required'}), 400
+    ok, msg = status_service.subscribe(email)
+    if msg == 'already_subscribed':
+        return jsonify({'error': 'Already subscribed'}), 409
+    if ok:
+        return jsonify({'message': 'Confirmation email sent. Check your inbox.'}), 200
+    return jsonify({'error': 'Subscription failed. Please try again.'}), 500
+
+
+@app.route('/api/status/health')
+def api_status_health():
+    """JSON health check for external monitors (e.g. UptimeRobot)."""
+    services = status_service.check_health()
+    overall = status_service.get_overall_status(services)
+    code = 200 if overall == 'operational' else 503
+    return jsonify({'status': overall, 'services': services, 'ts': datetime.utcnow().isoformat()}), code
 
 
 @app.route('/privacy-policy')

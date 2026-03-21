@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Status — DevOps Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Epilogue:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #07090F;
+      --surface:  #0D1017;
+      --border:   #1C2133;
+      --orange:   #FF4D1C;
+      --orange2:  #F7931E;
+      --text:     #E8EAF0;
+      --muted:    #6B7592;
+      --green:    #22c55e;
+      --yellow:   #f59e0b;
+      --red:      #ef4444;
+      --radius:   12px;
+      --mono:     'DM Mono', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Epilogue', -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── grid background ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(rgba(255,77,28,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,77,28,.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    /* ── nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      border-bottom: 1px solid var(--border);
+      background: rgba(7,9,15,.85);
+      backdrop-filter: blur(12px);
+      padding: 0 24px;
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-logo {
+      font-family: 'DM Mono', monospace;
+      font-size: 16px;
+      color: var(--orange);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
+    .nav-links a {
+      color: var(--muted); font-size: 14px; text-decoration: none;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      background: var(--orange);
+      color: white !important;
+      padding: 6px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+    }
+    .nav-cta:hover { background: #e0400f !important; }
+
+    /* ── page wrapper ── */
+    .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* ── flash banner ── */
+    .flash {
+      margin-bottom: 24px;
+      padding: 12px 18px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .flash-success { background: rgba(34,197,94,.12); color: var(--green); border: 1px solid rgba(34,197,94,.25); }
+    .flash-error   { background: rgba(239,68,68,.12);  color: var(--red);   border: 1px solid rgba(239,68,68,.25); }
+
+    /* ── overall status hero ── */
+    .hero {
+      text-align: center;
+      padding: 40px 0 36px;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 10px 22px;
+      border-radius: 50px;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .badge-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+    .badge-operational { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.3); }
+    .badge-degraded    { background: rgba(245,158,11,.12); color: var(--yellow); border: 1px solid rgba(245,158,11,.3); }
+    .badge-outage      { background: rgba(239,68,68,.12);  color: var(--red);    border: 1px solid rgba(239,68,68,.3); }
+    .badge-unknown     { background: rgba(107,117,146,.12);color: var(--muted);  border: 1px solid var(--border); }
+
+    .hero-title {
+      font-size: 32px; font-weight: 700; color: var(--text);
+      margin-bottom: 8px;
+    }
+    .hero-sub { font-size: 15px; color: var(--muted); }
+
+    .ts { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+    /* ── section headers ── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+      margin-top: 40px;
+    }
+
+    /* ── service cards ── */
+    .services { display: flex; flex-direction: column; gap: 2px; }
+
+    .service-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: border-color .2s;
+    }
+    .service-row:hover { border-color: #2a3350; }
+    .service-left { display: flex; flex-direction: column; gap: 2px; }
+    .service-name { font-size: 14px; font-weight: 600; color: var(--text); }
+    .service-desc { font-size: 12px; color: var(--muted); }
+
+    .service-right { display: flex; align-items: center; gap: 8px; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-label {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .s-operational .status-dot   { background: var(--green); }
+    .s-operational .status-label { color: var(--green); }
+    .s-degraded .status-dot      { background: var(--yellow); }
+    .s-degraded .status-label    { color: var(--yellow); }
+    .s-outage .status-dot        { background: var(--red); }
+    .s-outage .status-label      { color: var(--red); }
+    .s-unknown .status-dot       { background: var(--muted); }
+    .s-unknown .status-label     { color: var(--muted); }
+
+    /* ── incidents ── */
+    .incident-list { display: flex; flex-direction: column; gap: 10px; }
+    .incident-card {
+      padding: 16px 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .incident-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .incident-badge {
+      font-size: 10px; font-weight: 700; letter-spacing: .8px;
+      padding: 2px 8px; border-radius: 4px;
+    }
+    .ib-resolved { background: rgba(34,197,94,.15);  color: var(--green); }
+    .ib-firing   { background: rgba(239,68,68,.15);  color: var(--red); }
+    .ib-open     { background: rgba(245,158,11,.15); color: var(--yellow); }
+    .incident-title { font-size: 14px; font-weight: 600; color: var(--text); }
+    .incident-time  { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+    .no-incidents {
+      padding: 24px 18px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    /* ── subscribe box ── */
+    .subscribe-box {
+      margin-top: 44px;
+      padding: 32px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .subscribe-title {
+      font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 6px;
+    }
+    .subscribe-sub {
+      font-size: 14px; color: var(--muted); margin-bottom: 20px;
+    }
+    .subscribe-form {
+      display: flex; gap: 10px;
+    }
+    .subscribe-form input[type="email"] {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .subscribe-form input[type="email"]:focus { border-color: var(--orange); }
+    .subscribe-form button {
+      background: var(--orange);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .2s;
+    }
+    .subscribe-form button:hover { background: #e0400f; }
+    .subscribe-msg {
+      margin-top: 12px;
+      font-size: 13px;
+      display: none;
+    }
+    .subscribe-msg.show { display: block; }
+    .subscribe-msg.ok  { color: var(--green); }
+    .subscribe-msg.err { color: var(--red); }
+    .subscribe-note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── footer ── */
+    footer {
+      position: relative; z-index: 1;
+      border-top: 1px solid var(--border);
+      padding: 24px;
+      text-align: center;
+    }
+    footer a { color: var(--muted); font-size: 13px; text-decoration: none; margin: 0 12px; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 480px) {
+      .subscribe-form { flex-direction: column; }
+      .hero-title { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">&gt;_ DevOps Agent</a>
+  <div class="nav-links">
+    <a href="/docs">Docs</a>
+    <a href="/login" class="nav-cta">Sign In</a>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- Flash message -->
+  {% if flash_msg %}
+  <div class="flash flash-{{ flash_type or 'success' }}">{{ flash_msg }}</div>
+  {% endif %}
+
+  <!-- Hero: overall status -->
+  <div class="hero">
+    {% set badge_class = {
+      'operational': 'badge-operational',
+      'degraded':    'badge-degraded',
+      'outage':      'badge-outage',
+    }.get(overall, 'badge-unknown') %}
+    {% set badge_text = {
+      'operational': 'All Systems Operational',
+      'degraded':    'Degraded Performance',
+      'outage':      'Service Outage Detected',
+    }.get(overall, 'Status Unknown') %}
+    {% set dot_color = {
+      'operational': '#22c55e',
+      'degraded':    '#f59e0b',
+      'outage':      '#ef4444',
+    }.get(overall, '#6b7592') %}
+
+    <div class="hero-badge {{ badge_class }}">
+      <span class="badge-dot" style="background:{{ dot_color }};"></span>
+      {{ badge_text }}
+    </div>
+
+    <div class="hero-title">System Status</div>
+    <div class="hero-sub">Live health overview of the DevOps Agent platform</div>
+    <div class="ts" id="ts"></div>
+  </div>
+
+  <!-- Services -->
+  <div class="section-label">Services</div>
+  <div class="services">
+    {% for svc in services %}
+    <div class="service-row s-{{ svc.status }}">
+      <div class="service-left">
+        <div class="service-name">{{ svc.name }}</div>
+        <div class="service-desc">{{ svc.description }}</div>
+      </div>
+      <div class="service-right">
+        <span class="status-dot"></span>
+        <span class="status-label">{{ svc.label }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Incident history -->
+  <div class="section-label">Recent Incidents</div>
+  {% if incidents %}
+  <div class="incident-list">
+    {% for inc in incidents %}
+    <div class="incident-card">
+      <div class="incident-meta">
+        {% if inc.get('status') == 'resolved' %}
+          <span class="incident-badge ib-resolved">RESOLVED</span>
+        {% elif inc.get('status') == 'firing' %}
+          <span class="incident-badge ib-firing">ACTIVE</span>
+        {% else %}
+          <span class="incident-badge ib-open">OPEN</span>
+        {% endif %}
+        <span class="incident-time">{{ inc.get('created_at', '')[:16] | replace('T',' ') }} UTC</span>
+      </div>
+      <div class="incident-title">{{ inc.get('title') or inc.get('name') or 'Incident' }}</div>
+      {% if inc.get('description') %}
+      <div class="incident-time" style="margin-top:4px;">{{ inc.get('description') }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="no-incidents">No incidents in the last 30 days.</div>
+  {% endif %}
+
+  <!-- Subscribe -->
+  <div class="subscribe-box">
+    <div class="subscribe-title">Get Notified</div>
+    <div class="subscribe-sub">Receive email alerts when incidents are detected or resolved via Brevo.</div>
+    <form class="subscribe-form" id="subForm" onsubmit="handleSubscribe(event)">
+      <input type="email" id="subEmail" placeholder="you@example.com" required autocomplete="email" />
+      <button type="submit">Notify Me</button>
+    </form>
+    <div class="subscribe-msg" id="subMsg"></div>
+    <div class="subscribe-note">No spam. One email per incident. Unsubscribe anytime.</div>
+  </div>
+
+</div>
+
+<footer>
+  <a href="/">Home</a>
+  <a href="/docs">Docs</a>
+  <a href="/privacy-policy">Privacy</a>
+  <a href="/usage-policy">Terms</a>
+</footer>
+
+<script>
+  // Timestamp
+  document.getElementById('ts').textContent =
+    'Last checked: ' + new Date().toUTCString();
+
+  // Subscribe form
+  async function handleSubscribe(e) {
+    e.preventDefault();
+    const email = document.getElementById('subEmail').value.trim();
+    const msg   = document.getElementById('subMsg');
+    const btn   = e.target.querySelector('button');
+
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    msg.className = 'subscribe-msg';
+    msg.textContent = '';
+
+    try {
+      const resp = await fetch('/api/status/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        msg.textContent = data.message || 'Check your inbox for a confirmation email.';
+        msg.classList.add('show', 'ok');
+        document.getElementById('subEmail').value = '';
+      } else if (resp.status === 409) {
+        msg.textContent = 'This email is already subscribed.';
+        msg.classList.add('show', 'err');
+      } else {
+        msg.textContent = data.error || 'Something went wrong. Please try again.';
+        msg.classList.add('show', 'err');
+      }
+    } catch {
+      msg.textContent = 'Network error. Please try again.';
+      msg.classList.add('show', 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Notify Me';
+    }
+  }
+</script>
+
+</body>
+</html>
