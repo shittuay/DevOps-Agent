@@ -3514,6 +3514,24 @@ def submit_contact():
         logger = get_logger(__name__)
         logger.info(f"New contact message from {email}: {category}")
 
+        # Forward message to support inbox
+        try:
+            support_email = os.getenv('SUPPORT_EMAIL', 'hello@devopsagent.io')
+            html = email_service._wrap_html(f"""
+                <h2 style="color:#333;margin-bottom:12px;">New Contact Message</h2>
+                <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                    <tr><td style="padding:8px 0;color:#666;width:100px;"><strong>From</strong></td><td style="padding:8px 0;">{name} &lt;{email}&gt;</td></tr>
+                    <tr><td style="padding:8px 0;color:#666;"><strong>Category</strong></td><td style="padding:8px 0;">{category}</td></tr>
+                    <tr><td style="padding:8px 0;color:#666;"><strong>Message</strong></td><td style="padding:8px 0;white-space:pre-wrap;">{message}</td></tr>
+                </table>
+                <div style="margin-top:20px;">
+                    <a href="mailto:{email}" style="display:inline-block;padding:10px 24px;background:linear-gradient(135deg,#ff6b35,#f7931e);color:white;text-decoration:none;border-radius:8px;font-weight:600;">Reply to {name}</a>
+                </div>
+            """)
+            email_service.send_email(support_email, f"[DevOps Agent] Contact: {category} from {name}", html)
+        except Exception as email_err:
+            logger.warning(f"Failed to forward contact message to support: {email_err}")
+
         return jsonify({
             'success': True,
             'message': 'Your message has been sent successfully'
