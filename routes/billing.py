@@ -659,6 +659,13 @@ def handle_checkout_completed(session):
                 raise
             logger.info(f"Subscription '{tier_name}' activated for user {user.id} (customer={stripe_customer_id})")
 
+            try:
+                from services.email_service import email_service
+                if user.email:
+                    email_service.send_subscription_confirmation(user, tier.display_name or tier_name.capitalize())
+            except Exception as email_err:
+                logger.warning(f"Failed to send subscription confirmation email to user {user.id}: {email_err}")
+
         elif product_type == 'credit_pack':
             pack_size = int(metadata.get('pack_size', 0))
             amount_paid = session.get('amount_total', 0) / 100  # Convert from cents
@@ -697,6 +704,24 @@ def handle_checkout_completed(session):
                 )
                 raise
             logger.info(f"Credit pack ({pack_size}) purchased for user {user.id}")
+
+            try:
+                from services.email_service import email_service
+                if user.email:
+                    from services.email_service import EmailService
+                    html = email_service._wrap_html(f"""
+                        <h2 style="color: #10b981; margin-bottom: 12px;">Credits Added</h2>
+                        <p>Hi {user.username},</p>
+                        <p><strong>{pack_size} credits</strong> have been added to your account.</p>
+                        <div style="text-align: center; margin: 24px 0;">
+                            <a href="{email_service.base_url}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                                Start Using Credits
+                            </a>
+                        </div>
+                    """)
+                    email_service.send_email(user.email, f"{pack_size} Credits Added - DevOps Agent", html)
+            except Exception as email_err:
+                logger.warning(f"Failed to send credit pack confirmation email to user {user.id}: {email_err}")
 
     except Exception as e:
         logger.error(f"Error handling checkout: {str(e)}", exc_info=True)
@@ -804,23 +829,13 @@ def handle_invoice_payment_failed(invoice):
         db.session.commit()
         logger.info(f"Payment failed for user {user_subscription.user_id}")
 
-        # Queue email notification
         try:
-            from tasks.email_tasks import send_email_async
+            from services.email_service import email_service
             user = User.query.get(user_subscription.user_id)
             if user and user.email:
-                send_email_async.delay(
-                    to_email=user.email,
-                    subject="Payment Failed - DevOps Agent",
-                    html_content=f"""
-                    <h2>Payment Failed</h2>
-                    <p>Hi {user.username},</p>
-                    <p>We were unable to process your subscription payment. Please update your payment method to avoid service interruption.</p>
-                    <a href="/billing">Update Payment Method</a>
-                    """
-                )
-        except Exception:
-            pass
+                email_service.send_payment_failed_warning(user)
+        except Exception as email_err:
+            logger.warning(f"Failed to send payment failed email: {email_err}")
 
     except Exception as e:
         logger.error(f"Error handling payment failure: {str(e)}", exc_info=True)

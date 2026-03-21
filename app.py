@@ -2430,6 +2430,19 @@ def api_chat():
 
         db.session.commit()
 
+        # Fire low-credit warning email at exactly 5 credits remaining (once per threshold)
+        if success and subscription.credits_remaining == 5 and current_user.email:
+            try:
+                import threading
+                from services.email_service import email_service as _es
+                _u = current_user._get_current_object()
+                _r = subscription.credits_remaining
+                threading.Thread(
+                    target=_es.send_credit_low_warning, args=(_u, _r), daemon=True
+                ).start()
+            except Exception:
+                pass
+
         # Auto-extract memorable facts from the conversation
         try:
             from services.memory_service import auto_extract_memories
@@ -2812,6 +2825,19 @@ def api_chat_stream():
 
                     # Read remaining credits after commit
                     remaining = fresh_sub.credits_remaining if fresh_sub else 0
+
+                    # Fire low-credit warning email at exactly 5 credits remaining
+                    if fresh_sub and remaining == 5:
+                        try:
+                            import threading as _threading
+                            from services.email_service import email_service as _es2
+                            _user_obj = User.query.get(uid)
+                            if _user_obj and _user_obj.email:
+                                _threading.Thread(
+                                    target=_es2.send_credit_low_warning, args=(_user_obj, remaining), daemon=True
+                                ).start()
+                        except Exception:
+                            pass
 
                 yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
 

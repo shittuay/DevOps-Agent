@@ -204,6 +204,8 @@ def signup():
             try:
                 from services.email_service import email_service
                 email_service.send_verification_email(user, token=verification_token)
+                if user.email:
+                    email_service.send_welcome_email(user)
             except Exception as email_err:
                 current_app.logger.warning(f"Failed to send verification email to {email}: {email_err}")
 
