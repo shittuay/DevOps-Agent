@@ -26,6 +26,21 @@
       --mono:    'DM Mono', monospace;
       --display: 'Bebas Neue', sans-serif;
       --body:    'Epilogue', sans-serif;
+      --nav-bg:     rgba(7,9,15,.92);
+      --sidebar-bg: rgba(7,9,15,.6);
+    }
+
+    [data-theme="light"] {
+      --bg:      #F5F7FA;
+      --bg2:     #FFFFFF;
+      --bg3:     #EEF1F7;
+      --border:  #DDE3F0;
+      --border2: #C5CEDF;
+      --text:    #0D1017;
+      --text2:   #4A5568;
+      --text3:   #94A3B8;
+      --nav-bg:     rgba(245,247,250,.92);
+      --sidebar-bg: rgba(245,247,250,.8);
     }
 
     html { scroll-behavior: smooth; }
@@ -61,7 +76,7 @@
       justify-content: space-between;
       padding: 0 40px;
       height: 64px;
-      background: rgba(7,9,15,.92);
+      background: var(--nav-bg);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
     }
@@ -124,6 +139,20 @@
 
     .btn-primary:hover { background: var(--orange2); transform: translateY(-1px); }
 
+    .theme-toggle {
+      background: none;
+      border: 1px solid var(--border2);
+      color: var(--text2);
+      width: 34px; height: 34px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      transition: border-color .2s, color .2s;
+      flex-shrink: 0;
+    }
+    .theme-toggle:hover { border-color: var(--orange); color: var(--orange); }
+
     /* LAYOUT */
     .docs-layout {
       display: flex;
@@ -143,7 +172,7 @@
       overflow-y: auto;
       padding: 32px 0;
       border-right: 1px solid var(--border);
-      background: rgba(7,9,15,.6);
+      background: var(--sidebar-bg);
     }
 
     .sidebar::-webkit-scrollbar { width: 4px; }
@@ -486,6 +515,7 @@
   </a>
   <div class="nav-right">
     <a href="/login">Sign in</a>
+    <button class="theme-toggle" id="themeToggle" title="Toggle light/dark mode">🌙</button>
     <a href="/signup" class="btn-primary">Get started</a>
   </div>
 </nav>
@@ -1094,6 +1124,26 @@
   }, { rootMargin: '-64px 0px -60% 0px' });
 
   sections.forEach(s => observer.observe(s));
+
+  // ── Theme toggle ──
+  const themeBtn = document.getElementById('themeToggle');
+  const savedTheme = localStorage.getItem('docs-theme') || 'dark';
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+      themeBtn.textContent = '☀️';
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      themeBtn.textContent = '🌙';
+    }
+    localStorage.setItem('docs-theme', theme);
+  }
+
+  applyTheme(savedTheme);
+  themeBtn.addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  });
 </script>
 </body>
 </html>
