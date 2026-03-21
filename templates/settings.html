@@ -1222,15 +1222,15 @@
                 .then(data => {
                     if (data.success) {
                         resultDiv.className = 'test-result success';
-                        resultDiv.innerHTML = '✓ ' + (data.message || 'AWS connection successful!');
+                        resultDiv.textContent = '✓ ' + (data.message || 'AWS connection successful!');
                     } else {
                         resultDiv.className = 'test-result error';
-                        resultDiv.innerHTML = '✗ ' + (data.error || 'AWS connection failed');
+                        resultDiv.textContent = '✗ ' + (data.error || 'AWS connection failed');
                     }
                 })
                 .catch(error => {
                     resultDiv.className = 'test-result error';
-                    resultDiv.innerHTML = '✗ Error: ' + error.message;
+                    resultDiv.textContent = '✗ Error: ' + error.message;
                 });
         }
 
@@ -1304,15 +1304,15 @@
                 .then(data => {
                     if (data.success) {
                         resultDiv.className = 'test-result success';
-                        resultDiv.innerHTML = '✓ ' + (data.message || 'Azure connection successful!');
+                        resultDiv.textContent = '✓ ' + (data.message || 'Azure connection successful!');
                     } else {
                         resultDiv.className = 'test-result error';
-                        resultDiv.innerHTML = '✗ ' + (data.error || 'Azure connection failed');
+                        resultDiv.textContent = '✗ ' + (data.error || 'Azure connection failed');
                     }
                 })
                 .catch(error => {
                     resultDiv.className = 'test-result error';
-                    resultDiv.innerHTML = '✗ Error: ' + error.message;
+                    resultDiv.textContent = '✗ Error: ' + error.message;
                 });
         }
 
@@ -1384,15 +1384,15 @@
                 .then(data => {
                     if (data.success) {
                         resultDiv.className = 'test-result success';
-                        resultDiv.innerHTML = '✓ ' + (data.message || 'GCP connection successful!');
+                        resultDiv.textContent = '✓ ' + (data.message || 'GCP connection successful!');
                     } else {
                         resultDiv.className = 'test-result error';
-                        resultDiv.innerHTML = '✗ ' + (data.error || 'GCP connection failed');
+                        resultDiv.textContent = '✗ ' + (data.error || 'GCP connection failed');
                     }
                 })
                 .catch(error => {
                     resultDiv.className = 'test-result error';
-                    resultDiv.innerHTML = '✗ Error: ' + error.message;
+                    resultDiv.textContent = '✗ Error: ' + error.message;
                 });
         }
 
