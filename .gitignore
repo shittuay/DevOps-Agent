@@ -1,3 +1,6 @@
+# Contact lists (never commit email addresses to git)
+contacts.csv
+
 # Database files
 *.db
 *.db-journal
