@@ -470,6 +470,7 @@ Use `/skill-name` or mention the skill:
 - `/continue-where-you-stop` - Automatically pick up and continue unfinished work after interruptions
 - `/memory` - Maintain WORKLOG.md as persistent session memory across resets
 - `/security-scan` - Run security scans (infrastructure, compliance, secrets, vulnerabilities, audit)
+- `/integration-testing` - Pre-production gate: env preflight, full pytest, smoke tests, regression checks, security gate → ship/no-ship verdict
 
 ## Code Style
 
