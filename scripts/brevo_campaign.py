@@ -300,7 +300,7 @@ def import_contacts(list_id, csv_path):
 
 
 def get_verified_sender():
-    """Return the first active verified sender from the Brevo account."""
+    """Return the best verified sender — prefers devopsagent.io over personal emails."""
     resp = requests.get(f'{BREVO_BASE}/senders', headers=headers())
     resp.raise_for_status()
     senders = resp.json().get('senders', [])
@@ -310,8 +310,11 @@ def get_verified_sender():
             'No verified senders found in your Brevo account.\n'
             'Go to Brevo → Senders & IP → Add a sender, verify it, then re-run.'
         )
-    sender = active[0]
-    # Use "DevOps Agent" as the display name; the email must be the verified one
+
+    # Prefer senders on devopsagent.io domain over personal emails
+    preferred = [s for s in active if s.get('email', '').endswith('@devopsagent.io')]
+    sender = preferred[0] if preferred else active[0]
+
     display_name = SENDER_NAME  # "DevOps Agent"
     print(f'  Using verified sender: {display_name} <{sender["email"]}>')
     return {'name': display_name, 'email': sender['email']}
