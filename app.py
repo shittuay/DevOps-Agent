@@ -407,7 +407,7 @@ _2FA_EXEMPT_ROUTES = {
     # "setup 2FA" and "verify email" before they can do either
     'auth.verify_email', 'auth.resend_verification',
     'auth.forgot_password', 'auth.reset_password',
-    'register_redirect', 'usage_policy', 'privacy_policy',
+    'register_redirect', 'usage_policy', 'privacy_policy', 'docs',
 }
 
 @app.before_request
@@ -436,7 +436,7 @@ _EMAIL_VERIFY_EXEMPT_ROUTES = {
     'auth.login', 'auth.signup', 'auth.logout', 'auth.verify_email', 'auth.resend_verification',
     'auth.forgot_password', 'auth.reset_password', 'static', 'page_not_found',
     'handle_exception', 'ensure_clean_transaction', 'register_redirect',
-    'usage_policy', 'privacy_policy',
+    'usage_policy', 'privacy_policy', 'docs',
     # 2FA setup routes must also be exempt — otherwise new users loop between
     # "verify email" and "setup 2FA" before they can do either
     'auth.setup_2fa_page', 'auth.verify_2fa', 'auth.api_2fa_setup', 'auth.api_2fa_verify_setup',
@@ -1318,6 +1318,12 @@ def settings():
 def templates_page():
     """Command templates management page."""
     return render_template('templates.html', user=current_user)
+
+
+@app.route('/docs')
+def docs():
+    """Documentation page - Public access."""
+    return render_template('docs.html')
 
 
 @app.route('/usage-policy')

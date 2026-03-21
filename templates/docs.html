@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documentation — DevOps Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Epilogue:wght@300;400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #07090F;
+      --bg2:     #0C0F1A;
+      --bg3:     #111520;
+      --border:  #1A2035;
+      --border2: #243050;
+      --orange:  #FF4D1C;
+      --orange2: #FF7A45;
+      --cyan:    #00CFFF;
+      --green:   #00FF9D;
+      --text:    #E2EAF8;
+      --text2:   #6B7A99;
+      --text3:   #3D4F72;
+      --mono:    'DM Mono', monospace;
+      --display: 'Bebas Neue', sans-serif;
+      --body:    'Epilogue', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--body);
+      overflow-x: hidden;
+      line-height: 1.7;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 60px 60px;
+      opacity: .25;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* NAV */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 40px;
+      height: 64px;
+      background: rgba(7,9,15,.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+
+    .nav-logo-icon {
+      width: 32px; height: 32px;
+      background: var(--orange);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+    }
+
+    .nav-logo-text {
+      font-family: var(--display);
+      font-size: 20px;
+      letter-spacing: .04em;
+      color: var(--text);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .nav-right a {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text2);
+      text-decoration: none;
+      transition: color .2s;
+    }
+
+    .nav-right a:hover { color: var(--text); }
+
+    .btn-primary {
+      padding: 8px 18px;
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--orange);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .2s, transform .2s;
+    }
+
+    .btn-primary:hover { background: var(--orange2); transform: translateY(-1px); }
+
+    /* LAYOUT */
+    .docs-layout {
+      display: flex;
+      padding-top: 64px;
+      min-height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 64px;
+      height: calc(100vh - 64px);
+      overflow-y: auto;
+      padding: 32px 0;
+      border-right: 1px solid var(--border);
+      background: rgba(7,9,15,.6);
+    }
+
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    .sidebar-section {
+      margin-bottom: 8px;
+    }
+
+    .sidebar-heading {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text3);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      padding: 12px 24px 6px;
+    }
+
+    .sidebar-link {
+      display: block;
+      padding: 7px 24px;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text2);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      transition: color .15s, border-color .15s, background .15s;
+    }
+
+    .sidebar-link:hover {
+      color: var(--text);
+      background: rgba(255,77,28,.05);
+    }
+
+    .sidebar-link.active {
+      color: var(--orange2);
+      border-left-color: var(--orange);
+      background: rgba(255,77,28,.08);
+    }
+
+    /* CONTENT */
+    .docs-content {
+      flex: 1;
+      padding: 48px 64px 80px;
+      max-width: 860px;
+    }
+
+    .docs-content section {
+      margin-bottom: 72px;
+      scroll-margin-top: 88px;
+    }
+
+    .section-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: rgba(255,77,28,.1);
+      border: 1px solid rgba(255,77,28,.25);
+      border-radius: 100px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--orange2);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    h1.docs-title {
+      font-family: var(--display);
+      font-size: 52px;
+      letter-spacing: .03em;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+
+    h1.docs-title span { color: var(--orange); }
+
+    .docs-intro {
+      font-size: 16px;
+      color: var(--text2);
+      max-width: 600px;
+      margin-bottom: 40px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 40px;
+    }
+
+    h2.section-title {
+      font-family: var(--display);
+      font-size: 32px;
+      letter-spacing: .03em;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    h3.subsection-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 28px 0 10px;
+    }
+
+    p {
+      font-size: 14px;
+      color: var(--text2);
+      margin-bottom: 12px;
+    }
+
+    /* Cards */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: border-color .2s, transform .2s;
+    }
+
+    .card:hover { border-color: var(--border2); transform: translateY(-2px); }
+
+    .card-icon {
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .card-desc {
+      font-size: 12px;
+      color: var(--text2);
+      line-height: 1.5;
+    }
+
+    /* Steps */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin: 20px 0;
+    }
+
+    .step {
+      display: flex;
+      gap: 20px;
+      position: relative;
+    }
+
+    .step:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 36px;
+      bottom: -4px;
+      width: 1px;
+      background: var(--border2);
+    }
+
+    .step-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--orange);
+      flex-shrink: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .step-body {
+      padding: 4px 0 24px;
+    }
+
+    .step-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .step-desc {
+      font-size: 13px;
+      color: var(--text2);
+    }
+
+    /* Code block */
+    .code-block {
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--cyan);
+      line-height: 1.7;
+      overflow-x: auto;
+      margin: 14px 0;
+    }
+
+    .code-block .comment { color: var(--text3); }
+    .code-block .key { color: var(--orange2); }
+    .code-block .val { color: var(--green); }
+
+    /* Inline code */
+    code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      color: var(--cyan);
+    }
+
+    /* Table */
+    .docs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 13px;
+    }
+
+    .docs-table th {
+      text-align: left;
+      padding: 10px 14px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text3);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border2);
+    }
+
+    .docs-table td {
+      padding: 10px 14px;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .docs-table tr:hover td { background: rgba(255,255,255,.02); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 100px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: .04em;
+    }
+
+    .badge-orange { background: rgba(255,77,28,.15); color: var(--orange2); }
+    .badge-cyan   { background: rgba(0,207,255,.12); color: var(--cyan); }
+    .badge-green  { background: rgba(0,255,157,.12); color: var(--green); }
+    .badge-gray   { background: rgba(107,122,153,.15); color: var(--text2); }
+
+    /* Alert box */
+    .alert {
+      display: flex;
+      gap: 12px;
+      padding: 14px 18px;
+      border-radius: 8px;
+      margin: 16px 0;
+      font-size: 13px;
+    }
+
+    .alert-info {
+      background: rgba(0,207,255,.07);
+      border: 1px solid rgba(0,207,255,.2);
+      color: var(--text2);
+    }
+
+    .alert-warn {
+      background: rgba(255,77,28,.07);
+      border: 1px solid rgba(255,77,28,.2);
+      color: var(--text2);
+    }
+
+    .alert-icon { flex-shrink: 0; font-size: 15px; margin-top: 1px; }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 48px 0;
+    }
+
+    /* Footer */
+    .docs-footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      z-index: 1;
+    }
+
+    .footer-copy { font-size: 13px; color: var(--text3); }
+
+    .footer-links { display: flex; gap: 24px; list-style: none; }
+    .footer-links a { font-size: 13px; color: var(--text3); text-decoration: none; transition: color .2s; }
+    .footer-links a:hover { color: var(--text2); }
+
+    /* Mobile */
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .docs-content { padding: 32px 24px 60px; }
+      nav { padding: 0 20px; }
+      .docs-footer { padding: 24px; flex-direction: column; gap: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">
+    <div class="nav-logo-icon">>_</div>
+    <span class="nav-logo-text">DevOps Agent</span>
+  </a>
+  <div class="nav-right">
+    <a href="/login">Sign in</a>
+    <a href="/signup" class="btn-primary">Get started</a>
+  </div>
+</nav>
+
+<div class="docs-layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Overview</div>
+      <a href="#introduction" class="sidebar-link active">Introduction</a>
+      <a href="#getting-started" class="sidebar-link">Getting Started</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Using the App</div>
+      <a href="#chat" class="sidebar-link">Chat Interface</a>
+      <a href="#dashboard" class="sidebar-link">Dashboard</a>
+      <a href="#learning-mode" class="sidebar-link">Learning Mode</a>
+      <a href="#sandbox-mode" class="sidebar-link">Sandbox Mode</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Cloud Integrations</div>
+      <a href="#aws" class="sidebar-link">Amazon Web Services</a>
+      <a href="#azure" class="sidebar-link">Microsoft Azure</a>
+      <a href="#gcp" class="sidebar-link">Google Cloud</a>
+      <a href="#kubernetes" class="sidebar-link">Kubernetes</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Tools Reference</div>
+      <a href="#tools-overview" class="sidebar-link">Tools Overview</a>
+      <a href="#monitoring" class="sidebar-link">Monitoring & Alerts</a>
+      <a href="#incidents" class="sidebar-link">Incident Response</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Account</div>
+      <a href="#billing" class="sidebar-link">Billing & Plans</a>
+      <a href="#security" class="sidebar-link">Security & 2FA</a>
+      <a href="#teams" class="sidebar-link">Teams</a>
+      <a href="#settings" class="sidebar-link">Settings</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Reference</div>
+      <a href="#faq" class="sidebar-link">FAQ</a>
+    </div>
+  </aside>
+
+  <!-- CONTENT -->
+  <main class="docs-content">
+
+    <!-- Introduction -->
+    <section id="introduction">
+      <div class="section-badge">Documentation</div>
+      <h1 class="docs-title">DevOps Agent<br><span>Docs</span></h1>
+      <p class="docs-intro">
+        Everything you need to connect your cloud infrastructure, automate deployments,
+        and manage incidents — all through a natural language chat interface.
+      </p>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">💬</div>
+          <div class="card-title">Chat with your infrastructure</div>
+          <div class="card-desc">Ask questions, run commands, and get insights in plain English — no CLI required.</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">☁️</div>
+          <div class="card-title">258 cloud tools</div>
+          <div class="card-desc">AWS, Azure, GCP, and Kubernetes — full lifecycle management from a single interface.</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔐</div>
+          <div class="card-title">Safe by default</div>
+          <div class="card-desc">Destructive operations require explicit confirmation. All credentials are encrypted at rest.</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">📚</div>
+          <div class="card-title">Learn as you go</div>
+          <div class="card-desc">Learning Mode explains every action inline so you build knowledge while getting work done.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Getting Started -->
+    <section id="getting-started">
+      <h2 class="section-title">Getting Started</h2>
+      <p>You can be up and running in under five minutes. Here's the full flow from registration to your first cloud command.</p>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Create your account</div>
+            <div class="step-desc">Go to <a href="/signup" style="color:var(--orange2);text-decoration:none;">/signup</a> and register with your email address. You'll receive a verification email — click the link to activate your account.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Complete onboarding</div>
+            <div class="step-desc">After email verification you'll be taken through a short onboarding flow. Choose your experience level (Beginner / Intermediate / Advanced) and the cloud providers you use.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Connect a cloud provider</div>
+            <div class="step-desc">Navigate to <strong>Settings → Cloud Credentials</strong> and add your AWS, Azure, or GCP credentials. See the Cloud Integrations section below for detailed setup instructions per provider.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-title">Send your first message</div>
+            <div class="step-desc">Head to the <strong>Chat</strong> tab and type something like <code>list my EC2 instances in us-east-1</code>. The agent will call the appropriate tool and return results in plain English.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="alert alert-info">
+        <span class="alert-icon">ℹ️</span>
+        <span><strong>Free tier:</strong> New accounts start with 20 credits/month on the Free plan, giving you full access to the agent with real tool execution. Upgrade any time from the Billing page.</span>
+      </div>
+    </section>
+
+    <!-- Chat Interface -->
+    <section id="chat">
+      <h2 class="section-title">Chat Interface</h2>
+      <p>The chat interface is the primary way to interact with DevOps Agent. You talk to the AI in plain English and it figures out which tools to call, in what order, and how to present the results.</p>
+
+      <h3 class="subsection-title">Example commands</h3>
+      <div class="code-block">
+        <span class="comment"># EC2 management</span><br>
+        List all running EC2 instances in us-east-1<br>
+        Stop instance i-0abc123def456789<br>
+        Create a t3.micro instance named web-server-01<br><br>
+        <span class="comment"># Cost & optimization</span><br>
+        What are my top 5 most expensive AWS services this month?<br>
+        Show me idle EC2 instances I can terminate<br><br>
+        <span class="comment"># Kubernetes</span><br>
+        Show pods in the production namespace<br>
+        Scale the api-deployment to 4 replicas<br>
+        Get logs for pod api-server-xyz<br><br>
+        <span class="comment"># Incident response</span><br>
+        Run the high-cpu-usage playbook on app-server-02<br>
+        Show me all firing alerts in the last 2 hours
+      </div>
+
+      <h3 class="subsection-title">Confirmation for risky operations</h3>
+      <p>Before executing any destructive action (deleting resources, terminating instances, modifying IAM policies), the agent will pause and ask you to confirm. This cannot be disabled — it is a core safety feature.</p>
+
+      <h3 class="subsection-title">Model selector</h3>
+      <p>Use the model toggle in the chat toolbar to switch between AI providers:</p>
+      <table class="docs-table">
+        <thead><tr><th>Model</th><th>Provider</th><th>Best for</th></tr></thead>
+        <tbody>
+          <tr><td>Kimi K2.5</td><td>Moonshot AI</td><td>Fast responses, free/starter tiers</td></tr>
+          <tr><td>Claude Sonnet</td><td>Anthropic</td><td>Complex multi-step reasoning (Professional)</td></tr>
+          <tr><td>Claude Opus</td><td>Anthropic</td><td>Deepest analysis, largest context (Business)</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Credits</h3>
+      <p>Each message deducts one credit. Your remaining credits are shown in the chat header. Free-tier users receive 20 credits per month. Paid plans include a monthly credit allocation — see the <a href="#billing" style="color:var(--orange2);text-decoration:none;">Billing</a> section for details.</p>
+    </section>
+
+    <!-- Dashboard -->
+    <section id="dashboard">
+      <h2 class="section-title">Dashboard</h2>
+      <p>The Dashboard gives you a live overview of your cloud infrastructure without having to ask the agent. It auto-syncs every time you visit.</p>
+
+      <table class="docs-table">
+        <thead><tr><th>Widget</th><th>What it shows</th></tr></thead>
+        <tbody>
+          <tr><td>Resource Summary</td><td>Total EC2, RDS, S3, Lambda, and Kubernetes resources across all connected providers</td></tr>
+          <tr><td>Cost Trends</td><td>Monthly spend chart + month-over-month change</td></tr>
+          <tr><td>Cost Forecast</td><td>Projected spend for the current month based on usage so far</td></tr>
+          <tr><td>Recommendations</td><td>Cost savings and rightsizing suggestions from your last sync</td></tr>
+          <tr><td>Resource Groups</td><td>Breakdown by service (EC2, RDS, etc.) with expandable utilization detail</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-info">
+        <span class="alert-icon">ℹ️</span>
+        <span>Click <strong>Sync Now</strong> in the dashboard header to force a fresh pull from your cloud providers. Sync runs automatically when you first visit after a 10-minute gap.</span>
+      </div>
+    </section>
+
+    <!-- Learning Mode -->
+    <section id="learning-mode">
+      <h2 class="section-title">Learning Mode</h2>
+      <p>Enable Learning Mode in <strong>Settings → Preferences</strong> to have the agent explain every action it takes as it takes it. Ideal if you're new to a cloud provider or want to build knowledge while getting work done.</p>
+
+      <h3 class="subsection-title">Experience levels</h3>
+      <table class="docs-table">
+        <thead><tr><th>Level</th><th>What changes</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-green">Beginner</span></td><td>Full concept explanations, analogies, step-by-step reasoning, links to AWS/GCP/Azure docs</td></tr>
+          <tr><td><span class="badge badge-cyan">Intermediate</span></td><td>Concise explanations, highlights tradeoffs and gotchas, skips basics</td></tr>
+          <tr><td><span class="badge badge-orange">Advanced</span></td><td>Minimal commentary, focuses on results and edge cases only</td></tr>
+        </tbody>
+      </table>
+
+      <p>Your proficiency per topic is tracked automatically. Check <strong>Settings → Learning → Proficiency Radar</strong> to see where you're strongest and where there are gaps.</p>
+    </section>
+
+    <!-- Sandbox Mode -->
+    <section id="sandbox-mode">
+      <h2 class="section-title">Sandbox Mode</h2>
+      <p>Sandbox Mode lets you experiment with any command without touching real cloud resources. All tool calls return simulated but realistic responses — perfect for demos, onboarding, or testing destructive workflows safely.</p>
+
+      <div class="alert alert-warn">
+        <span class="alert-icon">⚠️</span>
+        <span>When Sandbox Mode is active, a banner appears at the top of the chat. No real API calls are made to AWS, Azure, GCP, or Kubernetes. Toggle it off in <strong>Settings → Preferences</strong> when you're ready to work with live infrastructure.</span>
+      </div>
+
+      <p>Sandbox Mode simulates realistic failure scenarios too — disk full, pod crash loops, service downtime — so you can practice incident response without manufacturing real outages.</p>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- AWS -->
+    <section id="aws">
+      <h2 class="section-title">Amazon Web Services</h2>
+      <p>DevOps Agent supports <strong>154 AWS tools</strong> covering EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, and more.</p>
+
+      <h3 class="subsection-title">Connecting AWS — Access Key mode</h3>
+      <p>Best for individuals and small teams. Navigate to <strong>Settings → Cloud Credentials → AWS</strong>:</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Create an IAM user</div>
+            <div class="step-desc">In the AWS Console → IAM → Users → Add User. Attach the <code>ReadOnlyAccess</code> policy to start, or a custom policy scoped to the services you want the agent to manage.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Generate access keys</div>
+            <div class="step-desc">Under the user → Security credentials → Create access key. Copy the <strong>Access Key ID</strong> and <strong>Secret Access Key</strong>.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Paste into Settings</div>
+            <div class="step-desc">Paste both values into <strong>Settings → Cloud Credentials → AWS → Access Key mode</strong>, set your default region, and click Save. Click <strong>Test Connection</strong> to verify.</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">Connecting AWS — IAM Role mode (enterprise)</h3>
+      <p>Best for enterprise setups and cross-account access. Instead of long-lived access keys, the agent assumes an IAM Role using STS. Under Settings → AWS → switch to <strong>Role ARN mode</strong> and provide:</p>
+      <table class="docs-table">
+        <thead><tr><th>Field</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Role ARN</td><td><code>arn:aws:iam::123456789012:role/DevOpsAgentRole</code></td></tr>
+          <tr><td>External ID</td><td>Optional — use for cross-account trust policies</td></tr>
+          <tr><td>Region</td><td><code>us-east-1</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Azure -->
+    <section id="azure">
+      <h2 class="section-title">Microsoft Azure</h2>
+      <p>DevOps Agent supports <strong>36 Azure tools</strong> covering Virtual Machines, Storage, SQL, NSGs, Container Instances, Disks, VNets, and Public IPs.</p>
+
+      <h3 class="subsection-title">Connecting Azure</h3>
+      <p>Navigate to <strong>Settings → Cloud Credentials → Azure</strong> and provide:</p>
+      <table class="docs-table">
+        <thead><tr><th>Field</th><th>Where to find it</th></tr></thead>
+        <tbody>
+          <tr><td>Subscription ID</td><td>Azure Portal → Subscriptions</td></tr>
+          <tr><td>Tenant ID</td><td>Azure Active Directory → Properties → Tenant ID</td></tr>
+          <tr><td>Client ID</td><td>App registrations → your app → Application (client) ID</td></tr>
+          <tr><td>Client Secret</td><td>App registrations → your app → Certificates & secrets → New client secret</td></tr>
+          <tr><td>Default Location</td><td>e.g. <code>eastus</code></td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-info">
+        <span class="alert-icon">ℹ️</span>
+        <span>Your service principal needs at least the <strong>Contributor</strong> role on the subscription for write operations, or <strong>Reader</strong> for read-only access.</span>
+      </div>
+    </section>
+
+    <!-- GCP -->
+    <section id="gcp">
+      <h2 class="section-title">Google Cloud Platform</h2>
+      <p>DevOps Agent supports <strong>40 GCP tools</strong> covering Compute Engine, Cloud Storage, Cloud SQL, GKE, Cloud Run, Pub/Sub, Secret Manager, BigQuery, Cloud Functions, and Cloud Logs.</p>
+
+      <h3 class="subsection-title">Connecting GCP</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Create a Service Account</div>
+            <div class="step-desc">GCP Console → IAM & Admin → Service Accounts → Create Service Account. Grant it the roles your use case needs (e.g. <code>roles/compute.viewer</code>, <code>roles/storage.admin</code>).</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Download the JSON key</div>
+            <div class="step-desc">Service Account → Keys → Add Key → Create new key → JSON. A <code>.json</code> file will download.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Upload in Settings</div>
+            <div class="step-desc">Settings → Cloud Credentials → GCP → paste the entire JSON content into the <strong>Service Account Key</strong> field, enter your Project ID and region, click Save.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Kubernetes -->
+    <section id="kubernetes">
+      <h2 class="section-title">Kubernetes</h2>
+      <p>DevOps Agent supports <strong>28 Kubernetes tools</strong> covering pods, deployments, services, namespaces, ConfigMaps, secrets, ingress, nodes, and jobs.</p>
+
+      <h3 class="subsection-title">Connecting a cluster</h3>
+      <p>DevOps Agent uses your local <code>kubeconfig</code> file. Ensure the machine running the agent has a valid kubeconfig at <code>~/.kube/config</code> (or the path set in <code>KUBECONFIG</code>) with credentials for the cluster you want to manage.</p>
+
+      <p>To use a specific context, include the context name in your message:</p>
+      <div class="code-block">
+        Show pods in the production namespace using context prod-cluster
+      </div>
+
+      <h3 class="subsection-title">Supported operations</h3>
+      <table class="docs-table">
+        <thead><tr><th>Resource</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Pods</td><td>List, describe, logs, delete, exec</td></tr>
+          <tr><td>Deployments</td><td>List, describe, create, update image, scale, delete</td></tr>
+          <tr><td>Services</td><td>List, create, delete</td></tr>
+          <tr><td>Namespaces</td><td>List, get, create, delete</td></tr>
+          <tr><td>Nodes</td><td>List, cordon, uncordon</td></tr>
+          <tr><td>ConfigMaps / Secrets</td><td>Create, delete</td></tr>
+          <tr><td>Ingress / Jobs</td><td>Create, delete</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Tools Overview -->
+    <section id="tools-overview">
+      <h2 class="section-title">Tools Overview</h2>
+      <p>The agent has access to 258 tools across all cloud providers. You never call tools directly — the agent selects and chains the right ones based on your request.</p>
+
+      <table class="docs-table">
+        <thead><tr><th>Provider</th><th>Tools</th><th>Services covered</th></tr></thead>
+        <tbody>
+          <tr><td>AWS</td><td><span class="badge badge-orange">154</span></td><td>EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT, ALB, ECR, Secrets Manager</td></tr>
+          <tr><td>Azure</td><td><span class="badge badge-cyan">36</span></td><td>VMs, Storage, SQL, NSGs, Container Instances, Disks, VNets, Public IPs</td></tr>
+          <tr><td>GCP</td><td><span class="badge badge-green">40</span></td><td>Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, Secret Manager, BigQuery, Firewall, Cloud Functions, Logs</td></tr>
+          <tr><td>Kubernetes</td><td><span class="badge badge-gray">28</span></td><td>Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets, Ingress, Nodes, Jobs</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Safety levels</h3>
+      <p>Every tool is classified into one of three risk levels:</p>
+      <table class="docs-table">
+        <thead><tr><th>Level</th><th>Examples</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-green">Low</span></td><td>List, describe, get, read operations</td><td>Executes immediately</td></tr>
+          <tr><td><span class="badge badge-cyan">Medium</span></td><td>Update, restart, scale, IAM changes</td><td>Agent asks for confirmation</td></tr>
+          <tr><td><span class="badge badge-orange">High</span></td><td>Delete, terminate, drop, purge operations</td><td>Requires explicit yes/no confirmation. Escalates to Critical if targeting production.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Monitoring -->
+    <section id="monitoring">
+      <h2 class="section-title">Monitoring & Alerts</h2>
+      <p>The Monitoring tab lets you create threshold-based alerts on any metric exposed by your cloud provider or Prometheus.</p>
+
+      <h3 class="subsection-title">Creating a monitor</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Go to Monitoring → New Rule</div>
+            <div class="step-desc">Choose a metric (CPU, memory, error rate, latency, disk, etc.).</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Set the threshold</div>
+            <div class="step-desc">Enter a numeric value (e.g. <code>85</code> for 85% CPU). The threshold must be a number — text values are rejected.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Choose notification channels</div>
+            <div class="step-desc">Email, Slack webhook, or PagerDuty. Alerts fire when the rule enters <strong>firing</strong> state and again when it <strong>resolves</strong>.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Incidents -->
+    <section id="incidents">
+      <h2 class="section-title">Incident Response</h2>
+      <p>The Incidents tab provides automated runbook execution. When an alert fires, you can trigger a playbook that diagnoses and remediates the issue automatically.</p>
+
+      <h3 class="subsection-title">Built-in playbooks</h3>
+      <table class="docs-table">
+        <thead><tr><th>Playbook</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>high-cpu-usage</td><td>Identifies the top CPU-consuming processes, optionally restarts the service or scales the deployment</td></tr>
+          <tr><td>memory-pressure</td><td>Checks for memory leaks, triggers a restart or node cordon if critical</td></tr>
+          <tr><td>disk-space-low</td><td>Lists large files and stale logs, creates a cleanup plan</td></tr>
+          <tr><td>pod-crashloop</td><td>Fetches pod logs, identifies the crash reason, applies a fix or rolls back</td></tr>
+          <tr><td>service-down</td><td>Runs connectivity checks, restarts the service, escalates if unresolved</td></tr>
+          <tr><td>security-alert</td><td>Blocks the offending IP via security group rule, notifies the team</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-info">
+        <span class="alert-icon">ℹ️</span>
+        <span>You can also trigger any playbook manually from the Incidents tab → <strong>Run Playbook</strong>, without waiting for an alert to fire.</span>
+      </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Billing -->
+    <section id="billing">
+      <h2 class="section-title">Billing & Plans</h2>
+      <p>DevOps Agent is billed per subscription tier. Each tier includes a monthly credit allocation that refreshes on your billing date.</p>
+
+      <table class="docs-table">
+        <thead><tr><th>Plan</th><th>Price</th><th>Credits/mo</th><th>AI Model</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-gray">Free</span></td><td>$0</td><td>20</td><td>Kimi K2.5</td></tr>
+          <tr><td><span class="badge badge-cyan">Starter</span></td><td>$29/mo</td><td>1,000</td><td>Kimi K2.5</td></tr>
+          <tr><td><span class="badge badge-orange">Professional</span></td><td>$99/mo</td><td>5,000</td><td>Claude Sonnet</td></tr>
+          <tr><td><span class="badge badge-green">Business</span></td><td>$299/mo</td><td>10,000</td><td>Claude Opus</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Credit packs</h3>
+      <p>Need more credits without upgrading your plan? Purchase one-time credit packs from the Billing page:</p>
+      <table class="docs-table">
+        <thead><tr><th>Pack</th><th>Price (USD)</th><th>Price (NGN)</th></tr></thead>
+        <tbody>
+          <tr><td>100 credits</td><td>$10</td><td>₦5,000</td></tr>
+          <tr><td>250 credits</td><td>$20</td><td>₦9,000</td></tr>
+          <tr><td>500 credits</td><td>$35</td><td>₦15,000</td></tr>
+          <tr><td>1,000 credits</td><td>$60</td><td>₦25,000</td></tr>
+        </tbody>
+      </table>
+
+      <p>Payments are processed securely via Stripe. Both USD and NGN currencies are supported — the currency is auto-detected from your location and can be manually toggled on the billing page.</p>
+    </section>
+
+    <!-- Security -->
+    <section id="security">
+      <h2 class="section-title">Security & 2FA</h2>
+
+      <h3 class="subsection-title">Two-factor authentication</h3>
+      <p>Enable 2FA in <strong>Settings → Security → Two-Factor Authentication</strong>. DevOps Agent supports both:</p>
+      <table class="docs-table">
+        <thead><tr><th>Method</th><th>How to set up</th></tr></thead>
+        <tbody>
+          <tr><td>Authenticator App (TOTP)</td><td>Scan the QR code with Google Authenticator, Authy, or 1Password. Save your backup codes in a safe place.</td></tr>
+          <tr><td>Email OTP</td><td>A one-time code is sent to your registered email address on each login.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Credential encryption</h3>
+      <p>All cloud credentials (AWS keys, Azure client secrets, GCP service account JSON) are encrypted at rest using AES-128 (Fernet) before being stored in the database. Credentials are decrypted only at request time, in memory, and never logged.</p>
+
+      <h3 class="subsection-title">Guardrails</h3>
+      <p>Every message passes through a three-layer guardrail stack before any credits are charged:</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Pattern matching</div>
+            <div class="step-desc">10 regex rules block prompt injection, jailbreak attempts, and out-of-scope requests instantly, before any AI call is made.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">AI pre-screen</div>
+            <div class="step-desc">A lightweight AI model classifies the intent of the message and blocks social engineering, malware requests, and data exfiltration attempts.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Hardened system prompt</div>
+            <div class="step-desc">The main agent has a fixed identity and cannot be convinced to reveal its instructions, generate malware, or impersonate operators.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Teams -->
+    <section id="teams">
+      <h2 class="section-title">Teams</h2>
+      <p>The Teams tab is available on Starter plans and above. It lets an admin invite colleagues to the same workspace so they share access to cloud integrations and conversations.</p>
+
+      <h3 class="subsection-title">Roles</h3>
+      <table class="docs-table">
+        <thead><tr><th>Role</th><th>Can do</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-orange">Admin</span></td><td>Invite/remove members, change roles, manage cloud credentials, full agent access</td></tr>
+          <tr><td><span class="badge badge-cyan">Approver</span></td><td>Review and approve high-risk operations flagged by the safety system</td></tr>
+          <tr><td><span class="badge badge-green">User</span></td><td>Full agent access, cannot manage team or credentials</td></tr>
+          <tr><td><span class="badge badge-gray">Viewer</span></td><td>Read-only access to conversations and dashboard</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-info">
+        <span class="alert-icon">ℹ️</span>
+        <span>Each user has fully isolated conversations, cloud credentials, and credit balances — even within the same team workspace. One user cannot see another user's chat history.</span>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="settings">
+      <h2 class="section-title">Settings</h2>
+      <table class="docs-table">
+        <thead><tr><th>Setting</th><th>Where</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Cloud Credentials</td><td>Settings → Cloud</td><td>Add or update AWS, Azure, GCP credentials. Each provider has a Test Connection button.</td></tr>
+          <tr><td>Learning Mode</td><td>Settings → Preferences</td><td>Agent explains every action inline. Tracks proficiency per topic.</td></tr>
+          <tr><td>Sandbox Mode</td><td>Settings → Preferences</td><td>All tool calls return simulated results. No real cloud calls made.</td></tr>
+          <tr><td>Experience Level</td><td>Settings → Preferences</td><td>Beginner / Intermediate / Advanced — controls explanation depth in Learning Mode.</td></tr>
+          <tr><td>Model Override</td><td>Chat toolbar</td><td>Force Kimi or Claude regardless of your subscription tier default.</td></tr>
+          <tr><td>Two-Factor Auth</td><td>Settings → Security</td><td>Enable TOTP or email OTP for login.</td></tr>
+          <tr><td>Password</td><td>Settings → Security</td><td>Change your login password.</td></tr>
+          <tr><td>Notifications</td><td>Settings → Notifications</td><td>Configure email alerts for monitoring rules and billing events.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- FAQ -->
+    <section id="faq">
+      <h2 class="section-title">FAQ</h2>
+
+      <h3 class="subsection-title">Can the agent accidentally delete my cloud resources?</h3>
+      <p>All delete and terminate operations require an explicit confirmation from you before executing. The agent will describe exactly what will be deleted and wait for your yes/no. You can always type "no" or "cancel" to abort.</p>
+
+      <h3 class="subsection-title">Where are my cloud credentials stored?</h3>
+      <p>Credentials are stored encrypted in our database using AES-128 encryption. They are decrypted in memory only when a tool call needs them, and are never written to logs or included in AI model context.</p>
+
+      <h3 class="subsection-title">What happens when I run out of credits?</h3>
+      <p>On the Free plan, you'll see an upgrade prompt when credits reach zero — no charge is made automatically. On paid plans, your subscription auto-renews monthly. You can also purchase credit packs any time from the Billing page.</p>
+
+      <h3 class="subsection-title">Does the agent have access to my data inside cloud resources (e.g. database contents, S3 file contents)?</h3>
+      <p>No. The agent can list, describe, start, stop, and manage the lifecycle of cloud resources — but it does not read the contents of databases, S3 objects, or secrets stored in Secrets Manager unless you explicitly paste content into the chat.</p>
+
+      <h3 class="subsection-title">What regions are supported for AWS?</h3>
+      <p>All AWS regions. The default region is set when you configure your credentials. You can override the region per-message by including it in your prompt, e.g. <code>list EC2 instances in eu-west-1</code>.</p>
+
+      <h3 class="subsection-title">How do I cancel my subscription?</h3>
+      <p>Go to <strong>Billing → Manage Subscription → Cancel plan</strong>. Your subscription stays active until the end of the current billing period, then downgrades to the Free plan. No refunds are issued for unused credits in the current period.</p>
+
+      <h3 class="subsection-title">Is there an API I can call programmatically?</h3>
+      <p>Not yet. API access for programmatic integration is on the roadmap. <a href="https://github.com/shittuay/DevOps-Agent" target="_blank" rel="noopener" style="color:var(--orange2);text-decoration:none;">Watch the GitHub repo</a> for updates.</p>
+    </section>
+
+  </main>
+</div>
+
+<!-- FOOTER -->
+<footer class="docs-footer">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div class="nav-logo-icon">>_</div>
+    <span class="footer-copy">© 2026 DevOps Agent · devopsagent.io</span>
+  </div>
+  <ul class="footer-links">
+    <li><a href="/docs">Docs</a></li>
+    <li><a href="/privacy-policy">Privacy</a></li>
+    <li><a href="/usage-policy">Terms</a></li>
+    <li><a href="https://status.devopsagent.io" target="_blank" rel="noopener">Status</a></li>
+    <li><a href="https://github.com/shittuay/DevOps-Agent" target="_blank" rel="noopener">GitHub</a></li>
+  </ul>
+</footer>
+
+<script>
+  // Highlight active sidebar link on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const links = document.querySelectorAll('.sidebar-link');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.sidebar-link[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-64px 0px -60% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
