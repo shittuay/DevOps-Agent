@@ -225,12 +225,20 @@ def import_contacts(list_id, csv_path):
     Brevo normalises column headers: email → EMAIL, firstName → FIRSTNAME, lastName → LASTNAME.
     Unrecognised columns are silently ignored.
     """
-    # Read and validate the CSV
+    # Read and validate the CSV — auto-detect delimiter, normalise column names
     rows = []
     with open(csv_path, newline='', encoding='utf-8-sig') as f:
-        reader = csv.DictReader(f)
+        sample = f.read(4096)
+        f.seek(0)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+        except csv.Error:
+            dialect = csv.excel  # fallback to standard comma
+        reader = csv.DictReader(f, dialect=dialect)
         for row in reader:
-            email = row.get('email', '').strip()
+            # Normalise keys to lowercase so Lastname/lastname/LASTNAME all work
+            row = {k.strip().lower(): (v or '').strip() for k, v in row.items()}
+            email = row.get('email', '')
             if not email or '@' not in email:
                 continue
             rows.append(row)
@@ -244,14 +252,15 @@ def import_contacts(list_id, csv_path):
     # Rebuild a clean CSV in memory with only the columns Brevo understands
     import io
     buf = io.StringIO()
-    fieldnames = ['email', 'firstName', 'lastName']
+    # Brevo file import requires uppercase attribute names: EMAIL, FIRSTNAME, LASTNAME
+    fieldnames = ['EMAIL', 'FIRSTNAME', 'LASTNAME']
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction='ignore', lineterminator='\n')
     writer.writeheader()
     for row in rows:
         writer.writerow({
-            'email': row.get('email', '').strip(),
-            'firstName': row.get('firstName', row.get('first_name', row.get('name', ''))).strip(),
-            'lastName': row.get('lastName', row.get('last_name', '')).strip(),
+            'EMAIL': row.get('email', ''),
+            'FIRSTNAME': row.get('firstname', row.get('first_name', row.get('name', ''))),
+            'LASTNAME': row.get('lastname', row.get('last_name', '')),
         })
 
     csv_bytes = buf.getvalue().encode('utf-8')
@@ -298,17 +307,34 @@ def import_contacts(list_id, csv_path):
     return len(rows)
 
 
+def get_verified_sender():
+    """Return the first active verified sender from the Brevo account."""
+    resp = requests.get(f'{BREVO_BASE}/senders', headers=headers())
+    resp.raise_for_status()
+    senders = resp.json().get('senders', [])
+    active = [s for s in senders if s.get('active')]
+    if not active:
+        raise RuntimeError(
+            'No verified senders found in your Brevo account.\n'
+            'Go to Brevo → Senders & IP → Add a sender, verify it, then re-run.'
+        )
+    sender = active[0]
+    print(f'  Using verified sender: {sender["name"]} <{sender["email"]}>')
+    return {'name': sender['name'], 'email': sender['email']}
+
+
 def create_campaign(list_id):
     """Create the email campaign in Brevo and return campaign id."""
+    sender = get_verified_sender()
     payload = {
         'name': CAMPAIGN_NAME,
         'subject': SUBJECT,
-        'sender': {'name': SENDER_NAME, 'email': SENDER_EMAIL},
-        'replyTo': REPLY_TO_EMAIL,
+        'sender': sender,
+        'replyTo': sender['email'],
         'htmlContent': build_html(),
         'textContent': build_text(),
         'recipients': {'listIds': [list_id]},
-        'header': SENDER_NAME,
+        'header': sender['name'],
         'footer': f'© 2026 DevOps Agent · {BASE_URL}',
     }
 
