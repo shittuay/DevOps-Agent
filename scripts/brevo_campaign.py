@@ -40,7 +40,9 @@ _load_env(_root / 'config' / '.env')
 _load_env(_root / '.env')
 
 BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
-BASE_URL = os.getenv('BASE_URL', 'https://devopsagent.io')
+# Always use production URL for email links — never localhost
+_configured_url = os.getenv('BASE_URL', 'https://devopsagent.io')
+BASE_URL = 'https://devopsagent.io' if 'localhost' in _configured_url else _configured_url
 BREVO_BASE = 'https://api.brevo.com/v3'
 
 SENDER_EMAIL = os.getenv('EMAIL_FROM', 'noreply@devopsagent.io')
