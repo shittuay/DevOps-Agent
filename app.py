@@ -149,6 +149,9 @@ app.config['SESSION_COOKIE_SECURE'] = _is_production
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['REMEMBER_COOKIE_DURATION'] = 86400  # 24 hours
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SECURE'] = _is_production
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 
 # Database configuration
 # PostgreSQL for both local dev and production
