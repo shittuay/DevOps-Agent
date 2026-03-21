@@ -23,6 +23,18 @@
       --red:      #ef4444;
       --radius:   12px;
       --mono:     'DM Mono', monospace;
+      --nav-bg:   rgba(7,9,15,.85);
+      --grid-color: rgba(255,77,28,.03);
+    }
+
+    [data-theme="light"] {
+      --bg:       #F5F7FA;
+      --surface:  #FFFFFF;
+      --border:   #E2E8F0;
+      --text:     #0D1017;
+      --muted:    #64748b;
+      --nav-bg:   rgba(245,247,250,.90);
+      --grid-color: rgba(255,77,28,.04);
     }
 
     html { scroll-behavior: smooth; }
@@ -39,8 +51,8 @@
       content: '';
       position: fixed; inset: 0; z-index: 0;
       background-image:
-        linear-gradient(rgba(255,77,28,.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,77,28,.03) 1px, transparent 1px);
+        linear-gradient(var(--grid-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
       background-size: 40px 40px;
       pointer-events: none;
     }
@@ -49,7 +61,7 @@
     nav {
       position: sticky; top: 0; z-index: 100;
       border-bottom: 1px solid var(--border);
-      background: rgba(7,9,15,.85);
+      background: var(--nav-bg);
       backdrop-filter: blur(12px);
       padding: 0 24px;
       height: 60px;
@@ -76,6 +88,20 @@
       font-weight: 600;
     }
     .nav-cta:hover { background: #e0400f !important; }
+
+    /* ── theme toggle ── */
+    .theme-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      width: 34px; height: 34px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      transition: border-color .2s, color .2s;
+    }
+    .theme-toggle:hover { border-color: var(--orange); color: var(--orange); }
 
     /* ── page wrapper ── */
     .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
@@ -278,6 +304,7 @@
   <a href="/" class="nav-logo">&gt;_ DevOps Agent</a>
   <div class="nav-links">
     <a href="/docs">Docs</a>
+    <button class="theme-toggle" id="themeToggle" title="Toggle light/dark mode">🌙</button>
     <a href="/login" class="nav-cta">Sign In</a>
   </div>
 </nav>
@@ -383,6 +410,27 @@
 </footer>
 
 <script>
+  // ── Theme toggle ──
+  const html    = document.documentElement;
+  const btn     = document.getElementById('themeToggle');
+  const saved   = localStorage.getItem('status-theme') || 'dark';
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      html.setAttribute('data-theme', 'light');
+      btn.textContent = '☀️';
+    } else {
+      html.removeAttribute('data-theme');
+      btn.textContent = '🌙';
+    }
+    localStorage.setItem('status-theme', theme);
+  }
+
+  applyTheme(saved);
+  btn.addEventListener('click', () => {
+    applyTheme(html.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  });
+
   // Timestamp
   document.getElementById('ts').textContent =
     'Last checked: ' + new Date().toUTCString();
