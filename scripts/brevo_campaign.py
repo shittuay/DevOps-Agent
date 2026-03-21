@@ -20,6 +20,8 @@ import os
 import sys
 import csv
 import json
+import base64
+import time
 import requests
 from datetime import datetime, timezone
 
@@ -201,44 +203,84 @@ def get_or_create_list():
 
 
 def import_contacts(list_id, csv_path):
-    """Import contacts from CSV into the Brevo list."""
-    contacts = []
-    with open(csv_path, newline='', encoding='utf-8') as f:
+    """
+    Import contacts from CSV into the Brevo list using file-based import.
+    Single API call regardless of list size — handles 1000+ contacts safely.
+
+    Brevo normalises column headers: email → EMAIL, firstName → FIRSTNAME, lastName → LASTNAME.
+    Unrecognised columns are silently ignored.
+    """
+    # Read and validate the CSV
+    rows = []
+    with open(csv_path, newline='', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
         for row in reader:
             email = row.get('email', '').strip()
-            if not email:
+            if not email or '@' not in email:
                 continue
-            contact = {'email': email, 'attributes': {}}
-            if row.get('firstName'):
-                contact['attributes']['FIRSTNAME'] = row['firstName'].strip()
-            if row.get('lastName'):
-                contact['attributes']['LASTNAME'] = row['lastName'].strip()
-            contacts.append(contact)
+            rows.append(row)
 
-    if not contacts:
-        print('  No contacts found in CSV.')
+    if not rows:
+        print('  No valid contacts found in CSV.')
         return 0
 
-    # Brevo accepts up to 150 contacts per batch
-    batch_size = 150
-    imported = 0
-    for i in range(0, len(contacts), batch_size):
-        batch = contacts[i:i + batch_size]
-        resp = requests.post(
-            f'{BREVO_BASE}/contacts/import',
-            headers=headers(),
-            json={
-                'updateEnabled': True,
-                'jsonBody': batch,
-                'listIds': [list_id],
-            },
-        )
-        resp.raise_for_status()
-        imported += len(batch)
-        print(f'  Imported batch {i // batch_size + 1}: {len(batch)} contacts')
+    print(f'  {len(rows)} contacts read from {csv_path}')
 
-    return imported
+    # Rebuild a clean CSV in memory with only the columns Brevo understands
+    import io
+    buf = io.StringIO()
+    fieldnames = ['email', 'firstName', 'lastName']
+    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction='ignore', lineterminator='\n')
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({
+            'email': row.get('email', '').strip(),
+            'firstName': row.get('firstName', row.get('first_name', row.get('name', ''))).strip(),
+            'lastName': row.get('lastName', row.get('last_name', '')).strip(),
+        })
+
+    csv_bytes = buf.getvalue().encode('utf-8')
+    encoded = base64.b64encode(csv_bytes).decode('ascii')
+
+    # Single Brevo file-import call
+    resp = requests.post(
+        f'{BREVO_BASE}/contacts/import',
+        headers=headers(),
+        json={
+            'updateEnabled': True,
+            'fileBody': encoded,
+            'listIds': [list_id],
+            'emailBlacklist': False,
+            'smsBlacklist': False,
+        },
+    )
+
+    if resp.status_code not in (200, 201, 202):
+        print(f'  Import failed: {resp.status_code} — {resp.text}')
+        resp.raise_for_status()
+
+    process_id = resp.json().get('processId')
+    print(f'  Import job submitted (processId={process_id}). Brevo processes this asynchronously.')
+    print(f'  Polling for completion...')
+
+    # Poll the process status (max 60s)
+    if process_id:
+        for attempt in range(12):
+            time.sleep(5)
+            poll = requests.get(f'{BREVO_BASE}/processes/{process_id}', headers=headers())
+            if poll.status_code == 200:
+                status = poll.json().get('status', '')
+                print(f'  [{attempt + 1}/12] Status: {status}')
+                if status == 'completed':
+                    break
+                if status == 'error':
+                    print(f'  Import error: {poll.json()}')
+                    break
+            else:
+                print(f'  Could not poll status: {poll.status_code}')
+                break
+
+    return len(rows)
 
 
 def create_campaign(list_id):
@@ -321,7 +363,9 @@ def main():
         print(f'Scheduling campaign for {schedule_arg}...')
         schedule_campaign(campaign_id, schedule_arg)
     else:
-        answer = input('\nSend campaign now? [y/N] ').strip().lower()
+        contact_count = count if os.path.exists(csv_path) else '?'
+        print(f'\nCampaign ready — will send to {contact_count} contacts.')
+        answer = input('Send campaign now? [y/N] ').strip().lower()
         if answer == 'y':
             send_now(campaign_id)
         else:
