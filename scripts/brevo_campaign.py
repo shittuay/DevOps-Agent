@@ -20,7 +20,6 @@ import os
 import sys
 import csv
 import json
-import base64
 import time
 import requests
 from datetime import datetime, timezone
@@ -225,23 +224,38 @@ def import_contacts(list_id, csv_path):
     Brevo normalises column headers: email → EMAIL, firstName → FIRSTNAME, lastName → LASTNAME.
     Unrecognised columns are silently ignored.
     """
-    # Read and validate the CSV — auto-detect delimiter, normalise column names
+    # Read and validate the CSV
     rows = []
     with open(csv_path, newline='', encoding='utf-8-sig') as f:
-        sample = f.read(4096)
-        f.seek(0)
-        try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
-        except csv.Error:
-            dialect = csv.excel  # fallback to standard comma
-        reader = csv.DictReader(f, dialect=dialect)
+        reader = csv.DictReader(f, delimiter=',')
         for row in reader:
-            # Normalise keys to lowercase so Lastname/lastname/LASTNAME all work
-            row = {k.strip().lower(): (v or '').strip() for k, v in row.items()}
+            row = {k.strip().lower(): (v or '').strip() for k, v in row.items() if k}
             email = row.get('email', '')
+            firstname = row.get('firstname', row.get('first_name', ''))
+            lastname = row.get('lastname', row.get('last_name', ''))
+
+            # Fallback: some exports put "Full Name\temail" all in the first column
+            if (not email or '@' not in email) and '\t' in lastname:
+                parts = lastname.split('\t')
+                # Find the part that looks like an email
+                for part in parts:
+                    part = part.strip()
+                    if '@' in part:
+                        email = part
+                    elif not firstname and not lastname.replace(part, '').strip():
+                        pass  # skip
+                # Treat everything before the email as the name
+                name_parts = [p.strip() for p in parts if '@' not in p and p.strip()]
+                if name_parts and not firstname:
+                    name = ' '.join(name_parts)
+                    name_split = name.rsplit(' ', 1)
+                    firstname = name_split[0] if len(name_split) > 1 else name
+                    lastname = name_split[1] if len(name_split) > 1 else ''
+
             if not email or '@' not in email:
                 continue
-            rows.append(row)
+
+            rows.append({'email': email, 'firstname': firstname, 'lastname': lastname})
 
     if not rows:
         print('  No valid contacts found in CSV.')
@@ -249,62 +263,40 @@ def import_contacts(list_id, csv_path):
 
     print(f'  {len(rows)} contacts read from {csv_path}')
 
-    # Rebuild a clean CSV in memory with only the columns Brevo understands
-    import io
-    buf = io.StringIO()
-    # Brevo file import requires uppercase attribute names: EMAIL, FIRSTNAME, LASTNAME
-    fieldnames = ['EMAIL', 'FIRSTNAME', 'LASTNAME']
-    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction='ignore', lineterminator='\n')
-    writer.writeheader()
-    for row in rows:
-        writer.writerow({
-            'EMAIL': row.get('email', ''),
-            'FIRSTNAME': row.get('firstname', row.get('first_name', row.get('name', ''))),
-            'LASTNAME': row.get('lastname', row.get('last_name', '')),
-        })
+    # Import in batches of 150 via jsonBody (Brevo's most reliable import method)
+    batch_size = 150
+    total = 0
+    num_batches = (len(rows) + batch_size - 1) // batch_size
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        payload = []
+        for r in batch:
+            entry = {'email': r['email'], 'attributes': {}}
+            if r.get('firstname'):
+                entry['attributes']['FIRSTNAME'] = r['firstname']
+            if r.get('lastname'):
+                entry['attributes']['LASTNAME'] = r['lastname']
+            payload.append(entry)
 
-    csv_bytes = buf.getvalue().encode('utf-8')
-    encoded = base64.b64encode(csv_bytes).decode('ascii')
+        resp = requests.post(
+            f'{BREVO_BASE}/contacts/import',
+            headers=headers(),
+            json={
+                'updateEnabled': True,
+                'jsonBody': payload,
+                'listIds': [list_id],
+            },
+        )
+        if resp.status_code not in (200, 201, 202):
+            print(f'  Batch {i // batch_size + 1} failed: {resp.status_code} — {resp.text}')
+            resp.raise_for_status()
 
-    # Single Brevo file-import call
-    resp = requests.post(
-        f'{BREVO_BASE}/contacts/import',
-        headers=headers(),
-        json={
-            'updateEnabled': True,
-            'fileBody': encoded,
-            'listIds': [list_id],
-            'emailBlacklist': False,
-            'smsBlacklist': False,
-        },
-    )
+        total += len(batch)
+        print(f'  Batch {i // batch_size + 1}/{num_batches} — {total}/{len(rows)} contacts imported')
+        if i + batch_size < len(rows):
+            time.sleep(1)  # brief pause between batches
 
-    if resp.status_code not in (200, 201, 202):
-        print(f'  Import failed: {resp.status_code} — {resp.text}')
-        resp.raise_for_status()
-
-    process_id = resp.json().get('processId')
-    print(f'  Import job submitted (processId={process_id}). Brevo processes this asynchronously.')
-    print(f'  Polling for completion...')
-
-    # Poll the process status (max 60s)
-    if process_id:
-        for attempt in range(12):
-            time.sleep(5)
-            poll = requests.get(f'{BREVO_BASE}/processes/{process_id}', headers=headers())
-            if poll.status_code == 200:
-                status = poll.json().get('status', '')
-                print(f'  [{attempt + 1}/12] Status: {status}')
-                if status == 'completed':
-                    break
-                if status == 'error':
-                    print(f'  Import error: {poll.json()}')
-                    break
-            else:
-                print(f'  Could not poll status: {poll.status_code}')
-                break
-
-    return len(rows)
+    return total
 
 
 def get_verified_sender():
@@ -319,8 +311,10 @@ def get_verified_sender():
             'Go to Brevo → Senders & IP → Add a sender, verify it, then re-run.'
         )
     sender = active[0]
-    print(f'  Using verified sender: {sender["name"]} <{sender["email"]}>')
-    return {'name': sender['name'], 'email': sender['email']}
+    # Use "DevOps Agent" as the display name; the email must be the verified one
+    display_name = SENDER_NAME  # "DevOps Agent"
+    print(f'  Using verified sender: {display_name} <{sender["email"]}>')
+    return {'name': display_name, 'email': sender['email']}
 
 
 def create_campaign(list_id):
@@ -400,18 +394,28 @@ def main():
     print('[3/3] Creating campaign...')
     campaign_id = create_campaign(list_id)
 
+    contact_count = count if os.path.exists(csv_path) else '?'
+    print(f'\nCampaign ready — will send to {contact_count} contacts.')
+
+    # --send flag skips the confirmation prompt (useful for CI / piped shells)
+    send_flag = '--send' in sys.argv
+
     if schedule_arg:
         print(f'Scheduling campaign for {schedule_arg}...')
         schedule_campaign(campaign_id, schedule_arg)
+    elif send_flag:
+        send_now(campaign_id)
     else:
-        contact_count = count if os.path.exists(csv_path) else '?'
-        print(f'\nCampaign ready — will send to {contact_count} contacts.')
-        answer = input('Send campaign now? [y/N] ').strip().lower()
+        try:
+            answer = input('Send campaign now? [y/N] ').strip().lower()
+        except EOFError:
+            answer = 'n'
         if answer == 'y':
             send_now(campaign_id)
         else:
             print(f'\nCampaign saved as draft (id={campaign_id}).')
-            print('Send it manually from the Brevo dashboard or re-run with --schedule.')
+            print('Send now:      python scripts/brevo_campaign.py --send')
+            print('Schedule:      python scripts/brevo_campaign.py --schedule "2026-03-22T10:00:00+01:00"')
 
     print('\nDone.')
 
