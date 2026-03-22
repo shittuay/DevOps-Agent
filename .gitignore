@@ -1,42 +1,30 @@
-# Contact lists (never commit email addresses to git)
-contacts.csv
+# Environment / Secrets
+.env
+config/.env
+*.env
+.env.*
 
-# Database files
+# Database
 *.db
-*.db-journal
-*.db-shm
-*.db-wal
-instance/
+*.sqlite
+*.sqlite3
 
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
+dist/
+build/
+.eggs/
 *.egg
-venv/
-ENV/
-env/
 
-# Environment files with secrets
-.env
-config/.env
-*.env
+# Virtual environments
+venv/
+env/
+.venv/
 
 # IDE
 .vscode/
@@ -44,33 +32,38 @@ config/.env
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
+Thumbs.db
+desktop.ini
 
 # Logs
 *.log
 logs/
 
-# Temporary files
-*.tmp
-*.bak
-*.cache
+# Claude worktrees (local only)
+.claude/worktrees/
 
-# Elastic Beanstalk Files
-.elasticbeanstalk/*
-!.elasticbeanstalk/*.cfg.yml
-!.elasticbeanstalk/*.global.yml
+# Screenshots / local test files
+ss_*.png
+review_*.png
+tab_*.png
+verify_*.png
+browse_tabs.py
+check_html.py
+review_*.py
+screenshot_*.py
+setup_totp.py
+verify_*.py
+settings_html.txt
+DevOpsAgent_Analysis_Report.docx
 
-# SSH Keys (NEVER commit private keys!)
-*.pem
-*.key
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
 
-# Runtime files
-.app_pid
-.app_output.log
-app_output.log
-
-# Node
-node_modules/
-
-cookies.txt
-.gstack/
+# Uploads
+uploads/
+instance/
