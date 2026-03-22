@@ -26,7 +26,24 @@
       --mono:      'DM Mono', monospace;
       --display:   'Bebas Neue', sans-serif;
       --body:      'Epilogue', sans-serif;
+      --nav-bg:    rgba(7,9,15,.85);
+      --tag-bg:    rgba(255,255,255,.04);
     }
+
+    [data-theme="light"] {
+      --bg:        #f4f6fb;
+      --bg2:       #ffffff;
+      --bg3:       #eef1f8;
+      --border:    #dde3f0;
+      --border2:   #c5cfe6;
+      --text:      #0f172a;
+      --text2:     #4a5568;
+      --text3:     #94a3b8;
+      --nav-bg:    rgba(244,246,251,.92);
+      --tag-bg:    rgba(0,0,0,.05);
+    }
+
+    *, *::before, *::after { transition: background-color .25s ease, color .25s ease, border-color .25s ease; }
 
     html { scroll-behavior: smooth; }
 
@@ -61,7 +78,7 @@
       justify-content: space-between;
       padding: 0 40px;
       height: 64px;
-      background: rgba(7,9,15,.85);
+      background: var(--nav-bg);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
     }
@@ -543,7 +560,7 @@
       font-family: var(--mono);
       font-size: 10px;
       padding: 3px 8px;
-      background: rgba(255,255,255,.04);
+      background: var(--tag-bg);
       border: 1px solid var(--border2);
       border-radius: 4px;
       color: var(--text3);
@@ -1141,6 +1158,23 @@
       .tools-grid, .features-grid, .testimonials { grid-template-columns: 1fr; }
       .pricing-grid { grid-template-columns: 1fr; }
     }
+
+    /* ── THEME TOGGLE ─────────────────────────────────────── */
+    .theme-btn {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border2);
+      background: var(--bg2);
+      color: var(--text2);
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color .2s, background .2s, color .2s;
+      flex-shrink: 0;
+    }
+    .theme-btn:hover { border-color: var(--text2); color: var(--text); }
   </style>
 </head>
 <body>
@@ -1158,6 +1192,7 @@
     <li><a href="#pricing">Pricing</a></li>
   </ul>
   <div class="nav-cta">
+    <button class="theme-btn" id="themeToggle" title="Toggle theme">🌙</button>
     <a href="/login" class="btn-ghost">Sign In</a>
     <a href="/signup" class="btn-primary">Start Free</a>
   </div>
@@ -1655,6 +1690,18 @@
   }, { threshold: 0.4 });
 
   sections.forEach(s => scrollObserver.observe(s));
+
+  // ── Theme toggle ─────────────────────────────────────────
+  const themeBtn = document.getElementById('themeToggle');
+  const applyTheme = (theme) => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('landing-theme', theme);
+    themeBtn.textContent = theme === 'light' ? '☀️' : '🌙';
+  };
+  applyTheme(localStorage.getItem('landing-theme') || 'dark');
+  themeBtn.addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  });
 </script>
 </body>
 </html>

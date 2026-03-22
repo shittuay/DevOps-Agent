@@ -384,17 +384,21 @@ def main():
 
     print('\n=== DevOps Agent — Brevo Launch Campaign ===\n')
 
+    skip_import = '--skip-import' in sys.argv
+
     print('[1/3] Setting up contact list...')
     list_id = get_or_create_list()
 
-    if os.path.exists(csv_path):
+    if skip_import:
+        print('[2/3] Skipping import (--skip-import flag set).')
+        count = 1120  # already in Brevo from previous run
+    elif os.path.exists(csv_path):
         print(f'[2/3] Importing contacts from {csv_path}...')
         count = import_contacts(list_id, csv_path)
         print(f'  Total imported: {count}')
     else:
-        print(f'[2/3] No contacts.csv found at {csv_path} — skipping import.')
-        print('      Create contacts.csv with columns: email, firstName, lastName')
-        print('      Then re-run to import before sending.')
+        print(f'[2/3] No contacts.csv found — skipping import.')
+        count = 0
 
     print('[3/3] Creating campaign...')
     campaign_id = create_campaign(list_id)
