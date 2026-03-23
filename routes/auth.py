@@ -123,6 +123,9 @@ def signup():
     if current_user.is_authenticated:
         return redirect(url_for('chat'))
 
+    # Preserve upgrade intent across the signup form POST
+    tier_intent = request.args.get('tier', '') or request.form.get('tier_intent', '')
+
     if request.method == 'POST':
         csrf_error = _check_csrf()
         if csrf_error:
@@ -212,12 +215,17 @@ def signup():
             login_user(user, remember=True)
             user.update_last_login(ip_address=ip_address)
 
+            # If user signed up after clicking a pricing tier, send them straight to billing
+            _valid_tiers = ('starter', 'professional', 'business')
+            if tier_intent and tier_intent in _valid_tiers:
+                from flask import url_for as _url_for
+                return redirect(f'/billing?upgrade={tier_intent}')
             return redirect(url_for('chat'))
         except Exception as e:
             db.session.rollback()
-            return render_template('signup.html', error=f'Error creating account: {str(e)}')
+            return render_template('signup.html', error=f'Error creating account: {str(e)}', tier_intent=tier_intent)
 
-    return render_template('signup.html')
+    return render_template('signup.html', tier_intent=tier_intent)
 
 
 @auth_bp.route('/logout')
@@ -328,6 +336,7 @@ def reset_password():
 
 
 @auth_bp.route('/verify-email')
+@limiter.limit("20 per hour")
 def verify_email():
     """Verify user email address via tokenized link."""
     token = request.args.get('token', '')
