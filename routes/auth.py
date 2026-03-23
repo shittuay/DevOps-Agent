@@ -328,6 +328,7 @@ def reset_password():
 
 
 @auth_bp.route('/verify-email')
+@limiter.limit("20 per hour")
 def verify_email():
     """Verify user email address via tokenized link."""
     token = request.args.get('token', '')

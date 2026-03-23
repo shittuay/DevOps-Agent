@@ -1364,23 +1364,48 @@ class UserCloudCredential(db.Model):
 
     @staticmethod
     def _get_encryption_key():
-        """Get or generate encryption key from environment"""
+        """Derive a Fernet-compatible encryption key from environment variables.
+
+        Preference order:
+          1. CREDENTIAL_ENCRYPTION_KEY  — dedicated key (required in production)
+          2. SECRET_KEY                 — Flask session secret used as fallback input
+          3. Hardcoded sentinel         — development only; emits a CRITICAL log
+
+        When falling back to SECRET_KEY, key material is stretched with PBKDF2-HMAC-SHA256
+        (600 000 iterations) so a short or guessable SECRET_KEY can't be trivially reversed
+        from a database dump.
+        """
         import os
         import base64
-        from cryptography.fernet import Fernet
+        import hashlib
+        import logging
 
-        key = os.environ.get('CREDENTIAL_ENCRYPTION_KEY')
-        if not key:
-            # Generate a key if not set (should be set in production)
-            # In production, this should be a persistent secret
-            key = os.environ.get('SECRET_KEY', 'default-secret-key-change-in-production')
-            # Derive a Fernet-compatible key from the secret
-            import hashlib
-            derived_key = hashlib.sha256(key.encode()).digest()
-            key = base64.urlsafe_b64encode(derived_key)
+        raw_key = os.environ.get('CREDENTIAL_ENCRYPTION_KEY')
+        if raw_key:
+            key_bytes = raw_key.encode() if isinstance(raw_key, str) else raw_key
+            # Accept a raw 32-byte value or an already base64url-encoded 44-byte Fernet key
+            if len(key_bytes) == 32:
+                return base64.urlsafe_b64encode(key_bytes)
+            return key_bytes
+
+        # Fallback: stretch SECRET_KEY with PBKDF2
+        secret = os.environ.get('SECRET_KEY')
+        if not secret:
+            logging.getLogger(__name__).critical(
+                "Neither CREDENTIAL_ENCRYPTION_KEY nor SECRET_KEY is set. "
+                "Cloud credentials are encrypted with a default key — "
+                "set CREDENTIAL_ENCRYPTION_KEY in production immediately."
+            )
+            secret = 'default-secret-key-change-in-production'
         else:
-            key = key.encode() if isinstance(key, str) else key
-        return key
+            logging.getLogger(__name__).warning(
+                "CREDENTIAL_ENCRYPTION_KEY not set; falling back to SECRET_KEY "
+                "for credential encryption. Set CREDENTIAL_ENCRYPTION_KEY in production."
+            )
+
+        _SALT = b'devops-agent-credential-encryption-v1'
+        derived = hashlib.pbkdf2_hmac('sha256', secret.encode(), _SALT, iterations=600_000)
+        return base64.urlsafe_b64encode(derived)
 
     def set_credentials(self, credentials_dict):
         """Encrypt and store credentials"""
@@ -1409,7 +1434,12 @@ class UserCloudCredential(db.Model):
         try:
             decrypted = fernet.decrypt(self.credentials_encrypted.encode())
             return json.loads(decrypted.decode())
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"Failed to decrypt credentials for UserCloudCredential "
+                f"id={self.id} provider={self.cloud_provider}: {e}"
+            )
             return {}
 
     def to_dict(self, include_credentials=False):

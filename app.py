@@ -1670,7 +1670,7 @@ def aws_config():
             return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
 
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         region = (data.get('region') or 'us-east-1').strip()
 
         success, message = save_user_aws_credentials(
@@ -1813,7 +1813,7 @@ def azure_config():
             return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
 
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         subscription_id = data.get('subscription_id', '').strip()
         tenant_id = data.get('tenant_id', '').strip()
         client_id = data.get('client_id', '').strip()
@@ -1883,7 +1883,7 @@ def gcp_config():
             return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
 
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         project_id = data.get('project_id', '').strip()
         credentials_json = data.get('credentials_json', '').strip()
         region = data.get('region', 'us-central1').strip()
@@ -2306,6 +2306,7 @@ def api_chat():
         if conversation and not getattr(conversation, '_preview_set', False):
             conversation.preview = message[:200]
             conversation._preview_set = True
+        db.session.commit()  # Persist before agent processes — prevents message loss on crash
 
         # Get user preferences for personalized context
         preferences_context = None
@@ -2668,6 +2669,7 @@ def api_chat_stream():
         if conversation and not getattr(conversation, '_preview_set', False):
             conversation.preview = message[:200]
             conversation._preview_set = True
+        db.session.commit()  # Persist before agent processes — prevents message loss on crash
 
         preferences_context = prefs.get_context_for_prompt() if prefs else None
         sandbox_active = False
@@ -2858,6 +2860,8 @@ def api_chat_stream():
                     db.session.rollback()
                 try:
                     yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                    # Always send done so the frontend doesn't hang waiting for stream close
+                    yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': 0, 'error': True})}\n\n"
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             finally:
