@@ -120,10 +120,24 @@ class User(UserMixin, db.Model):
         db.session.commit()
 
     def record_guardrail_violation(self):
-        """Record a guardrail policy violation. Block for 1 hour after 3 violations."""
+        """Record a guardrail policy violation with escalating block durations.
+
+        Escalation schedule (cumulative violations):
+          3  → 1 hour block
+          5  → 24 hour block
+          8  → 7 day block
+          10+ → 30 day block (requires manual review to lift)
+        """
         from datetime import timedelta
         self.guardrail_violations = (self.guardrail_violations or 0) + 1
-        if self.guardrail_violations >= 3:
+        v = self.guardrail_violations
+        if v >= 10:
+            self.guardrail_blocked_until = datetime.utcnow() + timedelta(days=30)
+        elif v >= 8:
+            self.guardrail_blocked_until = datetime.utcnow() + timedelta(days=7)
+        elif v >= 5:
+            self.guardrail_blocked_until = datetime.utcnow() + timedelta(hours=24)
+        elif v >= 3:
             self.guardrail_blocked_until = datetime.utcnow() + timedelta(hours=1)
 
     def is_guardrail_blocked(self) -> bool:
@@ -131,9 +145,9 @@ class User(UserMixin, db.Model):
         if self.guardrail_blocked_until and self.guardrail_blocked_until > datetime.utcnow():
             return True
         if self.guardrail_blocked_until and self.guardrail_blocked_until <= datetime.utcnow():
-            # Auto-unblock; reset counter after serving the block
+            # Block period served — clear the timer but keep the violation count
+            # so escalation continues if they re-offend.
             self.guardrail_blocked_until = None
-            self.guardrail_violations = 0
             db.session.commit()
         return False
 
@@ -762,6 +776,32 @@ class UsageLog(db.Model):
         return f'<UsageLog user={self.user_id} action={self.action_type}>'
 
 
+class ConversionEvent(db.Model):
+    """Track key funnel events for conversion analytics."""
+    __tablename__ = 'conversion_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    event_type = db.Column(db.String(50), nullable=False, index=True)
+    # event_type values: trial_start, first_tool_use, credit_exhaustion,
+    #                    upgrade_cta_shown, upgrade_completed, api_key_created
+    metadata = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.Index('idx_conversion_user_event', 'user_id', 'event_type'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'event_type': self.event_type,
+            'metadata': self.metadata or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class InfrastructureResource(db.Model):
     """Track user's infrastructure resources across cloud providers"""
     __tablename__ = 'infrastructure_resources'
@@ -1364,23 +1404,48 @@ class UserCloudCredential(db.Model):
 
     @staticmethod
     def _get_encryption_key():
-        """Get or generate encryption key from environment"""
+        """Derive a Fernet-compatible encryption key from environment variables.
+
+        Preference order:
+          1. CREDENTIAL_ENCRYPTION_KEY  — dedicated key (required in production)
+          2. SECRET_KEY                 — Flask session secret used as fallback input
+          3. Hardcoded sentinel         — development only; emits a CRITICAL log
+
+        When falling back to SECRET_KEY, key material is stretched with PBKDF2-HMAC-SHA256
+        (600 000 iterations) so a short or guessable SECRET_KEY can't be trivially reversed
+        from a database dump.
+        """
         import os
         import base64
-        from cryptography.fernet import Fernet
+        import hashlib
+        import logging
 
-        key = os.environ.get('CREDENTIAL_ENCRYPTION_KEY')
-        if not key:
-            # Generate a key if not set (should be set in production)
-            # In production, this should be a persistent secret
-            key = os.environ.get('SECRET_KEY', 'default-secret-key-change-in-production')
-            # Derive a Fernet-compatible key from the secret
-            import hashlib
-            derived_key = hashlib.sha256(key.encode()).digest()
-            key = base64.urlsafe_b64encode(derived_key)
+        raw_key = os.environ.get('CREDENTIAL_ENCRYPTION_KEY')
+        if raw_key:
+            key_bytes = raw_key.encode() if isinstance(raw_key, str) else raw_key
+            # Accept a raw 32-byte value or an already base64url-encoded 44-byte Fernet key
+            if len(key_bytes) == 32:
+                return base64.urlsafe_b64encode(key_bytes)
+            return key_bytes
+
+        # Fallback: stretch SECRET_KEY with PBKDF2
+        secret = os.environ.get('SECRET_KEY')
+        if not secret:
+            logging.getLogger(__name__).critical(
+                "Neither CREDENTIAL_ENCRYPTION_KEY nor SECRET_KEY is set. "
+                "Cloud credentials are encrypted with a default key — "
+                "set CREDENTIAL_ENCRYPTION_KEY in production immediately."
+            )
+            secret = 'default-secret-key-change-in-production'
         else:
-            key = key.encode() if isinstance(key, str) else key
-        return key
+            logging.getLogger(__name__).warning(
+                "CREDENTIAL_ENCRYPTION_KEY not set; falling back to SECRET_KEY "
+                "for credential encryption. Set CREDENTIAL_ENCRYPTION_KEY in production."
+            )
+
+        _SALT = b'devops-agent-credential-encryption-v1'
+        derived = hashlib.pbkdf2_hmac('sha256', secret.encode(), _SALT, iterations=600_000)
+        return base64.urlsafe_b64encode(derived)
 
     def set_credentials(self, credentials_dict):
         """Encrypt and store credentials"""
@@ -1409,7 +1474,12 @@ class UserCloudCredential(db.Model):
         try:
             decrypted = fernet.decrypt(self.credentials_encrypted.encode())
             return json.loads(decrypted.decode())
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"Failed to decrypt credentials for UserCloudCredential "
+                f"id={self.id} provider={self.cloud_provider}: {e}"
+            )
             return {}
 
     def to_dict(self, include_credentials=False):

@@ -657,6 +657,12 @@
             color: #ff5252;
         }
 
+        .toast.info {
+            background: rgba(33, 150, 243, 0.15);
+            border: 1px solid rgba(33, 150, 243, 0.4);
+            color: #2196f3;
+        }
+
         /* Payment Modal Overlay */
         .payment-overlay {
             display: none;
@@ -1278,23 +1284,43 @@
         }
 
         // Show success toast after returning from Stripe checkout
+        // Also auto-launch checkout when ?upgrade=TIER is present (post-signup redirect)
         (function() {
             var params = new URLSearchParams(window.location.search);
+
             if (params.get('success') === 'true') {
                 showToast('Payment successful! Your subscription has been updated.', 'success');
-                // Clean URL without reload
                 if (window.history.replaceState) {
-                    var cleanUrl = window.location.pathname;
-                    window.history.replaceState({}, document.title, cleanUrl);
+                    window.history.replaceState({}, document.title, window.location.pathname);
                 }
+                return;
+            }
+
+            var upgradeTierName = params.get('upgrade');
+            var validTiers = ['starter', 'professional', 'business'];
+            if (upgradeTierName && validTiers.indexOf(upgradeTierName) !== -1) {
+                // Clean the URL first so a refresh doesn't re-trigger
+                if (window.history.replaceState) {
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+                // Short delay so the page has fully rendered before redirecting to Stripe
+                setTimeout(function() {
+                    showToast('Taking you to checkout for the ' + upgradeTierName.charAt(0).toUpperCase() + upgradeTierName.slice(1) + ' plan...', 'info');
+                    setTimeout(function() { upgradeTier(upgradeTierName); }, 800);
+                }, 300);
             }
         })();
 
         // Subscription upgrade (Stripe handles both USD and NGN)
-        function upgradeTier(tierName) {
-            var btn = event.currentTarget;
-            btn.disabled = true;
-            btn.textContent = 'Redirecting...';
+        // btn is optional — when called programmatically (e.g. ?upgrade= param) it may be null
+        function upgradeTier(tierName, btn) {
+            if (!btn && typeof event !== 'undefined' && event && event.currentTarget) {
+                btn = event.currentTarget;
+            }
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Redirecting...';
+            }
 
             fetch('/api/subscription/create-checkout', {
                 method: 'POST',
@@ -1314,15 +1340,13 @@
                     window.location.href = data.checkout_url;
                 } else {
                     showToast(data.error || 'Failed to start checkout. Please try again.', 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Upgrade';
+                    if (btn) { btn.disabled = false; btn.textContent = 'Upgrade'; }
                 }
             })
             .catch(function(err) {
                 console.error('Checkout error:', err);
                 showToast(err.message || 'Network error. Please try again.', 'error');
-                btn.disabled = false;
-                btn.textContent = 'Upgrade';
+                if (btn) { btn.disabled = false; btn.textContent = 'Upgrade'; }
             });
         }
 
