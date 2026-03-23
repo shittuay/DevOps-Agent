@@ -785,7 +785,7 @@ class ConversionEvent(db.Model):
     event_type = db.Column(db.String(50), nullable=False, index=True)
     # event_type values: trial_start, first_tool_use, credit_exhaustion,
     #                    upgrade_cta_shown, upgrade_completed, api_key_created
-    metadata = db.Column(db.JSON, default=dict)
+    event_metadata = db.Column(db.JSON, default=dict)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     __table_args__ = (
@@ -797,7 +797,7 @@ class ConversionEvent(db.Model):
             'id': self.id,
             'user_id': self.user_id,
             'event_type': self.event_type,
-            'metadata': self.metadata or {},
+            'metadata': self.event_metadata or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
