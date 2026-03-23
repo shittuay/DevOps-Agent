@@ -120,10 +120,24 @@ class User(UserMixin, db.Model):
         db.session.commit()
 
     def record_guardrail_violation(self):
-        """Record a guardrail policy violation. Block for 1 hour after 3 violations."""
+        """Record a guardrail policy violation with escalating block durations.
+
+        Escalation schedule (cumulative violations):
+          3  → 1 hour block
+          5  → 24 hour block
+          8  → 7 day block
+          10+ → 30 day block (requires manual review to lift)
+        """
         from datetime import timedelta
         self.guardrail_violations = (self.guardrail_violations or 0) + 1
-        if self.guardrail_violations >= 3:
+        v = self.guardrail_violations
+        if v >= 10:
+            self.guardrail_blocked_until = datetime.utcnow() + timedelta(days=30)
+        elif v >= 8:
+            self.guardrail_blocked_until = datetime.utcnow() + timedelta(days=7)
+        elif v >= 5:
+            self.guardrail_blocked_until = datetime.utcnow() + timedelta(hours=24)
+        elif v >= 3:
             self.guardrail_blocked_until = datetime.utcnow() + timedelta(hours=1)
 
     def is_guardrail_blocked(self) -> bool:
@@ -131,9 +145,9 @@ class User(UserMixin, db.Model):
         if self.guardrail_blocked_until and self.guardrail_blocked_until > datetime.utcnow():
             return True
         if self.guardrail_blocked_until and self.guardrail_blocked_until <= datetime.utcnow():
-            # Auto-unblock; reset counter after serving the block
+            # Block period served — clear the timer but keep the violation count
+            # so escalation continues if they re-offend.
             self.guardrail_blocked_until = None
-            self.guardrail_violations = 0
             db.session.commit()
         return False
 
