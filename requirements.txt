@@ -121,7 +121,7 @@ GitPython==3.1.43
 
 # CI/CD & DevOps Tools
 PyGithub==2.5.0
-python-jenkins==1.8.2
+python-jenkins==1.8.3
 
 # Date/Time
 python-dateutil==2.9.0.post0
@@ -131,7 +131,6 @@ pytz==2025.1
 lxml==5.3.0
 
 # Penetration Testing & Security
-python-nmap==0.7.1
 scapy==2.7.0rc1
 
 # Other Dependencies
