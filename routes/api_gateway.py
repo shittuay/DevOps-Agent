@@ -436,7 +436,17 @@ def api_agent():
     if len(message) > 10000:
         return jsonify({'error': 'message exceeds 10000 character limit'}), 400
 
-    conversation_id = data.get('conversation_id') or f'api-{api_key_record.id}-default'
+    import re
+    raw_conv_id = data.get('conversation_id')
+    if raw_conv_id is not None:
+        if not isinstance(raw_conv_id, str) or len(raw_conv_id) > 64 or not re.match(r'^[a-zA-Z0-9_-]+$', raw_conv_id):
+            return jsonify({'error': 'conversation_id must be alphanumeric (hyphens/underscores allowed), max 64 chars'}), 400
+        # Enforce api- prefix to prevent collision with web-UI conversation IDs
+        if not raw_conv_id.startswith('api-'):
+            raw_conv_id = f'api-{raw_conv_id}'
+        conversation_id = raw_conv_id
+    else:
+        conversation_id = f'api-{api_key_record.id}-default'
 
     # Load recent conversation history for this conversation_id (last 20 turns)
     from models import ChatMessage
