@@ -1180,7 +1180,7 @@ def _track_conversion(user_id: int, event_type: str, metadata: dict = None) -> N
         db.session.add(ConversionEvent(
             user_id=user_id,
             event_type=event_type,
-            metadata=metadata or {},
+            event_metadata=metadata or {},
         ))
         db.session.flush()
     except Exception:
