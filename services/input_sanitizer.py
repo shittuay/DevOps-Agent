@@ -31,13 +31,40 @@ STRIP_CATEGORIES = {'Cf', 'Co', 'Cs'}
 
 # Patterns that look like prompt injection attempts — BLOCK these
 INJECTION_PATTERNS = [
+    # System prompt override attempts
     re.compile(r'<\s*system\s*>', re.IGNORECASE),
-    re.compile(r'\bignore\s+(previous|above|all)\s+(instructions|prompts)\b', re.IGNORECASE),
-    re.compile(r'\byou\s+are\s+now\b.*\bassistant\b', re.IGNORECASE),
     re.compile(r'\[INST\]|\[/INST\]|<<SYS>>|<</SYS>>', re.IGNORECASE),
-    re.compile(r'\bdo\s+anything\s+now\b', re.IGNORECASE),                     # DAN-style
-    re.compile(r'\bforget\s+(all\s+)?(previous|your)\s+(instructions|rules|training)\b', re.IGNORECASE),
-    re.compile(r'\bact\s+as\s+(if\s+you\s+are|a)\b.{0,40}\bno\s+restrictions\b', re.IGNORECASE),
+    re.compile(r'\bignore\s+(previous|above|all|prior)\s+(instructions?|prompts?|rules?|context)\b', re.IGNORECASE),
+    re.compile(r'\bforget\s+(all\s+)?(previous|your|the)\s+(instructions?|rules?|training|context|guidelines?)\b', re.IGNORECASE),
+    re.compile(r'\bdisregard\s+(all|previous|prior|your)\s+(instructions?|rules?|guidelines?|context)\b', re.IGNORECASE),
+    re.compile(r'\byour\s+(real|true|actual|original)\s+instructions?\s+(are|say|tell|state)\b', re.IGNORECASE),
+    re.compile(r'\bnew\s+system\s+prompt\s*:', re.IGNORECASE),
+    re.compile(r'\boverride\s+(mode|instructions?|safety|guidelines?)\b', re.IGNORECASE),
+
+    # DAN / jailbreak named patterns
+    re.compile(r'\bdo\s+anything\s+now\b', re.IGNORECASE),
+    re.compile(r'\bDAN\s+(mode|activated|enabled|is|prompt)\b', re.IGNORECASE),
+    re.compile(r'\bjailbreak\s*(mode|activated|prompt|this|the\s+AI)?\b', re.IGNORECASE),
+    re.compile(r'\bdeveloper\s+mode\s+(on|activated|enabled|unlocked)\b', re.IGNORECASE),
+    re.compile(r'\bunrestricted\s+(mode|AI|assistant|access)\b', re.IGNORECASE),
+    re.compile(r'\bno\s+restrictions?\s+(mode|AI|assistant|enabled)\b', re.IGNORECASE),
+    re.compile(r'\bunlock\s+(mode|full\s+access|unrestricted|all\s+capabilities)\b', re.IGNORECASE),
+
+    # Persona hijack patterns
+    re.compile(r'\byou\s+are\s+now\b.{0,60}\bno\s+(restrictions?|rules?|limits?|guidelines?)\b', re.IGNORECASE),
+    re.compile(r'\bact\s+as\s+(if\s+you\s+(are|have|were)|a)\b.{0,60}\bno\s+restrictions?\b', re.IGNORECASE),
+    re.compile(r'\bpretend\s+(you\s+(are|have|were)|to\s+be)\b.{0,60}\bno\s+(rules?|restrictions?|limits?)\b', re.IGNORECASE),
+    re.compile(r'\bsimulate\s+(being\s+)?(an?\s+AI|a\s+system)\s+(with(out)?|that\s+has\s+no)\b', re.IGNORECASE),
+    re.compile(r'\byour\s+true\s+self\b', re.IGNORECASE),
+
+    # Authority / privilege escalation claims
+    re.compile(r'\b(I\s+am|this\s+is)\s+(Anthropic|the\s+developer|the\s+platform\s+admin|your\s+(creator|developer|operator))\b', re.IGNORECASE),
+    re.compile(r'\banthropix?\s+override\b', re.IGNORECASE),
+    re.compile(r'\benter\s+maintenance\s+mode\b', re.IGNORECASE),
+
+    # Newline injection (trying to inject a fake system/assistant turn)
+    re.compile(r'\n\s*(system|assistant)\s*:', re.IGNORECASE),
+    re.compile(r'\\n\s*(system|assistant)\s*:', re.IGNORECASE),
 ]
 
 
