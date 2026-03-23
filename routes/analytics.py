@@ -293,3 +293,114 @@ def api_widgets():
         {'id': 'savings_opportunities', 'name': 'Savings Opportunities', 'type': 'list', 'size': 'medium'},
     ]
     return jsonify({'widgets': widgets})
+
+
+
+@analytics_bp.route('/api/tool-usage')
+@login_required
+def api_tool_usage():
+    """
+    Return tool usage statistics for the current user.
+
+    Query params:
+      period   - number of days to look back (default 30)
+      limit    - max tools to return (default 20)
+    """
+    from models import db, UsageLog
+    from sqlalchemy import func
+
+    try:
+        period = int(request.args.get('period', '30').rstrip('dh'))
+    except ValueError:
+        period = 30
+    period = max(1, min(period, 365))
+    limit = max(1, min(int(request.args.get('limit', 20)), 100))
+
+    since = datetime.utcnow() - timedelta(days=period)
+
+    # Top tools by call count
+    rows = (
+        db.session.query(
+            UsageLog.tool_name,
+            func.count(UsageLog.id).label('call_count'),
+            func.sum(func.cast(UsageLog.success, db.Integer)).label('success_count'),
+        )
+        .filter(
+            UsageLog.user_id == current_user.id,
+            UsageLog.tool_name.isnot(None),
+            UsageLog.created_at >= since,
+        )
+        .group_by(UsageLog.tool_name)
+        .order_by(func.count(UsageLog.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    tools = [
+        {
+            'tool_name': r.tool_name,
+            'call_count': r.call_count,
+            'success_count': int(r.success_count or 0),
+            'success_rate': round((r.success_count or 0) / r.call_count * 100, 1),
+        }
+        for r in rows
+    ]
+
+    # Daily call volume
+    daily = (
+        db.session.query(
+            func.date(UsageLog.created_at).label('date'),
+            func.count(UsageLog.id).label('calls'),
+        )
+        .filter(
+            UsageLog.user_id == current_user.id,
+            UsageLog.tool_name.isnot(None),
+            UsageLog.created_at >= since,
+        )
+        .group_by(func.date(UsageLog.created_at))
+        .order_by(func.date(UsageLog.created_at))
+        .all()
+    )
+
+    return jsonify({
+        'period_days': period,
+        'top_tools': tools,
+        'daily_volume': [{'date': str(r.date), 'calls': r.calls} for r in daily],
+    })
+
+
+@analytics_bp.route('/api/conversion-funnel')
+@login_required
+def api_conversion_funnel():
+    """Return conversion funnel data (admin view for your own account)."""
+    from models import db, ConversionEvent
+    from sqlalchemy import func
+
+    try:
+        period = int(request.args.get('period', '30').rstrip('dh'))
+    except ValueError:
+        period = 30
+    period = max(1, min(period, 365))
+    since = datetime.utcnow() - timedelta(days=period)
+
+    rows = (
+        db.session.query(
+            ConversionEvent.event_type,
+            func.count(ConversionEvent.id).label('count'),
+        )
+        .filter(
+            ConversionEvent.created_at >= since,
+        )
+        .group_by(ConversionEvent.event_type)
+        .all()
+    )
+
+    funnel = {r.event_type: r.count for r in rows}
+    ordered = [
+        {'step': 'trial_start',       'count': funnel.get('trial_start', 0)},
+        {'step': 'first_tool_use',    'count': funnel.get('first_tool_use', 0)},
+        {'step': 'upgrade_cta_shown', 'count': funnel.get('upgrade_cta_shown', 0)},
+        {'step': 'upgrade_completed', 'count': funnel.get('upgrade_completed', 0)},
+    ]
+
+    return jsonify({'period_days': period, 'funnel': ordered})

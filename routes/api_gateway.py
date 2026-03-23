@@ -383,6 +383,136 @@ def api_health():
     })
 
 
+@api_gateway_bp.route('/v1/agent', methods=['POST'])
+@api_key_required
+def api_agent():
+    """
+    Developer REST API — run an agent query programmatically.
+
+    Required header:  X-API-Key: <your_api_key>
+    Content-Type:     application/json
+
+    Request body:
+      {
+        "message": "List all EC2 instances in us-east-1",
+        "conversation_id": "optional-string-for-session-continuity"
+      }
+
+    Response:
+      {
+        "response": "...",
+        "tools_used": ["list_ec2_instances"],
+        "credits_remaining": 42,
+        "conversation_id": "..."
+      }
+
+    This endpoint requires Professional or Business tier.
+    Free and Starter tier users receive a 403 with an upgrade message.
+    """
+    from flask import current_app
+    from models import db, UserSubscription, UsageLog, ConversionEvent
+    import json as _json
+
+    api_key_record = request.api_key
+    user_id = api_key_record.user_id
+
+    # Enforce Professional/Business tier gate
+    sub = UserSubscription.query.filter_by(user_id=user_id).first()
+    tier_name = sub.tier.name if (sub and sub.tier) else 'free'
+    if tier_name not in ('professional', 'business'):
+        return jsonify({
+            'error': 'api_access_restricted',
+            'message': 'Developer API access requires Professional ($99/mo) or Business ($299/mo) plan.',
+            'upgrade_url': '/billing'
+        }), 403
+
+    if not sub.has_credits():
+        return jsonify({'error': 'insufficient_credits', 'credits_remaining': 0}), 402
+
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'error': 'message is required'}), 400
+    if len(message) > 10000:
+        return jsonify({'error': 'message exceeds 10000 character limit'}), 400
+
+    conversation_id = data.get('conversation_id') or f'api-{api_key_record.id}-default'
+
+    # Load recent conversation history for this conversation_id (last 20 turns)
+    from models import ChatMessage
+    history_rows = ChatMessage.query.filter_by(
+        user_id=user_id, conversation_id=conversation_id
+    ).order_by(ChatMessage.created_at.desc()).limit(20).all()
+    history = [{'role': r.role, 'content': r.content} for r in reversed(history_rows)]
+
+    # Run the agent
+    from src.agent.core import DevOpsAgent
+    from services.model_router import resolve_model_with_preference
+    from services.input_sanitizer import validate_message
+
+    is_valid, reason = validate_message(message)
+    if not is_valid:
+        return jsonify({'error': reason}), 400
+
+    agent_instance = current_app.config.get('DEVOPS_AGENT')
+    if agent_instance is None:
+        return jsonify({'error': 'Agent not initialized'}), 503
+
+    prefs_provider = None
+    from models import UserPreferences
+    prefs = UserPreferences.query.filter_by(user_id=user_id).first()
+    if prefs:
+        prefs_provider = getattr(prefs, 'preferred_model_provider', None)
+
+    model_config = resolve_model_with_preference(tier_name, prefs_provider)
+    provider = model_config.provider
+
+    try:
+        response_text = agent_instance.process_message_isolated(
+            user_message=message,
+            conversation_history=history,
+            user_id=user_id,
+            provider=provider if provider == 'kimi' else None,
+            model_override=model_config.model,
+        )
+        tools_used = agent_instance.last_tools_used
+        success = True
+    except Exception as e:
+        current_app.logger.error(f"API agent error for user {user_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Agent error', 'detail': str(e)}), 500
+
+    # Save user message + assistant response
+    db.session.add(ChatMessage(user_id=user_id, conversation_id=conversation_id, role='user', content=message))
+    db.session.add(ChatMessage(user_id=user_id, conversation_id=conversation_id, role='assistant', content=response_text))
+
+    # Log usage
+    db.session.add(UsageLog(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        action_type='api_tool_use' if tools_used else 'api_message',
+        tool_name=tools_used[0] if tools_used else None,
+        credits_used=1,
+        success=success,
+        ai_model=model_config.model,
+    ))
+    for t in tools_used[1:]:
+        db.session.add(UsageLog(
+            user_id=user_id, conversation_id=conversation_id,
+            action_type='api_tool_use', tool_name=t, credits_used=0,
+            success=True, ai_model=model_config.model,
+        ))
+
+    sub.use_credit(commit=False)
+    db.session.commit()
+
+    return jsonify({
+        'response': response_text,
+        'tools_used': tools_used,
+        'credits_remaining': sub.credits_remaining,
+        'conversation_id': conversation_id,
+    })
+
+
 # Dashboard API endpoints
 @api_gateway_bp.route('/api/stats')
 @login_required

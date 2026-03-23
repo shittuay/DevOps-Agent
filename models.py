@@ -776,6 +776,32 @@ class UsageLog(db.Model):
         return f'<UsageLog user={self.user_id} action={self.action_type}>'
 
 
+class ConversionEvent(db.Model):
+    """Track key funnel events for conversion analytics."""
+    __tablename__ = 'conversion_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    event_type = db.Column(db.String(50), nullable=False, index=True)
+    # event_type values: trial_start, first_tool_use, credit_exhaustion,
+    #                    upgrade_cta_shown, upgrade_completed, api_key_created
+    metadata = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.Index('idx_conversion_user_event', 'user_id', 'event_type'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'event_type': self.event_type,
+            'metadata': self.metadata or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class InfrastructureResource(db.Model):
     """Track user's infrastructure resources across cloud providers"""
     __tablename__ = 'infrastructure_resources'

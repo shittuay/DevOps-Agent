@@ -66,7 +66,7 @@ from src.tools import (
 from models import (
     db, User, ChatMessage, Conversation, UserPreferences, CommandTemplate,
     ResponseFeedback, SubscriptionTier, UserSubscription, CreditPurchase, UsageLog,
-    LearningSession, PaymentWebhookEvent, NGNPriceConfig
+    LearningSession, PaymentWebhookEvent, NGNPriceConfig, ConversionEvent
 )
 
 
@@ -1174,6 +1174,19 @@ LEARNING_CURRICULUM = {
 }
 
 
+def _track_conversion(user_id: int, event_type: str, metadata: dict = None) -> None:
+    """Fire-and-forget conversion funnel event. Silently ignores errors."""
+    try:
+        db.session.add(ConversionEvent(
+            user_id=user_id,
+            event_type=event_type,
+            metadata=metadata or {},
+        ))
+        db.session.flush()
+    except Exception:
+        pass
+
+
 @app.route('/')
 def index():
     """Show landing page for unauthenticated users, chat for authenticated."""
@@ -2211,6 +2224,7 @@ def api_chat():
             )
             db.session.add(subscription)
             db.session.commit()
+            _track_conversion(current_user.id, 'trial_start', {'credits': free_tier.monthly_credits})
 
         # Reset monthly credits for paid tiers only — free tier is a one-time trial
         tier_name = subscription.tier.name if subscription.tier else 'free'
@@ -2225,6 +2239,9 @@ def api_chat():
         # Check if user has credits
         if not subscription.has_credits():
             if tier_name == 'free':
+                _track_conversion(current_user.id, 'credit_exhaustion', {'tier': 'free'})
+                _track_conversion(current_user.id, 'upgrade_cta_shown', {'source': 'api_chat'})
+                db.session.commit()
                 # Free-tier exhausted: return upgrade pitch as a normal response
                 return jsonify({
                     'response': _generate_upgrade_pitch(),
@@ -2391,18 +2408,38 @@ def api_chat():
             except Exception:
                 pass  # Keep the original error response
 
-        # Log usage
+        # Log usage — capture which tools were actually executed this turn
+        _tools_used = getattr(agent, 'last_tools_used', [])
+        _primary_tool = _tools_used[0] if _tools_used else None
         usage_log = UsageLog(
             user_id=current_user.id,
             conversation_id=conversation_id,
-            action_type='agent_message',
-            tool_name=None,
+            action_type='tool_use' if _tools_used else 'agent_message',
+            tool_name=_primary_tool,
             credits_used=1,
             success=success,
             error_message=error_msg,
             ai_model=model_config.model
         )
         db.session.add(usage_log)
+        for _extra_tool in _tools_used[1:]:
+            db.session.add(UsageLog(
+                user_id=current_user.id,
+                conversation_id=conversation_id,
+                action_type='tool_use',
+                tool_name=_extra_tool,
+                credits_used=0,
+                success=success,
+                ai_model=model_config.model
+            ))
+
+        # Track first-ever tool use for conversion funnel
+        if _tools_used and success:
+            prior_tool_use = UsageLog.query.filter_by(
+                user_id=current_user.id, action_type='tool_use'
+            ).filter(UsageLog.id != usage_log.id).first()
+            if not prior_tool_use:
+                _track_conversion(current_user.id, 'first_tool_use', {'tool': _primary_tool})
 
         # Sanitize and redact secrets from response
         response = sanitize_output(response)
@@ -2798,17 +2835,29 @@ def api_chat_stream():
                     )
                     db.session.add(assistant_msg)
 
+                    _stream_tools = getattr(agent, 'last_tools_used', [])
+                    _stream_primary = _stream_tools[0] if _stream_tools else None
                     usage_log = UsageLog(
                         user_id=uid,
                         conversation_id=cid,
-                        action_type='agent_message',
-                        tool_name=None,
+                        action_type='tool_use' if _stream_tools else 'agent_message',
+                        tool_name=_stream_primary,
                         credits_used=1,
                         success=True,
                         error_message=None,
                         ai_model=actual_mc.model
                     )
                     db.session.add(usage_log)
+                    for _st in _stream_tools[1:]:
+                        db.session.add(UsageLog(
+                            user_id=uid,
+                            conversation_id=cid,
+                            action_type='tool_use',
+                            tool_name=_st,
+                            credits_used=0,
+                            success=True,
+                            ai_model=actual_mc.model
+                        ))
 
                     # Update conversation: title (first message) + clear streaming flag
                     c = Conversation.query.filter_by(id=cid, user_id=uid).first()

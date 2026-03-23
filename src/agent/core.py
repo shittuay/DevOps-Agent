@@ -45,6 +45,9 @@ class DevOpsAgent:
         # Store pending file downloads (e.g., keypairs) - per request, protected by lock
         self.pending_download: Optional[Dict[str, Any]] = None
 
+        # Track tools used in the most recent process_message_isolated call
+        self._last_tools_used: List[str] = []
+
         self.logger.info("DevOps Agent initialized")
 
     def register_tool(
@@ -211,6 +214,9 @@ class DevOpsAgent:
 
             # Add the new user message
             self.conversation.add_user_message(user_message)
+
+            # Reset per-request tool tracking
+            self._last_tools_used = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -686,6 +692,7 @@ User Preferences and Context:
                         elif tool_name in self.tools:
                             try:
                                 result = self.tools[tool_name](**tool_input)
+                                self._last_tools_used.append(tool_name)
                             except Exception as e:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -846,6 +853,7 @@ User Preferences and Context:
                         elif tool_name in self.tools:
                             try:
                                 result = self.tools[tool_name](**tool_input)
+                                self._last_tools_used.append(tool_name)
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                         else:
@@ -924,6 +932,7 @@ User Preferences and Context:
                         }
 
                     self.logger.info(f"Tool {tool_name} executed successfully")
+                    self._last_tools_used.append(tool_name)
 
                     # Check if result contains a file download
                     if isinstance(result, dict) and 'download_file' in result:
@@ -1034,6 +1043,12 @@ User Preferences and Context:
             List of tool names
         """
         return list(self.tools.keys())
+
+    @property
+    def last_tools_used(self) -> List[str]:
+        """Return deduplicated list of tools used in the most recent process_message_isolated call."""
+        seen = set()
+        return [t for t in self._last_tools_used if not (t in seen or seen.add(t))]
 
     def get_tool_info(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """
