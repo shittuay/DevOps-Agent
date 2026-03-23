@@ -1189,6 +1189,7 @@
     <li><a href="#tools">Tools</a></li>
     <li><a href="#how">How It Works</a></li>
     <li><a href="#features">Features</a></li>
+    <li><a href="#api">API</a></li>
     <li><a href="#pricing">Pricing</a></li>
   </ul>
   <div class="nav-cta">
@@ -1464,6 +1465,12 @@
       <div class="feature-desc">Pre-built runbooks for common incidents — high CPU, memory pressure, disk full, pod crash loops, service down. Automated escalation paths and resolution playbooks.</div>
       <div class="feature-meta">→ MTTR reduced from hours to minutes</div>
     </div>
+    <div class="feature-card">
+      <div class="feature-icon">&lt;/&gt;</div>
+      <div class="feature-title">Developer REST API</div>
+      <div class="feature-desc">Call the full 258-tool agent from your own scripts, CI pipelines, or apps. API key auth, rate-limited per tier, HMAC-signed webhooks. Every tool call is tracked and billed to your credit balance.</div>
+      <div class="feature-meta">→ Professional &amp; Business tiers · /api-gateway/v1/agent</div>
+    </div>
   </div>
 </section>
 
@@ -1573,6 +1580,7 @@
         <li>Auto-remediation</li>
         <li>Up to 10 team members</li>
         <li>Auto-sync every 6 hours</li>
+        <li><strong>Developer REST API access</strong></li>
         <li>Priority support</li>
       </ul>
       <a href="/signup" class="price-cta price-cta-solid">Get Professional</a>
@@ -1580,7 +1588,7 @@
 
     <!-- Business -->
     <div class="price-card">
-      <div class="price-tier">Enterprise</div>
+      <div class="price-tier">Business</div>
       <div class="price-amount">
         <span class="price-currency">$</span>
         <span class="price-value">299</span>
@@ -1597,9 +1605,73 @@
         <li>Audit log export</li>
         <li>Custom remediation rules</li>
         <li>Auto-sync every 15 minutes</li>
+        <li><strong>Developer REST API + webhooks</strong></li>
         <li>Dedicated support + SLA</li>
       </ul>
-      <a href="/signup" class="price-cta price-cta-outline">Get Enterprise</a>
+      <a href="/signup" class="price-cta price-cta-outline">Get Business</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── DEVELOPER API ──────────────────────────────────────── -->
+<section class="features-section" id="api" style="padding-top:40px;">
+  <div class="features-header">
+    <p class="section-label reveal">Developer API</p>
+    <h2 class="section-title reveal">Automate the automator.<br/>Build on top of DevOps Agent.</h2>
+    <p class="section-sub reveal">Professional and Business subscribers get API key access to the full 258-tool agent. Call it from scripts, CI pipelines, internal tools, or your own SaaS products.</p>
+  </div>
+
+  <div class="how-section" style="padding:0 0 60px;">
+    <div class="how-inner">
+      <div>
+        <div class="steps">
+          <div class="step reveal">
+            <div class="step-num">01</div>
+            <div class="step-content">
+              <div class="step-title">Generate an API Key</div>
+              <div class="step-desc">From Settings → API Keys, create a named key with optional scopes and expiry. Your key is shown once — store it securely.</div>
+            </div>
+          </div>
+          <div class="step reveal">
+            <div class="step-num">02</div>
+            <div class="step-content">
+              <div class="step-title">POST a Message</div>
+              <div class="step-desc">Send <code style="font-family:var(--mono);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:12px;">{"message": "Scale my ECS service to 5 tasks"}</code> to <code style="font-family:var(--mono);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:12px;">/api-gateway/v1/agent</code> with your key in the <code style="font-family:var(--mono);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:12px;">X-API-Key</code> header.</div>
+            </div>
+          </div>
+          <div class="step reveal">
+            <div class="step-num">03</div>
+            <div class="step-content">
+              <div class="step-title">Get the Response</div>
+              <div class="step-desc">Receive the agent's text response, the list of tools executed, and your updated credit balance. Use <code style="font-family:var(--mono);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:12px;">conversation_id</code> to keep multi-turn context across calls.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-preview reveal" style="font-family:var(--mono);font-size:12px;line-height:1.7;">
+        <div class="terminal-bar">
+          <div class="terminal-dot dot-red"></div>
+          <div class="terminal-dot dot-yellow"></div>
+          <div class="terminal-dot dot-green"></div>
+          <div class="terminal-title">curl example</div>
+        </div>
+        <div class="terminal-body" style="font-size:12px;padding:20px;">
+          <div style="color:var(--text2);margin-bottom:8px;"># Call the agent via REST API</div>
+          <div style="color:var(--cyan);">curl -X POST https://devopsagent.io/api-gateway/v1/agent \</div>
+          <div style="color:var(--cyan);padding-left:16px;">-H "X-API-Key: doa_your_key_here" \</div>
+          <div style="color:var(--cyan);padding-left:16px;">-H "Content-Type: application/json" \</div>
+          <div style="color:var(--cyan);padding-left:16px;">-d '{"message": "List all RDS instances in us-east-1"}'</div>
+          <br/>
+          <div style="color:var(--text2);"># Response</div>
+          <div style="color:var(--green);">{</div>
+          <div style="color:var(--green);padding-left:16px;">"response": "Found 3 RDS instances...",</div>
+          <div style="color:var(--green);padding-left:16px;">"tools_used": ["list_rds_instances"],</div>
+          <div style="color:var(--green);padding-left:16px;">"credits_remaining": 1847,</div>
+          <div style="color:var(--green);padding-left:16px;">"conversation_id": "api-12-default"</div>
+          <div style="color:var(--green);">}</div>
+        </div>
+      </div>
     </div>
   </div>
 </section>

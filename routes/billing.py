@@ -669,6 +669,18 @@ def handle_checkout_completed(session):
                 raise
             logger.info(f"Subscription '{tier_name}' activated for user {user.id} (customer={stripe_customer_id})")
 
+            # Conversion funnel: upgrade_completed
+            try:
+                from models import ConversionEvent
+                db.session.add(ConversionEvent(
+                    user_id=user.id,
+                    event_type='upgrade_completed',
+                    metadata={'tier': tier_name, 'gateway': 'stripe'},
+                ))
+                db.session.commit()
+            except Exception:
+                pass
+
             try:
                 from services.email_service import email_service
                 if user.email:
