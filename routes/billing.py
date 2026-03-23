@@ -553,36 +553,46 @@ def stripe_webhook():
 
     logger.info(f"Received Stripe webhook: {event['type']}")
 
-    # Idempotency check (unified across all gateways)
+    # Idempotency: INSERT the event key BEFORE running handlers using flush().
+    # An IntegrityError on flush means the event was already processed (duplicate) —
+    # return 200 immediately.  If a handler later fails and rolls back, the flush is
+    # also rolled back, so Stripe can retry and we'll process it cleanly next time.
+    # Because the handlers call db.session.commit() internally, the flushed event
+    # record is committed atomically with the business logic — no post-handler INSERT needed.
+    from sqlalchemy.exc import IntegrityError
     event_id = event.get('id')
     webhook_key = f"stripe:{event_id}" if event_id else None
-    if webhook_key and PaymentWebhookEvent.query.get(webhook_key):
-        logger.info(f"Duplicate webhook event {webhook_key}, skipping")
-        return jsonify({'success': True, 'duplicate': True})
-
-    # Handle different event types
-    if event['type'] == 'checkout.session.completed':
-        handle_checkout_completed(event['data']['object'])
-
-    elif event['type'] == 'invoice.payment_succeeded':
-        handle_invoice_payment_succeeded(event['data']['object'])
-
-    elif event['type'] == 'invoice.payment_failed':
-        handle_invoice_payment_failed(event['data']['object'])
-
-    elif event['type'] == 'customer.subscription.updated':
-        handle_customer_subscription_updated(event['data']['object'])
-
-    elif event['type'] == 'customer.subscription.deleted':
-        handle_subscription_deleted(event['data']['object'])
-
-    # Record processed event for idempotency
     if webhook_key:
         try:
             db.session.add(PaymentWebhookEvent(id=webhook_key, gateway='stripe', event_type=event['type']))
-            db.session.commit()
-        except Exception:
+            db.session.flush()
+        except IntegrityError:
             db.session.rollback()
+            logger.info(f"Duplicate webhook event {webhook_key}, skipping")
+            return jsonify({'success': True, 'duplicate': True})
+
+    # Handle different event types — handlers raise on unrecoverable errors so we
+    # return 500 and Stripe retries instead of silently losing the event.
+    try:
+        if event['type'] == 'checkout.session.completed':
+            handle_checkout_completed(event['data']['object'])
+
+        elif event['type'] == 'invoice.payment_succeeded':
+            handle_invoice_payment_succeeded(event['data']['object'])
+
+        elif event['type'] == 'invoice.payment_failed':
+            handle_invoice_payment_failed(event['data']['object'])
+
+        elif event['type'] == 'customer.subscription.updated':
+            handle_customer_subscription_updated(event['data']['object'])
+
+        elif event['type'] == 'customer.subscription.deleted':
+            handle_subscription_deleted(event['data']['object'])
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Webhook handler failed for {event.get('type')} ({webhook_key}): {e}", exc_info=True)
+        return jsonify({'error': 'Handler failed, will retry'}), 500
 
     return jsonify({'success': True})
 
