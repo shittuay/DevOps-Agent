@@ -482,6 +482,42 @@ def api_list_tools():
     return jsonify({'tools': all_tools, 'total': len(all_tools)})
 
 
+def _make_confirm_token(api_key_id: int, tool_name: str, params: dict) -> str:
+    """Generate a stateless HMAC confirmation token for destructive tool calls.
+
+    Token is deterministic for the same (api_key_id, tool_name, params, hour) tuple,
+    valid for 1 hour. No server-side storage required.
+    """
+    import hashlib
+    import hmac
+    import json
+    import os
+    import time
+
+    hour_bucket = str(int(time.time()) // 3600)
+    payload = f"{api_key_id}:{tool_name}:{json.dumps(params, sort_keys=True)}:{hour_bucket}"
+    secret = os.environ.get('SECRET_KEY', 'devops-agent-secret').encode()
+    return hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _verify_confirm_token(api_key_id: int, tool_name: str, params: dict, token: str) -> bool:
+    """Verify a confirm token — accepts tokens from the current or previous hour."""
+    import hashlib
+    import hmac
+    import json
+    import os
+    import time
+
+    secret = os.environ.get('SECRET_KEY', 'devops-agent-secret').encode()
+    for hour_offset in (0, -1):  # current hour or previous hour
+        hour_bucket = str(int(time.time()) // 3600 + hour_offset)
+        payload = f"{api_key_id}:{tool_name}:{json.dumps(params, sort_keys=True)}:{hour_bucket}"
+        expected = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(expected, token):
+            return True
+    return False
+
+
 @api_gateway_bp.route('/v1/execute', methods=['POST'])
 @api_key_required
 def api_execute_tool():
@@ -492,8 +528,12 @@ def api_execute_tool():
     Request body:
       {
         "tool": "list_ec2_instances",
-        "params": { "region": "us-east-1" }
+        "params": { "region": "us-east-1" },
+        "confirm_token": "<token>"   // required for high/medium risk tools
       }
+
+    For destructive tools, the first call returns 403 with a confirm_token.
+    Re-send the same request with that token included to execute.
 
     Response:
       { "result": { ... }, "tool": "list_ec2_instances", "credits_remaining": N }
@@ -519,6 +559,7 @@ def api_execute_tool():
     data = request.get_json(silent=True) or {}
     tool_name = (data.get('tool') or '').strip()
     params = data.get('params') or {}
+    confirm_token = (data.get('confirm_token') or '').strip()
 
     if not tool_name:
         return jsonify({'error': 'tool is required'}), 400
@@ -537,6 +578,34 @@ def api_execute_tool():
 
     if tool_name not in all_tools:
         return jsonify({'error': f'Unknown tool: {tool_name}. See GET /v1/tools for available tools.'}), 404
+
+    # Safety gate — run SafetyValidator before any execution
+    try:
+        from src.agent.safety import SafetyValidator
+        validation = SafetyValidator().validate_tool_call(tool_name, params)
+    except Exception:
+        validation = None  # fails open — don't block execution on validator errors
+
+    if validation and validation.requires_confirmation:
+        # High/medium risk tool — require explicit confirmation token
+        if not confirm_token or not _verify_confirm_token(api_key_record.id, tool_name, params, confirm_token):
+            token = _make_confirm_token(api_key_record.id, tool_name, params)
+            return jsonify({
+                'error': 'tool_requires_confirmation',
+                'risk': validation.risk_level,
+                'reason': validation.reason,
+                'confirm_token': token,
+                'message': (
+                    f"'{tool_name}' is a {validation.risk_level}-risk operation. "
+                    "Re-send this request with the confirm_token field to proceed. "
+                    "Token expires in ~1 hour."
+                ),
+            }), 403
+
+        current_app.logger.warning(
+            f"API confirmed destructive tool execution: user={user_id} "
+            f"key={api_key_record.id} tool={tool_name} risk={validation.risk_level} params={params}"
+        )
 
     try:
         result = all_tools[tool_name]['handler'](**params)
