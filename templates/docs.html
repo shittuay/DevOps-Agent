@@ -553,6 +553,7 @@
       <div class="sidebar-heading">Account</div>
       <a href="#billing" class="sidebar-link">Billing & Plans</a>
       <a href="#security" class="sidebar-link">Security & 2FA</a>
+      <a href="#security" class="sidebar-link" style="padding-left:24px;font-size:13px;">↳ Lost authenticator access</a>
       <a href="#teams" class="sidebar-link">Teams</a>
       <a href="#settings" class="sidebar-link">Settings</a>
     </div>
@@ -991,6 +992,35 @@
           <tr><td>Email OTP</td><td>A one-time code is sent to your registered email address on each login.</td></tr>
         </tbody>
       </table>
+
+      <h3 class="subsection-title">Lost access to your authenticator?</h3>
+      <p>If you can no longer access your authenticator app (deleted the app, got a new phone, etc.), you can reset 2FA from the login screen:</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Enter your email and password</div>
+            <div class="step-desc">Log in as normal. When the 2FA verification screen appears, look for the <strong>"Lost access to your authenticator?"</strong> link at the bottom.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Click the link</div>
+            <div class="step-desc">A reset link is sent to your registered email address. It expires in <strong>30 minutes</strong>.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Click the link in your email</div>
+            <div class="step-desc">2FA is disabled and you are logged in automatically. You can then re-configure 2FA in <strong>Settings → Security</strong>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="alert alert-info" style="margin-top:12px;">
+        <strong>Security note:</strong> The reset link is single-use and tied to your account. If you did not request it, contact support immediately.
+      </div>
 
       <h3 class="subsection-title">Credential encryption</h3>
       <p>All cloud credentials (AWS keys, Azure client secrets, GCP service account JSON) are encrypted at rest using AES-128 (Fernet) before being stored in the database. Credentials are decrypted only at request time, in memory, and never logged.</p>
