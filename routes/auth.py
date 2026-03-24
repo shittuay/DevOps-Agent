@@ -504,6 +504,64 @@ def verify_2fa():
     return render_template('verify_2fa.html', mfa_method=mfa_method)
 
 
+@auth_bp.route('/request-mfa-reset', methods=['POST'])
+def request_mfa_reset():
+    """Send MFA reset link to user's email. Called from verify-2fa page."""
+    pending_user_id = session.get('2fa_pending_user')
+    if not pending_user_id:
+        return redirect(url_for('.login'))
+
+    user = User.query.get(pending_user_id)
+    if not user:
+        return redirect(url_for('.login'))
+
+    import secrets as _secrets
+    from datetime import timedelta
+    token = _secrets.token_urlsafe(32)
+    user.mfa_reset_token = token
+    user.mfa_reset_expires = datetime.utcnow() + timedelta(minutes=30)
+    db.session.commit()
+
+    from services.email_service import email_service
+    email_service.send_mfa_reset_email(user, token)
+
+    return render_template('login.html',
+        success='A reset link has been sent to your email address. It expires in 30 minutes.')
+
+
+@auth_bp.route('/reset-mfa', methods=['GET'])
+def reset_mfa():
+    """Disable MFA via emailed token and log the user in."""
+    token = request.args.get('token', '')
+    user_id = request.args.get('user_id', '')
+
+    if not token or not user_id:
+        return render_template('login.html', error='Invalid reset link.')
+
+    user = User.query.get(user_id)
+    if not user or user.mfa_reset_token != token:
+        return render_template('login.html', error='Invalid or expired reset link.')
+
+    if datetime.utcnow() > user.mfa_reset_expires:
+        user.mfa_reset_token = None
+        user.mfa_reset_expires = None
+        db.session.commit()
+        return render_template('login.html', error='Reset link has expired. Please try again.')
+
+    user.two_factor_enabled = False
+    user.two_factor_secret = None
+    user.mfa_method = 'none'
+    user.mfa_otp_hash = None
+    user.mfa_otp_expires = None
+    user.mfa_reset_token = None
+    user.mfa_reset_expires = None
+    db.session.commit()
+
+    login_user(user)
+    security_logger.info(f"MFA reset and login for {user.email} via email token")
+    return redirect(url_for('chat'))
+
+
 @auth_bp.route('/setup-2fa')
 @login_required
 def setup_2fa_page():

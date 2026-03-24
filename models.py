@@ -45,6 +45,10 @@ class User(UserMixin, db.Model):
     password_reset_token = db.Column(db.String(100), nullable=True)
     password_reset_expires = db.Column(db.DateTime, nullable=True)
 
+    # MFA reset
+    mfa_reset_token = db.Column(db.String(100), nullable=True)
+    mfa_reset_expires = db.Column(db.DateTime, nullable=True)
+
     # Guardrail violation tracking
     guardrail_violations = db.Column(db.Integer, default=0)
     guardrail_blocked_until = db.Column(db.DateTime, nullable=True)
