@@ -10,30 +10,46 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def _read_config_env():
+    """Read config/.env directly, bypassing os.environ completely.
+    This prevents stale shell env vars from ever interfering with Stripe config."""
+    config_path = os.path.join(os.path.dirname(__file__), 'config', '.env')
+    values = {}
+    if os.path.exists(config_path):
+        try:
+            from dotenv import dotenv_values
+            values = dotenv_values(config_path)
+        except Exception:
+            pass
+    return values
+
+
 def _ensure_stripe_configured():
-    """Ensure stripe.api_key is set from env. Called before every Stripe API call."""
+    """Ensure stripe.api_key is set from config/.env directly."""
+    config = _read_config_env()
+    stripe.api_key = config.get('STRIPE_SECRET_KEY') or os.getenv('STRIPE_SECRET_KEY')
     if not stripe.api_key:
-        stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
-    if not stripe.api_key:
-        raise RuntimeError('STRIPE_SECRET_KEY is not set in environment')
+        raise RuntimeError('STRIPE_SECRET_KEY is not set in config/.env')
 
 
 def _get_subscription_prices():
-    """Get subscription price IDs from env at call time (not import time)."""
+    """Get subscription price IDs directly from config/.env (not os.environ)."""
+    config = _read_config_env()
     return {
-        'starter': os.getenv('STRIPE_PRICE_STARTER'),
-        'professional': os.getenv('STRIPE_PRICE_PROFESSIONAL'),
-        'business': os.getenv('STRIPE_PRICE_BUSINESS'),
+        'starter': config.get('STRIPE_PRICE_STARTER') or os.getenv('STRIPE_PRICE_STARTER'),
+        'professional': config.get('STRIPE_PRICE_PROFESSIONAL') or os.getenv('STRIPE_PRICE_PROFESSIONAL'),
+        'business': config.get('STRIPE_PRICE_BUSINESS') or os.getenv('STRIPE_PRICE_BUSINESS'),
     }
 
 
 def _get_credit_pack_prices():
-    """Get credit pack price IDs from env at call time (not import time)."""
+    """Get credit pack price IDs directly from config/.env (not os.environ)."""
+    config = _read_config_env()
     return {
-        100: os.getenv('STRIPE_PRICE_PACK_100'),
-        250: os.getenv('STRIPE_PRICE_PACK_250'),
-        500: os.getenv('STRIPE_PRICE_PACK_500'),
-        1000: os.getenv('STRIPE_PRICE_PACK_1000'),
+        100: config.get('STRIPE_PRICE_PACK_100') or os.getenv('STRIPE_PRICE_PACK_100'),
+        250: config.get('STRIPE_PRICE_PACK_250') or os.getenv('STRIPE_PRICE_PACK_250'),
+        500: config.get('STRIPE_PRICE_PACK_500') or os.getenv('STRIPE_PRICE_PACK_500'),
+        1000: config.get('STRIPE_PRICE_PACK_1000') or os.getenv('STRIPE_PRICE_PACK_1000'),
     }
 
 
