@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome - DevOps Agent</title>
+    <title>Welcome — DevOps Agent</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,7 +28,7 @@
         body::before {
             content: '';
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
+            inset: 0;
             background-image:
                 linear-gradient(var(--border-subtle) 1px, transparent 1px),
                 linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
@@ -47,9 +47,9 @@
         body::after {
             content: '';
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: radial-gradient(at 20% 20%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
-                        radial-gradient(at 80% 80%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            inset: 0;
+            background: radial-gradient(at 20% 20%, rgba(255, 107, 53, 0.12) 0%, transparent 50%),
+                        radial-gradient(at 80% 80%, rgba(0, 212, 255, 0.12) 0%, transparent 50%);
             pointer-events: none;
             z-index: 0;
         }
@@ -58,36 +58,115 @@
             position: relative;
             z-index: 1;
             width: 100%;
-            max-width: 680px;
-            padding: 20px;
+            max-width: 720px;
+            padding: 24px;
         }
 
+        /* ── Progress bar ─────────────────── */
+        .progress-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            margin-bottom: 32px;
+        }
+
+        .progress-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .progress-circle {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 2px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+            background: var(--bg-secondary);
+        }
+
+        .progress-step.active .progress-circle {
+            border-color: #ff6b35;
+            color: #ff6b35;
+            background: rgba(255, 107, 53, 0.1);
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.15);
+        }
+
+        .progress-step.done .progress-circle {
+            border-color: #4ade80;
+            background: rgba(74, 222, 128, 0.1);
+            color: #4ade80;
+        }
+
+        .progress-label {
+            font-size: 11px;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
+        .progress-step.active .progress-label { color: #ff6b35; }
+        .progress-step.done .progress-label { color: #4ade80; }
+
+        .progress-line {
+            width: 64px;
+            height: 2px;
+            background: var(--border-subtle);
+            margin: 0 4px;
+            margin-bottom: 20px;
+            transition: background 0.3s ease;
+        }
+
+        .progress-line.done { background: #4ade80; }
+
+        /* ── Card ─────────────────── */
         .wizard-card {
             background: var(--glass-bg);
             backdrop-filter: blur(40px);
             border: 1px solid var(--glass-border);
             border-radius: 20px;
             padding: 48px;
-            text-align: center;
+            animation: fadeInUp 0.4s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .step { display: none; }
         .step.active { display: block; }
 
-        .step-counter {
+        /* ── Typography ─────────────────── */
+        .step-tag {
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 2px;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
         }
 
         h1 {
             font-family: 'Syne', sans-serif;
-            font-size: 28px;
+            font-size: 30px;
             font-weight: 800;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--text-primary) 60%, var(--accent-primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .subtitle {
@@ -97,35 +176,368 @@
             margin-bottom: 32px;
         }
 
-        .progress-bar {
+        /* ── Cloud tabs ─────────────────── */
+        .cloud-tabs {
             display: flex;
             gap: 8px;
-            justify-content: center;
-            margin-bottom: 40px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 0;
         }
 
-        .progress-dot {
-            width: 40px;
-            height: 4px;
-            border-radius: 2px;
-            background: rgba(255,255,255,0.1);
-            transition: all 0.3s ease;
+        .cloud-tab {
+            padding: 10px 20px;
+            border-radius: 8px 8px 0 0;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            background: transparent;
+            border: 1px solid transparent;
+            border-bottom: none;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            margin-bottom: -1px;
         }
 
-        .progress-dot.active {
-            background: var(--gradient-primary);
-            background: linear-gradient(90deg, #ff6b35, #00d4ff);
+        .cloud-tab:hover { color: var(--text-primary); }
+
+        .cloud-tab.active {
+            background: var(--bg-secondary);
+            border-color: var(--border-subtle);
+            border-bottom-color: var(--bg-secondary);
+            color: var(--text-primary);
         }
 
-        .progress-dot.done {
-            background: #4ade80;
+        .cloud-panel { display: none; }
+        .cloud-panel.active { display: block; }
+
+        /* ── Form ─────────────────── */
+        .form-group { margin-bottom: 20px; }
+
+        label {
+            display: block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
         }
 
-        .feature-grid {
+        input[type="text"],
+        input[type="password"],
+        select {
+            width: 100%;
+            padding: 12px 14px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            font-size: 14px;
+            color: var(--text-primary);
+            font-family: 'IBM Plex Mono', monospace;
+            transition: all 0.2s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            background: var(--bg-elevated);
+            box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+        }
+
+        .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
+        }
+
+        .field-hint {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 5px;
+        }
+
+        .field-hint a {
+            color: var(--accent-electric);
+            text-decoration: none;
+        }
+
+        /* ── Alert ─────────────────── */
+        .alert {
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            border: 1px solid;
+            line-height: 1.5;
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .alert-success {
+            background: rgba(74, 222, 128, 0.1);
+            border-color: rgba(74, 222, 128, 0.3);
+            color: #86efac;
+        }
+
+        .alert-info {
+            background: rgba(96, 165, 250, 0.08);
+            border-color: rgba(96, 165, 250, 0.2);
+            color: #93c5fd;
+        }
+
+        /* ── Buttons ─────────────────── */
+        .btn {
+            padding: 13px 28px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #ff6b35, #ff8c5a);
+            color: white;
+            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.05);
+            color: var(--text-secondary);
+            border: 1px solid var(--glass-border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.09);
+            color: var(--text-primary);
+        }
+
+        .btn-skip {
+            background: none;
+            border: none;
+            color: var(--text-tertiary);
+            font-size: 13px;
+            cursor: pointer;
+            padding: 8px;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-skip:hover { color: var(--text-secondary); }
+
+        .btn-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 28px;
+        }
+
+        .btn-group .spacer { flex: 1; }
+
+        /* ── Scanning step ─────────────────── */
+        .scan-progress {
+            text-align: center;
+            padding: 24px 0;
+        }
+
+        .scan-orbit {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 32px;
+        }
+
+        .orbit-ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            animation: orbit 1.8s linear infinite;
+        }
+
+        .orbit-ring:nth-child(1) {
+            border-top-color: #ff6b35;
+            animation-duration: 1.2s;
+        }
+
+        .orbit-ring:nth-child(2) {
+            inset: 12px;
+            border-right-color: #00d4ff;
+            animation-duration: 1.8s;
+            animation-direction: reverse;
+        }
+
+        .orbit-ring:nth-child(3) {
+            inset: 24px;
+            border-bottom-color: #c084fc;
+            animation-duration: 2.4s;
+        }
+
+        .orbit-center {
+            position: absolute;
+            inset: 36px;
+            background: rgba(255, 107, 53, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        @keyframes orbit { to { transform: rotate(360deg); } }
+
+        .scan-status {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            min-height: 22px;
+        }
+
+        .scan-log {
             text-align: left;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 16px;
+            max-height: 180px;
+            overflow-y: auto;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        .scan-log .log-line { display: block; }
+        .scan-log .log-ok { color: #4ade80; }
+        .scan-log .log-info { color: #60a5fa; }
+        .scan-log .log-warn { color: #fbbf24; }
+
+        /* ── Results step ─────────────────── */
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .result-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 14px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .result-number {
+            font-family: 'Syne', sans-serif;
+            font-size: 36px;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+
+        .result-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.3;
+        }
+
+        .result-number.green { color: #4ade80; }
+        .result-number.orange { color: #ff6b35; }
+        .result-number.blue { color: #60a5fa; }
+        .result-number.purple { color: #c084fc; }
+
+        .finding-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .finding-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .finding-dot.red { background: #ef4444; }
+        .finding-dot.yellow { background: #fbbf24; }
+        .finding-dot.green { background: #4ade80; }
+        .finding-dot.blue { background: #60a5fa; }
+
+        .finding-text { flex: 1; }
+        .finding-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .first-message-box {
+            background: rgba(255, 107, 53, 0.06);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+        }
+
+        .first-message-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: #ff6b35;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .first-message-text {
+            font-size: 14px;
+            color: var(--text-primary);
+            line-height: 1.5;
+            font-style: italic;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* ── Step 0 welcome features ─────────── */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
             margin-bottom: 32px;
         }
 
@@ -133,13 +545,10 @@
             background: rgba(255,255,255,0.03);
             border: 1px solid var(--glass-border);
             border-radius: 12px;
-            padding: 20px;
-            transition: all 0.2s ease;
-        }
-
-        .feature-item:hover {
-            border-color: rgba(255,255,255,0.15);
-            transform: translateY(-2px);
+            padding: 18px;
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
         }
 
         .feature-icon {
@@ -149,18 +558,17 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 12px;
-            font-size: 18px;
+            flex-shrink: 0;
         }
 
-        .feature-icon.infra { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
-        .feature-icon.security { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
-        .feature-icon.cost { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
-        .feature-icon.ai { background: rgba(192, 132, 252, 0.15); color: #c084fc; }
+        .feature-icon.blue { background: rgba(96, 165, 250, 0.12); color: #60a5fa; }
+        .feature-icon.green { background: rgba(74, 222, 128, 0.12); color: #4ade80; }
+        .feature-icon.yellow { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+        .feature-icon.purple { background: rgba(192, 132, 252, 0.12); color: #c084fc; }
 
         .feature-name {
-            font-weight: 600;
-            font-size: 15px;
+            font-weight: 700;
+            font-size: 14px;
             margin-bottom: 4px;
         }
 
@@ -170,326 +578,515 @@
             line-height: 1.4;
         }
 
-        .cloud-options {
-            display: flex;
-            gap: 16px;
-            justify-content: center;
-            margin-bottom: 32px;
-            flex-wrap: wrap;
-        }
-
-        .cloud-option {
-            background: rgba(255,255,255,0.03);
-            border: 2px solid var(--glass-border);
-            border-radius: 12px;
-            padding: 24px 32px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-align: center;
-            min-width: 120px;
-        }
-
-        .cloud-option:hover {
-            border-color: rgba(255,255,255,0.2);
-            transform: translateY(-2px);
-        }
-
-        .cloud-option.selected {
-            border-color: #ff6b35;
-            background: rgba(255, 107, 53, 0.08);
-        }
-
-        .cloud-option .cloud-name {
-            font-weight: 600;
-            font-size: 16px;
-            margin-top: 8px;
-        }
-
-        .cloud-option .cloud-icon {
-            font-size: 28px;
-        }
-
-        .tip-box {
-            background: rgba(96, 165, 250, 0.08);
-            border: 1px solid rgba(96, 165, 250, 0.2);
-            border-radius: 12px;
-            padding: 20px;
-            text-align: left;
-            margin-bottom: 32px;
-        }
-
-        .tip-box .tip-title {
-            font-weight: 600;
-            font-size: 14px;
-            color: #60a5fa;
-            margin-bottom: 8px;
-            font-family: 'IBM Plex Mono', monospace;
-        }
-
-        .tip-box .tip-text {
-            font-size: 14px;
-            color: var(--text-secondary);
-            line-height: 1.6;
-        }
-
-        .tip-box code {
-            background: rgba(255,255,255,0.08);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 13px;
-        }
-
-        .btn {
-            padding: 14px 32px;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 600;
-            font-family: 'IBM Plex Mono', monospace;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            border: none;
-            display: inline-block;
-        }
-
-        .btn-primary {
-            background: var(--gradient-primary);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
-        }
-
-        .btn-secondary {
-            background: rgba(255,255,255,0.05);
-            color: var(--text-primary);
-            border: 1px solid var(--glass-border);
-            margin-right: 12px;
-        }
-
-        .btn-secondary:hover {
-            background: rgba(255,255,255,0.1);
-        }
-
-        .btn-group {
-            display: flex;
-            justify-content: center;
-            gap: 12px;
-        }
-
         @media (max-width: 640px) {
-            .wizard-card { padding: 32px 24px; }
+            .wizard-card { padding: 28px 20px; }
+            .form-row { grid-template-columns: 1fr; }
+            .results-grid { grid-template-columns: 1fr 1fr; }
+            h1 { font-size: 24px; }
             .feature-grid { grid-template-columns: 1fr; }
-            .cloud-options { flex-direction: column; align-items: center; }
-            h1 { font-size: 22px; }
+            .progress-line { width: 32px; }
         }
     </style>
 </head>
 <body>
     <div class="wizard-container">
-        <div class="wizard-card">
-            <div class="progress-bar">
-                <div class="progress-dot active" id="dot-0"></div>
-                <div class="progress-dot" id="dot-1"></div>
-                <div class="progress-dot" id="dot-2"></div>
-                <div class="progress-dot" id="dot-3"></div>
-            </div>
 
-            <!-- Step 0: Welcome -->
+        <!-- Progress bar -->
+        <div class="progress-bar">
+            <div class="progress-step active" id="pb-0">
+                <div class="progress-circle">1</div>
+                <div class="progress-label">Welcome</div>
+            </div>
+            <div class="progress-line" id="line-0"></div>
+            <div class="progress-step" id="pb-1">
+                <div class="progress-circle">2</div>
+                <div class="progress-label">Connect</div>
+            </div>
+            <div class="progress-line" id="line-1"></div>
+            <div class="progress-step" id="pb-2">
+                <div class="progress-circle">3</div>
+                <div class="progress-label">Scanning</div>
+            </div>
+            <div class="progress-line" id="line-2"></div>
+            <div class="progress-step" id="pb-3">
+                <div class="progress-circle">4</div>
+                <div class="progress-label">Results</div>
+            </div>
+        </div>
+
+        <div class="wizard-card">
+
+            <!-- ────────────────────────────────────────────────────────── -->
+            <!-- Step 0: Welcome                                            -->
+            <!-- ────────────────────────────────────────────────────────── -->
             <div class="step active" id="step-0">
-                <div class="step-counter">Getting Started</div>
-                <h1>Welcome to DevOps Agent</h1>
-                <p class="subtitle">Your AI-powered infrastructure management assistant. Let's get you set up in under a minute.</p>
+                <div class="step-tag">Getting started</div>
+                <h1>Welcome, {{ user.username or user.email.split('@')[0] }}</h1>
+                <p class="subtitle">DevOps Agent is your AI infrastructure assistant. Let's connect your first cloud account — it takes about 60 seconds.</p>
 
                 <div class="feature-grid">
                     <div class="feature-item">
-                        <div class="feature-icon infra">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        <div class="feature-icon blue">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                         </div>
-                        <div class="feature-name">Infrastructure</div>
-                        <div class="feature-desc">Manage AWS, Azure, GCP and Kubernetes from chat</div>
+                        <div>
+                            <div class="feature-name">258 Cloud Tools</div>
+                            <div class="feature-desc">AWS, Azure, GCP and Kubernetes — all from one chat interface</div>
+                        </div>
                     </div>
                     <div class="feature-item">
-                        <div class="feature-icon security">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        <div class="feature-icon green">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                         </div>
-                        <div class="feature-name">Security</div>
-                        <div class="feature-desc">Scan for misconfigurations and compliance gaps</div>
+                        <div>
+                            <div class="feature-name">Autonomous SRE</div>
+                            <div class="feature-desc">Proactive monitoring and auto-remediation — no human required</div>
+                        </div>
                     </div>
                     <div class="feature-item">
-                        <div class="feature-icon cost">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        <div class="feature-icon yellow">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                         </div>
-                        <div class="feature-name">Cost Optimization</div>
-                        <div class="feature-desc">Find idle resources and reduce cloud spend</div>
+                        <div>
+                            <div class="feature-name">Cost Optimization</div>
+                            <div class="feature-desc">Automatically identify idle resources and reduce your cloud bill</div>
+                        </div>
                     </div>
                     <div class="feature-item">
-                        <div class="feature-icon ai">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        <div class="feature-icon purple">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         </div>
-                        <div class="feature-name">AI Chat</div>
-                        <div class="feature-desc">Natural language commands with 258 tools</div>
+                        <div>
+                            <div class="feature-name">Instant Discovery</div>
+                            <div class="feature-desc">See every resource in your account within 30 seconds of connecting</div>
+                        </div>
                     </div>
                 </div>
 
-                <button class="btn btn-primary" onclick="nextStep()">Let's Go</button>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="goTo(1)">
+                        Connect my cloud account
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
+                    <button class="btn-skip" onclick="skipOnboarding()">Skip for now</button>
+                </div>
             </div>
 
-            <!-- Step 1: Cloud Provider -->
+            <!-- ────────────────────────────────────────────────────────── -->
+            <!-- Step 1: Connect cloud                                      -->
+            <!-- ────────────────────────────────────────────────────────── -->
             <div class="step" id="step-1">
-                <div class="step-counter">Step 1 of 3</div>
-                <h1>Which clouds do you use?</h1>
-                <p class="subtitle">Select your cloud providers. You can always add more later in Settings.</p>
+                <div class="step-tag">Step 1 of 3</div>
+                <h1>Connect your cloud</h1>
+                <p class="subtitle">Add your credentials. They're encrypted at rest and only used to run your commands.</p>
 
-                <div class="cloud-options">
-                    <div class="cloud-option" onclick="toggleCloud(this, 'aws')">
-                        <div class="cloud-icon">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M7.164 16.835c-.706.552-1.697.828-2.974.828-.929 0-1.783-.174-2.562-.52a.26.26 0 0 1-.14-.24c0-.077.036-.152.107-.224.071-.072.143-.108.214-.108.036 0 .08.013.134.04.714.31 1.499.465 2.355.465.999 0 1.791-.213 2.377-.639.586-.427.879-.998.879-1.714 0-.785-.423-1.433-1.269-1.944-.071-.036-.267-.142-.586-.317a14.44 14.44 0 0 0-.693-.371c-.214-.107-.456-.24-.726-.398a4.727 4.727 0 0 1-.683-.478c-.196-.178-.36-.38-.493-.605a1.572 1.572 0 0 1-.2-.785c0-.714.297-1.288.89-1.72.594-.433 1.357-.65 2.288-.65.75 0 1.446.125 2.088.374a.268.268 0 0 1 .173.258.326.326 0 0 1-.1.237.296.296 0 0 1-.213.1c-.036 0-.072-.01-.107-.027a5.376 5.376 0 0 0-1.874-.36c-.821 0-1.476.169-1.965.505-.49.337-.734.788-.734 1.354 0 .714.43 1.34 1.289 1.878.036.036.24.138.612.308.373.17.607.276.702.317.196.107.42.237.672.39.253.153.48.32.683.5.203.179.37.386.5.621.13.236.196.496.196.779 0 .785-.314 1.413-.941 1.884zm5.142.29c-.571 0-1.09-.087-1.556-.262a.26.26 0 0 1-.174-.252.315.315 0 0 1 .107-.24.305.305 0 0 1 .214-.094c.035 0 .071.009.107.027.393.143.821.214 1.285.214.571 0 1.032-.134 1.381-.4.35-.268.524-.63.524-1.088 0-.571-.392-1.06-1.175-1.468a27.37 27.37 0 0 1-.505-.267 7.722 7.722 0 0 1-.438-.27c-.129-.089-.26-.194-.39-.317a1.857 1.857 0 0 1-.298-.373 1.203 1.203 0 0 1-.153-.426 2.43 2.43 0 0 1-.047-.493c0-.607.251-1.091.754-1.454.502-.362 1.154-.544 1.957-.544.5 0 .968.072 1.402.214a.274.274 0 0 1 .187.267.308.308 0 0 1-.1.227.291.291 0 0 1-.214.094c-.035 0-.07-.009-.107-.027a3.571 3.571 0 0 0-1.195-.214c-.571 0-1.035.14-1.39.42-.354.28-.531.647-.531 1.1 0 .572.392 1.06 1.175 1.469.072.035.258.138.559.307.301.17.499.286.592.348.357.25.614.505.77.764.156.259.234.555.234.89 0 .642-.26 1.152-.781 1.528-.52.376-1.2.564-2.037.564zm6.942-.03c-1.142 0-2.048-.376-2.716-1.127-.668-.75-1.002-1.741-1.002-2.972 0-1.25.346-2.261 1.036-3.033.69-.773 1.607-1.159 2.749-1.159 1.106 0 1.989.38 2.649 1.14.66.759.99 1.757.99 2.992 0 1.249-.34 2.262-1.022 3.04-.68.779-1.59 1.119-2.684 1.119z"/></svg>
-                        </div>
-                        <div class="cloud-name">AWS</div>
+                <div id="connect-alert" style="display:none"></div>
+
+                <!-- Cloud provider tabs -->
+                <div class="cloud-tabs">
+                    <button class="cloud-tab active" onclick="switchCloud('aws', this)">AWS</button>
+                    <button class="cloud-tab" onclick="switchCloud('azure', this)">Azure</button>
+                    <button class="cloud-tab" onclick="switchCloud('gcp', this)">GCP</button>
+                </div>
+
+                <!-- AWS panel -->
+                <div class="cloud-panel active" id="panel-aws">
+                    <div class="form-group">
+                        <label>AWS Access Key ID</label>
+                        <input type="text" id="aws-access-key" placeholder="AKIAIOSFODNN7EXAMPLE" autocomplete="off" spellcheck="false">
                     </div>
-                    <div class="cloud-option" onclick="toggleCloud(this, 'azure')">
-                        <div class="cloud-icon">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M13.05 4.24L6.56 18.05a.5.5 0 0 0 .46.7h8.67a.5.5 0 0 0 .46-.3l5.04-11.2a.5.5 0 0 0-.46-.7h-4.16a.5.5 0 0 1-.46-.3l-2.6-5.78a.5.5 0 0 0-.92.03L13.05 4.24zM3.08 13.41l3.44-7.6a.5.5 0 0 1 .92.03l2.6 5.78a.5.5 0 0 1-.46.7H3.54a.5.5 0 0 1-.46-.7v-.21z"/></svg>
-                        </div>
-                        <div class="cloud-name">Azure</div>
+                    <div class="form-group">
+                        <label>AWS Secret Access Key</label>
+                        <input type="password" id="aws-secret-key" placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" autocomplete="new-password">
                     </div>
-                    <div class="cloud-option" onclick="toggleCloud(this, 'gcp')">
-                        <div class="cloud-icon">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L4 7.5v9L12 21l8-4.5v-9L12 3zm0 2.18l5.45 3.07L12 11.32 6.55 8.25 12 5.18zM5.45 9.32l5.55 3.12v6.24l-5.55-3.12V9.32zm7.1 9.36v-6.24l5.55-3.12v6.24l-5.55 3.12z"/></svg>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Default Region</label>
+                            <select id="aws-region">
+                                <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                                <option value="us-east-2">us-east-2 (Ohio)</option>
+                                <option value="us-west-1">us-west-1 (N. California)</option>
+                                <option value="us-west-2">us-west-2 (Oregon)</option>
+                                <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                                <option value="eu-west-2">eu-west-2 (London)</option>
+                                <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+                                <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                                <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                                <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+                                <option value="af-south-1">af-south-1 (Cape Town)</option>
+                            </select>
                         </div>
-                        <div class="cloud-name">GCP</div>
                     </div>
-                    <div class="cloud-option" onclick="toggleCloud(this, 'k8s')">
-                        <div class="cloud-icon">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="21"/><line x1="3.5" y1="7.5" x2="9" y2="10.5"/><line x1="15" y1="13.5" x2="20.5" y2="16.5"/><line x1="3.5" y1="16.5" x2="9" y2="13.5"/><line x1="15" y1="10.5" x2="20.5" y2="7.5"/></svg>
+                    <p class="field-hint">
+                        Create a read-only IAM user with <code>ReadOnlyAccess</code> policy for the safest setup.
+                        Credentials are AES-128 encrypted before storage.
+                    </p>
+                </div>
+
+                <!-- Azure panel -->
+                <div class="cloud-panel" id="panel-azure">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Subscription ID</label>
+                            <input type="text" id="azure-sub" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
                         </div>
-                        <div class="cloud-name">Kubernetes</div>
+                        <div class="form-group">
+                            <label>Tenant ID</label>
+                            <input type="text" id="azure-tenant" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Client ID</label>
+                            <input type="text" id="azure-client-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>Client Secret</label>
+                            <input type="password" id="azure-client-secret" placeholder="Your service principal secret" autocomplete="new-password">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GCP panel -->
+                <div class="cloud-panel" id="panel-gcp">
+                    <div class="form-group">
+                        <label>Project ID</label>
+                        <input type="text" id="gcp-project" placeholder="my-project-123456" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label>Service Account Key (JSON)</label>
+                        <textarea id="gcp-creds" rows="6" style="width:100%;padding:12px 14px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-primary);resize:vertical;" placeholder='{"type":"service_account","project_id":"...","private_key_id":"..."}'></textarea>
+                        <p class="field-hint">Paste the full contents of your service account JSON key file.</p>
                     </div>
                 </div>
 
                 <div class="btn-group">
-                    <button class="btn btn-secondary" onclick="prevStep()">Back</button>
-                    <button class="btn btn-primary" onclick="nextStep()">Continue</button>
+                    <button class="btn btn-secondary" onclick="goTo(0)">Back</button>
+                    <div class="spacer"></div>
+                    <button class="btn-skip" onclick="skipOnboarding()">Skip</button>
+                    <button class="btn btn-primary" id="connect-btn" onclick="saveCredentials()">
+                        Save &amp; Run First Scan
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
                 </div>
             </div>
 
-            <!-- Step 2: Quick Tips -->
+            <!-- ────────────────────────────────────────────────────────── -->
+            <!-- Step 2: Scanning                                           -->
+            <!-- ────────────────────────────────────────────────────────── -->
             <div class="step" id="step-2">
-                <div class="step-counter">Step 2 of 3</div>
-                <h1>How to use the Agent</h1>
-                <p class="subtitle">Just type natural language commands in the chat. Here are some examples:</p>
+                <div class="step-tag">Step 2 of 3</div>
+                <h1>Discovering your infrastructure</h1>
+                <p class="subtitle">Running a full inventory scan across your cloud account. This takes 15 – 30 seconds.</p>
 
-                <div class="tip-box" style="margin-bottom: 16px;">
-                    <div class="tip-title">Infrastructure</div>
-                    <div class="tip-text">
-                        <code>List all my EC2 instances</code><br>
-                        <code>Show me resources in us-east-1</code><br>
-                        <code>Create a new S3 bucket called my-data</code>
+                <div class="scan-progress">
+                    <div class="scan-orbit">
+                        <div class="orbit-ring"></div>
+                        <div class="orbit-ring"></div>
+                        <div class="orbit-ring"></div>
+                        <div class="orbit-center">&#x1f50d;</div>
+                    </div>
+
+                    <div class="scan-status" id="scan-status">Connecting to your cloud account...</div>
+
+                    <div class="scan-log" id="scan-log">
+                        <span class="log-line log-info">&gt; Credentials verified</span>
                     </div>
                 </div>
+            </div>
 
-                <div class="tip-box" style="margin-bottom: 16px;">
-                    <div class="tip-title">Security & Compliance</div>
-                    <div class="tip-text">
-                        <code>Run a security scan on my AWS account</code><br>
-                        <code>Check compliance against SOC 2</code>
-                    </div>
+            <!-- ────────────────────────────────────────────────────────── -->
+            <!-- Step 3: Results                                            -->
+            <!-- ────────────────────────────────────────────────────────── -->
+            <div class="step" id="step-3">
+                <div class="step-tag">Step 3 of 3 — First scan complete</div>
+                <h1>Here's what we found</h1>
+                <p class="subtitle" id="results-subtitle">Your infrastructure is now mapped. The agent can answer questions about any of these resources.</p>
+
+                <div class="results-grid" id="results-grid">
+                    <!-- Filled by JS -->
                 </div>
 
-                <div class="tip-box" style="margin-bottom: 32px;">
-                    <div class="tip-title">Cost Optimization</div>
-                    <div class="tip-text">
-                        <code>Show my cloud spending this month</code><br>
-                        <code>Find idle resources I can shut down</code>
-                    </div>
+                <div id="results-findings">
+                    <!-- Finding rows filled by JS -->
+                </div>
+
+                <div class="first-message-box" id="first-message-box">
+                    <div class="first-message-label">Your first message to the agent</div>
+                    <div class="first-message-text" id="first-message-text">Tell me about my infrastructure</div>
                 </div>
 
                 <div class="btn-group">
-                    <button class="btn btn-secondary" onclick="prevStep()">Back</button>
-                    <button class="btn btn-primary" onclick="nextStep()">Continue</button>
+                    <div class="spacer"></div>
+                    <button class="btn btn-primary" onclick="finishOnboarding()">
+                        Start using DevOps Agent
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
                 </div>
             </div>
 
-            <!-- Step 3: Ready -->
-            <div class="step" id="step-3">
-                <div class="step-counter">All Set</div>
-                <h1>You're Ready!</h1>
-                <p class="subtitle">Your DevOps Agent is configured. Head to the chat to start managing your infrastructure with AI.</p>
-
-                <div class="tip-box" style="margin-bottom: 32px;">
-                    <div class="tip-title">Next Steps</div>
-                    <div class="tip-text">
-                        1. Go to <strong>Settings</strong> to add your cloud credentials<br>
-                        2. Run <code>Sync my infrastructure</code> to discover resources<br>
-                        3. Ask the agent anything about your cloud environment
-                    </div>
-                </div>
-
-                <button class="btn btn-primary" onclick="finishOnboarding()">Start Using DevOps Agent</button>
-            </div>
         </div>
     </div>
 
     <script>
         let currentStep = 0;
-        const totalSteps = 4;
-        const selectedClouds = new Set();
+        let activeCloud = 'aws';
+        let scanResults = null;
+        let firstMessage = 'Tell me about my infrastructure';
 
-        function updateProgress() {
-            for (let i = 0; i < totalSteps; i++) {
-                const dot = document.getElementById(`dot-${i}`);
-                const step = document.getElementById(`step-${i}`);
-                dot.className = 'progress-dot';
-                step.className = 'step';
-                if (i < currentStep) dot.classList.add('done');
-                if (i === currentStep) {
-                    dot.classList.add('active');
-                    step.classList.add('active');
-                }
+        // ── Navigation ──────────────────────────────────────────────
+        function goTo(step) {
+            document.getElementById('step-' + currentStep).classList.remove('active');
+            currentStep = step;
+            document.getElementById('step-' + currentStep).classList.add('active');
+            updateProgressBar();
+            fetch('/api/onboarding/step', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step: currentStep })
+            });
+        }
+
+        function updateProgressBar() {
+            for (let i = 0; i < 4; i++) {
+                const pb = document.getElementById('pb-' + i);
+                pb.className = 'progress-step';
+                if (i < currentStep) pb.classList.add('done');
+                if (i === currentStep) pb.classList.add('active');
+            }
+            for (let i = 0; i < 3; i++) {
+                const line = document.getElementById('line-' + i);
+                line.className = 'progress-line' + (i < currentStep ? ' done' : '');
             }
         }
 
-        function nextStep() {
-            if (currentStep < totalSteps - 1) {
-                currentStep++;
-                updateProgress();
-                fetch('/api/onboarding/step', {
+        // ── Cloud tab switching ─────────────────────────────────────
+        function switchCloud(cloud, btn) {
+            activeCloud = cloud;
+            document.querySelectorAll('.cloud-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.cloud-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('panel-' + cloud).classList.add('active');
+            document.getElementById('connect-alert').style.display = 'none';
+        }
+
+        // ── Credential save ─────────────────────────────────────────
+        async function saveCredentials() {
+            const btn = document.getElementById('connect-btn');
+            const alertEl = document.getElementById('connect-alert');
+            alertEl.style.display = 'none';
+            btn.disabled = true;
+            btn.innerHTML = '<span style="display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;"></span> Saving...';
+
+            let url, body;
+            if (activeCloud === 'aws') {
+                const key = document.getElementById('aws-access-key').value.trim();
+                const secret = document.getElementById('aws-secret-key').value.trim();
+                const region = document.getElementById('aws-region').value;
+                if (!key || !secret) {
+                    return showConnectError('Please enter your AWS Access Key ID and Secret Access Key.');
+                }
+                url = '/api/aws/config';
+                body = { access_key: key, secret_key: secret, region: region };
+
+            } else if (activeCloud === 'azure') {
+                const sub = document.getElementById('azure-sub').value.trim();
+                const tenant = document.getElementById('azure-tenant').value.trim();
+                const clientId = document.getElementById('azure-client-id').value.trim();
+                const secret = document.getElementById('azure-client-secret').value.trim();
+                if (!sub || !tenant || !clientId || !secret) {
+                    return showConnectError('Please fill in all Azure credential fields.');
+                }
+                url = '/api/azure/config';
+                body = { subscription_id: sub, tenant_id: tenant, client_id: clientId, client_secret: secret };
+
+            } else {
+                const project = document.getElementById('gcp-project').value.trim();
+                const creds = document.getElementById('gcp-creds').value.trim();
+                if (!project || !creds) {
+                    return showConnectError('Please enter your GCP Project ID and service account key.');
+                }
+                url = '/api/gcp/config';
+                body = { project_id: project, credentials_json: creds };
+            }
+
+            try {
+                const r = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ step: currentStep })
+                    body: JSON.stringify(body)
                 });
+                const data = await r.json();
+                if (!r.ok || !data.success) {
+                    return showConnectError(data.error || 'Failed to save credentials. Check your keys and try again.');
+                }
+                // Advance to scan step and kick it off
+                goTo(2);
+                runScan();
+            } catch (err) {
+                showConnectError('Network error. Please try again.');
+            }
+
+            function showConnectError(msg) {
+                btn.disabled = false;
+                btn.innerHTML = 'Save &amp; Run First Scan <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>';
+                alertEl.className = 'alert alert-error';
+                alertEl.textContent = msg;
+                alertEl.style.display = 'block';
             }
         }
 
-        function prevStep() {
-            if (currentStep > 0) {
-                currentStep--;
-                updateProgress();
+        // ── First scan ───────────────────────────────────────────────
+        const scanMessages = [
+            'Listing EC2 instances...',
+            'Checking S3 buckets...',
+            'Scanning security groups...',
+            'Inspecting RDS databases...',
+            'Analyzing cost data...',
+            'Running security checks...',
+            'Building resource inventory...',
+            'Almost done...'
+        ];
+
+        async function runScan() {
+            const statusEl = document.getElementById('scan-status');
+            const logEl = document.getElementById('scan-log');
+
+            // Animate scan messages while waiting
+            let msgIdx = 0;
+            const msgInterval = setInterval(() => {
+                statusEl.textContent = scanMessages[msgIdx % scanMessages.length];
+                addLog(scanMessages[msgIdx % scanMessages.length], 'info');
+                msgIdx++;
+            }, 2200);
+
+            try {
+                const r = await fetch('/api/onboarding/scan', { method: 'POST' });
+                const data = await r.json();
+                clearInterval(msgInterval);
+
+                if (r.ok && data.success) {
+                    scanResults = data;
+                    statusEl.textContent = 'Scan complete!';
+                    addLog('Scan complete — ' + data.total_resources + ' resources found', 'ok');
+                    setTimeout(() => {
+                        renderResults(data);
+                        goTo(3);
+                    }, 800);
+                } else {
+                    statusEl.textContent = 'Scan encountered an error.';
+                    addLog('Error: ' + (data.error || 'Unknown error'), 'warn');
+                    // Still advance — partial data is ok
+                    setTimeout(() => {
+                        renderResults({ total_resources: 0, monthly_cost: 0, cost_findings: 0, security_findings: 0 });
+                        goTo(3);
+                    }, 1500);
+                }
+            } catch (err) {
+                clearInterval(msgInterval);
+                statusEl.textContent = 'Could not complete scan.';
+                addLog('Network error during scan', 'warn');
+                setTimeout(() => {
+                    renderResults({ total_resources: 0, monthly_cost: 0, cost_findings: 0, security_findings: 0 });
+                    goTo(3);
+                }, 1500);
             }
         }
 
-        function toggleCloud(el, cloud) {
-            el.classList.toggle('selected');
-            if (selectedClouds.has(cloud)) {
-                selectedClouds.delete(cloud);
-            } else {
-                selectedClouds.add(cloud);
-            }
+        function addLog(msg, type) {
+            const el = document.getElementById('scan-log');
+            const line = document.createElement('span');
+            line.className = 'log-line log-' + (type || 'info');
+            line.textContent = '> ' + msg;
+            el.appendChild(document.createElement('br'));
+            el.appendChild(line);
+            el.scrollTop = el.scrollHeight;
         }
 
-        function finishOnboarding() {
+        // ── Results rendering ─────────────────────────────────────────
+        function renderResults(data) {
+            const grid = document.getElementById('results-grid');
+            const findings = document.getElementById('results-findings');
+
+            // Big number cards
+            grid.innerHTML = `
+                <div class="result-card">
+                    <div class="result-number blue">${data.total_resources || 0}</div>
+                    <div class="result-label">Resources discovered</div>
+                </div>
+                <div class="result-card">
+                    <div class="result-number ${(data.security_findings || 0) > 0 ? 'orange' : 'green'}">${data.security_findings || 0}</div>
+                    <div class="result-label">Security findings</div>
+                </div>
+                <div class="result-card">
+                    <div class="result-number ${(data.cost_findings || 0) > 0 ? 'yellow' : 'green'}">${data.cost_findings || 0}</div>
+                    <div class="result-label">Cost opportunities</div>
+                </div>
+            `;
+
+            // Finding rows
+            let rows = '';
+            const cost = data.monthly_cost || 0;
+            const savings = data.potential_savings || 0;
+            const critical = data.critical_findings || 0;
+
+            if (cost > 0) {
+                rows += `<div class="finding-row"><div class="finding-dot blue"></div><div class="finding-text">Estimated monthly cloud spend</div><div class="finding-value">$${cost.toFixed(0)}/mo</div></div>`;
+            }
+            if (savings > 0) {
+                rows += `<div class="finding-row"><div class="finding-dot green"></div><div class="finding-text">Potential savings identified</div><div class="finding-value">$${savings.toFixed(0)}/mo</div></div>`;
+            }
+            if (critical > 0) {
+                rows += `<div class="finding-row"><div class="finding-dot red"></div><div class="finding-text">Critical security findings requiring attention</div><div class="finding-value">${critical} critical</div></div>`;
+            }
+
+            if (!rows && data.total_resources === 0) {
+                rows = `<div class="empty-state">No resources found yet — try asking the agent to <em>"list my EC2 instances"</em>.</div>`;
+            }
+            findings.innerHTML = rows;
+
+            // Build a personalised first message
+            firstMessage = buildFirstMessage(data);
+            document.getElementById('first-message-text').textContent = '"' + firstMessage + '"';
+        }
+
+        function buildFirstMessage(data) {
+            if (data.critical_findings > 0) {
+                return 'Show me my critical security findings and how to fix them';
+            }
+            if (data.potential_savings > 100) {
+                return 'Show me the top cost savings opportunities in my account';
+            }
+            if (data.total_resources > 0) {
+                return 'Give me a summary of my cloud infrastructure';
+            }
+            return 'List all resources in my cloud account';
+        }
+
+        // ── Finish ────────────────────────────────────────────────────
+        async function finishOnboarding() {
+            await fetch('/api/onboarding/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step: 4 })
+            });
+            const msg = encodeURIComponent(firstMessage);
+            window.location.href = '/chat?first_message=' + msg;
+        }
+
+        function skipOnboarding() {
             fetch('/api/onboarding/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ step: totalSteps, clouds: [...selectedClouds] })
-            }).then(() => {
-                window.location.href = '/';
-            });
+                body: JSON.stringify({ step: 0, skipped: true })
+            }).then(() => { window.location.href = '/chat'; });
         }
+
+        // Spin animation for loading button state
+        const style = document.createElement('style');
+        style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+        document.head.appendChild(style);
     </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

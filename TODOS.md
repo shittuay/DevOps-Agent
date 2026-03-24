@@ -1,40 +1,25 @@
 # TODOS
 
-Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review).
+Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review). Last updated 2026-03-24 (implementation session).
 
 ---
 
 ## P1 — Must fix before public launch
 
-### [ ] Wire scheduler to autonomous services (THE BIGGEST PRODUCT GAP)
-**What:** Connect `services/scheduler.py` to `ProactiveMonitoringService` and `IncidentResponseService`. Currently the scheduler runs every 30s but only reads DB rows and logs — it never calls cloud APIs or takes action.
-**Why:** The autonomous AI SRE pitch requires the system to *act* without user input. CloudWatch monitoring (828 lines), incident playbooks (1,522 lines), and cost anomaly detection are all built and working. They're just not wired to the scheduler loop.
-**How to start:** (1) Add file-lock guard so only 1 gunicorn worker runs the scheduler. (2) Add `_run_monitoring_tick()` that calls `ProactiveMonitoringService.check_all_users()` every 60s. (3) Add `_run_infra_sync()` that actually calls `InfrastructureSync.sync_all_users()` instead of just logging. (4) Connect `ProactiveMonitoringService` alert fires → `IncidentResponseService.process_alert()`.
-**Effort:** M | **Depends on:** Scheduler race condition fix (see below) | **Priority:** Build immediately after race fix
+### [x] Wire scheduler to autonomous services — DONE
+`services/scheduler.py`: PID file lock prevents duplicate scheduler threads under gunicorn. Added `_run_monitoring_tick()` (every 60s) — calls `ProactiveMonitoringService.check_now(user_id)` for every active user with cloud credentials. `_run_infra_sync()` now calls `sync_user_infrastructure(user_id)` for stale users (was only logging). Per-user sync runs in isolated daemon threads.
 
-### [ ] Fix scheduler multi-worker race condition (prerequisite for above)
-**What:** Under gunicorn with `--workers N`, each worker starts its own scheduler daemon thread → N duplicate CloudWatch queries per user per tick.
-**Why:** Must be fixed before wiring scheduler to real cloud API calls or costs multiply by N.
-**How to start:** Add a `SCHEDULER_LEADER` env var + write a PID file in a temp dir on startup; only start the scheduler thread if the PID file doesn't exist. Alternatively use a Postgres advisory lock: `SELECT pg_try_advisory_lock(42)` — only one worker gets the lock. The file-lock approach is simpler for now.
-**Effort:** S | **Depends on:** Nothing | **Priority:** Fix this FIRST, then wire scheduler
+### [x] Fix scheduler multi-worker race condition — DONE
+`services/scheduler.py`: `_acquire_scheduler_lock()` writes a PID file at startup. If another gunicorn worker already holds the lock and its process is alive, the new worker skips `start_scheduler()` silently. Stale locks from crashed workers are automatically reclaimed.
 
-### [ ] Stripe webhook atomicity — wrap commit in try/except + rollback + re-raise
-**What:** `handle_checkout_completed()` in `app.py` has no DB transaction guard. If `db.session.commit()` fails mid-handler (DB connection drop, OOM), user's payment is recorded in Stripe but no subscription is granted.
-**Why:** Stripe retries webhooks for 72h on non-2xx responses. If we re-raise the exception, Stripe retries and eventually succeeds. Currently we swallow the error and return 200, losing the retry opportunity.
-**How to start:** Wrap the handler body in `try: ... except Exception: db.session.rollback(); raise` and remove the `except Exception: pass` catch. Return 500 on DB failure — Stripe will retry.
-**Effort:** S | **Depends on:** Nothing | **Priority:** Fix before first paying customer
+### [x] Stripe webhook atomicity — already correct (no fix needed)
+`routes/billing.py`: `handle_checkout_completed()` subscription and credit_pack paths already have `try: db.session.commit() except Exception: db.session.rollback(); raise`. Outer handler returns 500 (triggering Stripe retry). Verified 2026-03-24.
 
-### [ ] Build guided onboarding flow — /onboarding route
-**What:** A 3-step onboarding wizard: (1) "Connect your first cloud account" with pre-filled form for AWS/Azure/GCP, (2) "Running your first scan..." with real-time progress, (3) "Here's what we found" — automatic discovery results showing resources, cost waste, security issues.
-**Why:** New users who haven't connected cloud credentials currently get a raw boto3 error when they type any cloud command. There is zero guidance. This churns every trial user before they see value. The first scan moment IS the activation event — the moment a user goes from "curious" to "I need this."
-**How to start:** Create `routes/onboarding.py`. Redirect new users (first login, no credentials) to `/onboarding`. After credential save, trigger `InfrastructureSync.sync_user()` + cost check + security scan. Show results. Redirect to `/chat` with a pre-filled message: "Here's what I found in your AWS account..."
-**Effort:** L | **Depends on:** Scheduler wiring (for real scan results) | **Priority:** Build immediately after scheduler wiring
+### [x] Build guided onboarding flow — DONE
+`templates/onboarding.html`: 4-step wizard — Welcome → Connect cloud (AWS/Azure/GCP credential forms) → Scanning (animated progress + real scan) → Results (resources found, cost findings, security findings, pre-filled first message). `app.py /chat`: redirects new users with no cloud credentials to `/onboarding`. `/api/onboarding/scan` endpoint runs `sync_user_infrastructure()` + queries findings summary.
 
-### [ ] First scan moment — auto-discover on cloud account connect
-**What:** When a user saves their first cloud credentials (in /settings or /onboarding), automatically trigger an infrastructure discovery scan and present the findings *before* the user types anything.
-**Why:** This is the 10-star activation moment. "I found 3 EC2 instances, $47/mo in terminated-but-not-removed resources, and 1 security group open to 0.0.0.0/0" delivered within 30 seconds of connecting an account makes $29/mo feel like a bargain. This transforms the product from "assistant" to "autonomous agent" from the user's first minute.
-**How to start:** Add a `post_save` signal to the credential save endpoint. Kick off a Celery task (or inline with a thread) that calls `list_ec2_instances`, `list_security_groups`, `list_rds_instances`, checks `CostOptimization` findings. Store as `InfrastructureResource` rows. Show a "Welcome scan complete" page with summary.
-**Effort:** M | **Depends on:** Onboarding flow | **Priority:** Build as part of onboarding
+### [x] First scan moment — DONE (part of onboarding)
+`app.py /api/onboarding/scan`: After credentials saved in onboarding wizard, calls `sync_user_infrastructure(user_id)`, queries `CostOptimization` and `SecurityFinding` counts, returns summary with resource count, monthly cost, potential savings, critical security findings. Wizard shows real numbers in Step 3 and generates a personalised first chat message.
 
 ### [x] Sentry error tracking — DONE
 `app.py:74-89`: `sentry_sdk.init()` with `FlaskIntegration` + `SqlalchemyIntegration`, `traces_sample_rate=0.1`. Set `SENTRY_DSN` env var to enable.

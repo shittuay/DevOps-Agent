@@ -1230,6 +1230,15 @@ def chat():
     if not check_api_key_configured():
         return render_template('setup.html')
 
+    # Redirect new users who haven't connected any cloud credentials yet
+    if not current_user.onboarding_completed:
+        from models import UserCloudCredential
+        has_creds = UserCloudCredential.query.filter_by(
+            user_id=current_user.id, is_active=True
+        ).first()
+        if not has_creds:
+            return redirect(url_for('onboarding_page'))
+
     if 'conversation_id' not in session:
         session['conversation_id'] = secrets.token_hex(8)
 
@@ -1250,7 +1259,9 @@ def chat():
             db.session.commit()
 
     credits = subscription.credits_remaining if subscription else 0
-    return render_template('index.html', user=current_user, initial_credits=credits)
+    first_message = request.args.get('first_message', '')
+    return render_template('index.html', user=current_user, initial_credits=credits,
+                           first_message=first_message)
 
 
 @app.route('/dashboard')
@@ -1326,6 +1337,73 @@ def update_onboarding_step():
     return jsonify({'success': True, 'step': step})
 
 
+@app.route('/api/onboarding/scan', methods=['POST'])
+@login_required
+def onboarding_scan():
+    """
+    Trigger a first-time infrastructure discovery scan.
+
+    Called after the user connects their first cloud credential in the
+    onboarding wizard. Runs sync_user_infrastructure() synchronously so
+    results are available immediately on the wizard's results step.
+
+    Returns a summary: resource counts, estimated monthly cost, cost
+    optimization count, security finding count.
+    """
+    try:
+        from services.infrastructure_sync import sync_user_infrastructure
+        from models import InfrastructureResource, CostOptimization, SecurityFinding
+
+        sync_result = sync_user_infrastructure(current_user.id)
+
+        # Build a summary for the wizard results step
+        resources = InfrastructureResource.query.filter_by(
+            user_id=current_user.id
+        ).all()
+
+        resource_by_type = {}
+        for r in resources:
+            resource_by_type[r.resource_type] = resource_by_type.get(r.resource_type, 0) + 1
+
+        cost_findings = CostOptimization.query.filter_by(
+            user_id=current_user.id,
+            status='pending'
+        ).count()
+        potential_savings = db.session.query(
+            db.func.sum(CostOptimization.estimated_savings)
+        ).filter_by(user_id=current_user.id, status='pending').scalar() or 0.0
+
+        security_findings = SecurityFinding.query.filter_by(
+            user_id=current_user.id,
+            status='open'
+        ).count()
+        critical_findings = SecurityFinding.query.filter_by(
+            user_id=current_user.id,
+            status='open',
+            severity='critical'
+        ).count()
+
+        return jsonify({
+            'success': True,
+            'total_resources': sync_result.get('total_resources', 0),
+            'monthly_cost': round(sync_result.get('total_cost', 0.0), 2),
+            'resource_breakdown': resource_by_type,
+            'cost_findings': cost_findings,
+            'potential_savings': round(float(potential_savings), 2),
+            'security_findings': security_findings,
+            'critical_findings': critical_findings,
+            'providers': {
+                'aws': sync_result.get('aws', {}).get('synced', 0),
+                'azure': sync_result.get('azure', {}).get('synced', 0),
+                'gcp': sync_result.get('gcp', {}).get('synced', 0),
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Onboarding scan failed for user {current_user.id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/setup', methods=['GET', 'POST'])
 @login_required
 def setup():
@@ -1380,6 +1458,12 @@ def templates_page():
 def docs():
     """Documentation page - Public access."""
     return render_template('docs.html')
+
+
+@app.route('/developers')
+def developers():
+    """Public API reference page - no auth required."""
+    return render_template('developers.html')
 
 
 @app.route('/usage-policy')
