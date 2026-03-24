@@ -204,6 +204,24 @@ class EmailService:
 
         return self.send_email(user.email, "Reset Your Password - DevOps Agent", html)
 
+    def send_mfa_reset_email(self, user, token):
+        """Send MFA reset email. Link expires in 30 minutes."""
+        link = f"{self.base_url}/reset-mfa?token={token}&user_id={user.id}"
+
+        html = self._wrap_html(f"""
+            <h2 style="color: #333; margin-bottom: 12px;">Reset Your Two-Factor Authentication</h2>
+            <p>Hi {user.username},</p>
+            <p>We received a request to disable two-factor authentication on your account. Click the button below to proceed.</p>
+            <div style="text-align: center; margin: 24px 0;">
+                <a href="{link}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Disable 2FA & Log In
+                </a>
+            </div>
+            <p style="font-size: 13px; color: #666;">This link expires in 30 minutes. If you did not request this, please contact support immediately as your account may be at risk.</p>
+        """)
+
+        return self.send_email(user.email, "Reset Two-Factor Authentication - DevOps Agent", html)
+
     def send_payment_failed_warning(self, user):
         """Warn user about failed payment."""
         html = self._wrap_html(f"""

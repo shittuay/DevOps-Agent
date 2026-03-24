@@ -349,6 +349,15 @@
                 <a id="toggleBackup" onclick="toggleMode()">Use a backup code instead</a>
             </div>
 
+            <div class="toggle-link">
+                <form method="POST" action="/request-mfa-reset" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
+                    <button type="submit" style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:14px;text-decoration:underline;padding:0;">
+                        Lost access to your authenticator?
+                    </button>
+                </form>
+            </div>
+
             <div class="back-link">
                 <a href="/login">Back to login</a>
             </div>
