@@ -21,10 +21,38 @@ if _flask_env == 'production' or _use_aws:
                 break
 else:
     from dotenv import load_dotenv
-    for _env_path in ['config/.env', '.env']:
-        if os.path.exists(_env_path):
-            load_dotenv(_env_path, override=False)
+    # config/.env is authoritative — override=True ensures it always wins over shell env vars
+    if os.path.exists('config/.env'):
+        load_dotenv('config/.env', override=True)
+    elif os.path.exists('.env'):
+        load_dotenv('.env', override=True)
 # --- End early secrets initialization ---
+
+# --- Startup validation: fail fast if critical Stripe config is missing/wrong ---
+def _validate_stripe_config():
+    required = {
+        'STRIPE_SECRET_KEY': 'sk_live_ or sk_test_',
+        'STRIPE_WEBHOOK_SECRET': 'whsec_',
+        'STRIPE_PRICE_STARTER': 'price_',
+        'STRIPE_PRICE_PROFESSIONAL': 'price_',
+        'STRIPE_PRICE_BUSINESS': 'price_',
+        'STRIPE_PRICE_PACK_100': 'price_',
+    }
+    errors = []
+    for var, prefix in required.items():
+        val = os.environ.get(var, '')
+        if not val:
+            errors.append(f"  MISSING: {var}")
+        elif not val.startswith(prefix.split(' ')[0]):
+            errors.append(f"  WRONG FORMAT: {var}={val[:30]}... (expected prefix: {prefix})")
+    if errors:
+        print("\n[STARTUP ERROR] Stripe config invalid — check config/.env:\n" + "\n".join(errors))
+        print(f"  STRIPE_PRICE_STARTER currently={os.environ.get('STRIPE_PRICE_STARTER', 'NOT SET')}")
+        print(f"  STRIPE_PRICE_PROFESSIONAL currently={os.environ.get('STRIPE_PRICE_PROFESSIONAL', 'NOT SET')}")
+        print(f"  STRIPE_PRICE_BUSINESS currently={os.environ.get('STRIPE_PRICE_BUSINESS', 'NOT SET')}\n")
+
+_validate_stripe_config()
+# --- End startup validation ---
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file, g
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user

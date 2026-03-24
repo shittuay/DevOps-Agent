@@ -390,6 +390,7 @@ def api_conversion_funnel():
         )
         .filter(
             ConversionEvent.created_at >= since,
+            ConversionEvent.user_id == current_user.id,
         )
         .group_by(ConversionEvent.event_type)
         .all()
