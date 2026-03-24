@@ -10,27 +10,39 @@ api_gateway_bp = Blueprint('api_gateway', __name__, url_prefix='/api-gateway')
 
 
 def api_key_required(f):
-    """Decorator to validate API key for external API endpoints"""
+    """Decorator to validate API key and inject X-RateLimit-* headers."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         from services.api_gateway import APIGatewayService
 
         api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
         if not api_key:
-            return jsonify({'error': 'API key required'}), 401
+            return jsonify({'error': 'API key required', 'docs': '/developers'}), 401
 
         service = APIGatewayService()
         key_record = service.get_api_key_by_key(api_key)
 
         if not key_record:
-            return jsonify({'error': 'Invalid API key'}), 401
+            return jsonify({'error': 'Invalid API key', 'docs': '/developers'}), 401
 
-        allowed, _ = service.check_rate_limit(key_record)
+        allowed, rate_info = service.check_rate_limit(key_record)
         if not allowed:
-            return jsonify({'error': 'Rate limit exceeded'}), 429
+            resp = jsonify({'error': 'Rate limit exceeded', 'retry_after': rate_info.get('retry_after', 3600)})
+            resp.status_code = 429
+            resp.headers['X-RateLimit-Limit'] = str(rate_info.get('limit', 1000))
+            resp.headers['X-RateLimit-Remaining'] = '0'
+            resp.headers['Retry-After'] = str(rate_info.get('retry_after', 3600))
+            return resp
 
         request.api_key = key_record
-        return f(*args, **kwargs)
+        request._rate_info = rate_info
+        response = f(*args, **kwargs)
+
+        # Inject rate limit headers into every successful response
+        if hasattr(response, 'headers'):
+            response.headers['X-RateLimit-Limit'] = str(rate_info.get('limit', 1000))
+            response.headers['X-RateLimit-Remaining'] = str(rate_info.get('remaining', 0))
+        return response
     return decorated_function
 
 
@@ -375,12 +387,301 @@ def api_create_incident():
 
 @api_gateway_bp.route('/v1/health', methods=['GET'])
 def api_health():
-    """External API: Health check"""
+    """External API: Health check — no auth required."""
     return jsonify({
         'status': 'healthy',
         'version': '1.0.0',
-        'timestamp': time.time()
+        'timestamp': time.time(),
+        'docs': '/developers',
     })
+
+
+@api_gateway_bp.route('/v1/conversations', methods=['GET'])
+@api_key_required
+def api_list_conversations():
+    """List the authenticated user's API conversations.
+
+    Query params:
+      limit  (int, default 20, max 100)
+      offset (int, default 0)
+
+    Response:
+      { "conversations": [{ "id", "title", "message_count", "updated_at" }],
+        "total": N }
+    """
+    from models import Conversation
+    api_key_record = request.api_key
+    user_id = api_key_record.user_id
+
+    try:
+        limit = min(int(request.args.get('limit', 20)), 100)
+        offset = max(int(request.args.get('offset', 0)), 0)
+    except ValueError:
+        return jsonify({'error': 'limit and offset must be integers'}), 400
+
+    # Only return conversations created via API (prefixed with 'api-')
+    query = Conversation.query.filter(
+        Conversation.user_id == user_id,
+        Conversation.conversation_id.like('api-%')
+    )
+    total = query.count()
+    convs = query.order_by(Conversation.updated_at.desc()).offset(offset).limit(limit).all()
+
+    return jsonify({
+        'conversations': [
+            {
+                'id': c.conversation_id,
+                'title': c.title or c.conversation_id,
+                'message_count': c.message_count if hasattr(c, 'message_count') else 0,
+                'updated_at': c.updated_at.isoformat() if c.updated_at else None,
+            }
+            for c in convs
+        ],
+        'total': total,
+        'limit': limit,
+        'offset': offset,
+    })
+
+
+@api_gateway_bp.route('/v1/tools', methods=['GET'])
+@api_key_required
+def api_list_tools():
+    """List all available DevOps tools.
+
+    Query params:
+      provider  (aws | k8s | azure | gcp)  — filter by provider
+      search    (string)                    — filter by name keyword
+
+    Response:
+      { "tools": [{ "name", "description", "provider" }], "total": N }
+    """
+    from flask import current_app
+    try:
+        from src.tools.aws_tools import get_tools as aws_tools
+        from src.tools.kubernetes_tools import get_tools as k8s_tools
+        from src.tools.azure_tools import get_tools as azure_tools
+        from src.tools.gcp_tools import get_tools as gcp_tools
+    except Exception as e:
+        return jsonify({'error': f'Could not load tools: {e}'}), 500
+
+    all_tools = (
+        [{'name': t['name'], 'description': t['description'], 'provider': 'aws'} for t in aws_tools()] +
+        [{'name': t['name'], 'description': t['description'], 'provider': 'k8s'} for t in k8s_tools()] +
+        [{'name': t['name'], 'description': t['description'], 'provider': 'azure'} for t in azure_tools()] +
+        [{'name': t['name'], 'description': t['description'], 'provider': 'gcp'} for t in gcp_tools()]
+    )
+
+    provider_filter = request.args.get('provider', '').lower()
+    search = request.args.get('search', '').lower()
+
+    if provider_filter:
+        all_tools = [t for t in all_tools if t['provider'] == provider_filter]
+    if search:
+        all_tools = [t for t in all_tools if search in t['name'].lower() or search in t['description'].lower()]
+
+    return jsonify({'tools': all_tools, 'total': len(all_tools)})
+
+
+@api_gateway_bp.route('/v1/execute', methods=['POST'])
+@api_key_required
+def api_execute_tool():
+    """Execute a specific DevOps tool directly (no AI layer).
+
+    Requires Professional or Business tier.
+
+    Request body:
+      {
+        "tool": "list_ec2_instances",
+        "params": { "region": "us-east-1" }
+      }
+
+    Response:
+      { "result": { ... }, "tool": "list_ec2_instances", "credits_remaining": N }
+    """
+    from flask import current_app
+    from models import db, UserSubscription, UsageLog
+
+    api_key_record = request.api_key
+    user_id = api_key_record.user_id
+
+    sub = UserSubscription.query.filter_by(user_id=user_id).first()
+    tier_name = sub.tier.name if (sub and sub.tier) else 'free'
+    if tier_name not in ('professional', 'business'):
+        return jsonify({
+            'error': 'api_access_restricted',
+            'message': 'Direct tool execution requires Professional ($99/mo) or Business ($299/mo).',
+            'upgrade_url': '/billing'
+        }), 403
+
+    if not sub.has_credits():
+        return jsonify({'error': 'insufficient_credits', 'credits_remaining': 0}), 402
+
+    data = request.get_json(silent=True) or {}
+    tool_name = (data.get('tool') or '').strip()
+    params = data.get('params') or {}
+
+    if not tool_name:
+        return jsonify({'error': 'tool is required'}), 400
+    if not isinstance(params, dict):
+        return jsonify({'error': 'params must be an object'}), 400
+
+    # Find the tool handler
+    from src.tools.aws_tools import get_tools as aws_tools
+    from src.tools.kubernetes_tools import get_tools as k8s_tools
+    from src.tools.azure_tools import get_tools as azure_tools
+    from src.tools.gcp_tools import get_tools as gcp_tools
+
+    all_tools = {}
+    for t in aws_tools() + k8s_tools() + azure_tools() + gcp_tools():
+        all_tools[t['name']] = t
+
+    if tool_name not in all_tools:
+        return jsonify({'error': f'Unknown tool: {tool_name}. See GET /v1/tools for available tools.'}), 404
+
+    try:
+        result = all_tools[tool_name]['handler'](**params)
+    except TypeError as e:
+        return jsonify({'error': f'Invalid params for {tool_name}: {e}'}), 400
+    except Exception as e:
+        current_app.logger.error(f"Tool execution error {tool_name}: {e}", exc_info=True)
+        return jsonify({'error': f'Tool execution failed: {e}'}), 500
+
+    db.session.add(UsageLog(
+        user_id=user_id, action_type='api_tool_use',
+        tool_name=tool_name, credits_used=1, success=True,
+    ))
+    sub.use_credit(commit=False)
+    db.session.commit()
+
+    return jsonify({
+        'result': result,
+        'tool': tool_name,
+        'credits_remaining': sub.credits_remaining,
+    })
+
+
+@api_gateway_bp.route('/v1/agent/stream', methods=['POST'])
+@api_key_required
+def api_agent_stream():
+    """Stream an agent response via Server-Sent Events.
+
+    Requires Professional or Business tier.
+
+    Request body:  same as POST /v1/agent
+    SSE events:
+      data: {"type": "chunk",   "content": "..."}
+      data: {"type": "tool",    "name": "list_ec2_instances"}
+      data: {"type": "done",    "tools_used": [...], "credits_remaining": N, "conversation_id": "..."}
+      data: {"type": "error",   "message": "..."}
+    """
+    from flask import Response, current_app, stream_with_context
+    from models import db, UserSubscription, UsageLog, ChatMessage
+    import json as _json
+    import re
+
+    api_key_record = request.api_key
+    user_id = api_key_record.user_id
+
+    sub = UserSubscription.query.filter_by(user_id=user_id).first()
+    tier_name = sub.tier.name if (sub and sub.tier) else 'free'
+    if tier_name not in ('professional', 'business'):
+        def _err():
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Developer API requires Professional or Business plan.'})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    if not sub.has_credits():
+        def _err():
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Insufficient credits.'})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        def _err():
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'message is required'})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    from services.input_sanitizer import validate_message
+    is_valid, reason = validate_message(message)
+    if not is_valid:
+        def _err():
+            yield f"data: {_json.dumps({'type': 'error', 'message': reason})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    raw_conv_id = data.get('conversation_id')
+    if raw_conv_id and isinstance(raw_conv_id, str) and re.match(r'^[a-zA-Z0-9_-]{1,64}$', raw_conv_id):
+        conversation_id = raw_conv_id if raw_conv_id.startswith('api-') else f'api-{raw_conv_id}'
+    else:
+        conversation_id = f'api-{api_key_record.id}-default'
+
+    history_rows = ChatMessage.query.filter_by(
+        user_id=user_id, conversation_id=conversation_id
+    ).order_by(ChatMessage.created_at.desc()).limit(20).all()
+    history = [{'role': r.role, 'content': r.content} for r in reversed(history_rows)]
+
+    agent_instance = current_app.config.get('DEVOPS_AGENT')
+    if not agent_instance:
+        def _err():
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Agent not initialized'})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    from services.model_router import resolve_model_with_preference
+    from models import UserPreferences
+    prefs = UserPreferences.query.filter_by(user_id=user_id).first()
+    prefs_provider = getattr(prefs, 'preferred_model_provider', None) if prefs else None
+    model_config = resolve_model_with_preference(tier_name, prefs_provider)
+
+    def generate():
+        try:
+            full_response = []
+            for chunk in agent_instance.process_message_streaming(
+                user_message=message,
+                conversation_history=history,
+                user_id=user_id,
+                provider=model_config.provider if model_config.provider == 'kimi' else None,
+                model_override=model_config.model,
+            ):
+                if isinstance(chunk, dict):
+                    if chunk.get('type') == 'tool_use':
+                        yield f"data: {_json.dumps({'type': 'tool', 'name': chunk.get('name', '')})}\n\n"
+                    elif chunk.get('type') == 'text':
+                        text = chunk.get('text', '')
+                        full_response.append(text)
+                        yield f"data: {_json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                elif isinstance(chunk, str):
+                    full_response.append(chunk)
+                    yield f"data: {_json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+
+            response_text = ''.join(full_response)
+            tools_used = getattr(agent_instance, 'last_tools_used', [])
+
+            with current_app.app_context():
+                from models import db, ChatMessage, UsageLog, UserSubscription
+                _sub = UserSubscription.query.filter_by(user_id=user_id).first()
+                db.session.add(ChatMessage(user_id=user_id, conversation_id=conversation_id, role='user', content=message))
+                db.session.add(ChatMessage(user_id=user_id, conversation_id=conversation_id, role='assistant', content=response_text))
+                db.session.add(UsageLog(user_id=user_id, conversation_id=conversation_id,
+                    action_type='api_tool_use' if tools_used else 'api_message',
+                    tool_name=tools_used[0] if tools_used else None,
+                    credits_used=1, success=True, ai_model=model_config.model))
+                _sub.use_credit(commit=False)
+                db.session.commit()
+                credits_left = _sub.credits_remaining
+
+            yield f"data: {_json.dumps({'type': 'done', 'tools_used': tools_used, 'credits_remaining': credits_left, 'conversation_id': conversation_id})}\n\n"
+
+        except Exception as e:
+            current_app.logger.error(f"API stream error for user {user_id}: {e}", exc_info=True)
+            yield f"data: {_json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        }
+    )
 
 
 @api_gateway_bp.route('/v1/agent', methods=['POST'])

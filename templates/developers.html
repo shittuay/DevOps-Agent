@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Developer API — DevOps Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.2;
+            pointer-events: none;
+        }
+
+        /* Nav */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 32px;
+            height: 60px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .topbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+
+        .brand-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--gradient-primary);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(255,107,53,0.35);
+        }
+
+        .brand-name {
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 18px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-electric));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .topbar-links {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .topbar-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .topbar-links a:hover { color: var(--text-primary); }
+
+        .btn-getkey {
+            padding: 8px 18px;
+            background: var(--gradient-primary);
+            color: #fff;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            text-decoration: none;
+            box-shadow: 0 4px 12px rgba(255,107,53,0.35);
+            transition: all 0.2s;
+        }
+
+        .btn-getkey:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(255,107,53,0.5);
+        }
+
+        /* Layout */
+        .page {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            min-height: calc(100vh - 60px);
+            position: relative;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: sticky;
+            top: 60px;
+            height: calc(100vh - 60px);
+            overflow-y: auto;
+            padding: 32px 0;
+            border-right: 1px solid var(--glass-border);
+            background: var(--bg-secondary);
+        }
+
+        .sidebar-section {
+            padding: 0 20px;
+            margin-bottom: 28px;
+        }
+
+        .sidebar-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+        }
+
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 10px;
+            border-radius: 7px;
+            text-decoration: none;
+            font-size: 13.5px;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+
+        .sidebar-link:hover {
+            background: var(--glass-bg);
+            color: var(--text-primary);
+        }
+
+        .sidebar-link.active {
+            background: rgba(255,107,53,0.12);
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        .method-badge {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .method-get  { background: rgba(0,212,255,0.15); color: var(--accent-electric); }
+        .method-post { background: rgba(0,210,120,0.15); color: #00d278; }
+
+        /* Main content */
+        .content {
+            padding: 48px 64px;
+            max-width: 900px;
+        }
+
+        /* Hero */
+        .hero {
+            margin-bottom: 64px;
+        }
+
+        .hero-eyebrow {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--accent-primary);
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        .hero h1 {
+            font-family: 'Syne', sans-serif;
+            font-size: 42px;
+            font-weight: 800;
+            line-height: 1.15;
+            margin-bottom: 16px;
+        }
+
+        .hero p {
+            font-size: 17px;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin-bottom: 28px;
+        }
+
+        .hero-badges {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .badge-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .badge-dot.green  { background: #00d278; box-shadow: 0 0 6px #00d278; }
+        .badge-dot.orange { background: var(--accent-primary); }
+        .badge-dot.blue   { background: var(--accent-electric); }
+
+        /* Sections */
+        .section {
+            margin-bottom: 64px;
+            scroll-margin-top: 80px;
+        }
+
+        .section-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+
+        .section-desc {
+            color: var(--text-secondary);
+            font-size: 15px;
+            margin-bottom: 24px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 14px;
+            padding: 24px 28px;
+            margin-bottom: 16px;
+        }
+
+        /* Code blocks */
+        pre, code {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+        }
+
+        .code-block {
+            position: relative;
+            background: var(--bg-elevated);
+            border: 1px solid var(--glass-border);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+
+        .code-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .code-lang {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--text-tertiary);
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .copy-btn {
+            background: none;
+            border: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'IBM Plex Mono', monospace;
+            transition: all 0.15s;
+        }
+
+        .copy-btn:hover {
+            background: var(--glass-bg);
+            color: var(--text-primary);
+        }
+
+        pre {
+            padding: 18px 20px;
+            overflow-x: auto;
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        .hl-comment  { color: var(--text-tertiary); }
+        .hl-string   { color: #a8e890; }
+        .hl-keyword  { color: #c792ea; }
+        .hl-func     { color: #82aaff; }
+        .hl-accent   { color: var(--accent-primary); }
+        .hl-key      { color: var(--accent-electric); }
+
+        /* Endpoint cards */
+        .endpoint {
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 16px 20px;
+            background: var(--glass-bg);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .endpoint-header:hover { background: rgba(255,255,255,0.04); }
+
+        .endpoint-path {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            flex: 1;
+        }
+
+        .endpoint-title {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .auth-required {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 5px;
+            background: rgba(255,107,53,0.12);
+            color: var(--accent-primary);
+            border: 1px solid rgba(255,107,53,0.25);
+            white-space: nowrap;
+        }
+
+        .auth-public {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 5px;
+            background: rgba(0,212,255,0.08);
+            color: var(--accent-electric);
+            border: 1px solid rgba(0,212,255,0.2);
+            white-space: nowrap;
+        }
+
+        .tier-badge {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 5px;
+            background: rgba(124,77,255,0.15);
+            color: #b39ddb;
+            border: 1px solid rgba(124,77,255,0.25);
+            white-space: nowrap;
+        }
+
+        .endpoint-body {
+            display: none;
+            padding: 20px;
+            border-top: 1px solid var(--glass-border);
+            background: var(--bg-secondary);
+        }
+
+        .endpoint-body.open { display: block; }
+
+        .param-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 13.5px;
+        }
+
+        .param-table th {
+            text-align: left;
+            padding: 8px 12px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .param-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            vertical-align: top;
+        }
+
+        .param-name {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--accent-electric);
+        }
+
+        .param-type {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--text-tertiary);
+        }
+
+        .param-required {
+            font-size: 11px;
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        /* Tab system */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: -1px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            font-size: 13px;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-radius: 7px 7px 0 0;
+            transition: all 0.15s;
+        }
+
+        .tab:hover { color: var(--text-secondary); }
+
+        .tab.active {
+            background: var(--bg-elevated);
+            border-color: var(--glass-border);
+            color: var(--text-primary);
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Divider */
+        .divider {
+            height: 1px;
+            background: var(--glass-border);
+            margin: 40px 0;
+        }
+
+        /* Info box */
+        .info-box {
+            display: flex;
+            gap: 14px;
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .info-box-note {
+            background: rgba(0,212,255,0.08);
+            border: 1px solid rgba(0,212,255,0.2);
+            color: var(--text-secondary);
+        }
+
+        .info-box-warn {
+            background: rgba(255,107,53,0.08);
+            border: 1px solid rgba(255,107,53,0.2);
+            color: var(--text-secondary);
+        }
+
+        .info-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        /* Rate limit table */
+        .tier-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .tier-table th {
+            text-align: left;
+            padding: 10px 14px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .tier-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .tier-name {
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Scrollbar */
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-track { background: transparent; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 2px; }
+
+        @media (max-width: 900px) {
+            .page { grid-template-columns: 1fr; }
+            .sidebar { display: none; }
+            .content { padding: 32px 24px; }
+            .hero h1 { font-size: 30px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Top navigation -->
+<nav class="topbar">
+    <a href="/" class="topbar-brand">
+        <div class="brand-icon">D</div>
+        <div class="brand-name">DevOps Agent</div>
+    </a>
+    <div class="topbar-links">
+        <a href="/docs">Docs</a>
+        <a href="/status">Status</a>
+        <a href="/login">Sign in</a>
+        <a href="/api-gateway/keys" class="btn-getkey">Get API Key</a>
+    </div>
+</nav>
+
+<div class="page">
+
+    <!-- Sidebar nav -->
+    <aside class="sidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-label">Getting Started</div>
+            <a href="#overview" class="sidebar-link">Overview</a>
+            <a href="#authentication" class="sidebar-link">Authentication</a>
+            <a href="#rate-limits" class="sidebar-link">Rate Limits</a>
+            <a href="#errors" class="sidebar-link">Error Codes</a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">Agent</div>
+            <a href="#agent" class="sidebar-link">
+                <span class="method-badge method-post">POST</span> /v1/agent
+            </a>
+            <a href="#agent-stream" class="sidebar-link">
+                <span class="method-badge method-post">POST</span> /v1/agent/stream
+            </a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">Tools</div>
+            <a href="#tools-list" class="sidebar-link">
+                <span class="method-badge method-get">GET</span> /v1/tools
+            </a>
+            <a href="#execute" class="sidebar-link">
+                <span class="method-badge method-post">POST</span> /v1/execute
+            </a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">Conversations</div>
+            <a href="#conversations" class="sidebar-link">
+                <span class="method-badge method-get">GET</span> /v1/conversations
+            </a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">Resources</div>
+            <a href="#resources" class="sidebar-link">
+                <span class="method-badge method-get">GET</span> /v1/resources
+            </a>
+            <a href="#incidents" class="sidebar-link">
+                <span class="method-badge method-get">GET</span> /v1/incidents
+            </a>
+            <a href="#costs" class="sidebar-link">
+                <span class="method-badge method-get">GET</span> /v1/analytics/costs
+            </a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">System</div>
+            <a href="#health" class="sidebar-link">
+                <span class="method-badge method-get">GET</span> /v1/health
+            </a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">SDKs &amp; Examples</div>
+            <a href="#sdk-python" class="sidebar-link">Python</a>
+            <a href="#sdk-nodejs" class="sidebar-link">Node.js</a>
+            <a href="#sdk-curl" class="sidebar-link">curl</a>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="content">
+
+        <!-- Hero -->
+        <section class="hero" id="overview">
+            <div class="hero-eyebrow">Developer API · v1</div>
+            <h1>Build on DevOps Agent</h1>
+            <p>
+                Access 258 cloud infrastructure tools and a full AI DevOps agent
+                programmatically. Automate AWS, Kubernetes, Azure, and GCP operations
+                from your own code.
+            </p>
+            <div class="hero-badges">
+                <span class="badge"><span class="badge-dot green"></span>API v1 — Live</span>
+                <span class="badge"><span class="badge-dot orange"></span>258 tools</span>
+                <span class="badge"><span class="badge-dot blue"></span>SSE streaming</span>
+            </div>
+        </section>
+
+        <!-- Authentication -->
+        <section class="section" id="authentication">
+            <h2 class="section-title">Authentication</h2>
+            <p class="section-desc">
+                Every API request (except <code>/v1/health</code>) requires an API key passed
+                in the <code>X-API-Key</code> header. Generate keys in your
+                <a href="/api-gateway/keys" style="color:var(--accent-electric);">API Gateway dashboard</a>.
+            </p>
+
+            <div class="info-box info-box-note">
+                <span class="info-icon">i</span>
+                <span>API keys are scoped to your account. All data returned is isolated to your credentials — you can never read another user's infrastructure or conversations.</span>
+            </div>
+
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">HTTP HEADER</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre>X-API-Key: doa_live_xxxxxxxxxxxxxxxxxxxxxxxx</pre>
+            </div>
+
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">CURL</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+<pre><span class="hl-func">curl</span> https://devopsagent.io/api-gateway/v1/agent \
+  -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{"message": "List all EC2 instances in us-east-1"}'</span></pre>
+            </div>
+
+            <h3 style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;margin:24px 0 8px;">Response headers</h3>
+            <p style="color:var(--text-secondary);font-size:14px;margin-bottom:14px;">
+                Every authenticated response includes rate-limit headers so you can track consumption.
+            </p>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">RESPONSE HEADERS</span>
+                </div>
+<pre>X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 986
+<span class="hl-comment"># On 429 — amount of seconds to wait before retrying</span>
+Retry-After: 3600</pre>
+            </div>
+        </section>
+
+        <!-- Rate Limits -->
+        <section class="section" id="rate-limits">
+            <h2 class="section-title">Rate Limits</h2>
+            <p class="section-desc">
+                Rate limits are enforced per API key. Exceeding the limit returns
+                <code>HTTP 429</code> with a <code>Retry-After</code> header.
+            </p>
+            <div class="card" style="padding:0;overflow:hidden;">
+                <table class="tier-table">
+                    <thead>
+                        <tr>
+                            <th>Plan</th>
+                            <th>Requests / day</th>
+                            <th>Agent access</th>
+                            <th>Direct execute</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="tier-name">Free</span></td>
+                            <td style="color:var(--text-secondary);">—</td>
+                            <td style="color:var(--text-tertiary);">No API access</td>
+                            <td style="color:var(--text-tertiary);">No API access</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tier-name">Starter</span> <small style="color:var(--text-tertiary);">$29/mo</small></td>
+                            <td style="color:var(--text-secondary);">Key rate limit</td>
+                            <td style="color:var(--text-tertiary);">Read-only endpoints only</td>
+                            <td style="color:var(--text-tertiary);">—</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tier-name">Professional</span> <small style="color:var(--text-tertiary);">$99/mo</small></td>
+                            <td style="color:var(--text-secondary);">Key rate limit</td>
+                            <td style="color:#00d278;">Full agent + streaming</td>
+                            <td style="color:#00d278;">Yes</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tier-name">Business</span> <small style="color:var(--text-tertiary);">$299/mo</small></td>
+                            <td style="color:var(--text-secondary);">Key rate limit</td>
+                            <td style="color:#00d278;">Full agent + streaming</td>
+                            <td style="color:#00d278;">Yes</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Error Codes -->
+        <section class="section" id="errors">
+            <h2 class="section-title">Error Codes</h2>
+            <div class="card" style="padding:0;overflow:hidden;">
+                <table class="tier-table">
+                    <thead>
+                        <tr><th>HTTP</th><th>Code</th><th>Meaning</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent-electric);">401</td>
+                            <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">API key required / Invalid API key</td>
+                            <td style="color:var(--text-secondary);font-size:14px;">Missing or invalid <code>X-API-Key</code> header</td>
+                        </tr>
+                        <tr>
+                            <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent-primary);">402</td>
+                            <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">insufficient_credits</td>
+                            <td style="color:var(--text-secondary);font-size:14px;">Account has no credits remaining</td>
+                        </tr>
+                        <tr>
+                            <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent-primary);">403</td>
+                            <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">api_access_restricted</td>
+                            <td style="color:var(--text-secondary);font-size:14px;">Endpoint requires Professional or Business plan</td>
+                        </tr>
+                        <tr>
+                            <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent-electric);">404</td>
+                            <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">Resource / tool not found</td>
+                            <td style="color:var(--text-secondary);font-size:14px;">The requested entity does not exist</td>
+                        </tr>
+                        <tr>
+                            <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent-primary);">429</td>
+                            <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">Rate limit exceeded</td>
+                            <td style="color:var(--text-secondary);font-size:14px;">Check <code>Retry-After</code> header</td>
+                        </tr>
+                        <tr>
+                            <td style="font-family:'IBM Plex Mono',monospace;color:#ef4444;">500</td>
+                            <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">Agent error / Tool execution failed</td>
+                            <td style="color:var(--text-secondary);font-size:14px;">See <code>detail</code> field in response body</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <!-- Agent endpoint -->
+        <section class="section" id="agent">
+            <h2 class="section-title">Run the Agent</h2>
+            <p class="section-desc">Send a natural-language DevOps request and get a structured response with tools used and credits consumed.</p>
+
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-post">POST</span>
+                    <span class="endpoint-path">/api-gateway/v1/agent</span>
+                    <span class="endpoint-title">Run AI DevOps agent</span>
+                    <span class="auth-required">API key required</span>
+                    <span class="tier-badge">Professional+</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px;">
+                        Processes your message through the full DevOps agent — the AI decides which tools to call, calls them against your cloud credentials, and returns a complete response.
+                    </p>
+
+                    <h4 style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Request body</h4>
+                    <table class="param-table">
+                        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="param-name">message</span></td>
+                                <td><span class="param-type">string</span></td>
+                                <td><span class="param-required">required</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;">Natural language DevOps instruction. Max 10,000 chars.</td>
+                            </tr>
+                            <tr>
+                                <td><span class="param-name">conversation_id</span></td>
+                                <td><span class="param-type">string</span></td>
+                                <td style="color:var(--text-tertiary);font-size:12px;">optional</td>
+                                <td style="color:var(--text-secondary);font-size:13px;">Alphanumeric string (max 64 chars) to continue a conversation thread. Prefix <code>api-</code> is added automatically.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">REQUEST</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+<pre>{
+  <span class="hl-key">"message"</span>: <span class="hl-string">"List all EC2 instances in us-east-1 and flag any that have been stopped for over 7 days"</span>,
+  <span class="hl-key">"conversation_id"</span>: <span class="hl-string">"my-session-01"</span>
+}</pre>
+                    </div>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">RESPONSE 200</span>
+                        </div>
+<pre>{
+  <span class="hl-key">"response"</span>: <span class="hl-string">"Found 8 EC2 instances in us-east-1. 2 instances have been stopped for over 7 days: i-0abc (stopped 14 days), i-0def (stopped 9 days). Recommend terminating or snapshotting these."</span>,
+  <span class="hl-key">"tools_used"</span>: [<span class="hl-string">"list_ec2_instances"</span>, <span class="hl-string">"describe_ec2_instance"</span>],
+  <span class="hl-key">"credits_remaining"</span>: 47,
+  <span class="hl-key">"conversation_id"</span>: <span class="hl-string">"api-my-session-01"</span>
+}</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Agent stream -->
+        <section class="section" id="agent-stream">
+            <h2 class="section-title">Streaming Agent (SSE)</h2>
+            <p class="section-desc">
+                Same as <code>/v1/agent</code> but streams the response token-by-token via
+                Server-Sent Events. Ideal for building real-time CLIs and terminal UIs.
+            </p>
+
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-post">POST</span>
+                    <span class="endpoint-path">/api-gateway/v1/agent/stream</span>
+                    <span class="endpoint-title">Stream agent response via SSE</span>
+                    <span class="auth-required">API key required</span>
+                    <span class="tier-badge">Professional+</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px;">
+                        Set <code>Accept: text/event-stream</code>. The connection stays open and emits events as the agent thinks, calls tools, and generates its response.
+                    </p>
+
+                    <h4 style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">SSE event types</h4>
+                    <table class="param-table">
+                        <thead><tr><th>Type</th><th>Payload</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="param-name">chunk</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;"><code>{"type":"chunk","content":"..."}</code> — text token</td>
+                            </tr>
+                            <tr>
+                                <td><span class="param-name">tool</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;"><code>{"type":"tool","name":"list_ec2_instances"}</code> — tool call started</td>
+                            </tr>
+                            <tr>
+                                <td><span class="param-name">done</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;"><code>{"type":"done","tools_used":[...],"credits_remaining":N,"conversation_id":"..."}</code></td>
+                            </tr>
+                            <tr>
+                                <td><span class="param-name">error</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;"><code>{"type":"error","message":"..."}</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">PYTHON (SSE)</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+<pre><span class="hl-keyword">import</span> httpx, json
+
+<span class="hl-keyword">with</span> httpx.stream(
+    <span class="hl-string">"POST"</span>,
+    <span class="hl-string">"https://devopsagent.io/api-gateway/v1/agent/stream"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: <span class="hl-string">"doa_live_xxxx"</span>},
+    json={<span class="hl-string">"message"</span>: <span class="hl-string">"Scale the payments deployment to 5 replicas"</span>},
+) <span class="hl-keyword">as</span> r:
+    <span class="hl-keyword">for</span> line <span class="hl-keyword">in</span> r.iter_lines():
+        <span class="hl-keyword">if</span> line.startswith(<span class="hl-string">"data: "</span>):
+            event = json.loads(line[6:])
+            <span class="hl-keyword">if</span> event[<span class="hl-string">"type"</span>] == <span class="hl-string">"chunk"</span>:
+                <span class="hl-func">print</span>(event[<span class="hl-string">"content"</span>], end=<span class="hl-string">""</span>, flush=<span class="hl-keyword">True</span>)
+            <span class="hl-keyword">elif</span> event[<span class="hl-string">"type"</span>] == <span class="hl-string">"tool"</span>:
+                <span class="hl-func">print</span>(<span class="hl-string">f"\n[tool] {event['name']}"</span>)
+            <span class="hl-keyword">elif</span> event[<span class="hl-string">"type"</span>] == <span class="hl-string">"done"</span>:
+                <span class="hl-func">print</span>(<span class="hl-string">f"\n\nCredits left: {event['credits_remaining']}"</span>)</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <!-- Tools list -->
+        <section class="section" id="tools-list">
+            <h2 class="section-title">List Tools</h2>
+            <p class="section-desc">Browse all 258 available DevOps tools. Filter by provider or keyword.</p>
+
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-get">GET</span>
+                    <span class="endpoint-path">/api-gateway/v1/tools</span>
+                    <span class="endpoint-title">List all available tools</span>
+                    <span class="auth-required">API key required</span>
+                </div>
+                <div class="endpoint-body">
+                    <h4 style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Query parameters</h4>
+                    <table class="param-table">
+                        <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="param-name">provider</span></td>
+                                <td><span class="param-type">string</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;">Filter by cloud: <code>aws</code>, <code>k8s</code>, <code>azure</code>, <code>gcp</code></td>
+                            </tr>
+                            <tr>
+                                <td><span class="param-name">search</span></td>
+                                <td><span class="param-type">string</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;">Keyword filter on tool name or description</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">RESPONSE 200</span>
+                        </div>
+<pre>{
+  <span class="hl-key">"tools"</span>: [
+    {<span class="hl-key">"name"</span>: <span class="hl-string">"list_ec2_instances"</span>, <span class="hl-key">"description"</span>: <span class="hl-string">"List all EC2 instances..."</span>, <span class="hl-key">"provider"</span>: <span class="hl-string">"aws"</span>},
+    {<span class="hl-key">"name"</span>: <span class="hl-string">"list_pods"</span>, <span class="hl-key">"description"</span>: <span class="hl-string">"List pods in a namespace"</span>, <span class="hl-key">"provider"</span>: <span class="hl-string">"k8s"</span>},
+    ...
+  ],
+  <span class="hl-key">"total"</span>: 258
+}</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Execute -->
+        <section class="section" id="execute">
+            <h2 class="section-title">Execute Tool Directly</h2>
+            <p class="section-desc">
+                Skip the AI layer and call a specific tool by name with explicit parameters.
+                Useful for automation pipelines where you know exactly which operation to run.
+            </p>
+
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-post">POST</span>
+                    <span class="endpoint-path">/api-gateway/v1/execute</span>
+                    <span class="endpoint-title">Execute a tool directly</span>
+                    <span class="auth-required">API key required</span>
+                    <span class="tier-badge">Professional+</span>
+                </div>
+                <div class="endpoint-body">
+                    <table class="param-table">
+                        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="param-name">tool</span></td>
+                                <td><span class="param-type">string</span></td>
+                                <td><span class="param-required">required</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;">Tool name (see <code>GET /v1/tools</code>)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="param-name">params</span></td>
+                                <td><span class="param-type">object</span></td>
+                                <td style="color:var(--text-tertiary);font-size:12px;">optional</td>
+                                <td style="color:var(--text-secondary);font-size:13px;">Parameters for the tool. Keys vary by tool.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">REQUEST</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+<pre>{
+  <span class="hl-key">"tool"</span>: <span class="hl-string">"list_ec2_instances"</span>,
+  <span class="hl-key">"params"</span>: {<span class="hl-key">"region"</span>: <span class="hl-string">"us-east-1"</span>}
+}</pre>
+                    </div>
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">RESPONSE 200</span>
+                        </div>
+<pre>{
+  <span class="hl-key">"result"</span>: {<span class="hl-key">"success"</span>: <span class="hl-keyword">true</span>, <span class="hl-key">"instances"</span>: [...]},
+  <span class="hl-key">"tool"</span>: <span class="hl-string">"list_ec2_instances"</span>,
+  <span class="hl-key">"credits_remaining"</span>: 46
+}</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <!-- Conversations -->
+        <section class="section" id="conversations">
+            <h2 class="section-title">Conversations</h2>
+
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-get">GET</span>
+                    <span class="endpoint-path">/api-gateway/v1/conversations</span>
+                    <span class="endpoint-title">List API conversations</span>
+                    <span class="auth-required">API key required</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px;">
+                        Returns conversations created via the API (those with the <code>api-</code> prefix). Web UI conversations are separate.
+                    </p>
+                    <table class="param-table">
+                        <thead><tr><th>Param</th><th>Type</th><th>Default</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="param-name">limit</span></td>
+                                <td><span class="param-type">integer</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;">20 (max 100)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="param-name">offset</span></td>
+                                <td><span class="param-type">integer</span></td>
+                                <td style="color:var(--text-secondary);font-size:13px;">0</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">RESPONSE 200</span></div>
+<pre>{
+  <span class="hl-key">"conversations"</span>: [
+    {<span class="hl-key">"id"</span>: <span class="hl-string">"api-my-session-01"</span>, <span class="hl-key">"title"</span>: <span class="hl-string">"api-my-session-01"</span>, <span class="hl-key">"message_count"</span>: 4, <span class="hl-key">"updated_at"</span>: <span class="hl-string">"2026-03-24T14:22:10"</span>}
+  ],
+  <span class="hl-key">"total"</span>: 1,
+  <span class="hl-key">"limit"</span>: 20,
+  <span class="hl-key">"offset"</span>: 0
+}</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Resources -->
+        <section class="section" id="resources">
+            <h2 class="section-title">Resources</h2>
+
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-get">GET</span>
+                    <span class="endpoint-path">/api-gateway/v1/resources</span>
+                    <span class="endpoint-title">List synced infrastructure resources</span>
+                    <span class="auth-required">API key required</span>
+                </div>
+                <div class="endpoint-body">
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">RESPONSE 200</span></div>
+<pre>{
+  <span class="hl-key">"resources"</span>: [
+    {
+      <span class="hl-key">"id"</span>: 12,
+      <span class="hl-key">"name"</span>: <span class="hl-string">"web-server-prod"</span>,
+      <span class="hl-key">"type"</span>: <span class="hl-string">"ec2_instance"</span>,
+      <span class="hl-key">"provider"</span>: <span class="hl-string">"aws"</span>,
+      <span class="hl-key">"status"</span>: <span class="hl-string">"running"</span>,
+      <span class="hl-key">"region"</span>: <span class="hl-string">"us-east-1"</span>,
+      <span class="hl-key">"created_at"</span>: <span class="hl-string">"2026-02-14T09:30:00"</span>
+    }
+  ]
+}</pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="endpoint" style="margin-top:12px;">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-get">GET</span>
+                    <span class="endpoint-path">/api-gateway/v1/resources/:id</span>
+                    <span class="endpoint-title">Get resource details</span>
+                    <span class="auth-required">API key required</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color:var(--text-secondary);font-size:14px;">Returns full metadata for a single resource including last sync timestamp.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Incidents -->
+        <section class="section" id="incidents">
+            <h2 class="section-title">Incidents</h2>
+
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-get">GET</span>
+                    <span class="endpoint-path">/api-gateway/v1/incidents</span>
+                    <span class="endpoint-title">List incidents</span>
+                    <span class="auth-required">API key required</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color:var(--text-secondary);font-size:14px;margin-bottom:12px;">Filter by <code>?status=open</code> or <code>?status=resolved</code>. Returns up to 100 incidents, newest first.</p>
+                </div>
+            </div>
+
+            <div class="endpoint" style="margin-top:12px;">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-post">POST</span>
+                    <span class="endpoint-path">/api-gateway/v1/incidents</span>
+                    <span class="endpoint-title">Create an incident</span>
+                    <span class="auth-required">API key required</span>
+                </div>
+                <div class="endpoint-body">
+                    <table class="param-table">
+                        <thead><tr><th>Field</th><th>Type</th><th>Required</th></tr></thead>
+                        <tbody>
+                            <tr><td><span class="param-name">title</span></td><td><span class="param-type">string</span></td><td><span class="param-required">required</span></td></tr>
+                            <tr><td><span class="param-name">description</span></td><td><span class="param-type">string</span></td><td style="color:var(--text-tertiary);font-size:12px;">optional</span></td></tr>
+                            <tr><td><span class="param-name">severity</span></td><td><span class="param-type">string</span></td><td style="color:var(--text-tertiary);font-size:12px;">optional (default: medium)</td></tr>
+                        </tbody>
+                    </table>
+                    <p style="color:var(--text-secondary);font-size:13px;">Fires a <code>incident.created</code> webhook event to all registered webhooks.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Costs -->
+        <section class="section" id="costs">
+            <h2 class="section-title">Cost Analytics</h2>
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-get">GET</span>
+                    <span class="endpoint-path">/api-gateway/v1/analytics/costs</span>
+                    <span class="endpoint-title">Get cost analytics</span>
+                    <span class="auth-required">API key required</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color:var(--text-secondary);font-size:14px;margin-bottom:12px;">
+                        Query parameter: <code>?period=30d</code> (1–365 days). Returns aggregated cost data for your connected cloud accounts.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Health -->
+        <section class="section" id="health">
+            <h2 class="section-title">Health Check</h2>
+            <div class="endpoint">
+                <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                    <span class="method-badge method-get">GET</span>
+                    <span class="endpoint-path">/api-gateway/v1/health</span>
+                    <span class="endpoint-title">API health check</span>
+                    <span class="auth-public">Public</span>
+                </div>
+                <div class="endpoint-body">
+                    <p style="color:var(--text-secondary);font-size:14px;margin-bottom:12px;">
+                        No authentication required. Used by load balancers and uptime monitors.
+                    </p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">RESPONSE 200</span></div>
+<pre>{<span class="hl-key">"status"</span>: <span class="hl-string">"healthy"</span>, <span class="hl-key">"version"</span>: <span class="hl-string">"1.0.0"</span>, <span class="hl-key">"timestamp"</span>: 1742823600.0, <span class="hl-key">"docs"</span>: <span class="hl-string">"/developers"</span>}</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <!-- SDK Examples -->
+        <section class="section" id="sdk-python">
+            <h2 class="section-title">SDK Examples</h2>
+            <p class="section-desc">Quick-start examples in Python, Node.js, and curl.</p>
+
+            <div class="tabs" id="sdk-tabs">
+                <div class="tab active" onclick="switchTab('python')">Python</div>
+                <div class="tab" onclick="switchTab('nodejs')">Node.js</div>
+                <div class="tab" onclick="switchTab('curl')">curl</div>
+            </div>
+
+            <div id="tab-python" class="tab-content active">
+                <div class="code-block" style="border-radius:0 10px 10px 10px;">
+                    <div class="code-header">
+                        <span class="code-lang">PYTHON · pip install httpx</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+<pre><span class="hl-keyword">import</span> httpx
+
+API_KEY = <span class="hl-string">"doa_live_xxxx"</span>
+BASE    = <span class="hl-string">"https://devopsagent.io/api-gateway"</span>
+
+<span class="hl-keyword">def</span> <span class="hl-func">ask</span>(message: str, conversation_id: str = <span class="hl-keyword">None</span>) -> dict:
+    resp = httpx.post(
+        f<span class="hl-string">"{BASE}/v1/agent"</span>,
+        headers={<span class="hl-string">"X-API-Key"</span>: API_KEY},
+        json={<span class="hl-string">"message"</span>: message, <span class="hl-string">"conversation_id"</span>: conversation_id},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    <span class="hl-keyword">return</span> resp.json()
+
+
+<span class="hl-comment"># Example: check EKS cluster health</span>
+result = <span class="hl-func">ask</span>(<span class="hl-string">"How many pods are running in the production namespace?"</span>)
+<span class="hl-func">print</span>(result[<span class="hl-string">"response"</span>])
+<span class="hl-func">print</span>(<span class="hl-string">"Tools used:"</span>, result[<span class="hl-string">"tools_used"</span>])
+<span class="hl-func">print</span>(<span class="hl-string">"Credits left:"</span>, result[<span class="hl-string">"credits_remaining"</span>])
+
+
+<span class="hl-comment"># Example: list all AWS tools available</span>
+tools = httpx.get(
+    f<span class="hl-string">"{BASE}/v1/tools"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: API_KEY},
+    params={<span class="hl-string">"provider"</span>: <span class="hl-string">"aws"</span>},
+).json()
+<span class="hl-func">print</span>(<span class="hl-string">f"AWS tools: {tools['total']}"</span>)
+
+
+<span class="hl-comment"># Example: execute a specific tool directly (Professional+ only)</span>
+result = httpx.post(
+    f<span class="hl-string">"{BASE}/v1/execute"</span>,
+    headers={<span class="hl-string">"X-API-Key"</span>: API_KEY},
+    json={<span class="hl-string">"tool"</span>: <span class="hl-string">"list_ec2_instances"</span>, <span class="hl-string">"params"</span>: {<span class="hl-string">"region"</span>: <span class="hl-string">"eu-west-1"</span>}},
+).json()
+<span class="hl-func">print</span>(result[<span class="hl-string">"result"</span>])</pre>
+                </div>
+            </div>
+
+            <div id="tab-nodejs" class="tab-content" id="sdk-nodejs">
+                <div class="code-block" style="border-radius:0 10px 10px 10px;">
+                    <div class="code-header">
+                        <span class="code-lang">NODE.JS · npm install node-fetch</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+<pre><span class="hl-keyword">const</span> fetch = <span class="hl-func">require</span>(<span class="hl-string">'node-fetch'</span>);
+
+<span class="hl-keyword">const</span> API_KEY = <span class="hl-string">'doa_live_xxxx'</span>;
+<span class="hl-keyword">const</span> BASE    = <span class="hl-string">'https://devopsagent.io/api-gateway'</span>;
+
+<span class="hl-comment">// Run the agent</span>
+<span class="hl-keyword">async function</span> <span class="hl-func">ask</span>(message, conversationId) {
+  <span class="hl-keyword">const</span> res = <span class="hl-keyword">await</span> <span class="hl-func">fetch</span>(`${BASE}/v1/agent`, {
+    method: <span class="hl-string">'POST'</span>,
+    headers: {
+      <span class="hl-string">'X-API-Key'</span>: API_KEY,
+      <span class="hl-string">'Content-Type'</span>: <span class="hl-string">'application/json'</span>,
+    },
+    body: <span class="hl-func">JSON.stringify</span>({ message, conversation_id: conversationId }),
+  });
+  <span class="hl-keyword">return</span> res.json();
+}
+
+<span class="hl-comment">// SSE streaming</span>
+<span class="hl-keyword">async function</span> <span class="hl-func">stream</span>(message) {
+  <span class="hl-keyword">const</span> res = <span class="hl-keyword">await</span> <span class="hl-func">fetch</span>(`${BASE}/v1/agent/stream`, {
+    method: <span class="hl-string">'POST'</span>,
+    headers: { <span class="hl-string">'X-API-Key'</span>: API_KEY, <span class="hl-string">'Content-Type'</span>: <span class="hl-string">'application/json'</span> },
+    body: <span class="hl-func">JSON.stringify</span>({ message }),
+  });
+
+  <span class="hl-keyword">for await</span> (<span class="hl-keyword">const</span> chunk <span class="hl-keyword">of</span> res.body) {
+    <span class="hl-keyword">const</span> lines = chunk.toString().split(<span class="hl-string">'\n'</span>);
+    <span class="hl-keyword">for</span> (<span class="hl-keyword">const</span> line <span class="hl-keyword">of</span> lines) {
+      <span class="hl-keyword">if</span> (line.startsWith(<span class="hl-string">'data: '</span>)) {
+        <span class="hl-keyword">const</span> event = <span class="hl-func">JSON.parse</span>(line.slice(6));
+        <span class="hl-keyword">if</span> (event.type === <span class="hl-string">'chunk'</span>) process.stdout.write(event.content);
+        <span class="hl-keyword">else if</span> (event.type === <span class="hl-string">'done'</span>) console.log(<span class="hl-string">'\n✓'</span>, event.credits_remaining, <span class="hl-string">'credits left'</span>);
+      }
+    }
+  }
+}
+
+<span class="hl-func">ask</span>(<span class="hl-string">'How much did my AWS bill cost last month?'</span>).then(console.log);</pre>
+                </div>
+            </div>
+
+            <div id="tab-curl" class="tab-content" id="sdk-curl">
+                <div class="code-block" style="border-radius:0 10px 10px 10px;">
+                    <div class="code-header">
+                        <span class="code-lang">CURL</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+<pre><span class="hl-comment"># Run the agent</span>
+<span class="hl-func">curl</span> -s -X POST https://devopsagent.io/api-gateway/v1/agent \
+  -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{"message":"List all RDS instances and their status"}'</span> | jq .
+
+<span class="hl-comment"># List tools filtered by provider</span>
+<span class="hl-func">curl</span> -s "https://devopsagent.io/api-gateway/v1/tools?provider=gcp" \
+  -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> | jq <span class="hl-string">'.total'</span>
+
+<span class="hl-comment"># Execute a tool directly</span>
+<span class="hl-func">curl</span> -s -X POST https://devopsagent.io/api-gateway/v1/execute \
+  -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{"tool":"list_pods","params":{"namespace":"production"}}'</span> | jq .
+
+<span class="hl-comment"># Create an incident (alert on your own infra events)</span>
+<span class="hl-func">curl</span> -s -X POST https://devopsagent.io/api-gateway/v1/incidents \
+  -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{"title":"High CPU on web-1","severity":"high"}'</span> | jq .
+
+<span class="hl-comment"># Stream the agent response</span>
+<span class="hl-func">curl</span> -s -N -X POST https://devopsagent.io/api-gateway/v1/agent/stream \
+  -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> \
+  -H <span class="hl-string">"Content-Type: application/json"</span> \
+  -d <span class="hl-string">'{"message":"Scale the payments service to 3 replicas"}'</span></pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <div class="divider"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:48px;font-size:13px;color:var(--text-tertiary);">
+            <span>DevOps Agent API v1</span>
+            <div style="display:flex;gap:20px;">
+                <a href="/docs" style="color:var(--text-tertiary);text-decoration:none;">Docs</a>
+                <a href="/api-gateway" style="color:var(--text-tertiary);text-decoration:none;">Dashboard</a>
+                <a href="/status" style="color:var(--text-tertiary);text-decoration:none;">Status</a>
+                <a href="/billing" style="color:var(--text-tertiary);text-decoration:none;">Upgrade</a>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script>
+    function toggleEndpoint(header) {
+        const body = header.nextElementSibling;
+        body.classList.toggle('open');
+    }
+
+    function switchTab(name) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('tab-' + name).classList.add('active');
+    }
+
+    function copyCode(btn) {
+        const pre = btn.closest('.code-block').querySelector('pre');
+        navigator.clipboard.writeText(pre.innerText).then(() => {
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = orig, 1500);
+        });
+    }
+
+    // Highlight active sidebar link on scroll
+    const sections = document.querySelectorAll('.section');
+    const links = document.querySelectorAll('.sidebar-link');
+
+    const observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = '#' + entry.target.id;
+                links.forEach(l => {
+                    l.classList.toggle('active', l.getAttribute('href') === id);
+                });
+            }
+        });
+    }, { threshold: 0.2, rootMargin: '-60px 0px -70% 0px' });
+
+    sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
