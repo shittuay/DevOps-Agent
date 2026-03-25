@@ -550,6 +550,11 @@
       <a href="#incidents" class="sidebar-link">Incident Response</a>
     </div>
     <div class="sidebar-section">
+      <div class="sidebar-heading">Developer API</div>
+      <a href="#developer-api" class="sidebar-link">REST API</a>
+      <a href="#mcp-server" class="sidebar-link">MCP Server</a>
+    </div>
+    <div class="sidebar-section">
       <div class="sidebar-heading">Account</div>
       <a href="#billing" class="sidebar-link">Billing & Plans</a>
       <a href="#security" class="sidebar-link">Security & 2FA</a>
@@ -945,6 +950,137 @@
         <span class="alert-icon">ℹ️</span>
         <span>You can also trigger any playbook manually from the Incidents tab → <strong>Run Playbook</strong>, without waiting for an alert to fire.</span>
       </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Developer API -->
+    <section id="developer-api">
+      <div class="section-badge">Developer</div>
+      <h2 class="section-title">REST API</h2>
+      <p>The DevOps Agent REST API lets you integrate cloud automation directly into your own tools, scripts, and CI/CD pipelines. All endpoints require an API key — generate one from <strong>Settings → Developer → API Keys</strong>.</p>
+
+      <h3 class="subsection-title">Authentication</h3>
+      <p>Pass your API key in the <code>Authorization</code> header on every request:</p>
+      <pre class="code-block">Authorization: Bearer YOUR_API_KEY</pre>
+      <p>Alternatively, use the <code>api_key</code> query parameter for clients that cannot set headers:</p>
+      <pre class="code-block">GET /api-gateway/v1/resources?api_key=YOUR_API_KEY</pre>
+
+      <h3 class="subsection-title">Base URL</h3>
+      <pre class="code-block">https://devopsagent.io/api-gateway/v1</pre>
+
+      <h3 class="subsection-title">Endpoints</h3>
+      <table class="docs-table">
+        <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/resources</code></td><td>List all synced infrastructure resources</td></tr>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/resources/:id</code></td><td>Get a specific resource by ID</td></tr>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/analytics/costs</code></td><td>Cost analytics for the current billing period</td></tr>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/incidents</code></td><td>List all incidents</td></tr>
+          <tr><td><span class="badge badge-cyan">POST</span></td><td><code>/incidents</code></td><td>Create a new incident manually</td></tr>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/health</code></td><td>Health check — no auth required, for load balancers</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Rate limiting</h3>
+      <p>Requests are rate-limited per API key. The current limit and remaining quota are returned on every response:</p>
+      <table class="docs-table">
+        <thead><tr><th>Header</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>X-RateLimit-Limit</code></td><td>Maximum requests allowed per hour</td></tr>
+          <tr><td><code>X-RateLimit-Remaining</code></td><td>Requests remaining in the current window</td></tr>
+          <tr><td><code>X-RateLimit-Reset</code></td><td>Unix timestamp when the window resets</td></tr>
+        </tbody>
+      </table>
+      <p>When the limit is exceeded the API returns <code>429 Too Many Requests</code>.</p>
+
+      <h3 class="subsection-title">Example — list resources</h3>
+      <pre class="code-block">curl https://devopsagent.io/api-gateway/v1/resources \
+  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+      <pre class="code-block">{
+  "resources": [
+    { "id": 1, "name": "prod-web-01", "type": "ec2", "status": "running", "region": "us-east-1" },
+    { "id": 2, "name": "prod-db",     "type": "rds", "status": "available", "region": "us-east-1" }
+  ]
+}</pre>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- MCP Server -->
+    <section id="mcp-server">
+      <h2 class="section-title">MCP Server</h2>
+      <p>DevOps Agent exposes all 258 cloud tools as an <strong>MCP (Model Context Protocol)</strong> server. Add it to Claude Desktop or any MCP-compatible client and manage your infrastructure directly from your AI assistant — no copy-paste, no tab switching.</p>
+
+      <h3 class="subsection-title">Add to Claude Desktop</h3>
+      <p>Edit your <code>claude_desktop_config.json</code> (macOS: <code>~/Library/Application Support/Claude/</code>, Windows: <code>%APPDATA%\Claude\</code>):</p>
+      <pre class="code-block">{
+  "mcpServers": {
+    "devops-agent": {
+      "url": "https://devopsagent.io/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}</pre>
+      <p>Restart Claude Desktop. The 258 DevOps Agent tools will appear in the tool list automatically.</p>
+
+      <h3 class="subsection-title">Transport</h3>
+      <p>The MCP server uses the HTTP+SSE transport defined in the MCP specification:</p>
+      <table class="docs-table">
+        <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/mcp/sse</code></td><td>Open the SSE stream. Server sends an <code>endpoint</code> event with your session's message URL.</td></tr>
+          <tr><td><span class="badge badge-cyan">POST</span></td><td><code>/mcp/messages?sessionId=…</code></td><td>Send JSON-RPC 2.0 requests. Responses are pushed back via the SSE stream.</td></tr>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/mcp/health</code></td><td>Public health check. Returns tool count and protocol version. No auth required.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Authentication</h3>
+      <p>Pass your API key when opening the SSE connection. For clients that cannot set headers, use the query parameter:</p>
+      <pre class="code-block">GET /mcp/sse?api_key=YOUR_API_KEY</pre>
+
+      <h3 class="subsection-title">Supported JSON-RPC methods</h3>
+      <table class="docs-table">
+        <thead><tr><th>Method</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>initialize</code></td><td>Handshake — returns server name, version, and capabilities</td></tr>
+          <tr><td><code>tools/list</code></td><td>Returns all 258 tools with names, descriptions, and input schemas</td></tr>
+          <tr><td><code>tools/call</code></td><td>Execute a tool by name with the provided arguments</td></tr>
+          <tr><td><code>ping</code></td><td>Keepalive — server returns an empty result</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Example — call a tool</h3>
+      <pre class="code-block">POST /mcp/messages?sessionId=YOUR_SESSION_ID
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "list_ec2_instances",
+    "arguments": { "region": "us-east-1" }
+  }
+}</pre>
+      <pre class="code-block">{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [{ "type": "text", "text": "{ \"success\": true, \"instances\": [...] }" }],
+    "isError": false
+  }
+}</pre>
+
+      <div class="alert alert-info">
+        <span class="alert-icon">ℹ️</span>
+        <span>All tool calls go through the same safety validator as the chat interface. High-risk operations (delete, terminate) include a warning in the response so the calling model can re-confirm with the user.</span>
+      </div>
+
+      <h3 class="subsection-title">Protocol version</h3>
+      <p>This server implements MCP protocol version <code>2024-11-05</code>. SSE sessions expire after 10 minutes of inactivity — your client will receive a keepalive comment (<code>: keepalive</code>) every 15 seconds to maintain the connection.</p>
     </section>
 
     <div class="divider"></div>
