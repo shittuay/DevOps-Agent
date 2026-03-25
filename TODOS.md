@@ -1,6 +1,6 @@
 # TODOS
 
-Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review). Last updated 2026-03-24 (implementation session).
+Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review). Last updated 2026-03-25 (implementation session).
 
 ---
 
@@ -50,11 +50,8 @@ Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode 
 ### [x] Infrastructure health score on dashboard — DONE
 `services/health_score.py`: `calculate_health_score(user_id)` returns `{grade, score, color, breakdown, last_updated}`. Deducts: critical security (-20pts each, max 60), high security (-8pts, max 24), cost waste (-10 per $100, max 30), unresolved incidents (-5pts, max 20), critical alerts (-5pts, max 15). `GET /api/dashboard/health-score`. Dashboard rebuilt from "Coming Soon" placeholder to full real-time dashboard: health grade front-and-center, 4 metric cards, health breakdown panel, recent incidents, cost-by-service, quick actions.
 
-### [ ] Publish DevOps Agent as MCP server
-**What:** Expose the 258 DevOps Agent tools as an MCP (Model Context Protocol) server, installable in Claude Desktop and other MCP-compatible clients. Users add it once and can manage their infra from Claude.ai.
-**Why:** Zero-friction distribution. Every Claude power user who visits the MCP marketplace is a potential customer. The existing `/v1/tools` + `/v1/execute` API is 80% of an MCP server — it just needs an MCP-compliant wrapper and a listing.
-**How to start:** Read the MCP server spec. Create `mcp_server.py` that wraps existing tool handlers in MCP tool format. Tools authenticate via API key. Publish to MCP marketplace with "DevOps Agent — 258 cloud tools" listing.
-**Effort:** M | **Depends on:** Developer API (done) | **Priority:** After core product is stable
+### [x] Publish DevOps Agent as MCP server — DONE
+`routes/mcp.py`: Flask blueprint at `/mcp` prefix. `GET /mcp/sse` — SSE stream with session registry (in-memory queue per session, 10min TTL). `POST /mcp/messages?sessionId=` — JSON-RPC 2.0 dispatch. Handlers: `initialize`, `tools/list` (returns all 258 tools in MCP `inputSchema` format), `tools/call` (runs handler with user context + safety check), `ping`. Auth: `Authorization: Bearer <api-key>` via `APIGatewayService`. Registered in `app.py` with `csrf.exempt(mcp_bp)`.
 
 ---
 
@@ -72,26 +69,15 @@ Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode 
 ### [x] Extract `_ensure_subscription()` helper — DONE
 `routes/billing.py`: `_ensure_subscription(user_id, initial_credits, stripe_customer_id, payment_gateway)` added after `_get_ngn_price_id()`. Two call sites replaced: `billing()` route (get-or-create free sub on page load) and `handle_checkout_completed` credit_pack branch (seed free sub when user has no subscription at time of credit pack purchase).
 
-### [ ] Move credit pack prices to config/DB (hardcoded USD price drift)
-**What:** Replace hardcoded credit pack USD prices in `get_credit_packs()` and `get_billing_prices()` in `routes/billing.py` with values read from `NGNPriceConfig` or a new `CreditPackConfig` table.
-**Why:** Pack prices ($10/$20/$35/$60) are currently hardcoded in two places inside the billing route. If prices change in Stripe, the billing page will show wrong amounts until code is manually updated.
-**How to start:** Add a `usd_price` column to `NGNPriceConfig` (already has `price_ngn`), seed it from the existing price constants, and read from DB in both helper functions.
-**Effort:** S | **Depends on:** DB migration
+### [x] Move credit pack prices to config/DB — DONE (already implemented)
+`models.py`: `NGNPriceConfig` already has `price_usd = db.Column(db.Numeric(10,2))`. `routes/billing.py` already reads `cfg.price_usd` with USD hardcode fallbacks. No additional work needed.
 
 ---
 
 ## Curriculum / Quiz
 
-### [ ] Cache Claude-generated quiz questions per module
-**What:** Cache generated quiz questions (1-hour TTL, per-module) using a simple in-process dict or Flask-Caching.
-**Why:** Every quiz attempt currently generates fresh questions from Claude (~$0.003/call). Users see different questions each attempt, making it hard to track genuine skill improvement vs. question-set variance.
-**How to start:** Add a module-level `_quiz_cache: dict[str, tuple[list, float]]` in `routes/curriculum.py`. In `api_quiz_generate`, check cache before calling Claude; populate cache on miss. TTL = `time.time() + 3600`.
-**Trade-off:** Fresh questions each time could also be considered a feature (harder to memorize). Consider making TTL configurable or per-user vs. shared.
-**Effort:** S | **Depends on:** Nothing
+### [x] Cache Claude-generated quiz questions per module — DONE
+`routes/curriculum.py`: `_quiz_cache: dict[str, tuple[list, float]]` at module level. `api_quiz_generate` checks cache first (TTL 1h); serves from cache if fresh, calls Claude on miss and populates cache. Questions are per-module (shared across users).
 
-### [ ] Auto-mark module complete on quiz pass
-**What:** When a user scores ≥70% on a quiz, automatically upsert `UserCurriculumProgress.completed = True` for that module.
-**Why:** Quiz completion and module completion are currently disconnected. Passing the quiz should reflect as progress.
-**How to start:** In `api_quiz_submit` (routes/curriculum.py), after `db.session.commit()` on the attempt, if `passed` is True: upsert a `UserCurriculumProgress` record with `completed=True` and `completed_at=datetime.utcnow()` (reuse the same upsert logic from `api_update_progress`).
-**Trade-off:** Some users may want to study without the quiz marking their progress. Consider adding a user preference toggle.
-**Effort:** S | **Depends on:** Nothing
+### [x] Auto-mark module complete on quiz pass — DONE
+`routes/curriculum.py` `api_quiz_submit`: after `db.session.commit()`, if `passed` (pct ≥ 70): upserts `UserCurriculumProgress(completed=True, completed_at=datetime.utcnow())` for the module.

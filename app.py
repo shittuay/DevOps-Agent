@@ -279,6 +279,11 @@ app.register_blueprint(changes_bp)
 from routes.curriculum import curriculum_bp
 app.register_blueprint(curriculum_bp)
 
+# MCP server (Model Context Protocol — remote tool access for Claude Desktop)
+from routes.mcp import mcp_bp
+app.register_blueprint(mcp_bp)
+csrf.exempt(mcp_bp)  # MCP clients send raw JSON, not form posts
+
 # Register REST API v1 blueprint (CLI + programmatic access)
 from api import api_bp
 app.register_blueprint(api_bp)

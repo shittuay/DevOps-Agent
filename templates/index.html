@@ -2099,6 +2099,20 @@
 
         // Restore sidebar state on page load
         document.addEventListener('DOMContentLoaded', () => {
+            // Pre-fill input when coming from onboarding wizard
+            {% if first_message %}
+            const prefilledMsg = {{ first_message | tojson }};
+            if (prefilledMsg) {
+                const inp = document.getElementById('messageInput');
+                if (inp) {
+                    inp.value = prefilledMsg;
+                    inp.style.height = 'auto';
+                    inp.style.height = inp.scrollHeight + 'px';
+                    inp.focus();
+                }
+            }
+            {% endif %}
+
             const sidebar = document.getElementById('sidebar');
             const toggleBtn = document.getElementById('collapseToggle');
             const wasCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
