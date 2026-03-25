@@ -550,6 +550,248 @@ def generate_failure_scenario(scenario_type: str = None) -> Dict[str, Any]:
 # Public entry point
 # ---------------------------------------------------------------------------
 
+def _mock_jenkins(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Sandbox mocks for Jenkins tools."""
+    if 'list_jobs' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 4,
+            'jobs': [
+                {'name': 'backend-build', 'url': 'http://jenkins.sandbox/job/backend-build/', 'color': 'blue'},
+                {'name': 'frontend-build', 'url': 'http://jenkins.sandbox/job/frontend-build/', 'color': 'blue'},
+                {'name': 'deploy-staging', 'url': 'http://jenkins.sandbox/job/deploy-staging/', 'color': 'yellow'},
+                {'name': 'integration-tests', 'url': 'http://jenkins.sandbox/job/integration-tests/', 'color': 'red'},
+            ]
+        }
+    if 'queue' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 1,
+            'queue': [{'id': 42, 'task_name': 'backend-build', 'why': 'Waiting for next available executor', 'stuck': False, 'blocked': False, 'buildable': True, 'in_queue_since': 1700000000000}]
+        }
+    if 'status' in tool_name or 'get_jenkins_job' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'job_name': tool_input.get('job_name', 'backend-build'),
+            'build_number': tool_input.get('build_number', 47),
+            'status': 'SUCCESS', 'building': False,
+            'duration_ms': 124500, 'timestamp': 1700000000000,
+            'url': 'http://jenkins.sandbox/job/backend-build/47/'
+        }
+    if 'logs' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'job_name': tool_input.get('job_name', 'backend-build'),
+            'build_number': tool_input.get('build_number', 47),
+            'logs': '[Pipeline] Start of Pipeline\n[Pipeline] node\n[Pipeline] { (Build)\n+ mvn clean package\n[INFO] BUILD SUCCESS\n[INFO] Total time: 1:45 min\n[Pipeline] } (Build)\n[Pipeline] End of Pipeline\nFinished: SUCCESS',
+            'log_length': 250
+        }
+    if 'nodes' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 2,
+            'nodes': [
+                {'name': 'Built-In Node', 'offline': False, 'temporarily_offline': False, 'idle': False, 'num_executors': 2, 'offline_cause': None},
+                {'name': 'agent-linux-01', 'offline': False, 'temporarily_offline': False, 'idle': True, 'num_executors': 4, 'offline_cause': None},
+            ]
+        }
+    if 'config' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'job_name': tool_input.get('job_name', 'backend-build'),
+            'config_xml': '<?xml version="1.0"?>\n<flow-definition>\n  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition">\n    <script>pipeline { agent any; stages { stage(\'Build\') { steps { sh \'mvn clean package\' } } } }</script>\n  </definition>\n</flow-definition>',
+            'length': 280
+        }
+    # abort, enable, disable, delete build — simple success
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] Jenkins operation "{tool_name}" completed successfully'}
+
+
+def _mock_github_actions(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Sandbox mocks for GitHub Actions tools."""
+    repo = f"{tool_input.get('repo_owner', 'myorg')}/{tool_input.get('repo_name', 'myrepo')}"
+    if 'list_github_workflows' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'repo': repo, 'count': 3,
+            'workflows': [
+                {'id': 1001, 'name': 'CI', 'path': '.github/workflows/ci.yml', 'state': 'active', 'url': f'https://github.com/{repo}/blob/main/.github/workflows/ci.yml', 'badge_url': f'https://github.com/{repo}/workflows/CI/badge.svg'},
+                {'id': 1002, 'name': 'Deploy to Staging', 'path': '.github/workflows/deploy-staging.yml', 'state': 'active', 'url': f'https://github.com/{repo}/blob/main/.github/workflows/deploy-staging.yml', 'badge_url': f'https://github.com/{repo}/workflows/Deploy%20to%20Staging/badge.svg'},
+                {'id': 1003, 'name': 'Nightly Security Scan', 'path': '.github/workflows/security.yml', 'state': 'active', 'url': f'https://github.com/{repo}/blob/main/.github/workflows/security.yml', 'badge_url': f'https://github.com/{repo}/workflows/Nightly%20Security%20Scan/badge.svg'},
+            ]
+        }
+    if 'workflow_runs' in tool_name or 'get_github_workflow_runs' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'repo': repo, 'count': 3,
+            'runs': [
+                {'id': 5001, 'name': 'CI', 'status': 'completed', 'conclusion': 'success', 'event': 'push', 'branch': 'main', 'commit': 'a3b4c5d6', 'created_at': '2024-01-15T10:00:00Z', 'updated_at': '2024-01-15T10:05:00Z', 'url': f'https://github.com/{repo}/actions/runs/5001'},
+                {'id': 5002, 'name': 'CI', 'status': 'completed', 'conclusion': 'failure', 'event': 'push', 'branch': 'feature/auth', 'commit': 'e5f6g7h8', 'created_at': '2024-01-15T09:00:00Z', 'updated_at': '2024-01-15T09:08:00Z', 'url': f'https://github.com/{repo}/actions/runs/5002'},
+                {'id': 5003, 'name': 'Deploy to Staging', 'status': 'in_progress', 'conclusion': None, 'event': 'workflow_dispatch', 'branch': 'main', 'commit': 'a3b4c5d6', 'created_at': '2024-01-15T10:10:00Z', 'updated_at': '2024-01-15T10:12:00Z', 'url': f'https://github.com/{repo}/actions/runs/5003'},
+            ]
+        }
+    if 'get_github_workflow_run' in tool_name:
+        run_id = tool_input.get('run_id', 5001)
+        return {
+            'success': True, 'simulated': True,
+            'run': {'id': run_id, 'name': 'CI', 'status': 'completed', 'conclusion': 'success', 'event': 'push', 'branch': 'main', 'commit': 'a3b4c5d6', 'created_at': '2024-01-15T10:00:00Z', 'updated_at': '2024-01-15T10:05:00Z', 'run_number': 47, 'url': f'https://github.com/{repo}/actions/runs/{run_id}', 'jobs_url': f'https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs', 'logs_url': f'https://api.github.com/repos/{repo}/actions/runs/{run_id}/logs'}
+        }
+    if 'runners' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 2,
+            'runners': [
+                {'id': 1, 'name': 'self-hosted-linux-1', 'os': 'Linux', 'status': 'online', 'busy': False, 'labels': ['self-hosted', 'Linux', 'x64']},
+                {'id': 2, 'name': 'self-hosted-linux-2', 'os': 'Linux', 'status': 'online', 'busy': True, 'labels': ['self-hosted', 'Linux', 'x64', 'gpu']},
+            ]
+        }
+    if 'secrets' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 4,
+            'note': 'Secret values are never exposed by the GitHub API — only names and timestamps are returned.',
+            'secrets': [
+                {'name': 'AWS_ACCESS_KEY_ID', 'created_at': '2024-01-01T00:00:00Z', 'updated_at': '2024-01-10T00:00:00Z'},
+                {'name': 'AWS_SECRET_ACCESS_KEY', 'created_at': '2024-01-01T00:00:00Z', 'updated_at': '2024-01-10T00:00:00Z'},
+                {'name': 'DOCKER_PASSWORD', 'created_at': '2024-01-01T00:00:00Z', 'updated_at': '2024-01-01T00:00:00Z'},
+                {'name': 'SLACK_WEBHOOK_URL', 'created_at': '2024-01-05T00:00:00Z', 'updated_at': '2024-01-05T00:00:00Z'},
+            ]
+        }
+    if 'environments' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 2,
+            'environments': [
+                {'id': 101, 'name': 'staging', 'url': f'https://github.com/{repo}/deployments/activity_log?environment=staging', 'protection_rules': [], 'created_at': '2024-01-01T00:00:00Z', 'updated_at': '2024-01-01T00:00:00Z'},
+                {'id': 102, 'name': 'production', 'url': f'https://github.com/{repo}/deployments/activity_log?environment=production', 'protection_rules': ['required_reviewers'], 'created_at': '2024-01-01T00:00:00Z', 'updated_at': '2024-01-15T00:00:00Z'},
+            ]
+        }
+    if 'usage' in tool_name or 'timing' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'workflow_id': tool_input.get('workflow_id', 'ci.yml'),
+            'billable': {'UBUNTU': {'total_ms': 480000, 'jobs': 8}, 'MACOS': {'total_ms': 0, 'jobs': 0}, 'WINDOWS': {'total_ms': 0, 'jobs': 0}}
+        }
+    # cancel, rerun — simple success
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] GitHub Actions operation "{tool_name}" completed successfully'}
+
+
+def _mock_docker(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Sandbox mocks for Docker tools."""
+    if 'list' in tool_name and 'container' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'containers': [
+                {'id': 'abc123', 'name': 'web-app', 'image': 'myapp:1.2.3', 'status': 'running', 'ports': '0.0.0.0:8080->8080/tcp', 'created': '2 days ago'},
+                {'id': 'def456', 'name': 'postgres-db', 'image': 'postgres:16', 'status': 'running', 'ports': '5432/tcp', 'created': '2 days ago'},
+                {'id': 'ghi789', 'name': 'redis-cache', 'image': 'redis:7-alpine', 'status': 'running', 'ports': '6379/tcp', 'created': '2 days ago'},
+            ]
+        }
+    if 'list' in tool_name and 'image' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'images': [
+                {'id': 'sha256:aaa', 'repository': 'myapp', 'tag': '1.2.3', 'size': '245MB', 'created': '3 days ago'},
+                {'id': 'sha256:bbb', 'repository': 'postgres', 'tag': '16', 'size': '379MB', 'created': '2 weeks ago'},
+                {'id': 'sha256:ccc', 'repository': 'redis', 'tag': '7-alpine', 'size': '30MB', 'created': '2 weeks ago'},
+            ]
+        }
+    if 'ps' in tool_name or 'stats' in tool_name:
+        return {'success': True, 'simulated': True, 'message': '[Sandbox] Docker stats: all containers healthy'}
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] Docker operation "{tool_name}" completed'}
+
+
+def _mock_terraform(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Sandbox mocks for Terraform tools."""
+    wdir = tool_input.get('working_dir', './terraform')
+    if 'init' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Terraform initialized successfully', 'output': 'Initializing provider plugins...\n- Finding hashicorp/aws versions matching "~> 5.0"...\n- Installing hashicorp/aws v5.31.0...\nTerraform has been successfully initialized!', 'errors': ''}
+    if 'plan' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Plan generated successfully', 'output': 'Terraform will perform the following actions:\n\n  # aws_instance.web will be created\n  + resource "aws_instance" "web" {\n      + ami           = "ami-0c02fb55956c7d316"\n      + instance_type = "t3.micro"\n    }\n\nPlan: 1 to add, 0 to change, 0 to destroy.', 'errors': '', 'plan_file': tool_input.get('out')}
+    if 'apply' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Apply completed successfully', 'output': 'aws_instance.web: Creating...\naws_instance.web: Creation complete after 30s [id=i-sandbox1234567890]\n\nApply complete! Resources: 1 added, 0 changed, 0 destroyed.', 'errors': ''}
+    if 'destroy' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Destroy completed successfully', 'output': 'aws_instance.web: Destroying... [id=i-sandbox1234567890]\naws_instance.web: Destruction complete after 10s\n\nDestroy complete! Resources: 1 destroyed.', 'errors': ''}
+    if 'state_list' in tool_name:
+        return {'success': True, 'simulated': True, 'count': 3, 'resources': ['aws_instance.web', 'aws_security_group.web_sg', 'aws_vpc.main']}
+    if 'output' in tool_name:
+        return {'success': True, 'simulated': True, 'outputs': {'instance_public_ip': {'value': '54.10.20.30', 'type': 'string'}, 'vpc_id': {'value': 'vpc-sandbox123', 'type': 'string'}}}
+    if 'workspace_list' in tool_name:
+        return {'success': True, 'simulated': True, 'workspaces': ['default', 'staging', 'production'], 'current': 'default'}
+    if 'validate' in tool_name:
+        return {'success': True, 'simulated': True, 'validation': {'valid': True, 'error_count': 0, 'warning_count': 0}}
+    if 'fmt' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Format completed', 'modified_files': [], 'errors': ''}
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] Terraform "{tool_name}" completed successfully'}
+
+
+def _mock_sonarqube(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Sandbox mocks for SonarQube tools."""
+    if 'list_sonar_projects' in tool_name or 'list_projects' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 2,
+            'projects': [
+                {'key': 'my-backend', 'name': 'My Backend', 'qualifier': 'TRK', 'visibility': 'private', 'last_analysis': '2024-01-15T10:00:00+0000'},
+                {'key': 'my-frontend', 'name': 'My Frontend', 'qualifier': 'TRK', 'visibility': 'private', 'last_analysis': '2024-01-14T08:00:00+0000'},
+            ]
+        }
+    if 'quality_gate' in tool_name and 'list' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'quality_gates': [
+                {'id': 1, 'name': 'Sonar way', 'is_default': True, 'is_built_in': True},
+                {'id': 2, 'name': 'Strict Gate', 'is_default': False, 'is_built_in': False},
+            ]
+        }
+    if 'issues' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'total': 3,
+            'issues': [
+                {'key': 'iss-001', 'rule': 'java:S2068', 'severity': 'CRITICAL', 'component': 'my-backend:src/main/java/Auth.java', 'line': 42, 'message': 'Hard-coded credentials are security-sensitive', 'status': 'OPEN', 'type': 'VULNERABILITY'},
+                {'key': 'iss-002', 'rule': 'java:S1481', 'severity': 'MINOR', 'component': 'my-backend:src/main/java/UserService.java', 'line': 87, 'message': 'Remove this unused "temp" local variable', 'status': 'OPEN', 'type': 'CODE_SMELL'},
+                {'key': 'iss-003', 'rule': 'java:S1612', 'severity': 'MAJOR', 'component': 'my-backend:src/main/java/DataProcessor.java', 'line': 23, 'message': 'Replace this lambda with a method reference', 'status': 'OPEN', 'type': 'CODE_SMELL'},
+            ]
+        }
+    if 'analysis_history' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'analyses': [
+                {'key': 'AX9abc', 'date': '2024-01-15T10:00:00+0000', 'events': [{'category': 'VERSION', 'name': '1.2.3'}]},
+                {'key': 'AX8def', 'date': '2024-01-08T10:00:00+0000', 'events': []},
+                {'key': 'AX7ghi', 'date': '2024-01-01T10:00:00+0000', 'events': [{'category': 'VERSION', 'name': '1.2.0'}]},
+            ]
+        }
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] SonarQube "{tool_name}" completed successfully'}
+
+
+def _mock_nexus(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Sandbox mocks for Nexus Repository tools."""
+    if 'status' in tool_name:
+        return {'success': True, 'simulated': True, 'edition': 'OSS', 'version': '3.61.0-02', 'status': 'GREEN', 'available_cpus': 4, 'available_memory_bytes': 4294967296, 'writable': True}
+    if 'list_repositories' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 4,
+            'repositories': [
+                {'name': 'maven-releases', 'format': 'maven2', 'type': 'hosted', 'url': 'http://nexus.sandbox/repository/maven-releases/'},
+                {'name': 'maven-snapshots', 'format': 'maven2', 'type': 'hosted', 'url': 'http://nexus.sandbox/repository/maven-snapshots/'},
+                {'name': 'maven-central', 'format': 'maven2', 'type': 'proxy', 'url': 'http://nexus.sandbox/repository/maven-central/'},
+                {'name': 'npm-proxy', 'format': 'npm', 'type': 'proxy', 'url': 'http://nexus.sandbox/repository/npm-proxy/'},
+            ]
+        }
+    if 'get_repository' in tool_name:
+        return {'success': True, 'simulated': True, 'repository': {'name': tool_input.get('repository_name', 'maven-releases'), 'format': 'maven2', 'type': 'hosted', 'storage': {'blobStoreName': 'default', 'strictContentTypeValidation': True}}}
+    if 'search_components' in tool_name or 'list_assets' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'continuation_token': None,
+            'items': [
+                {'id': 'comp-001', 'repository': tool_input.get('repository', 'maven-releases'), 'format': 'maven2', 'group': 'com.example', 'name': 'my-app', 'version': '1.2.3'},
+                {'id': 'comp-002', 'repository': tool_input.get('repository', 'maven-releases'), 'format': 'maven2', 'group': 'com.example', 'name': 'my-lib', 'version': '2.0.0'},
+            ]
+        }
+    if 'list_users' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'users': [
+                {'userId': 'admin', 'firstName': 'Nexus', 'lastName': 'Administrator', 'emailAddress': 'admin@example.com', 'status': 'active', 'roles': ['nx-admin']},
+                {'userId': 'ci-user', 'firstName': 'CI', 'lastName': 'Pipeline', 'emailAddress': 'ci@example.com', 'status': 'active', 'roles': ['nx-developer']},
+            ]
+        }
+    if 'cleanup' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Cleanup task "Purge old snapshots" triggered — runs asynchronously in background'}
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] Nexus "{tool_name}" completed successfully'}
+
+
 def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
     """
     Generate a realistic simulated response for a tool call.
@@ -562,6 +804,27 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
         A dict mimicking the real tool's response with 'simulated': True
     """
     tn = tool_name.lower()
+
+    # Route CI/CD tools
+    is_jenkins = any(k in tn for k in ('jenkins',))
+    is_github_actions = any(k in tn for k in ('github_workflow', 'github_runner', 'github_secret', 'github_environment'))
+    is_docker = any(k in tn for k in ('docker',))
+    is_terraform = any(k in tn for k in ('terraform',))
+    is_sonarqube = any(k in tn for k in ('sonar',))
+    is_nexus = any(k in tn for k in ('nexus',))
+
+    if is_jenkins:
+        return _mock_jenkins(tn, tool_input)
+    if is_github_actions:
+        return _mock_github_actions(tn, tool_input)
+    if is_docker:
+        return _mock_docker(tn, tool_input)
+    if is_terraform:
+        return _mock_terraform(tn, tool_input)
+    if is_sonarqube:
+        return _mock_sonarqube(tn, tool_input)
+    if is_nexus:
+        return _mock_nexus(tn, tool_input)
 
     # Categorize by cloud provider
     is_k8s = any(k in tn for k in ('k8s', 'kube', 'pod', 'deploy', 'namespace', 'node', 'ingress', 'job'))

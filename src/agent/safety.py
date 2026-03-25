@@ -256,6 +256,18 @@ class SafetyValidator:
             # GitHub destructive
             'github_delete_repo',
             'github_merge_pull_request',
+            # CI/CD destructive
+            'abort_jenkins_build',
+            'delete_jenkins_build',
+            # Terraform destructive
+            'terraform_destroy',
+            'terraform_state_rm',
+            # SonarQube destructive
+            'delete_sonar_project',
+            # Nexus destructive
+            'nexus_delete_repository',
+            'nexus_delete_component',
+            'nexus_delete_asset',
         }
 
         medium_risk_tools = {
@@ -299,6 +311,22 @@ class SafetyValidator:
             'github_invite_collaborator',
             'github_close_issue',
             'github_create_release',
+            # CI/CD medium risk
+            'disable_jenkins_job',
+            'cancel_github_workflow_run',
+            'rerun_failed_github_jobs',
+            'trigger_github_workflow',
+            # Terraform medium risk
+            'terraform_apply',
+            'terraform_state_move',
+            'terraform_import',
+            # SonarQube medium risk
+            'update_sonar_issue',
+            'assign_sonar_quality_gate',
+            'create_sonar_project',
+            # Nexus medium risk
+            'nexus_create_repository',
+            'nexus_run_cleanup_task',
         }
 
         # Check if tool is a pentest tool

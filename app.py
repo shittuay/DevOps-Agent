@@ -84,6 +84,8 @@ from src.tools import (
     cicd_tools,
     pentest_tools,
     terraform_tools,
+    sonarqube_tools,
+    nexus_tools,
     monitoring_tools,
     ansible_tools,
     alerting_tools,
@@ -922,6 +924,16 @@ def initialize_agent():
             agent.register_tools_from_module(pentest_tools)
             logger.info("Penetration testing tools enabled - ensure authorized usage")
 
+        # Register SonarQube tools if enabled
+        if config_manager.get('sonarqube.enabled', True):
+            agent.register_tools_from_module(sonarqube_tools)
+            logger.info("SonarQube tools enabled")
+
+        # Register Nexus Repository tools if enabled
+        if config_manager.get('nexus.enabled', True):
+            agent.register_tools_from_module(nexus_tools)
+            logger.info("Nexus Repository tools enabled")
+
         # Register DevOps operations tools (cost analysis, change governance, compliance)
         agent.register_tools_from_module(devops_operations_tools)
         logger.info("DevOps operations tools enabled (cost, changes, compliance)")
@@ -986,6 +998,55 @@ CURRICULUM PROGRESSION — suggest this order to absolute beginners:
 3. CI/CD: GitHub Actions → pipelines → automated testing
 4. Infrastructure as Code: Terraform basics
 5. DevOps Culture: monitoring, incident response, SRE concepts
+
+TOOL TEACHING NOTES — use these when the user invokes these tools:
+
+Jenkins:
+- Jenkins is an open-source automation server. Think of it as a robot that watches your code repository and automatically builds, tests, and deploys your software whenever you push changes.
+- A "job" is a task Jenkins knows how to do (e.g., "build and test the backend").
+- A "build" is one specific run of a job — like one attempt to build the software.
+- "Blue" color = passing, "Red" = failing, "Yellow" = unstable (some tests failed).
+- The build queue is where jobs wait when all executor slots (workers) are busy.
+- Nodes/agents are additional machines Jenkins uses to run builds in parallel.
+
+GitHub Actions:
+- GitHub Actions is CI/CD built directly into GitHub. No separate server needed.
+- A "workflow" is a YAML file in .github/workflows/ that defines automation steps.
+- A "run" is one execution of a workflow — triggered by a push, PR, schedule, or manually.
+- "Self-hosted runners" are your own machines registered to run jobs (vs. GitHub's cloud runners).
+- Secrets are encrypted environment variables — GitHub never exposes their values, only names.
+- Environments (staging, production) add approval gates and environment-specific secrets.
+- Billable minutes only apply to private repos using GitHub-hosted runners.
+
+Docker:
+- Docker packages software into "containers" — isolated environments with everything the app needs to run.
+- Think of a container as a shipping container: same contents, runs identically anywhere.
+- An "image" is the blueprint; a "container" is a running instance of that image.
+- Docker Hub / registries store images so teams can share and deploy them.
+- docker build → docker push → docker pull → docker run is the typical workflow.
+
+Terraform:
+- Terraform lets you describe infrastructure as code (IaC) — instead of clicking in AWS console, you write .tf files.
+- "terraform plan" shows what WOULD change — always run this before apply.
+- "terraform apply" actually creates/updates real infrastructure — changes have real costs.
+- "terraform destroy" deletes everything Terraform manages in that directory.
+- State file (terraform.tfstate) tracks what Terraform created — treat it like a database, never edit manually.
+- Workspaces let you manage multiple environments (dev/staging/prod) from the same config.
+- "terraform import" lets you bring existing infrastructure under Terraform management.
+
+SonarQube:
+- SonarQube is a code quality and security scanner. It reads your source code and finds bugs, vulnerabilities, and "code smells" (bad patterns that aren't bugs yet but will cause problems).
+- A "quality gate" is a pass/fail threshold — e.g., "no new critical vulnerabilities allowed".
+- "Issues" are individual findings: bugs (will break), vulnerabilities (security risk), code smells (maintainability).
+- The analysis history shows trends — is code quality improving or degrading over time?
+- Projects are repositories or codebases registered for scanning.
+
+Nexus Repository Manager:
+- Nexus is a repository manager — a private storage location for software packages (Maven JARs, npm packages, Docker images, Python wheels, etc.).
+- Teams use Nexus so they don't download dependencies from the public internet on every build (faster, more reliable, audit trail).
+- A "hosted" repository stores your own artifacts. A "proxy" repository caches public registry packages. A "group" combines multiple repos into one URL.
+- Components are the actual packages (e.g., myapp-1.2.3.jar). Assets are the individual files within a component.
+- Cleanup tasks automatically delete old or unused artifacts to save disk space.
 
 Keep answers complete and thorough — teaching takes as many words as it needs to be clear.
 """
