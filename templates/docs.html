@@ -588,7 +588,7 @@
         </div>
         <div class="card">
           <div class="card-icon">☁️</div>
-          <div class="card-title">258 cloud tools</div>
+          <div class="card-title">401 cloud tools</div>
           <div class="card-desc">AWS, Azure, GCP, and Kubernetes — full lifecycle management from a single interface.</div>
         </div>
         <div class="card">
@@ -745,7 +745,7 @@
     <!-- AWS -->
     <section id="aws">
       <h2 class="section-title">Amazon Web Services</h2>
-      <p>DevOps Agent supports <strong>154 AWS tools</strong> covering EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, and more.</p>
+      <p>DevOps Agent supports <strong>155 AWS tools</strong> covering EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, and more.</p>
 
       <h3 class="subsection-title">Connecting AWS — Access Key mode</h3>
       <p>Best for individuals and small teams. Navigate to <strong>Settings → Cloud Credentials → AWS</strong>:</p>
@@ -873,12 +873,12 @@
     <!-- Tools Overview -->
     <section id="tools-overview">
       <h2 class="section-title">Tools Overview</h2>
-      <p>The agent has access to 258 tools across all cloud providers. You never call tools directly — the agent selects and chains the right ones based on your request.</p>
+      <p>The agent has access to 401 tools across all cloud providers. You never call tools directly — the agent selects and chains the right ones based on your request.</p>
 
       <table class="docs-table">
         <thead><tr><th>Provider</th><th>Tools</th><th>Services covered</th></tr></thead>
         <tbody>
-          <tr><td>AWS</td><td><span class="badge badge-orange">154</span></td><td>EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT, ALB, ECR, Secrets Manager</td></tr>
+          <tr><td>AWS</td><td><span class="badge badge-orange">155</span></td><td>EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT, ALB, ECR, Secrets Manager</td></tr>
           <tr><td>Azure</td><td><span class="badge badge-cyan">36</span></td><td>VMs, Storage, SQL, NSGs, Container Instances, Disks, VNets, Public IPs</td></tr>
           <tr><td>GCP</td><td><span class="badge badge-green">40</span></td><td>Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, Secret Manager, BigQuery, Firewall, Cloud Functions, Logs</td></tr>
           <tr><td>Kubernetes</td><td><span class="badge badge-gray">28</span></td><td>Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets, Ingress, Nodes, Jobs</td></tr>
@@ -1010,7 +1010,7 @@
     <!-- MCP Server -->
     <section id="mcp-server">
       <h2 class="section-title">MCP Server</h2>
-      <p>DevOps Agent exposes all 258 cloud tools as an <strong>MCP (Model Context Protocol)</strong> server. Add it to Claude Desktop or any MCP-compatible client and manage your infrastructure directly from your AI assistant — no copy-paste, no tab switching.</p>
+      <p>DevOps Agent exposes all 401 cloud tools as an <strong>MCP (Model Context Protocol)</strong> server. Add it to Claude Desktop or any MCP-compatible client and manage your infrastructure directly from your AI assistant — no copy-paste, no tab switching.</p>
 
       <h3 class="subsection-title">Add to Claude Desktop</h3>
       <p>Edit your <code>claude_desktop_config.json</code> (macOS: <code>~/Library/Application Support/Claude/</code>, Windows: <code>%APPDATA%\Claude\</code>):</p>
@@ -1024,7 +1024,7 @@
     }
   }
 }</pre>
-      <p>Restart Claude Desktop. The 258 DevOps Agent tools will appear in the tool list automatically.</p>
+      <p>Restart Claude Desktop. The 401 DevOps Agent tools will appear in the tool list automatically.</p>
 
       <h3 class="subsection-title">Transport</h3>
       <p>The MCP server uses the HTTP+SSE transport defined in the MCP specification:</p>
@@ -1046,7 +1046,7 @@
         <thead><tr><th>Method</th><th>Description</th></tr></thead>
         <tbody>
           <tr><td><code>initialize</code></td><td>Handshake — returns server name, version, and capabilities</td></tr>
-          <tr><td><code>tools/list</code></td><td>Returns all 258 tools with names, descriptions, and input schemas</td></tr>
+          <tr><td><code>tools/list</code></td><td>Returns all 401 tools with names, descriptions, and input schemas</td></tr>
           <tr><td><code>tools/call</code></td><td>Execute a tool by name with the provided arguments</td></tr>
           <tr><td><code>ping</code></td><td>Keepalive — server returns an empty result</td></tr>
         </tbody>
