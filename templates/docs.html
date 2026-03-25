@@ -544,9 +544,19 @@
       <a href="#kubernetes" class="sidebar-link">Kubernetes</a>
     </div>
     <div class="sidebar-section">
+      <div class="sidebar-heading">DevOps Tools</div>
+      <a href="#cicd" class="sidebar-link">CI/CD — Jenkins & GitHub</a>
+      <a href="#docker" class="sidebar-link">Docker</a>
+      <a href="#terraform" class="sidebar-link">Terraform</a>
+      <a href="#sonarqube" class="sidebar-link">SonarQube</a>
+      <a href="#nexus" class="sidebar-link">Nexus Repository</a>
+      <a href="#ansible" class="sidebar-link">Ansible</a>
+    </div>
+    <div class="sidebar-section">
       <div class="sidebar-heading">Tools Reference</div>
       <a href="#tools-overview" class="sidebar-link">Tools Overview</a>
       <a href="#monitoring" class="sidebar-link">Monitoring & Alerts</a>
+      <a href="#alerting" class="sidebar-link">Alerting (PD / OpsGenie)</a>
       <a href="#incidents" class="sidebar-link">Incident Response</a>
     </div>
     <div class="sidebar-section">
@@ -870,18 +880,263 @@
 
     <div class="divider"></div>
 
+    <!-- CI/CD -->
+    <section id="cicd">
+      <h2 class="section-title">CI/CD — Jenkins &amp; GitHub Actions</h2>
+      <p>DevOps Agent supports <strong>21 CI/CD tools</strong> — 11 for Jenkins and 10 for GitHub Actions — covering pipelines, builds, jobs, and workflow runs.</p>
+
+      <h3 class="subsection-title">Jenkins (11 tools)</h3>
+      <p>Set your Jenkins URL and credentials in <strong>Settings → CI/CD</strong> before using Jenkins tools. The agent uses the Jenkins REST API with Basic auth.</p>
+      <table class="docs-table">
+        <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>list_jenkins_jobs</code></td><td>List all jobs on the Jenkins server</td></tr>
+          <tr><td><code>get_jenkins_job_status</code></td><td>Get the current status of a job</td></tr>
+          <tr><td><code>get_jenkins_build_logs</code></td><td>Retrieve console output for a specific build</td></tr>
+          <tr><td><code>trigger_jenkins_build</code></td><td>Trigger a job build (optionally with parameters)</td></tr>
+          <tr><td><code>stop_jenkins_build</code></td><td>Abort a running build</td></tr>
+          <tr><td><code>list_jenkins_pipelines</code></td><td>List all pipeline jobs</td></tr>
+          <tr><td><code>get_jenkins_pipeline_status</code></td><td>Get pipeline run status</td></tr>
+          <tr><td><code>create_jenkins_pipeline</code></td><td>Create a new pipeline job from a Jenkinsfile</td></tr>
+          <tr><td><code>delete_jenkins_job</code></td><td>Delete a job (high-risk, requires confirmation)</td></tr>
+          <tr><td><code>get_jenkins_queue</code></td><td>View the build queue</td></tr>
+          <tr><td><code>get_jenkins_server_info</code></td><td>Retrieve server version and health info</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">GitHub Actions (10 tools)</h3>
+      <p>Set your GitHub token (<code>GITHUB_TOKEN</code>) in Settings. The token needs <code>actions:read</code> and <code>actions:write</code> scopes.</p>
+      <table class="docs-table">
+        <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>list_github_workflows</code></td><td>List all workflows in a repository</td></tr>
+          <tr><td><code>get_github_workflow_runs</code></td><td>Get recent runs for a workflow</td></tr>
+          <tr><td><code>trigger_github_workflow</code></td><td>Trigger a workflow dispatch event</td></tr>
+          <tr><td><code>cancel_github_workflow_run</code></td><td>Cancel a running workflow</td></tr>
+          <tr><td><code>get_github_workflow_run_logs</code></td><td>Download logs from a workflow run</td></tr>
+          <tr><td><code>list_github_actions_secrets</code></td><td>List Actions secrets for a repo</td></tr>
+          <tr><td><code>create_github_actions_secret</code></td><td>Create or update an Actions secret</td></tr>
+          <tr><td><code>delete_github_actions_secret</code></td><td>Delete an Actions secret</td></tr>
+          <tr><td><code>get_github_repo_info</code></td><td>Get repository metadata and stats</td></tr>
+          <tr><td><code>list_github_branches</code></td><td>List branches in a repository</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Example prompts</h3>
+      <div class="code-block">Show me all failing Jenkins jobs
+Trigger a build for the deploy-prod pipeline with branch=main
+Get the last 50 lines of logs from build #142 of the api-service job
+Cancel the workflow run #9823 on the deploy.yml workflow in org/repo</div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Docker -->
+    <section id="docker">
+      <h2 class="section-title">Docker</h2>
+      <p>DevOps Agent supports <strong>22 Docker tools</strong> covering container lifecycle, image management, volumes, networks, and Docker Compose.</p>
+
+      <h3 class="subsection-title">Requirements</h3>
+      <p>Docker must be installed and running on the machine where the agent runs. The agent communicates with the Docker daemon via the Docker SDK for Python (<code>docker</code> package).</p>
+
+      <h3 class="subsection-title">Supported operations</h3>
+      <table class="docs-table">
+        <thead><tr><th>Category</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Containers</td><td>List, inspect, start, stop, restart, remove, exec, logs, stats</td></tr>
+          <tr><td>Images</td><td>List, pull, build, remove, tag, push</td></tr>
+          <tr><td>Volumes</td><td>List, create, remove</td></tr>
+          <tr><td>Networks</td><td>List, create, remove</td></tr>
+          <tr><td>Compose</td><td>Up, down, ps (via shell)</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Example prompts</h3>
+      <div class="code-block">List all running containers
+Show the last 100 log lines from the nginx container
+Pull the latest postgres:16 image
+Remove all stopped containers
+Run docker compose up -d in /opt/myapp</div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Terraform -->
+    <section id="terraform">
+      <h2 class="section-title">Terraform</h2>
+      <p>DevOps Agent supports <strong>16 Terraform tools</strong> for managing infrastructure-as-code: workspaces, state, plans, and module operations.</p>
+
+      <h3 class="subsection-title">How it works</h3>
+      <p>Terraform tools operate on a <code>working_dir</code> — the directory containing your <code>.tf</code> files. Terraform must be installed on the machine where the agent runs.</p>
+
+      <h3 class="subsection-title">Supported operations</h3>
+      <table class="docs-table">
+        <thead><tr><th>Category</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Core</td><td>Init, validate, plan, apply, destroy</td></tr>
+          <tr><td>State</td><td>List, show, move, remove resources</td></tr>
+          <tr><td>Workspaces</td><td>List, create, select, delete</td></tr>
+          <tr><td>Output &amp; Providers</td><td>Show outputs, list providers, format</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-warning">
+        <strong>Caution:</strong> <code>terraform_apply</code> and <code>terraform_destroy</code> are classified as high-risk operations. The agent will ask for confirmation and show the plan output before proceeding.
+      </div>
+
+      <h3 class="subsection-title">Example prompts</h3>
+      <div class="code-block">Run terraform plan in /infra/prod and show me what will change
+Apply the staging workspace in /infra/staging
+List all Terraform workspaces in my infrastructure directory
+Show the output values from the networking module</div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- SonarQube -->
+    <section id="sonarqube">
+      <h2 class="section-title">SonarQube</h2>
+      <p>DevOps Agent supports <strong>12 SonarQube tools</strong> for code quality analysis, quality gate checks, and issue management.</p>
+
+      <h3 class="subsection-title">Configuration</h3>
+      <p>Set <code>SONAR_TOKEN</code> and <code>SONAR_BASE_URL</code> (e.g., <code>https://sonarqube.yourcompany.com</code>) in your environment. The token needs at minimum <em>Browse</em> permission on projects you want to inspect.</p>
+
+      <h3 class="subsection-title">Supported operations</h3>
+      <table class="docs-table">
+        <thead><tr><th>Category</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Projects</td><td>List projects, get project quality gate status and metrics</td></tr>
+          <tr><td>Issues</td><td>List issues by severity, type, or component; mark as resolved</td></tr>
+          <tr><td>Quality Gates</td><td>List quality gates, get conditions</td></tr>
+          <tr><td>Metrics</td><td>Coverage, duplication, technical debt, code smells, bugs, vulnerabilities</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Example prompts</h3>
+      <div class="code-block">What's the quality gate status for the api-service project?
+Show me all blocker issues in the frontend project
+List all SonarQube projects and their coverage metrics
+Are there any critical security vulnerabilities in my codebase?</div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Nexus -->
+    <section id="nexus">
+      <h2 class="section-title">Nexus Repository</h2>
+      <p>DevOps Agent supports <strong>12 Nexus Repository Manager tools</strong> for artifact management, repository administration, and component search.</p>
+
+      <h3 class="subsection-title">Configuration</h3>
+      <p>Set <code>NEXUS_BASE_URL</code>, <code>NEXUS_USERNAME</code>, and <code>NEXUS_PASSWORD</code> in your environment. The agent uses the Nexus REST API v1 with Basic authentication.</p>
+
+      <h3 class="subsection-title">Supported operations</h3>
+      <table class="docs-table">
+        <thead><tr><th>Category</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Repositories</td><td>List, get details, create hosted/proxy, delete</td></tr>
+          <tr><td>Components</td><td>Search, list, get, delete artifacts</td></tr>
+          <tr><td>Assets</td><td>List assets in a repository</td></tr>
+          <tr><td>System</td><td>Health check, node info, tasks list</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Example prompts</h3>
+      <div class="code-block">List all repositories in Nexus
+Search for all versions of com.example:api-service in the maven-releases repo
+Delete old SNAPSHOT artifacts older than 30 days from the snapshots repository
+Check the health status of our Nexus instance</div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Ansible -->
+    <section id="ansible">
+      <h2 class="section-title">Ansible</h2>
+      <p>DevOps Agent supports <strong>13 Ansible tools</strong> for playbook execution, inventory management, and role discovery.</p>
+
+      <h3 class="subsection-title">Requirements</h3>
+      <p>Ansible must be installed on the machine where the agent runs. Playbook tools operate on a <code>working_dir</code> containing your playbooks and inventory.</p>
+
+      <h3 class="subsection-title">Supported operations</h3>
+      <table class="docs-table">
+        <thead><tr><th>Category</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Playbooks</td><td>Run playbook, run with tags, run with extra vars, dry-run (check mode)</td></tr>
+          <tr><td>Inventory</td><td>List hosts, list groups, ping all hosts</td></tr>
+          <tr><td>Roles &amp; Galaxy</td><td>List installed roles, install from Galaxy</td></tr>
+          <tr><td>Ad-hoc</td><td>Run ad-hoc module commands against host patterns</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Example prompts</h3>
+      <div class="code-block">Run the deploy.yml playbook against the webservers group
+Do a dry run of the hardening playbook to see what would change
+List all hosts in the production inventory
+Ping all hosts in the staging group and show results</div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- Alerting -->
+    <section id="alerting">
+      <h2 class="section-title">Alerting — PagerDuty &amp; OpsGenie</h2>
+      <p>DevOps Agent supports <strong>16 alerting tools</strong> — 8 for PagerDuty and 8 for OpsGenie — for incident management, on-call schedules, and alert routing.</p>
+
+      <h3 class="subsection-title">PagerDuty (8 tools)</h3>
+      <p>Set <code>PAGERDUTY_API_KEY</code> in your environment. Requires a REST API key from PagerDuty's API Access section.</p>
+      <table class="docs-table">
+        <thead><tr><th>Category</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Incidents</td><td>List, get details, create, acknowledge, resolve</td></tr>
+          <tr><td>On-call</td><td>Get current on-call users for a schedule</td></tr>
+          <tr><td>Services</td><td>List PagerDuty services</td></tr>
+          <tr><td>Escalation</td><td>List escalation policies</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">OpsGenie (8 tools)</h3>
+      <p>Set <code>OPSGENIE_API_KEY</code> in your environment.</p>
+      <table class="docs-table">
+        <thead><tr><th>Category</th><th>Operations</th></tr></thead>
+        <tbody>
+          <tr><td>Alerts</td><td>List, get details, create, acknowledge, close</td></tr>
+          <tr><td>On-call</td><td>Get current on-call users</td></tr>
+          <tr><td>Teams &amp; Schedules</td><td>List teams, list schedules</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Example prompts</h3>
+      <div class="code-block">Show all open PagerDuty incidents with high urgency
+Acknowledge incident P-12345 in PagerDuty
+Who is currently on call for the payments schedule?
+Create an OpsGenie alert: Database connection pool exhausted on prod-db-01
+Close all acknowledged OpsGenie alerts from the last hour</div>
+    </section>
+
+    <div class="divider"></div>
+
     <!-- Tools Overview -->
     <section id="tools-overview">
       <h2 class="section-title">Tools Overview</h2>
-      <p>The agent has access to 401 tools across all cloud providers. You never call tools directly — the agent selects and chains the right ones based on your request.</p>
+      <p>The agent has access to 401 tools across 14 categories. You never call tools directly — the agent selects and chains the right ones based on your request.</p>
 
       <table class="docs-table">
-        <thead><tr><th>Provider</th><th>Tools</th><th>Services covered</th></tr></thead>
+        <thead><tr><th>Provider / Category</th><th>Tools</th><th>Services covered</th></tr></thead>
         <tbody>
           <tr><td>AWS</td><td><span class="badge badge-orange">155</span></td><td>EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT, ALB, ECR, Secrets Manager</td></tr>
           <tr><td>Azure</td><td><span class="badge badge-cyan">36</span></td><td>VMs, Storage, SQL, NSGs, Container Instances, Disks, VNets, Public IPs</td></tr>
           <tr><td>GCP</td><td><span class="badge badge-green">40</span></td><td>Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, Secret Manager, BigQuery, Firewall, Cloud Functions, Logs</td></tr>
           <tr><td>Kubernetes</td><td><span class="badge badge-gray">28</span></td><td>Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets, Ingress, Nodes, Jobs</td></tr>
+          <tr><td>CI/CD</td><td><span class="badge badge-orange">21</span></td><td>Jenkins (jobs, builds, pipelines, queue), GitHub Actions (workflows, runs, secrets)</td></tr>
+          <tr><td>Docker</td><td><span class="badge badge-cyan">22</span></td><td>Containers (lifecycle, exec, logs), Images, Volumes, Networks, Compose</td></tr>
+          <tr><td>Terraform</td><td><span class="badge badge-green">16</span></td><td>Init, plan, apply, destroy, state management, workspaces, outputs</td></tr>
+          <tr><td>SonarQube</td><td><span class="badge badge-gray">12</span></td><td>Projects, issues, quality gates, coverage &amp; technical debt metrics</td></tr>
+          <tr><td>Nexus</td><td><span class="badge badge-orange">12</span></td><td>Repositories, components, assets, system health</td></tr>
+          <tr><td>Ansible</td><td><span class="badge badge-cyan">13</span></td><td>Playbooks, inventory, ad-hoc commands, roles, Galaxy</td></tr>
+          <tr><td>Monitoring</td><td><span class="badge badge-green">12</span></td><td>Prometheus, CloudWatch metrics, threshold alerts</td></tr>
+          <tr><td>Alerting</td><td><span class="badge badge-gray">16</span></td><td>PagerDuty (incidents, on-call, services), OpsGenie (alerts, teams, schedules)</td></tr>
+          <tr><td>Pentest</td><td><span class="badge badge-orange">12</span></td><td>Port scanning, SSL checks, HTTP security headers, DNS enumeration</td></tr>
+          <tr><td>Git</td><td><span class="badge badge-cyan">6</span></td><td>Status, log, diff, branches, commits, stash</td></tr>
         </tbody>
       </table>
 
