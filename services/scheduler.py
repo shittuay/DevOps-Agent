@@ -112,6 +112,7 @@ def _scheduler_loop(app, db):
         'infra_sync':        timedelta(hours=1),
         'cost_check':        timedelta(hours=6),
         'security_scan':     timedelta(hours=12),
+        'weekly_digest':     timedelta(hours=168),   # 7 days
     }
 
     last_run = {k: datetime.min for k in intervals}
@@ -147,6 +148,8 @@ def _run_task(task_name: str, app, db):
         _run_cost_anomaly_check(db)
     elif task_name == 'security_scan':
         _run_security_scan(db)
+    elif task_name == 'weekly_digest':
+        _run_weekly_digest(db)
 
 
 def _run_health_check(app, db):
@@ -313,6 +316,175 @@ def _run_security_scan(db):
                 logger.warning(f"User {user.id}: {critical} critical security findings open")
         except Exception as e:
             logger.debug(f"Security scan skipped for user {user.id}: {e}")
+
+
+def _run_weekly_digest(db):
+    """
+    Send the weekly infrastructure digest email to every active user.
+
+    Fires on Sundays (checked here so the 168h interval doesn't drift to
+    wrong days). Only sends if today is Sunday (UTC weekday == 6).
+    Skips users with no cloud credentials or no email address.
+    """
+    from datetime import datetime as _dt
+    if _dt.utcnow().weekday() != 6:   # 0=Mon … 6=Sun
+        logger.debug("Weekly digest: not Sunday, skipping")
+        return
+
+    from models import User, UserCloudCredential, IncidentModel, CostOptimization, SecurityFinding, Alert
+    from services.email_service import EmailService
+    from services.health_score import calculate_health_score, get_grade_label
+
+    email_svc = EmailService()
+    week_ago = _dt.utcnow() - timedelta(days=7)
+
+    users = (
+        db.session.query(User)
+        .join(UserCloudCredential, UserCloudCredential.user_id == User.id)
+        .filter(User.is_active == True, User.email != None)
+        .distinct()
+        .all()
+    )
+
+    sent = skipped = 0
+    for user in users:
+        try:
+            # ── Per-user 7-day stats ───────────────────────────────────
+            incidents_total = IncidentModel.query.filter(
+                IncidentModel.user_id == user.id,
+                IncidentModel.triggered_at >= week_ago
+            ).count()
+
+            incidents_resolved = IncidentModel.query.filter(
+                IncidentModel.user_id == user.id,
+                IncidentModel.triggered_at >= week_ago,
+                IncidentModel.status == 'resolved'
+            ).count()
+
+            savings_identified = db.session.query(
+                db.func.sum(CostOptimization.estimated_savings)
+            ).filter(
+                CostOptimization.user_id == user.id,
+                CostOptimization.detected_at >= week_ago
+            ).scalar() or 0.0
+
+            critical_sec = SecurityFinding.query.filter_by(
+                user_id=user.id, status='open', severity='critical'
+            ).count()
+
+            health = calculate_health_score(user.id)
+            grade_label = get_grade_label(health['grade'])
+
+            html = _build_digest_html(
+                username=user.username or user.email.split('@')[0],
+                grade=health['grade'],
+                grade_label=grade_label,
+                score=health['score'],
+                incidents_total=incidents_total,
+                incidents_resolved=incidents_resolved,
+                savings_identified=savings_identified,
+                critical_sec=critical_sec,
+            )
+
+            subject = f"Your DevOps Agent weekly digest — Infrastructure health: {health['grade']} ({grade_label})"
+            ok = email_svc.send_email(user.email, subject, html)
+            if ok:
+                sent += 1
+            else:
+                skipped += 1
+
+        except Exception as e:
+            logger.warning(f"Weekly digest failed for user {user.id}: {e}")
+            skipped += 1
+
+    logger.info(f"Weekly digest: sent={sent}, skipped={skipped}")
+
+
+def _build_digest_html(username, grade, grade_label, score,
+                       incidents_total, incidents_resolved,
+                       savings_identified, critical_sec) -> str:
+    """Build the weekly digest HTML email body."""
+    grade_color = {
+        'A': '#4ade80', 'B': '#60a5fa',
+        'C': '#fbbf24', 'D': '#fb923c', 'F': '#f87171'
+    }.get(grade, '#60a5fa')
+
+    savings_text = f"${savings_identified:.0f}" if savings_identified >= 1 else "$0"
+    sec_text = f"{critical_sec} critical finding{'s' if critical_sec != 1 else ''}" if critical_sec > 0 else "No critical findings"
+    sec_color = '#f87171' if critical_sec > 0 else '#4ade80'
+
+    base_url = __import__('os').environ.get('BASE_URL', 'https://devopsagent.io')
+
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0f1117;font-family:'Segoe UI',Arial,sans-serif;color:#e2e8f0">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f1117;padding:40px 16px">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+        <!-- Header -->
+        <tr><td style="background:linear-gradient(135deg,#1a1d2e,#161925);border-radius:16px 16px 0 0;padding:32px 40px;border:1px solid rgba(255,255,255,0.08);border-bottom:none">
+          <table width="100%"><tr>
+            <td>
+              <div style="background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-family:'Courier New',monospace;font-weight:700;font-size:14px;padding:6px 12px;border-radius:8px;display:inline-block">&gt;_</div>
+              <span style="font-size:18px;font-weight:800;color:#f1f5f9;margin-left:12px;vertical-align:middle">DevOps Agent</span>
+            </td>
+            <td align="right" style="color:#64748b;font-size:12px;font-family:'Courier New',monospace">WEEKLY DIGEST</td>
+          </tr></table>
+          <h1 style="margin:24px 0 8px;font-size:22px;font-weight:800;color:#f1f5f9">Your infrastructure this week</h1>
+          <p style="margin:0;color:#94a3b8;font-size:14px">Hi {username} — here's what your DevOps Agent found and fixed.</p>
+        </td></tr>
+
+        <!-- Health score banner -->
+        <tr><td style="background:linear-gradient(135deg,#1a1d2e,#161925);padding:0 40px 32px;border:1px solid rgba(255,255,255,0.08);border-top:none;border-bottom:none">
+          <table width="100%" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="text-align:center;padding:0 16px 0 0;border-right:1px solid rgba(255,255,255,0.08)">
+                <div style="font-size:64px;font-weight:800;color:{grade_color};line-height:1">{grade}</div>
+                <div style="font-size:13px;color:#94a3b8;margin-top:4px">Infrastructure Health</div>
+                <div style="font-size:11px;color:#64748b;font-family:'Courier New',monospace;margin-top:2px">{score}/100 — {grade_label}</div>
+              </td>
+              <td style="padding:0 0 0 24px">
+                <table cellpadding="0" cellspacing="0" width="100%">
+                  <tr><td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                    <span style="color:#94a3b8;font-size:13px">Incidents this week</span>
+                    <span style="float:right;font-weight:700;color:#f1f5f9;font-size:13px">{incidents_total}</span>
+                  </td></tr>
+                  <tr><td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                    <span style="color:#94a3b8;font-size:13px">Auto-resolved</span>
+                    <span style="float:right;font-weight:700;color:#4ade80;font-size:13px">{incidents_resolved}</span>
+                  </td></tr>
+                  <tr><td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                    <span style="color:#94a3b8;font-size:13px">Savings identified</span>
+                    <span style="float:right;font-weight:700;color:#fbbf24;font-size:13px">{savings_text}/mo</span>
+                  </td></tr>
+                  <tr><td style="padding:8px 0">
+                    <span style="color:#94a3b8;font-size:13px">Security status</span>
+                    <span style="float:right;font-weight:700;color:{sec_color};font-size:13px">{sec_text}</span>
+                  </td></tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+
+        <!-- CTA -->
+        <tr><td style="background:linear-gradient(135deg,#1a1d2e,#161925);padding:0 40px 32px;border:1px solid rgba(255,255,255,0.08);border-top:none;border-radius:0 0 16px 16px">
+          <table width="100%"><tr><td align="center">
+            <a href="{base_url}/dashboard" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">View Dashboard</a>
+          </td></tr></table>
+          <p style="text-align:center;margin:16px 0 0;font-size:12px;color:#475569">
+            You're receiving this because you have an active DevOps Agent account.<br>
+            <a href="{base_url}/settings" style="color:#64748b">Manage email preferences</a>
+          </p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
 
 
 def _store_alert(db, source: str, severity: str, message: str):

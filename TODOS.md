@@ -44,17 +44,11 @@ Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode 
 
 ## P2 — Build for retention and growth
 
-### [ ] Weekly infrastructure digest email
-**What:** Every Sunday, each active user with connected cloud accounts receives an email: "Your infra this week — 2 incidents auto-resolved, $340 cost savings identified, 0 critical security alerts. Infrastructure health: B+."
-**Why:** Weekly emails with real data are the #1 retention tool for B2B SaaS. They keep the product top-of-mind even for users who don't log in every day. Each email is a proof point that the product is working autonomously.
-**How to start:** Add a weekly cron task in `scheduler.py`. Query each user's `Incident`, `CostOptimization`, `SecurityFinding`, and `Alert` tables for the past 7 days. Use `email_service.send()` with a new HTML template. Include a "View dashboard" CTA link.
-**Effort:** M | **Depends on:** Scheduler wiring (so data is real) | **Priority:** Build after scheduler wiring
+### [x] Weekly infrastructure digest email — DONE
+`services/scheduler.py`: `_run_weekly_digest()` fires every Sunday (168h interval, weekday guard). Queries each user's past-7-day incidents, resolved count, cost savings, critical security findings. Calls `calculate_health_score()` for the grade. Sends HTML email via `EmailService.send_email()`. `_build_digest_html()` renders a branded dark-mode email with grade, stats table, and "View Dashboard" CTA.
 
-### [ ] Infrastructure health score on dashboard
-**What:** An A/B/C/D/F grade shown prominently on the dashboard, calculated from: open critical security findings (-20pts each), cost waste > $100 (-10pts), incidents in past 7 days (-5pts each), uptime events (+5pts each). Gamifies improvement.
-**Why:** New users need an immediate answer to "is my infra healthy?" A letter grade is the fastest possible answer. It also gives users something to improve, increasing engagement and retention.
-**How to start:** Create `services/health_score.py` with `calculate_health_score(user_id) -> dict` returning `{grade: 'B', score: 78, breakdown: {...}}`. Call it in the dashboard route. Display prominently.
-**Effort:** S | **Depends on:** Real scan data (scheduler wiring) | **Priority:** Build after onboarding
+### [x] Infrastructure health score on dashboard — DONE
+`services/health_score.py`: `calculate_health_score(user_id)` returns `{grade, score, color, breakdown, last_updated}`. Deducts: critical security (-20pts each, max 60), high security (-8pts, max 24), cost waste (-10 per $100, max 30), unresolved incidents (-5pts, max 20), critical alerts (-5pts, max 15). `GET /api/dashboard/health-score`. Dashboard rebuilt from "Coming Soon" placeholder to full real-time dashboard: health grade front-and-center, 4 metric cards, health breakdown panel, recent incidents, cost-by-service, quick actions.
 
 ### [ ] Publish DevOps Agent as MCP server
 **What:** Expose the 258 DevOps Agent tools as an MCP (Model Context Protocol) server, installable in Claude Desktop and other MCP-compatible clients. Users add it once and can manage their infra from Claude.ai.

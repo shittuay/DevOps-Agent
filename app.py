@@ -3179,6 +3179,19 @@ def get_dashboard_summary():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/dashboard/health-score', methods=['GET'])
+@login_required
+def get_health_score():
+    """Return infrastructure health grade and breakdown for the current user."""
+    try:
+        from services.health_score import calculate_health_score
+        result = calculate_health_score(current_user.id)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Health score error for user {current_user.id}: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/dashboard/costs', methods=['GET'])
 @login_required
 def get_cost_data():
