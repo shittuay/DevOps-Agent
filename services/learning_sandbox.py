@@ -552,7 +552,7 @@ def generate_failure_scenario(scenario_type: str = None) -> Dict[str, Any]:
 
 def _mock_jenkins(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     """Sandbox mocks for Jenkins tools."""
-    if 'list_jobs' in tool_name:
+    if 'list_jobs' in tool_name or 'list_jenkins_jobs' in tool_name:
         return {
             'success': True, 'simulated': True, 'count': 4,
             'jobs': [
@@ -816,7 +816,7 @@ def _mock_terraform(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
 
 def _mock_sonarqube(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     """Sandbox mocks for SonarQube tools."""
-    if 'list_sonar_projects' in tool_name or 'list_projects' in tool_name:
+    if 'list_sonar_projects' in tool_name or 'list_projects' in tool_name or 'get_sonar_projects' in tool_name:
         return {
             'success': True, 'simulated': True, 'count': 2,
             'projects': [
@@ -849,6 +849,18 @@ def _mock_sonarqube(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
                 {'key': 'AX8def', 'date': '2024-01-08T10:00:00+0000', 'events': []},
                 {'key': 'AX7ghi', 'date': '2024-01-01T10:00:00+0000', 'events': [{'category': 'VERSION', 'name': '1.2.0'}]},
             ]
+        }
+    if 'project_quality' in tool_name or 'project_status' in tool_name:
+        project_key = tool_input.get('project_key', 'my-backend')
+        return {
+            'success': True, 'simulated': True,
+            'project_key': project_key,
+            'quality_gate': {'status': 'OK', 'name': 'Sonar way'},
+            'metrics': {
+                'coverage': '82.3', 'duplicated_lines_density': '4.1',
+                'bugs': '2', 'vulnerabilities': '1', 'code_smells': '14',
+                'reliability_rating': 'B', 'security_rating': 'A', 'sqale_rating': 'A',
+            }
         }
     return {'success': True, 'simulated': True, 'message': f'[Sandbox] SonarQube "{tool_name}" completed successfully'}
 
