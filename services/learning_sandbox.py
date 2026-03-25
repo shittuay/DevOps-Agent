@@ -668,27 +668,125 @@ def _mock_github_actions(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
 
 
 def _mock_docker(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
-    """Sandbox mocks for Docker tools."""
-    if 'list' in tool_name and 'container' in tool_name:
+    """Sandbox mocks for Docker tools (all 22 tools)."""
+    _containers = [
+        {'id': 'abc1234567890', 'name': 'web-app', 'image': 'myapp:1.2.3', 'status': 'running', 'ports': '0.0.0.0:8080->8080/tcp', 'created': '2 days ago', 'state': 'running'},
+        {'id': 'def4567890123', 'name': 'postgres-db', 'image': 'postgres:16', 'status': 'running', 'ports': '5432/tcp', 'created': '2 days ago', 'state': 'running'},
+        {'id': 'ghi7890123456', 'name': 'redis-cache', 'image': 'redis:7-alpine', 'status': 'running', 'ports': '6379/tcp', 'created': '2 days ago', 'state': 'running'},
+    ]
+    _images = [
+        {'id': 'sha256:aaa111', 'repository': 'myapp', 'tag': '1.2.3', 'size': '245MB', 'created': '3 days ago'},
+        {'id': 'sha256:bbb222', 'repository': 'postgres', 'tag': '16', 'size': '379MB', 'created': '2 weeks ago'},
+        {'id': 'sha256:ccc333', 'repository': 'redis', 'tag': '7-alpine', 'size': '30MB', 'created': '2 weeks ago'},
+    ]
+
+    if 'list_containers' in tool_name:
+        return {'success': True, 'simulated': True, 'count': len(_containers), 'containers': _containers}
+
+    if 'get_container_details' in tool_name:
+        cid = tool_input.get('container_id', 'abc1234567890')
         return {
             'success': True, 'simulated': True,
-            'containers': [
-                {'id': 'abc123', 'name': 'web-app', 'image': 'myapp:1.2.3', 'status': 'running', 'ports': '0.0.0.0:8080->8080/tcp', 'created': '2 days ago'},
-                {'id': 'def456', 'name': 'postgres-db', 'image': 'postgres:16', 'status': 'running', 'ports': '5432/tcp', 'created': '2 days ago'},
-                {'id': 'ghi789', 'name': 'redis-cache', 'image': 'redis:7-alpine', 'status': 'running', 'ports': '6379/tcp', 'created': '2 days ago'},
-            ]
+            'container': {'id': cid, 'name': 'web-app', 'image': 'myapp:1.2.3', 'state': 'running',
+                          'ip_address': '172.17.0.2', 'ports': {'8080/tcp': [{'HostIp': '0.0.0.0', 'HostPort': '8080'}]},
+                          'mounts': [{'Type': 'volume', 'Source': 'app-data', 'Destination': '/app/data'}],
+                          'env': ['NODE_ENV=production', 'PORT=8080'],
+                          'cpu_shares': 1024, 'memory_limit': 536870912, 'restart_policy': 'unless-stopped'}
         }
-    if 'list' in tool_name and 'image' in tool_name:
+
+    if 'manage_container' in tool_name:
+        action = tool_input.get('action', 'stop')
+        cid = tool_input.get('container_id', 'abc1234567890')
+        messages = {'start': 'started', 'stop': 'stopped', 'restart': 'restarted', 'remove': 'removed', 'pause': 'paused', 'unpause': 'unpaused'}
+        return {'success': True, 'simulated': True, 'message': f'Container {cid} {messages.get(action, action)} successfully', 'container_id': cid, 'action': action}
+
+    if 'get_container_logs' in tool_name:
+        cid = tool_input.get('container_id', 'abc1234567890')
         return {
-            'success': True, 'simulated': True,
-            'images': [
-                {'id': 'sha256:aaa', 'repository': 'myapp', 'tag': '1.2.3', 'size': '245MB', 'created': '3 days ago'},
-                {'id': 'sha256:bbb', 'repository': 'postgres', 'tag': '16', 'size': '379MB', 'created': '2 weeks ago'},
-                {'id': 'sha256:ccc', 'repository': 'redis', 'tag': '7-alpine', 'size': '30MB', 'created': '2 weeks ago'},
+            'success': True, 'simulated': True, 'container_id': cid,
+            'logs': '2024-01-15T10:00:01Z INFO  Server started on port 8080\n2024-01-15T10:00:02Z INFO  Connected to PostgreSQL\n2024-01-15T10:00:02Z INFO  Connected to Redis\n2024-01-15T10:01:00Z INFO  GET /health 200 2ms\n2024-01-15T10:02:30Z INFO  POST /api/users 201 45ms\n2024-01-15T10:03:15Z WARN  Slow query detected: 850ms\n2024-01-15T10:04:00Z INFO  GET /api/users 200 12ms'
+        }
+
+    if 'list_images' in tool_name:
+        return {'success': True, 'simulated': True, 'count': len(_images), 'images': _images}
+
+    if 'pull_image' in tool_name:
+        image = tool_input.get('image', 'nginx:latest')
+        return {'success': True, 'simulated': True, 'message': f'Successfully pulled {image}', 'image': image, 'id': 'sha256:ddd444aabbcc'}
+
+    if 'remove_image' in tool_name:
+        image = tool_input.get('image_id', 'sha256:aaa111')
+        return {'success': True, 'simulated': True, 'message': f'Image {image} removed', 'image': image}
+
+    if 'list_volumes' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 2,
+            'volumes': [
+                {'name': 'app-data', 'driver': 'local', 'mountpoint': '/var/lib/docker/volumes/app-data/_data', 'created': '2 days ago'},
+                {'name': 'postgres-data', 'driver': 'local', 'mountpoint': '/var/lib/docker/volumes/postgres-data/_data', 'created': '2 days ago'},
             ]
         }
-    if 'ps' in tool_name or 'stats' in tool_name:
-        return {'success': True, 'simulated': True, 'message': '[Sandbox] Docker stats: all containers healthy'}
+
+    if 'list_networks' in tool_name:
+        return {
+            'success': True, 'simulated': True, 'count': 3,
+            'networks': [
+                {'id': 'net001', 'name': 'bridge', 'driver': 'bridge', 'scope': 'local', 'subnet': '172.17.0.0/16'},
+                {'id': 'net002', 'name': 'host', 'driver': 'host', 'scope': 'local', 'subnet': None},
+                {'id': 'net003', 'name': 'app-network', 'driver': 'bridge', 'scope': 'local', 'subnet': '172.20.0.0/16'},
+            ]
+        }
+
+    if 'get_stats' in tool_name:
+        cid = tool_input.get('container_id', 'abc1234567890')
+        return {
+            'success': True, 'simulated': True, 'container_id': cid,
+            'stats': {'cpu_percent': 2.4, 'memory_usage_mb': 128.5, 'memory_limit_mb': 512.0, 'memory_percent': 25.1,
+                      'network_rx_mb': 45.2, 'network_tx_mb': 12.8, 'block_read_mb': 0.5, 'block_write_mb': 2.1}
+        }
+
+    if 'compose_up' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Docker Compose services started', 'services_started': ['web', 'db', 'redis'], 'output': 'Creating network "app_default"\nCreating app_db_1 ... done\nCreating app_redis_1 ... done\nCreating app_web_1 ... done'}
+
+    if 'compose_down' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Docker Compose services stopped and removed', 'output': 'Stopping app_web_1 ... done\nStopping app_redis_1 ... done\nStopping app_db_1 ... done\nRemoving app_web_1 ... done\nRemoving network app_default'}
+
+    if 'build_image' in tool_name:
+        tag = tool_input.get('tag', 'myapp:latest')
+        return {'success': True, 'simulated': True, 'message': f'Image {tag} built successfully', 'tag': tag, 'image_id': 'sha256:eee555aabbcc', 'output': f'Step 1/8 : FROM node:20-alpine\nStep 2/8 : WORKDIR /app\nStep 3/8 : COPY package*.json .\nStep 4/8 : RUN npm ci --only=production\nStep 5/8 : COPY . .\nStep 6/8 : EXPOSE 8080\nStep 7/8 : CMD ["node", "server.js"]\nSuccessfully built eee555aabbcc\nSuccessfully tagged {tag}'}
+
+    if 'create_container' in tool_name:
+        name = tool_input.get('name', 'my-container')
+        image = tool_input.get('image', 'nginx:latest')
+        return {'success': True, 'simulated': True, 'message': f'Container "{name}" created', 'container_id': 'jkl0123456789', 'name': name, 'image': image}
+
+    if 'create_network' in tool_name:
+        name = tool_input.get('name', 'my-network')
+        return {'success': True, 'simulated': True, 'message': f'Network "{name}" created', 'network_id': 'net999', 'name': name, 'driver': tool_input.get('driver', 'bridge')}
+
+    if 'remove_network' in tool_name:
+        return {'success': True, 'simulated': True, 'message': f'Network {tool_input.get("network_id", "net999")} removed'}
+
+    if 'create_volume' in tool_name:
+        name = tool_input.get('name', 'my-volume')
+        return {'success': True, 'simulated': True, 'message': f'Volume "{name}" created', 'name': name, 'driver': 'local'}
+
+    if 'remove_volume' in tool_name:
+        return {'success': True, 'simulated': True, 'message': f'Volume {tool_input.get("volume_name", "my-volume")} removed'}
+
+    if 'exec' in tool_name:
+        return {'success': True, 'simulated': True, 'output': '# command executed in container\n[Sandbox] output here', 'exit_code': 0}
+
+    if 'tag_image' in tool_name:
+        return {'success': True, 'simulated': True, 'message': f'Image tagged as {tool_input.get("new_tag", "myapp:new")}'}
+
+    if 'push_image' in tool_name:
+        image = tool_input.get('image', 'myapp:latest')
+        return {'success': True, 'simulated': True, 'message': f'{image} pushed to registry', 'output': f'The push refers to repository [docker.io/myorg/{image}]\nlatest: digest: sha256:abc123 size: 1234'}
+
+    if 'system_prune' in tool_name:
+        return {'success': True, 'simulated': True, 'message': 'Docker system pruned', 'space_reclaimed': '1.2GB', 'containers_removed': 3, 'images_removed': 5, 'volumes_removed': 1}
+
     return {'success': True, 'simulated': True, 'message': f'[Sandbox] Docker operation "{tool_name}" completed'}
 
 
