@@ -4,6 +4,7 @@ Curriculum routes — DevOps Engineer learning roadmap.
 import json
 import os
 import logging
+import time
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context, session
@@ -16,6 +17,11 @@ from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
 logger = logging.getLogger(__name__)
 
 curriculum_bp = Blueprint('curriculum', __name__, url_prefix='/curriculum')
+
+# Quiz question cache: module_id → (questions_list, expiry_timestamp)
+# Shared across users — questions are per-module, not per-user.
+_quiz_cache: dict[str, tuple[list, float]] = {}
+_QUIZ_CACHE_TTL = 3600  # 1 hour
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -248,6 +254,14 @@ def api_quiz_generate():
     module = ctx['module']
     phase = ctx['phase']
 
+    # Serve from cache if still fresh
+    cached = _quiz_cache.get(module_id)
+    if cached:
+        questions, expiry = cached
+        if time.time() < expiry:
+            session[f'quiz_{module_id}'] = questions
+            return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
+
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
@@ -288,6 +302,9 @@ Rules:
             if raw.startswith('json'):
                 raw = raw[4:]
         questions = json.loads(raw.strip())
+
+        # Cache for 1 hour (shared across users — questions are per-module)
+        _quiz_cache[module_id] = (questions, time.time() + _QUIZ_CACHE_TTL)
 
         # Store questions server-side so submit can't be faked by the client
         session[f'quiz_{module_id}'] = questions
@@ -356,6 +373,21 @@ def api_quiz_submit():
 
     pct = round((score / len(questions)) * 100)
     passed = pct >= 70
+
+    # Auto-mark module complete on quiz pass
+    if passed:
+        progress = UserCurriculumProgress.query.filter_by(
+            user_id=current_user.id, module_id=module_id
+        ).first()
+        if progress is None:
+            progress = UserCurriculumProgress(
+                user_id=current_user.id,
+                module_id=module_id,
+            )
+            db.session.add(progress)
+        progress.completed = True
+        progress.completed_at = datetime.utcnow()
+        db.session.commit()
 
     return jsonify({
         'success': True,
