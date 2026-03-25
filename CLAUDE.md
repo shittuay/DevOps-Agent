@@ -26,11 +26,20 @@ src/
     conversation.py # ConversationManager - message handling
     guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
-    aws_tools.py         # 154 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
+    aws_tools.py         # 155 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
     kubernetes_tools.py  # 28 K8s tools (pods, deployments, services, namespaces, etc.)
     azure_tools.py       # 36 Azure tools (VMs, storage, SQL, NSGs, containers, etc.)
     gcp_tools.py         # 40 GCP tools (Compute, GCS, Cloud SQL, GKE, Cloud Run, etc.)
-    git_tools.py         # Git operations
+    cicd_tools.py        # 21 CI/CD tools (Jenkins 11 + GitHub Actions 10)
+    terraform_tools.py   # 16 Terraform tools (init, plan, apply, destroy, state, workspace, import)
+    sonarqube_tools.py   # 12 SonarQube tools (projects, quality gates, issues, analysis)
+    nexus_tools.py       # 12 Nexus tools (repositories, components, assets, users, cleanup)
+    docker_tools.py      # 22 Docker tools (containers, images, volumes, networks, compose, prune)
+    git_tools.py         # 6 Git operations
+    monitoring_tools.py  # 12 Prometheus + Datadog + Grafana tools
+    pentest_tools.py     # 12 Security audit/scan tools (require pentest_config.enabled=True)
+    ansible_tools.py     # 13 Ansible tools (playbooks, adhoc, inventory, vault, galaxy)
+    alerting_tools.py    # 16 PagerDuty + OpsGenie alerting tools
   config/
     config_manager.py
 services/
@@ -46,10 +55,10 @@ templates/
   chat.html, settings.html, etc.
 ```
 
-## Tool Inventory (258 total)
+## Tool Inventory (401 total)
 
-### AWS (154 tools)
-Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas.
+### AWS (155 tools)
+Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
 
 ### Kubernetes (28 tools)
 Pods (list, describe, logs, delete, exec), Deployments (list, describe, create, update image, delete), Services (list, create, delete), Namespaces (list, get, create, delete), ConfigMaps (create, delete), Secrets (create, delete), Ingress (create, delete), Nodes (list, cordon, uncordon), Jobs (create, delete).
@@ -59,6 +68,37 @@ VMs (list, describe, start, stop, restart, create, delete), Storage (list accoun
 
 ### GCP (40 tools)
 Compute (list, describe, start, stop, create, delete, snapshots), GCS (list buckets, create, delete, list objects), Cloud SQL (list, create, delete, restart), GKE (list clusters, describe, resize, delete), Cloud Run (list, deploy, delete), Pub/Sub (list topics, create topic, delete topic, create subscription), Secret Manager (list, create, delete, add version), BigQuery (list datasets, create, delete), Firewall (list, create, delete), Cloud Functions (list, delete), Cloud Logs.
+
+### CI/CD — Jenkins (11 tools)
+`trigger_jenkins_job`, `get_jenkins_job_status`, `get_jenkins_build_logs`, `list_jenkins_jobs`, `get_jenkins_queue`, `abort_jenkins_build`, `enable_jenkins_job`, `disable_jenkins_job`, `get_jenkins_job_config`, `list_jenkins_nodes`, `delete_jenkins_build`.
+Credentials: `JENKINS_URL`, `JENKINS_USERNAME`, `JENKINS_TOKEN` env vars (or per-call params).
+
+### CI/CD — GitHub Actions (10 tools)
+`trigger_github_workflow`, `get_github_workflow_runs`, `list_github_workflows`, `get_github_workflow_run`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `list_github_runners`, `list_github_secrets`, `list_github_environments`, `get_github_workflow_usage`.
+Credentials: `GITHUB_TOKEN` env var (or per-call param).
+
+### Terraform (16 tools)
+`terraform_init`, `terraform_plan`, `terraform_apply`, `terraform_destroy`, `terraform_show`, `terraform_output`, `terraform_validate`, `terraform_fmt`, `terraform_workspace_list`, `terraform_workspace_select`, `terraform_workspace_new`, `terraform_state_list`, `terraform_import`, `terraform_state_move`, `terraform_state_rm`, `terraform_refresh`.
+All tools take `working_dir` as the primary param. `var_file` and `variables` are optional on most.
+
+### SonarQube (12 tools)
+`get_sonar_projects`, `get_sonar_project_quality`, `get_sonar_measures`, `get_sonar_issues`, `trigger_sonar_analysis`, `get_sonar_hotspots`, `create_sonar_project`, `delete_sonar_project`, `update_sonar_issue`, `list_sonar_quality_gates`, `assign_sonar_quality_gate`, `get_sonar_analysis_history`.
+Credentials: `SONAR_TOKEN` env var + `base_url` per-call param.
+
+### Nexus Repository Manager (12 tools)
+`nexus_get_system_status`, `nexus_list_repositories`, `nexus_get_repository`, `nexus_create_repository`, `nexus_delete_repository`, `nexus_search_components`, `nexus_get_component`, `nexus_delete_component`, `nexus_list_assets`, `nexus_delete_asset`, `nexus_list_users`, `nexus_run_cleanup_task`.
+Credentials: `NEXUS_USERNAME` / `NEXUS_PASSWORD` env vars + `base_url` per-call param. Uses Basic auth against Nexus REST API v1.
+
+### Docker (22 tools)
+`docker_list_containers`, `docker_get_container_details`, `docker_manage_container`, `docker_get_container_logs`, `docker_list_images`, `docker_pull_image`, `docker_remove_image`, `docker_list_volumes`, `docker_list_networks`, `docker_get_stats`, `docker_compose_up`, `docker_compose_down`, `docker_build_image`, `docker_create_container`, `docker_create_network`, `docker_remove_network`, `docker_create_volume`, `docker_remove_volume`, `docker_exec`, `docker_tag_image`, `docker_push_image`, `docker_system_prune`.
+Requires Docker daemon running locally (uses `docker.from_env()`).
+
+### Other modules
+- **Git (6)**: repository status, branches, commit history, diff, PRs
+- **Monitoring (12)**: Prometheus, Datadog, Grafana
+- **Pentest (12)**: nmap, nikto, sqlmap, ZAP, cloud security audits — require `pentest_config.enabled=True`
+- **Ansible (13)**: playbook run, ad-hoc, inventory, vault, galaxy
+- **Alerting (16)**: PagerDuty + OpsGenie incidents/alerts
 
 ## Critical Security Patterns
 
@@ -107,6 +147,13 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
 - Every new `delete_*` or `terminate_*` tool MUST be added to `high_risk_tools`
 - Every new `update_*`, `restart_*`, `create_*_rule`, or IAM tool MUST be added to `medium_risk_tools`
 - Forgetting this causes the tool to default to low risk with no confirmation prompt
+- Auto-detection fallback: prefixes `delete_`, `terminate_`, `destroy_`, `remove_`, `drop_`, `purge_` are auto-classified as high risk even without explicit listing. Explicit sets take priority over auto-detection.
+
+**Current high-risk additions (beyond auto-detection):**
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`
+
+**Current medium-risk additions:**
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`
 
 ## Adding a New Tool
 
@@ -114,7 +161,33 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
 1. Create handler function in the appropriate `src/tools/*_tools.py`
 2. Register in `get_tools()` at the bottom of the same file with `{name, description, input_schema, handler}`
 3. Add to `safety.py` risk classification if delete/update operation
-4. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
+4. Add sandbox mock branch in `services/learning_sandbox.py` if new tool module
+5. Register the module in `app.py` with `agent.register_tools_from_module(my_tools)` (inside an `if config_manager.get('module.enabled', True):` guard)
+6. Import the module in `src/tools/__init__.py` and add to `__all__`
+7. Add teaching notes to `LEARNING_MODE_CONTEXT` in `app.py` if it's a new domain (e.g., a new CI/CD tool type)
+8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
+
+### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **401** across 14 modules. Tests: `tests/test_new_tools.py` (94 tests).
+
+### Sandbox Mock Pattern
+Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:
+```python
+# Add detection flag at the top of generate_mock_result():
+is_mymodule = any(k in tn for k in ('mymodule_keyword',))
+
+# Add routing block:
+if is_mymodule:
+    return _mock_mymodule(tn, tool_input)
+
+# Add mock function:
+def _mock_mymodule(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    if 'list_' in tool_name:
+        return {'success': True, 'simulated': True, 'items': [...]}
+    # default fallback:
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} completed'}
+```
+**Common gotcha**: substring matching is literal — `'list_jobs' in 'list_jenkins_jobs'` is `False`. Use the full function name substring (e.g., `'list_jenkins_jobs' in tool_name`) or a broader keyword.
 
 ### AWS Pattern
 ```python
