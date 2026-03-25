@@ -491,6 +491,125 @@ def terraform_state_list(working_dir: str) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def terraform_import(
+    working_dir: str,
+    address: str,
+    resource_id: str,
+    var_file: Optional[str] = None
+) -> Dict[str, Any]:
+    """Import an existing real-world resource into Terraform state under the given address."""
+    try:
+        command = ['terraform', 'import']
+        if var_file:
+            command.extend(['-var-file', var_file])
+        command.extend([address, resource_id])
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'message': f'Resource {resource_id} imported as {address}' if result['success'] else 'Import failed',
+            'address': address,
+            'resource_id': resource_id,
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        logger.error(f"Error importing Terraform resource: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_state_move(
+    working_dir: str,
+    source: str,
+    destination: str
+) -> Dict[str, Any]:
+    """Move a resource within Terraform state from source address to destination address."""
+    try:
+        command = ['terraform', 'state', 'mv', source, destination]
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'message': f'Moved {source} → {destination}' if result['success'] else 'State move failed',
+            'source': source,
+            'destination': destination,
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        logger.error(f"Error moving Terraform state: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_state_rm(
+    working_dir: str,
+    address: str
+) -> Dict[str, Any]:
+    """
+    Remove a resource from Terraform state without destroying the real infrastructure.
+    Use when you want Terraform to stop managing a resource.
+    """
+    try:
+        command = ['terraform', 'state', 'rm', address]
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'message': f'Resource {address} removed from state (infrastructure NOT destroyed)' if result['success'] else 'State remove failed',
+            'address': address,
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        logger.error(f"Error removing from Terraform state: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_refresh(
+    working_dir: str,
+    var_file: Optional[str] = None,
+    variables: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """
+    Update Terraform state to match real-world infrastructure without making any changes.
+    Reads actual resource attributes and updates the state file.
+    """
+    try:
+        command = ['terraform', 'refresh']
+        if var_file:
+            command.extend(['-var-file', var_file])
+        if variables:
+            for key, value in variables.items():
+                command.extend(['-var', f'{key}={value}'])
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'message': 'State refreshed from real infrastructure' if result['success'] else 'Refresh failed',
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        logger.error(f"Error refreshing Terraform state: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_workspace_new(
+    working_dir: str,
+    workspace: str
+) -> Dict[str, Any]:
+    """Create a new Terraform workspace and switch to it."""
+    try:
+        command = ['terraform', 'workspace', 'new', workspace]
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'message': f'Workspace "{workspace}" created and selected' if result['success'] else 'Failed to create workspace',
+            'workspace': workspace,
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        logger.error(f"Error creating Terraform workspace: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
 # ==================== TOOL REGISTRATION ====================
 
 
@@ -731,13 +850,79 @@ def get_tools() -> List[Dict[str, Any]]:
             'input_schema': {
                 'type': 'object',
                 'properties': {
-                    'working_dir': {
-                        'type': 'string',
-                        'description': 'Directory containing Terraform configuration files'
-                    }
+                    'working_dir': {'type': 'string', 'description': 'Directory containing Terraform configuration files'}
                 },
                 'required': ['working_dir']
             },
             'handler': terraform_state_list
-        }
+        },
+        {
+            'name': 'terraform_import',
+            'description': 'Import an existing real-world resource into Terraform state so Terraform can manage it.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Directory containing Terraform configuration files'},
+                    'address': {'type': 'string', 'description': 'Terraform resource address to import into (e.g. aws_instance.web)'},
+                    'resource_id': {'type': 'string', 'description': 'Provider-specific resource ID (e.g. AWS instance ID i-1234567890abcdef0)'},
+                    'var_file': {'type': 'string', 'description': 'Path to a variable definitions file (.tfvars)'},
+                },
+                'required': ['working_dir', 'address', 'resource_id']
+            },
+            'handler': terraform_import
+        },
+        {
+            'name': 'terraform_state_move',
+            'description': 'Move a resource within Terraform state from one address to another (e.g. after renaming a resource in .tf files).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Directory containing Terraform configuration files'},
+                    'source': {'type': 'string', 'description': 'Current resource address in state'},
+                    'destination': {'type': 'string', 'description': 'New resource address in state'},
+                },
+                'required': ['working_dir', 'source', 'destination']
+            },
+            'handler': terraform_state_move
+        },
+        {
+            'name': 'terraform_state_rm',
+            'description': 'Remove a resource from Terraform state WITHOUT destroying the real infrastructure. Use when you want Terraform to stop managing a resource.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Directory containing Terraform configuration files'},
+                    'address': {'type': 'string', 'description': 'Resource address to remove from state (e.g. aws_instance.web)'},
+                },
+                'required': ['working_dir', 'address']
+            },
+            'handler': terraform_state_rm
+        },
+        {
+            'name': 'terraform_refresh',
+            'description': 'Update Terraform state to match real-world infrastructure without making any changes.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Directory containing Terraform configuration files'},
+                    'var_file': {'type': 'string', 'description': 'Path to a variable definitions file (.tfvars)'},
+                    'variables': {'type': 'object', 'description': 'Variables to pass as key-value pairs'},
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_refresh
+        },
+        {
+            'name': 'terraform_workspace_new',
+            'description': 'Create a new Terraform workspace and switch to it.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Directory containing Terraform configuration files'},
+                    'workspace': {'type': 'string', 'description': 'Name of the new workspace to create'},
+                },
+                'required': ['working_dir', 'workspace']
+            },
+            'handler': terraform_workspace_new
+        },
     ]

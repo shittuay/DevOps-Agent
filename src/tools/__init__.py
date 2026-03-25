@@ -12,6 +12,7 @@ from . import docker_tools
 from . import github_tools
 from . import terraform_tools
 from . import sonarqube_tools
+from . import nexus_tools
 from . import monitoring_tools
 from . import pentest_tools
 from . import ansible_tools
@@ -29,6 +30,7 @@ __all__ = [
     'github_tools',
     'terraform_tools',
     'sonarqube_tools',
+    'nexus_tools',
     'monitoring_tools',
     'pentest_tools',
     'ansible_tools',
