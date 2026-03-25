@@ -306,6 +306,8 @@ class SafetyValidator:
             'docker_exec',
             'docker_push_image',
             'docker_compose_up',
+            'docker_build_image',
+            'docker_create_container',
             # GitHub medium risk
             'github_trigger_workflow',
             'github_invite_collaborator',

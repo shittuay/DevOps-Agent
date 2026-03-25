@@ -10482,5 +10482,17 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['service_code']
             },
             'handler': list_service_quotas
+        },
+        {
+            'name': 'list_resource_groups',
+            'description': 'List AWS Resource Groups and their resource counts.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': []
+            },
+            'handler': list_resource_groups
         }
     ]
