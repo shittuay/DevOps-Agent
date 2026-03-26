@@ -211,40 +211,94 @@ def backup_database(self, backup_type: str = 'full'):
     """
     Create database backup.
 
+    PostgreSQL: runs pg_dump -F c + gzip compress.
+    SQLite: shutil.copy2 + gzip compress.
+    Uploads to S3 if BACKUP_S3_BUCKET is set (non-fatal if upload fails).
+    Enforces retention: deletes .gz files older than BACKUP_RETENTION_DAYS (default 30).
+
     Args:
         backup_type: Type of backup (full, incremental)
     """
     try:
+        import gzip
         import os
+        import shutil
         import subprocess
         from datetime import datetime
 
         backup_dir = os.environ.get('BACKUP_DIR', '/backups')
+        os.makedirs(backup_dir, exist_ok=True)
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        backup_file = f"{backup_dir}/devops_agent_{backup_type}_{timestamp}.sql"
-
-        # Get database URL
         db_url = os.environ.get('DATABASE_URL', '')
+        backup_file = None
+        s3_key = None
 
-        if 'postgresql' in db_url:
-            # PostgreSQL backup
-            # pg_dump command would go here
+        if 'postgresql' in db_url or 'postgres' in db_url:
+            raw_file = os.path.join(backup_dir, f"devops_agent_{backup_type}_{timestamp}.dump")
+            backup_file = raw_file + '.gz'
+
+            result = subprocess.run(
+                ['pg_dump', '--format=custom', db_url, '--file', raw_file],
+                capture_output=True, text=True, timeout=300,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"pg_dump failed: {result.stderr.strip()}")
+
+            with open(raw_file, 'rb') as f_in, gzip.open(backup_file, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            os.remove(raw_file)
             logger.info(f"PostgreSQL backup created: {backup_file}")
+
         elif 'sqlite' in db_url:
-            # SQLite backup - just copy the file
-            import shutil
-            db_path = db_url.replace('sqlite:///', '')
-            shutil.copy2(db_path, backup_file)
+            db_path = db_url.replace('sqlite:///', '').replace('sqlite://', '')
+            raw_file = os.path.join(backup_dir, f"devops_agent_{backup_type}_{timestamp}.db")
+            backup_file = raw_file + '.gz'
+
+            shutil.copy2(db_path, raw_file)
+            with open(raw_file, 'rb') as f_in, gzip.open(backup_file, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            os.remove(raw_file)
             logger.info(f"SQLite backup created: {backup_file}")
+
+        else:
+            return {'status': 'skipped', 'message': f'Unsupported DB type: {db_url[:40]}'}
+
+        size_mb = round(os.path.getsize(backup_file) / (1024 * 1024), 2)
+
+        # Upload to S3 if configured (non-fatal)
+        s3_bucket = os.environ.get('BACKUP_S3_BUCKET', '')
+        if s3_bucket:
+            try:
+                import boto3
+                s3_key = f"database-backups/{os.path.basename(backup_file)}"
+                boto3.client('s3').upload_file(backup_file, s3_bucket, s3_key)
+                logger.info(f"Backup uploaded to s3://{s3_bucket}/{s3_key}")
+            except Exception as s3_err:
+                logger.warning(f"S3 upload failed (non-fatal): {s3_err}")
+
+        # Enforce retention policy
+        retention_days = int(os.environ.get('BACKUP_RETENTION_DAYS', '30'))
+        cutoff = datetime.utcnow().timestamp() - retention_days * 86400
+        deleted = 0
+        for fname in os.listdir(backup_dir):
+            if fname.endswith('.gz') and fname.startswith('devops_agent_'):
+                fpath = os.path.join(backup_dir, fname)
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    deleted += 1
+        if deleted:
+            logger.info(f"Deleted {deleted} backup(s) older than {retention_days} days")
 
         return {
             'status': 'success',
             'backup_file': backup_file,
-            'backup_type': backup_type
+            'size_mb': size_mb,
+            'backup_type': backup_type,
+            's3_key': s3_key,
         }
 
     except Exception as e:
-        logger.error(f"Database backup error: {e}")
+        logger.error(f"Database backup error: {e}", exc_info=True)
         return {'status': 'error', 'message': str(e)}
 
 

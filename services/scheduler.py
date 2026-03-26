@@ -113,6 +113,7 @@ def _scheduler_loop(app, db):
         'cost_check':        timedelta(hours=6),
         'security_scan':     timedelta(hours=12),
         'weekly_digest':     timedelta(hours=168),   # 7 days
+        'db_backup':         timedelta(hours=24),
     }
 
     last_run = {k: datetime.min for k in intervals}
@@ -150,6 +151,8 @@ def _run_task(task_name: str, app, db):
         _run_security_scan(db)
     elif task_name == 'weekly_digest':
         _run_weekly_digest(db)
+    elif task_name == 'db_backup':
+        _run_db_backup()
 
 
 def _run_health_check(app, db):
@@ -485,6 +488,86 @@ def _build_digest_html(username, grade, grade_label, score,
   </table>
 </body>
 </html>"""
+
+
+def _run_db_backup():
+    """
+    Run a PostgreSQL or SQLite backup in-process (no Celery broker required).
+
+    PostgreSQL: pg_dump -F c + gzip.  SQLite: copy + gzip.
+    Uploads to S3 if BACKUP_S3_BUCKET env var is set (non-fatal on failure).
+    Enforces BACKUP_RETENTION_DAYS (default 30) by deleting old .gz files.
+    """
+    import gzip
+    import shutil
+    import subprocess
+    from datetime import datetime as _dt
+
+    backup_dir = os.environ.get('BACKUP_DIR', '/backups')
+    os.makedirs(backup_dir, exist_ok=True)
+    timestamp = _dt.utcnow().strftime('%Y%m%d_%H%M%S')
+    db_url = os.environ.get('DATABASE_URL', '')
+    backup_file = None
+    s3_key = None
+
+    try:
+        if 'postgresql' in db_url or 'postgres' in db_url:
+            raw_file = os.path.join(backup_dir, f"devops_agent_full_{timestamp}.dump")
+            backup_file = raw_file + '.gz'
+            result = subprocess.run(
+                ['pg_dump', '--format=custom', db_url, '--file', raw_file],
+                capture_output=True, text=True, timeout=300,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"pg_dump failed: {result.stderr.strip()}")
+            with open(raw_file, 'rb') as f_in, gzip.open(backup_file, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            os.remove(raw_file)
+            logger.info(f"Scheduled PostgreSQL backup created: {backup_file}")
+
+        elif 'sqlite' in db_url:
+            db_path = db_url.replace('sqlite:///', '').replace('sqlite://', '')
+            raw_file = os.path.join(backup_dir, f"devops_agent_full_{timestamp}.db")
+            backup_file = raw_file + '.gz'
+            shutil.copy2(db_path, raw_file)
+            with open(raw_file, 'rb') as f_in, gzip.open(backup_file, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            os.remove(raw_file)
+            logger.info(f"Scheduled SQLite backup created: {backup_file}")
+
+        else:
+            logger.warning(f"db_backup: unsupported DB type, skipping ({db_url[:40]})")
+            return
+
+        # S3 upload (non-fatal)
+        s3_bucket = os.environ.get('BACKUP_S3_BUCKET', '')
+        if s3_bucket:
+            try:
+                import boto3
+                s3_key = f"database-backups/{os.path.basename(backup_file)}"
+                boto3.client('s3').upload_file(backup_file, s3_bucket, s3_key)
+                logger.info(f"Backup uploaded to s3://{s3_bucket}/{s3_key}")
+            except Exception as s3_err:
+                logger.warning(f"S3 upload failed (non-fatal): {s3_err}")
+
+        # Retention cleanup
+        retention_days = int(os.environ.get('BACKUP_RETENTION_DAYS', '30'))
+        cutoff = _dt.utcnow().timestamp() - retention_days * 86400
+        deleted = 0
+        for fname in os.listdir(backup_dir):
+            if fname.endswith('.gz') and fname.startswith('devops_agent_'):
+                fpath = os.path.join(backup_dir, fname)
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    deleted += 1
+        if deleted:
+            logger.info(f"Deleted {deleted} backup(s) older than {retention_days} days")
+
+        size_mb = round(os.path.getsize(backup_file) / (1024 * 1024), 2)
+        logger.info(f"Backup complete: {backup_file} ({size_mb} MB)")
+
+    except Exception as e:
+        logger.error(f"Scheduled backup failed: {e}", exc_info=True)
 
 
 def _store_alert(db, source: str, severity: str, message: str):

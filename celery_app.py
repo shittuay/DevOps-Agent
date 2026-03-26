@@ -118,6 +118,12 @@ def make_celery(app=None):
                 'task': 'tasks.security_tasks.audit_user_activity',
                 'schedule': crontab(minute=0, hour='*/6'),  # Every 6 hours
             },
+            # Database backup daily at 2 AM
+            'backup-database-daily': {
+                'task': 'tasks.maintenance_tasks.backup_database',
+                'schedule': crontab(hour=2, minute=0),
+                'kwargs': {'backup_type': 'full'},
+            },
         }
     )
 

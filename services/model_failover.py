@@ -488,3 +488,81 @@ def get_kimi_provider() -> KimiProvider:
         if isinstance(p, KimiProvider):
             return p
     return KimiProvider()
+
+
+def get_provider_health() -> Dict[str, Any]:
+    """
+    Get extended health status including real API connectivity checks.
+
+    Runs parallel test calls to Anthropic and Kimi (8s timeout each):
+      - Anthropic: count_tokens() — non-billed, validates key + network
+      - Kimi:      GET /v1/models — authenticated listing, zero token cost
+
+    Returns merged dict: get_provider_status() data + reachable + connectivity_error.
+    """
+    import threading
+    import requests
+
+    base_status = get_provider_status()
+    results: Dict[str, Any] = {}
+
+    def check_anthropic():
+        api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+        if not api_key:
+            results['anthropic'] = {'reachable': False, 'connectivity_error': 'ANTHROPIC_API_KEY not set in config/.env'}
+            return
+        try:
+            import anthropic as _anthropic
+            client = _anthropic.Anthropic(api_key=api_key)
+            client.messages.count_tokens(
+                model='claude-haiku-4-5-20251001',
+                messages=[{'role': 'user', 'content': 'ping'}],
+            )
+            results['anthropic'] = {'reachable': True, 'connectivity_error': None}
+        except Exception as e:
+            err = str(e)
+            if '401' in err or 'authentication' in err.lower() or 'invalid' in err.lower():
+                results['anthropic'] = {'reachable': False, 'connectivity_error': 'API key rejected (401) — check ANTHROPIC_API_KEY in config/.env'}
+            else:
+                results['anthropic'] = {'reachable': False, 'connectivity_error': err}
+
+    def check_kimi():
+        api_key = os.environ.get('MOONSHOT_API_KEY', '')
+        if not api_key:
+            results['kimi'] = {'reachable': False, 'connectivity_error': 'MOONSHOT_API_KEY not set in config/.env'}
+            return
+        try:
+            resp = requests.get(
+                'https://api.moonshot.ai/v1/models',
+                headers={'Authorization': f'Bearer {api_key}'},
+                timeout=8,
+            )
+            if resp.status_code == 401:
+                results['kimi'] = {'reachable': False, 'connectivity_error': 'API key rejected (401) — check MOONSHOT_API_KEY in config/.env'}
+            elif resp.status_code == 200:
+                results['kimi'] = {'reachable': True, 'connectivity_error': None}
+            else:
+                results['kimi'] = {'reachable': False, 'connectivity_error': f'Unexpected status {resp.status_code}'}
+        except Exception as e:
+            results['kimi'] = {'reachable': False, 'connectivity_error': str(e)}
+
+    threads = [threading.Thread(target=check_anthropic), threading.Thread(target=check_kimi)]
+    for t in threads:
+        t.daemon = True
+        t.start()
+    for t in threads:
+        t.join(timeout=9)
+
+    # Merge connectivity results into base status
+    merged = dict(base_status)
+    for provider, conn in results.items():
+        if provider in merged:
+            merged[provider].update(conn)
+
+    # Mark unchecked providers
+    for name in merged:
+        if 'reachable' not in merged[name]:
+            merged[name]['reachable'] = None
+            merged[name]['connectivity_error'] = 'Not checked'
+
+    return merged

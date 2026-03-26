@@ -190,6 +190,9 @@ database_url = os.environ.get('DATABASE_URL', 'postgresql://devops:devops_local@
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+import re as _re
+_db_url_safe = _re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', database_url)
+print(f"[DB] Connecting to: {_db_url_safe}")
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 300,
@@ -4933,6 +4936,8 @@ if __name__ == '__main__':
             print(f"mfa_method backfill skipped: {_e}")
 
         print("\nDatabase initialized")
+        _db_safe = _re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', database_url)
+        print(f"  Host: {_db_safe}")
 
         # Upsert subscription tiers — create if missing, update if prices/features changed
         tier_definitions = [

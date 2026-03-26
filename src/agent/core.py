@@ -540,6 +540,10 @@ User Preferences and Context:
                 self.logger.warning(error_msg)
                 return "⏸️ Rate limit reached. The API is automatically retrying, but please wait a moment before making another request.\n\nTip: Try combining multiple operations into a single request to reduce API calls."
 
+            except anthropic.AuthenticationError as e:
+                self.logger.error(f"Anthropic auth error: {str(e)}")
+                return "❌ Anthropic API key rejected (401). Check ANTHROPIC_API_KEY in config/.env"
+
             except anthropic.APIStatusError as e:
                 error_msg = f"Claude API status error: {e.status_code} - {str(e)}"
                 self.logger.error(error_msg)
@@ -622,7 +626,7 @@ User Preferences and Context:
 
         api_key = os.environ.get('MOONSHOT_API_KEY', '')
         if not api_key:
-            return "Kimi API key not configured. Please set MOONSHOT_API_KEY."
+            return "❌ Kimi API key not configured. Set MOONSHOT_API_KEY in config/.env"
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.5')
@@ -717,8 +721,12 @@ User Preferences and Context:
                 return msg.content or ""
 
             except Exception as e:
-                self.logger.error(f"Kimi API error: {str(e)}", exc_info=True)
-                return f"Error communicating with Kimi: {str(e)}"
+                err_str = str(e)
+                if '401' in err_str or 'authentication' in err_str.lower() or 'invalid api key' in err_str.lower():
+                    self.logger.error(f"Kimi auth error: {err_str}")
+                    return "❌ Kimi API key rejected (401). Check MOONSHOT_API_KEY in config/.env"
+                self.logger.error(f"Kimi API error: {err_str}", exc_info=True)
+                return f"Error communicating with Kimi: {err_str}"
 
         return "Maximum number of tool executions reached. Please try rephrasing your request."
 
