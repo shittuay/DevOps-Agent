@@ -2526,6 +2526,24 @@ def api_chat():
         except Exception:
             pass
 
+        # Inject cloud credential status so the agent knows upfront what's configured
+        try:
+            from services.credential_service import get_user_configured_providers
+            configured = get_user_configured_providers(current_user.id)
+            configured_list = [p.upper() for p, v in configured.items() if v]
+            not_configured = [p.upper() for p, v in configured.items() if not v]
+            cred_status = f"CLOUD CREDENTIALS STATUS: Configured and ready: {', '.join(configured_list) if configured_list else 'none'}."
+            if not_configured:
+                cred_status += (
+                    f" NOT configured (tools will fail): {', '.join(not_configured)}."
+                    " If the user asks to perform operations on an unconfigured provider, tell them to go to"
+                    " Settings > Cloud Credentials and add their credentials BEFORE attempting any tools."
+                    " Do NOT attempt cloud tools for unconfigured providers."
+                )
+            preferences_context = (preferences_context or '') + '\n\n' + cred_status
+        except Exception:
+            pass
+
         # Build trial context for free-tier users
         trial_context = None
         if tier_name == 'free':
@@ -2897,6 +2915,24 @@ def api_chat_stream():
             if prefs.sandbox_mode:
                 preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
                 sandbox_active = True
+
+        # Inject cloud credential status so the agent knows upfront what's configured
+        try:
+            from services.credential_service import get_user_configured_providers
+            configured = get_user_configured_providers(current_user.id)
+            configured_list = [p.upper() for p, v in configured.items() if v]
+            not_configured = [p.upper() for p, v in configured.items() if not v]
+            cred_status = f"CLOUD CREDENTIALS STATUS: Configured and ready: {', '.join(configured_list) if configured_list else 'none'}."
+            if not_configured:
+                cred_status += (
+                    f" NOT configured (tools will fail): {', '.join(not_configured)}."
+                    " If the user asks to perform operations on an unconfigured provider, tell them to go to"
+                    " Settings > Cloud Credentials and add their credentials BEFORE attempting any tools."
+                    " Do NOT attempt cloud tools for unconfigured providers."
+                )
+            preferences_context = (preferences_context or '') + '\n\n' + cred_status
+        except Exception:
+            pass
 
         # Build trial context for free-tier users
         trial_context = None
