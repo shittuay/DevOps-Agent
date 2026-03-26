@@ -380,9 +380,12 @@ def api_quiz_submit():
             user_id=current_user.id, module_id=module_id
         ).first()
         if progress is None:
+            ctx = _get_module_ctx(module_id)
+            phase_id = ctx["phase"]["phase"] if ctx else "01"
             progress = UserCurriculumProgress(
                 user_id=current_user.id,
                 module_id=module_id,
+                phase_id=phase_id,
             )
             db.session.add(progress)
         progress.completed = True
