@@ -2535,10 +2535,10 @@ def api_chat():
             cred_status = f"CLOUD CREDENTIALS STATUS: Configured and ready: {', '.join(configured_list) if configured_list else 'none'}."
             if not_configured:
                 cred_status += (
-                    f" NOT configured (tools will fail): {', '.join(not_configured)}."
-                    " If the user asks to perform operations on an unconfigured provider, tell them to go to"
-                    " Settings > Cloud Credentials and add their credentials BEFORE attempting any tools."
-                    " Do NOT attempt cloud tools for unconfigured providers."
+                    f" NOT configured: {', '.join(not_configured)}."
+                    f" Do NOT call {'/'.join(not_configured)} tools — they will fail."
+                    f" If the user asks for {'/'.join(not_configured)} operations, tell them to add credentials in Settings > Cloud Credentials first."
+                    + (f" You CAN and SHOULD use {', '.join(configured_list)} tools freely." if configured_list else "")
                 )
             preferences_context = (preferences_context or '') + '\n\n' + cred_status
         except Exception:
@@ -2925,10 +2925,10 @@ def api_chat_stream():
             cred_status = f"CLOUD CREDENTIALS STATUS: Configured and ready: {', '.join(configured_list) if configured_list else 'none'}."
             if not_configured:
                 cred_status += (
-                    f" NOT configured (tools will fail): {', '.join(not_configured)}."
-                    " If the user asks to perform operations on an unconfigured provider, tell them to go to"
-                    " Settings > Cloud Credentials and add their credentials BEFORE attempting any tools."
-                    " Do NOT attempt cloud tools for unconfigured providers."
+                    f" NOT configured: {', '.join(not_configured)}."
+                    f" Do NOT call {'/'.join(not_configured)} tools — they will fail."
+                    f" If the user asks for {'/'.join(not_configured)} operations, tell them to add credentials in Settings > Cloud Credentials first."
+                    + (f" You CAN and SHOULD use {', '.join(configured_list)} tools freely." if configured_list else "")
                 )
             preferences_context = (preferences_context or '') + '\n\n' + cred_status
         except Exception:
