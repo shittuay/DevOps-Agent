@@ -284,6 +284,10 @@ app.register_blueprint(changes_bp)
 from routes.curriculum import curriculum_bp
 app.register_blueprint(curriculum_bp)
 
+# Pre-built workflow templates
+from routes.workflows import workflows_bp
+app.register_blueprint(workflows_bp)
+
 # MCP server (Model Context Protocol — remote tool access for Claude Desktop)
 from routes.mcp import mcp_bp
 app.register_blueprint(mcp_bp)
@@ -1338,6 +1342,13 @@ def chat():
 def dashboard():
     """Infrastructure dashboard with real-time monitoring."""
     return render_template('dashboard_live.html', user=current_user)
+
+
+@app.route('/workflows')
+@login_required
+def workflows_page():
+    """Pre-built workflow templates."""
+    return render_template('workflows.html', user=current_user)
 
 
 @app.route('/changes')
