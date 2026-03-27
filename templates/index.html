@@ -2235,6 +2235,16 @@
                                 if (evt.credits_remaining !== undefined) {
                                     updateCreditsDisplay(evt.credits_remaining);
                                 }
+                                // Update workflow execution status if this chat was started by a workflow
+                                const _wfExec = new URLSearchParams(window.location.search).get('wf_exec');
+                                if (_wfExec) {
+                                    const _wfStatus = evt.error ? 'failed' : 'completed';
+                                    fetch(`/api/workflows/executions/${_wfExec}`, {
+                                        method: 'PATCH',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({status: _wfStatus}),
+                                    }).catch(() => {});
+                                }
                                 if (evt.trial_ended) {
                                     const ctaDiv = document.createElement('div');
                                     ctaDiv.className = 'trial-ended-banner';
