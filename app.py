@@ -54,7 +54,7 @@ def _validate_stripe_config():
 _validate_stripe_config()
 # --- End startup validation ---
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file, g
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file, g, stream_with_context
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 import secrets
@@ -3144,7 +3144,7 @@ def api_chat_stream():
                     pass
 
         return app.response_class(
-            generate(),
+            stream_with_context(generate()),
             mimetype='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',
