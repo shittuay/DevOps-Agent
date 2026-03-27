@@ -1484,7 +1484,11 @@ class UserCloudCredential(db.Model):
                 f"Failed to decrypt credentials for UserCloudCredential "
                 f"id={self.id} provider={self.cloud_provider}: {e}"
             )
-            return {}
+            raise Exception(
+                f"Credential decryption failed for {self.cloud_provider.upper()}. "
+                "This usually means the server's SECRET_KEY changed after credentials were saved. "
+                "Please re-save your credentials in Settings > Cloud Credentials."
+            )
 
     def to_dict(self, include_credentials=False):
         """Convert to dictionary (credentials only included if explicitly requested)"""

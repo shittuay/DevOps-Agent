@@ -76,9 +76,8 @@ def _get_boto_client(service: str, region: Optional[str] = None):
     except Exception as e:
         logger.error(f"Failed to get AWS credentials for user {user_id}: {str(e)}")
         # SECURITY: Do NOT fall back to environment/IAM role credentials
-        raise Exception(
-            "AWS credentials not configured. Please add your Access Keys or IAM Role ARN in Settings > Cloud Credentials."
-        )
+        # Re-raise the original error so the agent sees what actually went wrong
+        raise
 
 
 def get_ec2_instances(
