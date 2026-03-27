@@ -3161,7 +3161,6 @@ def api_chat_stream():
 
 
 @app.route('/api/model/health', methods=['GET'])
-@login_required
 def model_health():
     """Return health status of all AI providers."""
     from services.model_failover import get_provider_health

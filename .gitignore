@@ -67,3 +67,4 @@ htmlcov/
 # Uploads
 uploads/
 instance/
+.gstack/

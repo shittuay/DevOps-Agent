@@ -152,6 +152,10 @@ def signup():
         if not re.match(r'^[a-zA-Z0-9_]{3,20}$', username):
             return render_template('signup.html', error='Username must be 3-20 characters long and contain only letters, numbers, and underscores')
 
+        confirm_password = request.form.get('confirm_password', '')
+        if password != confirm_password:
+            return render_template('signup.html', error='Passwords do not match')
+
         if len(password) < 8:
             return render_template('signup.html', error='Password must be at least 8 characters long')
 
