@@ -1,0 +1,432 @@
+{% extends "base.html" %}
+{% block title %}Workflows — DevOps Agent{% endblock %}
+{% block content %}
+<style>
+    .workflows-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 20px;
+        margin-top: 24px;
+    }
+
+    .workflow-card {
+        background: var(--glass-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: 16px;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        transition: all 0.3s ease;
+    }
+
+    .workflow-card:hover {
+        border-color: var(--border-medium);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+
+    .workflow-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+    }
+
+    .workflow-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: rgba(255, 107, 53, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        flex-shrink: 0;
+    }
+
+    .workflow-title {
+        font-family: 'Syne', sans-serif;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.3;
+    }
+
+    .workflow-meta {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .workflow-category {
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+    }
+
+    .workflow-time {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .workflow-runs {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .workflow-desc {
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+
+    .workflow-steps-preview {
+        background: rgba(0,0,0,0.2);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 12px 14px;
+        display: none;
+    }
+
+    .workflow-steps-preview.visible {
+        display: block;
+    }
+
+    .workflow-steps-preview ol {
+        margin: 0;
+        padding-left: 18px;
+    }
+
+    .workflow-steps-preview li {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+        line-height: 1.4;
+    }
+
+    .workflow-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: auto;
+    }
+
+    .btn-run {
+        flex: 1;
+        padding: 10px 16px;
+        background: var(--gradient-primary);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .btn-run:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(255, 107, 53, 0.4);
+    }
+
+    .btn-run:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-preview {
+        padding: 10px 14px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        font-size: 13px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-preview:hover {
+        background: rgba(255,255,255,0.1);
+        color: var(--text-primary);
+    }
+
+    .filter-bar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 4px;
+    }
+
+    .filter-chip {
+        padding: 6px 16px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        border: 1px solid var(--border-subtle);
+        background: transparent;
+        color: var(--text-secondary);
+        transition: all 0.2s;
+    }
+
+    .filter-chip:hover {
+        background: rgba(255,255,255,0.05);
+    }
+
+    .filter-chip.active {
+        background: rgba(255,107,53,0.15);
+        border-color: rgba(255,107,53,0.4);
+        color: var(--accent-primary);
+    }
+
+    /* Recent executions */
+    .executions-section {
+        margin-top: 48px;
+    }
+
+    .executions-section h2 {
+        font-family: 'Syne', sans-serif;
+        font-size: 20px;
+        font-weight: 700;
+        margin-bottom: 16px;
+    }
+
+    .status-running { color: #f59e0b; }
+    .status-completed { color: #10b981; }
+    .status-failed { color: #ef4444; }
+    .status-queued { color: #3b82f6; }
+    .status-timed_out { color: #8b5cf6; }
+
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: var(--glass-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        padding: 14px 20px;
+        font-size: 14px;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        backdrop-filter: blur(20px);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        transform: translateY(100px);
+        opacity: 0;
+        transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .toast.show {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    @media (max-width: 768px) {
+        .workflows-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="page-header">
+    <h1>Pre-built Workflows</h1>
+    <span style="color: var(--text-secondary); font-size: 14px;">Run common DevOps tasks with one click</span>
+</div>
+
+<div class="filter-bar">
+    <button class="filter-chip active" data-category="all" onclick="filterCategory(this, 'all')">All</button>
+    <button class="filter-chip" data-category="Compute" onclick="filterCategory(this, 'Compute')">Compute</button>
+    <button class="filter-chip" data-category="Security" onclick="filterCategory(this, 'Security')">Security</button>
+    <button class="filter-chip" data-category="Monitoring" onclick="filterCategory(this, 'Monitoring')">Monitoring</button>
+    <button class="filter-chip" data-category="Storage" onclick="filterCategory(this, 'Storage')">Storage</button>
+    <button class="filter-chip" data-category="Database" onclick="filterCategory(this, 'Database')">Database</button>
+    <button class="filter-chip" data-category="Cost" onclick="filterCategory(this, 'Cost')">Cost</button>
+    <button class="filter-chip" data-category="Networking" onclick="filterCategory(this, 'Networking')">Networking</button>
+</div>
+
+<div class="workflows-grid" id="workflowsGrid">
+    <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">
+        Loading workflows...
+    </div>
+</div>
+
+<div class="executions-section">
+    <h2>Recent Executions</h2>
+    <div class="card" id="executionsTable">
+        <div style="color: var(--text-secondary); font-size: 14px;">Loading...</div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CATEGORY_ICONS = {
+    'Compute': '💻',
+    'Security': '🔒',
+    'Monitoring': '📡',
+    'Storage': '🗄️',
+    'Database': '🗃️',
+    'Cost': '💰',
+    'Networking': '🌐',
+};
+
+let allWorkflows = [];
+let activeCategory = 'all';
+
+function showToast(msg, icon = 'ℹ️') {
+    const t = document.getElementById('toast');
+    t.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+function filterCategory(el, category) {
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    activeCategory = category;
+    renderWorkflows();
+}
+
+function renderWorkflows() {
+    const grid = document.getElementById('workflowsGrid');
+    const filtered = activeCategory === 'all'
+        ? allWorkflows
+        : allWorkflows.filter(w => w.category === activeCategory);
+
+    if (!filtered.length) {
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-secondary)">No workflows in this category.</div>';
+        return;
+    }
+
+    grid.innerHTML = filtered.map(w => `
+        <div class="workflow-card" data-id="${w.id}" data-category="${w.category}">
+            <div class="workflow-header">
+                <div class="workflow-icon">${CATEGORY_ICONS[w.category] || '⚙️'}</div>
+                <div>
+                    <div class="workflow-title">${escHtml(w.name)}</div>
+                </div>
+            </div>
+            <div class="workflow-meta">
+                <span class="workflow-category">${escHtml(w.category)}</span>
+                <span class="workflow-time"><i class="fas fa-clock"></i> ~${w.estimated_minutes}m</span>
+                <span class="workflow-runs"><i class="fas fa-play-circle"></i> ${w.execution_count} runs</span>
+            </div>
+            <div class="workflow-desc">${escHtml(w.description)}</div>
+            <div class="workflow-steps-preview" id="steps-${w.id}">
+                <ol>${w.steps.map(s => `<li>${escHtml(s)}</li>`).join('')}</ol>
+            </div>
+            <div class="workflow-actions">
+                <button class="btn-run" onclick="runWorkflow(${w.id}, this)" id="run-${w.id}">
+                    <i class="fas fa-play"></i> Run Workflow
+                </button>
+                <button class="btn-preview" onclick="toggleSteps(${w.id})" title="Preview steps">
+                    <i class="fas fa-list"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function toggleSteps(id) {
+    const el = document.getElementById(`steps-${id}`);
+    el.classList.toggle('visible');
+}
+
+async function runWorkflow(templateId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+
+    try {
+        const res = await fetch(`/api/workflows/${templateId}/execute`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to start workflow');
+
+        showToast('Workflow started — opening chat', '');
+        setTimeout(() => window.location.href = data.redirect_url, 600);
+    } catch (e) {
+        showToast(e.message, '');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play"></i> Run Workflow';
+    }
+}
+
+function renderExecutions(execs) {
+    const el = document.getElementById('executionsTable');
+    if (!execs.length) {
+        el.innerHTML = '<div style="color:var(--text-secondary);font-size:14px;text-align:center;padding:20px">No executions yet. Run a workflow above.</div>';
+        return;
+    }
+
+    el.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Workflow</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Started</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${execs.map(e => `
+                <tr>
+                    <td style="font-weight:600">${escHtml(e.template_name || 'Unknown')}</td>
+                    <td><span class="workflow-category">${escHtml(e.template_category || '')}</span></td>
+                    <td><span class="status-${e.status}">${statusLabel(e.status)}</span></td>
+                    <td style="color:var(--text-secondary);font-size:13px">${formatDate(e.started_at || e.created_at)}</td>
+                    <td>${e.conversation_id
+                        ? `<a href="/chat?cid=${e.conversation_id}" class="btn btn-secondary" style="font-size:12px;padding:6px 12px">View Chat</a>`
+                        : '—'
+                    }</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+}
+
+function statusLabel(s) {
+    const labels = {running:'Running',completed:'Completed',failed:'Failed',queued:'Queued',timed_out:'Timed Out'};
+    return labels[s] || s;
+}
+
+function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString();
+}
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+}
+
+async function loadAll() {
+    const [wRes, eRes] = await Promise.all([
+        fetch('/api/workflows'),
+        fetch('/api/workflows/executions'),
+    ]);
+    const wData = await wRes.json();
+    const eData = await eRes.json();
+    allWorkflows = wData.workflows || [];
+    renderWorkflows();
+    renderExecutions(eData.executions || []);
+}
+
+loadAll();
+</script>
+{% endblock %}

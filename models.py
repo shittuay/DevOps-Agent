@@ -2617,6 +2617,70 @@ class UserQuizAttempt(db.Model):
         return f'<UserQuizAttempt user={self.user_id} module={self.module_id} {self.score}/{self.total}>'
 
 
+class WorkflowTemplate(db.Model):
+    """Pre-built workflow templates for common DevOps tasks."""
+    __tablename__ = 'workflow_templates'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(100), nullable=False, index=True)
+    # JSON list of step strings injected as a prompt
+    steps = db.Column(db.JSON, nullable=False, default=list)
+    # Estimated runtime in minutes
+    estimated_minutes = db.Column(db.Integer, default=5)
+    is_public = db.Column(db.Boolean, default=True, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    execution_count = db.Column(db.Integer, default=0, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    executions = db.relationship('WorkflowExecution', backref='template', lazy='dynamic')
+
+    __table_args__ = (
+        db.Index('ix_workflow_templates_category_public', 'category', 'is_public'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'category': self.category,
+            'steps': self.steps,
+            'estimated_minutes': self.estimated_minutes,
+            'is_public': self.is_public,
+            'execution_count': self.execution_count,
+            'created_at': self.created_at.isoformat(),
+        }
+
+
+class WorkflowExecution(db.Model):
+    """Tracks a user's execution of a workflow template."""
+    __tablename__ = 'workflow_executions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    template_id = db.Column(db.Integer, db.ForeignKey('workflow_templates.id'), nullable=False)
+    # conversation_id links to the chat conversation executing this workflow
+    conversation_id = db.Column(db.String(50), db.ForeignKey('conversations.id'), nullable=True)
+    status = db.Column(db.String(50), default='queued', nullable=False)  # queued/running/completed/failed/timed_out
+    started_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'template_id': self.template_id,
+            'conversation_id': self.conversation_id,
+            'status': self.status,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'created_at': self.created_at.isoformat(),
+        }
+
+
 class StatusSubscriber(db.Model):
     """Email subscribers for public status page notifications."""
     __tablename__ = 'status_subscribers'
