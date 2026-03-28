@@ -102,6 +102,11 @@ from models import (
 
 app = Flask(__name__)
 
+# Trust proxy headers (Cloudflare → nginx → Flask).
+# Without this, Talisman sees HTTP and redirects Stripe webhooks, losing the body + signature.
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
 # Error tracking — captures unhandled exceptions to Sentry in production.
 # Set SENTRY_DSN env var to enable. Safe no-op if not configured or SDK not installed.
 _sentry_dsn = os.environ.get('SENTRY_DSN')

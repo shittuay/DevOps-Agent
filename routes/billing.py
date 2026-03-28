@@ -549,6 +549,7 @@ def stripe_webhook():
     try:
         event = StripePaymentService.construct_webhook_event(payload, sig_header)
     except ValueError as e:
+        logger.error(f"Stripe webhook signature verification failed: {e} | sig_header={sig_header[:60] if sig_header else 'MISSING'}")
         return jsonify({'error': str(e)}), 400
 
     logger.info(f"Received Stripe webhook: {event['type']}")
