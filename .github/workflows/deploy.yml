@@ -136,21 +136,23 @@ jobs:
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users';" \
             | tr -d '[:space:]')
 
+          ALEMBIC="$VENV_DIR/bin/alembic"
+
           if [ "$USERS_TABLE_EXISTS" = "0" ]; then
             echo "Fresh database detected — running full migration to create all tables..."
             FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-              alembic upgrade head
+              $ALEMBIC upgrade head
           else
             ALEMBIC_EXISTS=$(sudo -u postgres psql -d devops_agent -tc \
               "SELECT to_regclass('public.alembic_version');" | tr -d '[:space:]')
             if [ -z "$ALEMBIC_EXISTS" ]; then
               echo "Existing database not yet under Alembic control — stamping at head..."
               FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-                alembic stamp head
+                $ALEMBIC stamp head
             fi
             echo "Applying any pending migrations..."
             FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-              alembic upgrade head
+              $ALEMBIC upgrade head
           fi
           echo "Database migrations complete."
 
