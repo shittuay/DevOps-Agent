@@ -142,6 +142,30 @@ def _mock_aws_create(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
         }
     if 's3' in tool_name or 'bucket' in tool_name:
         name = tool_input.get('bucket_name', 'my-new-bucket')
+        if 'lifecycle' in tool_name:
+            rules = tool_input.get('rules', [])
+            return {
+                'success': True, 'simulated': True,
+                'bucket_name': name,
+                'rules_applied': len(rules),
+                'message': f'[Sandbox] Lifecycle policy applied to {name} with {len(rules)} rule(s)'
+            }
+        if 'replication' in tool_name:
+            dest = tool_input.get('destination_bucket', 'my-backup-bucket')
+            dest_region = tool_input.get('destination_region', 'eu-west-1')
+            return {
+                'success': True, 'simulated': True,
+                'source_bucket': name,
+                'destination_bucket': dest,
+                'destination_region': dest_region,
+                'message': f'[Sandbox] Cross-region replication configured: {name} → {dest} ({dest_region})'
+            }
+        if 'policy' in tool_name:
+            return {
+                'success': True, 'simulated': True,
+                'bucket_name': name,
+                'message': f'[Sandbox] Bucket policy applied to {name}'
+            }
         return {
             'success': True, 'simulated': True,
             'message': f'S3 bucket "{name}" created successfully',
