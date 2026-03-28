@@ -1095,6 +1095,73 @@
                     <p style="color: var(--text-tertiary); font-size: 0.85rem;">No learning sessions yet.</p>
                 </div>
             </div>
+
+            <!-- API Keys -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div>
+                        <h2>API Keys</h2>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Integrate the DevOps Agent into your own tools and pipelines</p>
+                    </div>
+                    <span id="apiKeyCountBadge" class="status-badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">0 keys</span>
+                </div>
+
+                <div style="background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 16px; margin-bottom: 20px;">
+                    <p style="font-size: 0.875rem; color: var(--text-secondary); margin: 0 0 6px; line-height: 1.6;">
+                        Use API keys to call the agent from scripts, CI/CD pipelines, or external tools via
+                        <code style="background: var(--bg-tertiary); padding: 1px 6px; border-radius: 4px; font-size: 0.8rem;">POST /api-gateway/v1/agent</code>
+                        with an <code style="background: var(--bg-tertiary); padding: 1px 6px; border-radius: 4px; font-size: 0.8rem;">X-API-Key</code> header.
+                    </p>
+                    <p style="font-size: 0.8rem; color: var(--text-tertiary); margin: 0;">Keys are shown once at creation. Store them securely — they cannot be retrieved later.</p>
+                </div>
+
+                <!-- Create Key Form -->
+                <div style="background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 16px; margin-bottom: 20px;">
+                    <h3 style="font-size: 0.9rem; color: var(--text-primary); margin: 0 0 14px;">Generate New Key</h3>
+                    <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 180px;">
+                            <label style="font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px;">Key Name</label>
+                            <input id="newKeyName" type="text" placeholder="e.g. CI pipeline, Monitoring script"
+                                style="width: 100%; padding: 9px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.875rem; box-sizing: border-box;">
+                        </div>
+                        <div style="min-width: 130px;">
+                            <label style="font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px;">Expires (days)</label>
+                            <input id="newKeyExpiry" type="number" min="0" max="365" placeholder="0 = never"
+                                style="width: 100%; padding: 9px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.875rem; box-sizing: border-box;">
+                        </div>
+                        <button onclick="createApiKey()" style="padding: 9px 18px; background: var(--accent-primary); color: white; border: none; border-radius: 6px; font-size: 0.875rem; font-weight: 600; cursor: pointer; white-space: nowrap;">
+                            Generate Key
+                        </button>
+                    </div>
+                    <div id="newKeyResult" style="display:none; margin-top: 14px; padding: 12px 14px; background: var(--bg-primary); border: 1px solid var(--accent-primary); border-radius: 8px;">
+                        <p style="font-size: 0.8rem; color: var(--accent-primary); font-weight: 600; margin: 0 0 6px;">Your new API key — copy it now, it will not be shown again:</p>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <code id="newKeyValue" style="font-size: 0.85rem; color: var(--text-primary); flex: 1; word-break: break-all;"></code>
+                            <button onclick="copyApiKey()" style="padding: 5px 10px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 5px; color: var(--text-secondary); font-size: 0.78rem; cursor: pointer; white-space: nowrap;">Copy</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Existing Keys Table -->
+                <div id="apiKeysTableWrap">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-subtle);">
+                                <th style="padding: 8px 10px; text-align:left; color: var(--text-tertiary); font-weight: 500;">Name</th>
+                                <th style="padding: 8px 10px; text-align:left; color: var(--text-tertiary); font-weight: 500;">Key</th>
+                                <th style="padding: 8px 10px; text-align:left; color: var(--text-tertiary); font-weight: 500;">Scopes</th>
+                                <th style="padding: 8px 10px; text-align:left; color: var(--text-tertiary); font-weight: 500;">Created</th>
+                                <th style="padding: 8px 10px; text-align:left; color: var(--text-tertiary); font-weight: 500;">Last Used</th>
+                                <th style="padding: 8px 10px; text-align:left; color: var(--text-tertiary); font-weight: 500;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="apiKeysTableBody">
+                            <tr><td colspan="6" style="padding: 16px 10px; color: var(--text-tertiary); text-align:center;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -1822,6 +1889,84 @@
                 if (typeof showToast === 'function') showToast('Failed to save: ' + err.message, 'error');
             });
         }
+    </script>
+    <script>
+    // API Keys
+    document.addEventListener('DOMContentLoaded', loadApiKeys);
+
+    async function loadApiKeys() {
+        try {
+            const res = await fetch('/api-gateway/api/keys');
+            if (!res.ok) return;
+            const data = await res.json();
+            renderApiKeys(data.keys || []);
+        } catch(e) {}
+    }
+
+    function renderApiKeys(keys) {
+        const badge = document.getElementById('apiKeyCountBadge');
+        if (badge) badge.textContent = keys.length + (keys.length === 1 ? ' key' : ' keys');
+        const tbody = document.getElementById('apiKeysTableBody');
+        if (!tbody) return;
+        if (keys.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="padding:16px 10px;color:var(--text-tertiary);text-align:center;">No API keys yet</td></tr>';
+            return;
+        }
+        tbody.innerHTML = keys.map(k => `
+            <tr style="border-bottom:1px solid var(--border-subtle);">
+                <td style="padding:10px;">${k.name || '—'}</td>
+                <td style="padding:10px;"><code style="background:var(--bg-secondary);padding:2px 7px;border-radius:4px;font-size:0.8rem;">${k.key_prefix}****</code></td>
+                <td style="padding:10px;font-size:0.8rem;color:var(--text-tertiary);">${(k.scopes||[]).join(', ') || 'read'}</td>
+                <td style="padding:10px;font-size:0.8rem;color:var(--text-tertiary);">${k.created_at ? new Date(k.created_at).toLocaleDateString() : '—'}</td>
+                <td style="padding:10px;font-size:0.8rem;color:var(--text-tertiary);">${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'}</td>
+                <td style="padding:10px;">
+                    <button onclick="revokeApiKey(${k.id})" style="padding:4px 10px;background:transparent;border:1px solid var(--error-color,#e53e3e);border-radius:5px;color:var(--error-color,#e53e3e);font-size:0.78rem;cursor:pointer;">Revoke</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function createApiKey() {
+        const name = (document.getElementById('newKeyName').value || '').trim();
+        if (!name) { alert('Enter a name for the key.'); return; }
+        const expiry = parseInt(document.getElementById('newKeyExpiry').value) || 0;
+        const form = new FormData();
+        form.append('name', name);
+        form.append('expires_days', expiry);
+        form.append('scopes', 'agent');
+        try {
+            const res = await fetch('/api-gateway/keys/create', {
+                method: 'POST',
+                headers: {'Accept': 'application/json'},
+                body: form
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('newKeyName').value = '';
+                document.getElementById('newKeyExpiry').value = '';
+                document.getElementById('newKeyValue').textContent = data.key;
+                document.getElementById('newKeyResult').style.display = 'block';
+                loadApiKeys();
+            } else {
+                alert(data.error || 'Failed to create key.');
+            }
+        } catch(e) {
+            alert('Request failed. Please try again.');
+        }
+    }
+
+    async function revokeApiKey(id) {
+        if (!confirm('Revoke this key? It will stop working immediately.')) return;
+        await fetch('/api-gateway/keys/' + id + '/revoke', {method:'POST'});
+        loadApiKeys();
+    }
+
+    function copyApiKey() {
+        const val = document.getElementById('newKeyValue').textContent;
+        navigator.clipboard.writeText(val).then(() => {
+            if (typeof showToast === 'function') showToast('Key copied to clipboard', 'success');
+        });
+    }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
