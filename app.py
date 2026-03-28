@@ -4699,16 +4699,20 @@ def receive_webhook(source):
 
     payload_bytes = request.get_data()
 
-    # Verify signature if a secret is configured for this source
+    # Require a configured secret — reject unconfigured sources entirely
     secret_key = os.environ.get(f'WEBHOOK_SECRET_{source.upper()}', '')
-    if secret_key:
-        sig_header = {
-            'github': 'X-Hub-Signature-256',
-            'pagerduty': 'X-PagerDuty-Signature',
-        }.get(source, 'X-Webhook-Signature')
-        signature = request.headers.get(sig_header, '')
-        if not verify_webhook_signature(payload_bytes, signature, secret_key, source):
-            return jsonify({'error': 'Invalid signature'}), 401
+    if not secret_key:
+        security_logger.warning(f"Webhook rejected: no secret configured for source '{source}' from {request.remote_addr}")
+        return jsonify({'error': 'Webhook source not configured'}), 401
+
+    sig_header = {
+        'github': 'X-Hub-Signature-256',
+        'pagerduty': 'X-PagerDuty-Signature',
+    }.get(source, 'X-Webhook-Signature')
+    signature = request.headers.get(sig_header, '')
+    if not verify_webhook_signature(payload_bytes, signature, secret_key, source):
+        security_logger.warning(f"Webhook rejected: invalid signature for source '{source}' from {request.remote_addr}")
+        return jsonify({'error': 'Invalid signature'}), 401
 
     try:
         payload = request.get_json(force=True)
