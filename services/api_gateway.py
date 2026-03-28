@@ -119,9 +119,10 @@ class APIGatewayService:
         APIKey = self._get_api_key_model()
         return APIKey.query.filter_by(user_id=user_id, is_active=True).all()
 
-    def revoke_api_key(self, key_id: int) -> bool:
-        """Revoke an API key."""
-        api_key = self.get_api_key(key_id)
+    def revoke_api_key(self, key_id: int, user_id: int) -> bool:
+        """Revoke an API key (user_id enforces ownership)."""
+        APIKey = self._get_api_key_model()
+        api_key = APIKey.query.filter_by(id=key_id, user_id=user_id).first()
         if api_key:
             api_key.revoke()
             logger.info(f"Revoked API key: {api_key.name}")
