@@ -1910,6 +1910,187 @@ def delete_s3_bucket(
         }
 
 
+def put_s3_lifecycle_policy(
+    bucket_name: str,
+    rules: List[Dict],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Set lifecycle policies on an S3 bucket.
+
+    Args:
+        bucket_name: Name of the S3 bucket
+        rules: List of lifecycle rule dicts. Each rule must have 'id' and 'status'
+               ('Enabled'/'Disabled'). Common fields:
+               - 'prefix': object key prefix filter (empty string = all objects)
+               - 'transitions': list of {days, storage_class} e.g.
+                 [{'days': 30, 'storage_class': 'STANDARD_IA'},
+                  {'days': 90, 'storage_class': 'GLACIER'}]
+               - 'expiration_days': delete objects after N days
+               - 'noncurrent_version_expiration_days': for versioned buckets
+        region: AWS region
+
+    Returns:
+        Dictionary with result
+    """
+    try:
+        s3 = _get_boto_client('s3', region)
+
+        lifecycle_rules = []
+        for r in rules:
+            rule = {
+                'ID': r['id'],
+                'Status': r.get('status', 'Enabled'),
+                'Filter': {'Prefix': r.get('prefix', '')}
+            }
+            if r.get('transitions'):
+                rule['Transitions'] = [
+                    {'Days': t['days'], 'StorageClass': t['storage_class']}
+                    for t in r['transitions']
+                ]
+            if r.get('expiration_days'):
+                rule['Expiration'] = {'Days': r['expiration_days']}
+            if r.get('noncurrent_version_expiration_days'):
+                rule['NoncurrentVersionExpiration'] = {
+                    'NoncurrentDays': r['noncurrent_version_expiration_days']
+                }
+            lifecycle_rules.append(rule)
+
+        s3.put_bucket_lifecycle_configuration(
+            Bucket=bucket_name,
+            LifecycleConfiguration={'Rules': lifecycle_rules}
+        )
+
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'rules_applied': len(lifecycle_rules),
+            'message': f'Lifecycle policy applied to {bucket_name} with {len(lifecycle_rules)} rule(s)'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 lifecycle policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def put_s3_replication(
+    bucket_name: str,
+    destination_bucket: str,
+    destination_region: str,
+    iam_role_arn: str,
+    prefix: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Configure cross-region replication on an S3 bucket.
+
+    Args:
+        bucket_name: Source bucket name
+        destination_bucket: Destination bucket name (must exist, versioning enabled)
+        destination_region: AWS region of the destination bucket
+        iam_role_arn: IAM role ARN that S3 will assume to replicate objects
+        prefix: Optional key prefix filter (omit to replicate all objects)
+        region: AWS region of the source bucket
+
+    Returns:
+        Dictionary with result
+    """
+    try:
+        s3 = _get_boto_client('s3', region)
+
+        # Versioning must be enabled on the source bucket for replication
+        s3.put_bucket_versioning(
+            Bucket=bucket_name,
+            VersioningConfiguration={'Status': 'Enabled'}
+        )
+
+        dest_bucket_arn = f'arn:aws:s3:::{destination_bucket}'
+        rule: Dict = {
+            'ID': 'replication-rule',
+            'Status': 'Enabled',
+            'Destination': {
+                'Bucket': dest_bucket_arn,
+                'StorageClass': 'STANDARD'
+            }
+        }
+        if prefix is not None:
+            rule['Filter'] = {'Prefix': prefix}
+        else:
+            rule['Filter'] = {'Prefix': ''}
+
+        s3.put_bucket_replication(
+            Bucket=bucket_name,
+            ReplicationConfiguration={
+                'Role': iam_role_arn,
+                'Rules': [rule]
+            }
+        )
+
+        return {
+            'success': True,
+            'source_bucket': bucket_name,
+            'destination_bucket': destination_bucket,
+            'destination_region': destination_region,
+            'message': f'Cross-region replication configured: {bucket_name} → {destination_bucket} ({destination_region})'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 replication: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def put_s3_bucket_policy(
+    bucket_name: str,
+    policy: Dict,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Apply a bucket policy to an S3 bucket.
+
+    Args:
+        bucket_name: Name of the S3 bucket
+        policy: IAM policy document as a dict. Example:
+                {
+                  'Version': '2012-10-17',
+                  'Statement': [{
+                    'Effect': 'Allow',
+                    'Principal': {'AWS': 'arn:aws:iam::123456789012:role/MyRole'},
+                    'Action': ['s3:GetObject'],
+                    'Resource': 'arn:aws:s3:::my-bucket/*'
+                  }]
+                }
+        region: AWS region
+
+    Returns:
+        Dictionary with result
+    """
+    try:
+        import json as _json
+        s3 = _get_boto_client('s3', region)
+
+        policy_str = _json.dumps(policy) if isinstance(policy, dict) else policy
+        s3.put_bucket_policy(Bucket=bucket_name, Policy=policy_str)
+
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'message': f'Bucket policy applied to {bucket_name}'
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 bucket policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # VPC OPERATIONS
 # ============================================================================
@@ -7975,6 +8156,88 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['bucket_name']
             },
             'handler': get_s3_bucket_info
+        },
+        {
+            'name': 'put_s3_lifecycle_policy',
+            'description': 'Set lifecycle policies on an S3 bucket to automatically transition objects to cheaper storage classes or delete them after a specified number of days',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {
+                        'type': 'string',
+                        'description': 'Name of the S3 bucket'
+                    },
+                    'rules': {
+                        'type': 'array',
+                        'description': 'List of lifecycle rules. Each rule: {id, status, prefix, transitions:[{days,storage_class}], expiration_days, noncurrent_version_expiration_days}',
+                        'items': {'type': 'object'}
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['bucket_name', 'rules']
+            },
+            'handler': put_s3_lifecycle_policy
+        },
+        {
+            'name': 'put_s3_replication',
+            'description': 'Configure cross-region replication on an S3 bucket to automatically copy objects to a bucket in another region for backup or compliance',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {
+                        'type': 'string',
+                        'description': 'Source bucket name'
+                    },
+                    'destination_bucket': {
+                        'type': 'string',
+                        'description': 'Destination bucket name (must already exist with versioning enabled)'
+                    },
+                    'destination_region': {
+                        'type': 'string',
+                        'description': 'AWS region of the destination bucket'
+                    },
+                    'iam_role_arn': {
+                        'type': 'string',
+                        'description': 'IAM role ARN that S3 will assume to replicate objects'
+                    },
+                    'prefix': {
+                        'type': 'string',
+                        'description': 'Optional key prefix to replicate (omit to replicate all objects)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region of the source bucket'
+                    }
+                },
+                'required': ['bucket_name', 'destination_bucket', 'destination_region', 'iam_role_arn']
+            },
+            'handler': put_s3_replication
+        },
+        {
+            'name': 'put_s3_bucket_policy',
+            'description': 'Apply an IAM bucket policy to an S3 bucket for fine-grained access control (e.g. restrict to specific IAM roles, enforce HTTPS, allow cross-account access)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {
+                        'type': 'string',
+                        'description': 'Name of the S3 bucket'
+                    },
+                    'policy': {
+                        'type': 'object',
+                        'description': 'IAM policy document as JSON with Version and Statement fields'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['bucket_name', 'policy']
+            },
+            'handler': put_s3_bucket_policy
         },
         {
             'name': 'get_eks_clusters',
