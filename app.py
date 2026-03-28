@@ -2984,10 +2984,9 @@ def api_chat_stream():
             )
             full_response = []
             actual_mc = mc
-            _log.warning(f"STREAM DEBUG: tier={getattr(mc, 'provider', '?')}, model={getattr(mc, 'model', '?')}")
+            _log.debug(f"stream: tier={getattr(mc, 'provider', '?')}, model={getattr(mc, 'model', '?')}")
             try:
                 if mc.provider not in ('anthropic', 'kimi'):
-                    _log.warning("STREAM DEBUG: Using Groq path (non-anthropic/kimi)")
                     stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
                 else:
                     try:
@@ -5067,14 +5066,6 @@ if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("Starting web server...")
     print("=" * 60)
-
-    # Debug: Print registered blueprints and key routes
-    print("\nRegistered Blueprints:", list(app.blueprints.keys()))
-    print("Key Routes:")
-    for rule in app.url_map.iter_rules():
-        if any(x in rule.rule for x in ['/monitoring', '/incidents', '/optimization', '/notifications', '/admin']):
-            if rule.rule.endswith('/'):
-                print(f"  {rule.rule}")
 
     # Get port from environment (for production) or use 5000 (for local dev)
     port = int(os.environ.get('PORT', 5000))
