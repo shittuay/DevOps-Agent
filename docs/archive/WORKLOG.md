@@ -1,83 +1,46 @@
 # DevOps Agent - Work Log
 
-> Auto-maintained by Claude Code `/memory` skill. Last updated: 2026-02-11
+> Auto-maintained by Claude Code `/memory` skill. Last updated: 2026-03-26
 
 ## Current State
-- **Last Session:** 2026-02-16 - Implemented all 10 OpenClaw-inspired features
-- **Deploy Status:** Deploying to devopsagent.io
-- **Branch:** main
+- **Last Session:** 2026-03-26 - Flask app context fix for chat streaming
+- **Deploy Status:** Production at devopsagent.io (EC2 34.239.157.235)
+- **Branch:** main (clean, up to date with origin)
 - **Uncommitted Work:** No
 
 ## Recent Changes (last 5 sessions)
 
-### 2026-02-11 - Fix deploy crash loop + PM2 ecosystem config
-- What was done:
-  - ROOT CAUSE: `init_secrets()` raised `RuntimeError` on any AWS failure, crashing the app. PM2 restarted it in a loop (11 restarts). New code never served.
-  - Made `init_secrets()` non-fatal: returns `True/False` instead of raising exceptions
-  - Added .env fallback in app.py: if AWS Secrets Manager fails, loads `config/.env` as backup
-  - Fixed `.env` file having leading whitespace from YAML heredoc indentation (added `sed` strip)
-  - Switched deploy from `pm2 start app.py --interpreter` to PM2 ecosystem config (`ecosystem.config.js`) for persistent env vars across restarts
-  - Added `pm2 logs` output to deploy script for debugging visibility
-  - Added `max_restarts: 5` and `restart_delay: 5000` to prevent infinite crash loops
-  - Bumped health endpoint version to `2026-02-11-v5`
-- Files changed: services/secrets_manager.py, app.py, .github/workflows/deploy.yml
+### 2026-03-26 - Flask app context + credential fixes
+- What was done: Fixed Flask app context not preserved through SSE chat stream (stream_with_context). Fixed credentials display issue. Surfaced real AWS credential errors instead of generic messages. Fixed QA issues: signup password confirmation, public model health endpoint. Injected cloud credential status into agent system prompt.
+- Files changed: app.py, src/agent/core.py, services/credential_service.py
+- Deployed: Yes (auto-deploy)
+- Commits: `8c44156`, `8937499`, `3bc45a2`, `8766321`, `38d6dc0`
 
-### 2026-02-11 - Fix Stripe lazy-loading + diagnostic endpoint
-- What was done:
-  - ROOT CAUSE FIX: `stripe_integration.py` was reading env vars at import time (module level). If AWS Secrets Manager hadn't loaded yet, all Stripe config was `None` forever. Refactored to read env vars lazily at call time.
-  - Added `_ensure_stripe_configured()` guard before every Stripe API call
-  - Added `/api/stripe/status` diagnostic endpoint (login required) - shows which Stripe env vars are set without exposing values
-  - Fixed `BASE_URL` in deploy workflow from `http://34.239.157.235:5000` to `https://devopsagent.io`
-  - Added detailed debug logging to checkout endpoint
-  - Improved JS error handling to show actual server errors in toast
-  - User confirmed all Stripe secrets added to AWS Secrets Manager
-  - User set up Stripe webhook endpoint at `https://devopsagent.io/api/stripe/webhook`
-- Files changed: stripe_integration.py, app.py, templates/billing.html, .github/workflows/deploy.yml
-- Deployed: Yes (auto-deploy running)
-- Commits: `79b18b4` (debug logging + BASE_URL), `76a4c20` (lazy-load fix + diagnostic)
-
-### 2026-02-11 - Fix billing payment bypass + font sizes
-- What was done:
-  - Disabled legacy endpoints `/api/subscription/upgrade` and `/api/credits/purchase` that granted free credits without Stripe payment (security fix)
-  - Added missing Stripe price IDs to `MANAGED_SECRET_KEYS` in `secrets_manager.py` so they load in production
-  - Fixed billing page credit pack sizes to match Stripe config (100/250/500/1000)
-  - Bumped 10-11px fonts to 13px and 12px to 14px across 6 templates (88 total fixes)
-  - Created `/update-context`, `/resume-work`, and `/memory` skills
-  - Updated CLAUDE.md with billing flow docs and resolved issues
-- Files changed: app.py, services/secrets_manager.py, templates/billing.html, templates/index.html, templates/dashboard_live.html, templates/changes.html, templates/compliance/dashboard.html, templates/templates.html, CLAUDE.md, .claude/skills/
+### 2026-03-20 - Status page + Brevo integration
+- What was done: Status page live at status.devopsagent.io. Brevo subscribe/notify flow added. `/api/status/health` endpoint created. Planned: transactional emails + Brevo marketing campaign for first 50-100 customers.
 - Deployed: Yes
-- Commits: `fe62cdb` (billing fix), `b935f60` (font sizes), `bcf24f0` (memory skill)
 
-### 2026-02-11 - Wire billing to Stripe Checkout
-- What was done: Updated billing.html JS to call Stripe Checkout endpoints instead of legacy free-upgrade endpoints
-- Commit: `2aa4a42`
+### 2026-03-18 - Quiz hardening + UI tweaks
+- What was done: Quiz hardening committed. `>_` logo added to login page. Theme toggle moved inline. Voice button added to input bar. Curriculum redesign was built then reverted (user didn't like it).
+- Deployed: Yes
 
-## OpenClaw Feature Port (2026-02-16)
-Porting 10 features inspired by OpenClaw to DevOps Agent.
+### 2026-03-16 - P3 TODOs + CI/CD + auth fixes
+- What was done: All P3 TODOs completed. CI/CD fixed with Elastic IP 3.216.127.206. Resend-verification 404 fixed. TOTP→email-verify loop fixed.
+- Deployed: Yes
 
-1. [x] Input sanitization layer (services/input_sanitizer.py)
-2. [x] Secret detection/redaction in chat (services/secret_detector.py)
-3. [x] /doctor diagnostics page (route + template)
-4. [x] Streaming chat responses (SSE) - /api/chat/stream endpoint + frontend
-5. [x] Scheduled infrastructure checks (services/scheduler.py)
-6. [x] Webhook-triggered actions (services/webhook_handler.py + /api/webhooks/<source>)
-7. [x] Multi-model failover (services/model_failover.py - Anthropic -> OpenAI -> Gemini)
-8. [x] Onboarding wizard (templates/onboarding.html + /onboarding route)
-9. [x] Memory/context persistence (services/memory_service.py + TF-IDF search)
-10. [x] Docker sandboxing (services/sandbox.py + /api/sandbox/run endpoint)
-
-### All 10 features implemented (2026-02-16)
+### 2026-02-16 - OpenClaw feature port (10 features)
+- What was done: input sanitizer, secret detector, /doctor diagnostics, SSE streaming, scheduled infra checks, webhook-triggered actions, multi-model failover, onboarding wizard, memory/context persistence, Docker sandboxing
+- Deployed: Yes
 
 ## Pending / In Progress
-- [ ] VERIFY: Stripe Checkout redirect working after lazy-load fix (user to test when awake)
-- [ ] User can check config at: https://devopsagent.io/api/stripe/status (must be logged in)
-- [ ] Fix pre-existing test failures (18 tests failing due to outdated test fixtures)
-- [ ] GitHub Dependabot alert: 1 high vulnerability in cryptography package
+- [ ] Transactional emails (post-2026-03-20 next step)
+- [ ] Brevo marketing campaign for first 50-100 customers
+- [ ] Fix pre-existing test failures (18 tests, outdated fixtures)
 
 ## Important Decisions
-- 2026-02-11: Legacy billing endpoints disabled (return 403) rather than deleted. Credits only via Stripe webhook.
-- 2026-02-11: Minimum font size policy: no fonts below 13px in templates.
-- 2026-02-11: Stripe env vars now read lazily at call time, not at import time. This prevents timing issues with AWS Secrets Manager.
+- 2026-02-11: Legacy billing endpoints disabled (return 403). Credits only via Stripe webhook.
+- 2026-02-11: Stripe env vars read lazily at call time (not import time) to avoid timing issues.
+- 2026-03-18: Curriculum redesign reverted — user preferred the original layout.
 
 ## Known Issues
 - 18 pre-existing test failures in test_api.py and test_auth.py (route changes not reflected in tests)
@@ -85,7 +48,7 @@ Porting 10 features inspired by OpenClaw to DevOps Agent.
 
 ## User Preferences
 - Deploy flow: commit -> push -> auto-deploy via GitHub Actions to EC2
-- Production URL: devopsagent.io (EC2 at 34.239.157.235:5000)
+- Production URL: devopsagent.io (EC2 at 34.239.157.235)
 - No emojis unless requested
+- Always run git add/commit/push without asking for confirmation
 - Prefers fast iteration: test, commit, push, deploy in one flow
-- Note: User mentioned `--dangerously-skip` - may want to skip pre-commit hooks or confirmations for speed
