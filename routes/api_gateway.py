@@ -82,19 +82,18 @@ def create_key():
             expires_days = 0
 
         name = (request.form.get('name') or '')[:100]
-        data = {
-            'user_id': current_user.id,
-            'name': name,
-            'scopes': request.form.getlist('scopes'),
-            'rate_limit': rate_limit,
-            'expires_days': expires_days or None
-        }
+        scopes = request.form.getlist('scopes') or ['agent']
 
-        key = service.create_api_key(data)
-        if key:
+        api_key, plain_key = service.create_api_key(
+            user_id=current_user.id,
+            name=name,
+            scopes=scopes,
+            expires_in_days=expires_days or None
+        )
+        if api_key:
             if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
-                return jsonify({'success': True, 'key': key.key_value, 'id': key.id, 'name': key.name})
-            flash(f'API Key created: {key.key_value}. Save this key - it will not be shown again!', 'success')
+                return jsonify({'success': True, 'key': plain_key, 'id': api_key.id, 'name': api_key.name})
+            flash(f'API Key created: {plain_key}. Save this key - it will not be shown again!', 'success')
             return redirect(url_for('api_gateway.list_keys'))
         else:
             if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
