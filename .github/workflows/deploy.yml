@@ -123,22 +123,36 @@ jobs:
             sudo -u postgres psql -c "CREATE DATABASE devops_agent OWNER devopsagent;"
           sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devops_agent TO devopsagent;"
 
-          # Create any new tables without dropping existing ones (preserves user data)
-          # db.create_all() is safe: it only creates tables that don't already exist
-          echo "Creating any new tables (preserving existing data)..."
+          # Run database migrations via Alembic
+          echo "Running database migrations..."
           sudo -u postgres psql -d devops_agent -c "GRANT ALL ON SCHEMA public TO devopsagent; GRANT ALL ON SCHEMA public TO public;"
-          FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-            python -c "from app import app, db; app.app_context().push(); db.create_all(); print('Tables synced (existing data preserved)')"
 
-          # Add any missing columns to existing tables (safe: IF NOT EXISTS)
-          echo "Running column migrations..."
-          sudo -u postgres psql -d devops_agent -c "
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(100);
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMP;
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(100);
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMP;
-          " || echo "Column migration completed (or columns already exist)"
+          # Detect whether this is a fresh DB or an existing one not yet under Alembic control.
+          # Fresh DB (no tables): run upgrade head → Alembic creates all tables.
+          # Existing DB (tables present, no alembic_version): stamp head first so Alembic
+          #   knows the schema is already current, then upgrade applies future migrations only.
+          # Existing DB (alembic_version present): upgrade head applies any pending migrations.
+          USERS_TABLE_EXISTS=$(sudo -u postgres psql -d devops_agent -tc \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users';" \
+            | tr -d '[:space:]')
+
+          if [ "$USERS_TABLE_EXISTS" = "0" ]; then
+            echo "Fresh database detected — running full migration to create all tables..."
+            FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
+              alembic upgrade head
+          else
+            ALEMBIC_EXISTS=$(sudo -u postgres psql -d devops_agent -tc \
+              "SELECT to_regclass('public.alembic_version');" | tr -d '[:space:]')
+            if [ -z "$ALEMBIC_EXISTS" ]; then
+              echo "Existing database not yet under Alembic control — stamping at head..."
+              FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
+                alembic stamp head
+            fi
+            echo "Applying any pending migrations..."
+            FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
+              alembic upgrade head
+          fi
+          echo "Database migrations complete."
 
           # ============================================
           # STEP 5b: Create Stripe prices and update AWS Secrets Manager (one-time)

@@ -4951,39 +4951,8 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
 
-        # Auto-migrate missing columns (db.create_all only creates new tables,
-        # it never adds columns to existing tables)
-        from sqlalchemy import inspect as sa_inspect, text as sa_text
-        _inspector = sa_inspect(db.engine)
-        _existing_tables = set(_inspector.get_table_names())
-        _cols_added = 0
-        _dialect = db.engine.dialect
-        for _mapper in db.Model.registry.mappers:
-            _cls = _mapper.class_
-            _tbl = getattr(_cls, '__tablename__', None)
-            if not _tbl or _tbl not in _existing_tables:
-                continue
-            _db_cols = {c['name'] for c in _inspector.get_columns(_tbl)}
-            for _col in _cls.__table__.columns:
-                if _col.key not in _db_cols:
-                    _st = _col.type.compile(dialect=_dialect)
-                    _df = ''
-                    if _col.default is not None and getattr(_col.default, 'is_scalar', False):
-                        _v = _col.default.arg
-                        if isinstance(_v, bool):
-                            _df = ' DEFAULT ' + ('TRUE' if _v else 'FALSE')
-                        elif isinstance(_v, (int, float)):
-                            _df = f' DEFAULT {_v}'
-                        elif isinstance(_v, str):
-                            _df = f" DEFAULT '{_v.replace(chr(39), chr(39)+chr(39))}'"
-                    with db.engine.connect() as _conn:
-                        _conn.execute(sa_text(f'ALTER TABLE {_tbl} ADD COLUMN {_col.key} {_st}{_df}'))
-                        _conn.commit()
-                    _cols_added += 1
-        if _cols_added:
-            print(f"\nAuto-migrated {_cols_added} missing column(s)")
-
         # Backfill mfa_method for existing TOTP users
+        # Schema changes are now managed by Alembic migrations (migrations/versions/)
         try:
             _backfill = sa_text(
                 "UPDATE users SET mfa_method='totp' "
