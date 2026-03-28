@@ -190,7 +190,7 @@ def signup():
             user.set_password(password)
 
             db.session.add(user)
-            db.session.commit()
+            db.session.flush()  # get user.id without committing yet
 
             security_logger.info(f"New user registered: {email} from {ip_address}")
 
@@ -206,7 +206,10 @@ def signup():
                     last_reset_date=datetime.utcnow(),
                 )
                 db.session.add(sub)
-                db.session.commit()
+            else:
+                current_app.logger.error("Free tier not found in subscription_tiers — user registered without credits")
+
+            db.session.commit()  # single commit: user + subscription together
 
             try:
                 from services.email_service import email_service
