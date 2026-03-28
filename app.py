@@ -3172,6 +3172,7 @@ def api_chat_stream():
 
 
 @app.route('/api/model/health', methods=['GET'])
+@login_required
 def model_health():
     """Return health status of all AI providers."""
     from services.model_failover import get_provider_health
@@ -3184,6 +3185,18 @@ def model_health():
         'GROQ_API_KEY': bool(_os.environ.get('GROQ_API_KEY')),
     }
     return jsonify({'providers': health, 'keys_present': keys})
+
+
+@app.route('/api/model/health/reset', methods=['POST'])
+@login_required
+def reset_model_health():
+    """Reset health tracking for all AI providers — forces retry on next request."""
+    from services.model_failover import _provider_status
+    for name in _provider_status:
+        _provider_status[name]['healthy'] = True
+        _provider_status[name]['failures'] = 0
+        _provider_status[name]['last_failure'] = 0
+    return jsonify({'success': True, 'message': 'All provider health states reset'})
 
 
 @app.route('/api/model/switch', methods=['POST'])
