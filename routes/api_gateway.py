@@ -92,9 +92,13 @@ def create_key():
 
         key = service.create_api_key(data)
         if key:
+            if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+                return jsonify({'success': True, 'key': key.key_value, 'id': key.id, 'name': key.name})
             flash(f'API Key created: {key.key_value}. Save this key - it will not be shown again!', 'success')
             return redirect(url_for('api_gateway.list_keys'))
         else:
+            if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+                return jsonify({'success': False, 'error': 'Failed to create API key'}), 500
             flash('Failed to create API key.', 'error')
 
     scopes = [
@@ -894,6 +898,15 @@ def api_agent():
 
 
 # Dashboard API endpoints
+@api_gateway_bp.route('/api/keys')
+@login_required
+def api_list_keys():
+    """JSON endpoint: list current user's API keys."""
+    from services.api_gateway import APIGatewayService
+    keys = APIGatewayService().get_user_api_keys(current_user.id)
+    return jsonify({'keys': [k.to_dict() for k in keys]})
+
+
 @api_gateway_bp.route('/api/stats')
 @login_required
 def dashboard_stats():
