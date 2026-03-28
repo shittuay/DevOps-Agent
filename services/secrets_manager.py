@@ -34,6 +34,7 @@ MANAGED_SECRET_KEYS = [
     'CREDENTIAL_ENCRYPTION_KEY',
     'GROQ_API_KEY',
     'MOONSHOT_API_KEY',
+    'BASE_URL',
 ]
 
 # Primary secret name in AWS Secrets Manager (single JSON blob)
