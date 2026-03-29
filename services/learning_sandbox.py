@@ -307,6 +307,7 @@ def _mock_aws_create(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
 
 def _mock_k8s(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     ns = tool_input.get('namespace', 'default')
+    name = tool_input.get('name') or tool_input.get('deployment_name') or tool_input.get('node_name', 'sim-resource')
     if 'list' in tool_name and 'pod' in tool_name:
         return {
             'success': True, 'simulated': True,
@@ -357,6 +358,235 @@ def _mock_k8s(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
                     '[SIM] 2024-01-15T10:30:01Z INFO  Connected to database\n'
                     '[SIM] 2024-01-15T10:30:05Z INFO  Ready to accept connections\n'
         }
+    # --- Deployment extended ---
+    if tool_name in ('describe_deployment', 'rollout_status'):
+        return {
+            'success': True, 'simulated': True,
+            'name': name, 'namespace': ns,
+            'replicas': 2, 'ready_replicas': 2, 'available_replicas': 2, 'updated_replicas': 2,
+            'rollout_complete': True,
+            'strategy': 'RollingUpdate',
+            'containers': [{'name': 'app', 'image': 'myapp:v1.2.3'}],
+            'conditions': [{'type': 'Available', 'status': 'True', 'reason': 'MinimumReplicasAvailable'}],
+            'message': f'deployment "{name}" successfully rolled out'
+        }
+    if tool_name == 'rollout_history':
+        return {
+            'success': True, 'simulated': True,
+            'deployment_name': name, 'namespace': ns,
+            'revisions': [
+                {'revision': 1, 'change_cause': '<none>', 'images': ['myapp:v1.1.0'], 'replicaset': f'{name}-abc123'},
+                {'revision': 2, 'change_cause': '<none>', 'images': ['myapp:v1.2.3'], 'replicaset': f'{name}-def456'},
+            ],
+            'revision_count': 2
+        }
+    if tool_name == 'rollback_deployment':
+        return {
+            'success': True, 'simulated': True,
+            'deployment_name': name, 'namespace': ns,
+            'rolled_back_to_replicaset': f'{name}-abc123',
+            'images': ['myapp:v1.1.0'],
+            'message': f'Deployment {name} rolled back'
+        }
+    if tool_name in ('pause_rollout', 'resume_rollout'):
+        paused = 'pause' in tool_name
+        return {'success': True, 'simulated': True, 'deployment_name': name,
+                'namespace': ns, 'paused': paused,
+                'message': f'Deployment {name} rollout {"paused" if paused else "resumed"}'}
+    # --- StatefulSets ---
+    if 'statefulset' in tool_name and 'list' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'statefulsets': [
+                {'name': 'postgres', 'namespace': ns, 'replicas': 3,
+                 'ready_replicas': 3, 'service_name': 'postgres-headless', 'labels': {'app': 'postgres'}},
+            ],
+            'count': 1
+        }
+    if 'statefulset' in tool_name and 'scale' in tool_name:
+        return {'success': True, 'simulated': True, 'name': name, 'namespace': ns,
+                'replicas': tool_input.get('replicas', 1),
+                'message': f'StatefulSet {name} scaled to {tool_input.get("replicas", 1)} replicas'}
+    # --- ReplicaSets ---
+    if 'replicaset' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'replicasets': [
+                {'name': 'web-app-def456', 'namespace': ns, 'desired': 2, 'ready': 2,
+                 'owner': 'web-app', 'revision': '2'},
+                {'name': 'web-app-abc123', 'namespace': ns, 'desired': 0, 'ready': 0,
+                 'owner': 'web-app', 'revision': '1'},
+            ],
+            'count': 2
+        }
+    # --- Service describe ---
+    if tool_name == 'describe_service':
+        return {
+            'success': True, 'simulated': True,
+            'name': tool_input.get('service_name', 'web-app'), 'namespace': ns,
+            'type': 'ClusterIP', 'cluster_ip': '10.96.0.10',
+            'ports': [{'port': 80, 'target_port': 8080, 'protocol': 'TCP'}],
+            'selector': {'app': 'web-app'},
+            'endpoints': ['10.244.0.5:8080', '10.244.0.6:8080']
+        }
+    # --- ConfigMaps ---
+    if 'configmap' in tool_name and 'list' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'configmaps': [
+                {'name': 'app-config', 'namespace': ns, 'data_keys': ['DB_HOST', 'LOG_LEVEL'], 'age': '7d'},
+                {'name': 'kube-root-ca.crt', 'namespace': ns, 'data_keys': ['ca.crt'], 'age': '30d'},
+            ],
+            'count': 2
+        }
+    if tool_name == 'get_configmap':
+        return {
+            'success': True, 'simulated': True,
+            'name': tool_input.get('name', 'app-config'), 'namespace': ns,
+            'data': {'DB_HOST': 'postgres.default.svc.cluster.local', 'LOG_LEVEL': 'info', 'PORT': '8080'}
+        }
+    # --- Secrets ---
+    if 'secret' in tool_name and 'list' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'secrets': [
+                {'name': 'db-credentials', 'namespace': ns, 'type': 'Opaque', 'keys': ['username', 'password']},
+                {'name': 'tls-cert', 'namespace': ns, 'type': 'kubernetes.io/tls', 'keys': ['tls.crt', 'tls.key']},
+            ],
+            'count': 2
+        }
+    # --- Nodes ---
+    if tool_name == 'describe_node':
+        return {
+            'success': True, 'simulated': True,
+            'name': tool_input.get('node_name', 'node-1'),
+            'capacity': {'cpu': '4', 'memory': '8Gi', 'pods': '110'},
+            'allocatable': {'cpu': '3800m', 'memory': '7.5Gi', 'pods': '110'},
+            'conditions': [{'type': 'Ready', 'status': 'True'}],
+            'labels': {'kubernetes.io/os': 'linux', 'node.kubernetes.io/instance-type': 't3.medium'},
+            'taints': []
+        }
+    if tool_name in ('taint_node', 'remove_node_taint', 'label_node'):
+        return {'success': True, 'simulated': True,
+                'node_name': tool_input.get('node_name', 'node-1'),
+                'message': f'[Sandbox] {tool_name} completed'}
+    if tool_name == 'top_nodes':
+        return {
+            'success': True, 'simulated': True,
+            'nodes': [
+                {'name': 'node-1', 'cpu': '450m', 'cpu_percent': '11%', 'memory': '1.8Gi', 'memory_percent': '22%'},
+                {'name': 'node-2', 'cpu': '380m', 'cpu_percent': '9%', 'memory': '2.1Gi', 'memory_percent': '26%'},
+            ]
+        }
+    if tool_name == 'top_pods':
+        return {
+            'success': True, 'simulated': True,
+            'pods': [
+                {'name': 'web-app-7d8f9b6c4d-abc12', 'namespace': ns, 'cpu': '12m', 'memory': '128Mi'},
+                {'name': 'web-app-7d8f9b6c4d-def34', 'namespace': ns, 'cpu': '9m', 'memory': '115Mi'},
+                {'name': 'redis-0', 'namespace': ns, 'cpu': '5m', 'memory': '64Mi'},
+            ]
+        }
+    # --- Jobs ---
+    if 'list' in tool_name and 'job' in tool_name and 'cron' not in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'jobs': [
+                {'name': 'db-migrate-20240115', 'namespace': ns, 'active': 0, 'succeeded': 1, 'failed': 0, 'age': '2d'},
+            ],
+            'count': 1
+        }
+    # --- CronJobs ---
+    if 'list' in tool_name and 'cronjob' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'cronjobs': [
+                {'name': 'cleanup-job', 'namespace': ns, 'schedule': '0 2 * * *',
+                 'suspended': False, 'active': 0, 'last_schedule': '2024-01-15T02:00:00Z'},
+            ],
+            'count': 1
+        }
+    if tool_name == 'suspend_cronjob':
+        return {'success': True, 'simulated': True, 'name': tool_input.get('name', 'cronjob'),
+                'namespace': ns, 'suspended': tool_input.get('suspend', True),
+                'message': f'[Sandbox] CronJob {"suspended" if tool_input.get("suspend", True) else "resumed"}'}
+    # --- HPA ---
+    if 'list' in tool_name and '_hpa' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'hpas': [
+                {'name': 'web-app-hpa', 'namespace': ns, 'target': 'web-app',
+                 'min_replicas': 2, 'max_replicas': 10, 'current_replicas': 2,
+                 'desired_replicas': 2, 'cpu_percent': '35%'},
+            ],
+            'count': 1
+        }
+    # --- PVs/PVCs ---
+    if tool_name == 'list_pvs':
+        return {
+            'success': True, 'simulated': True,
+            'pvs': [
+                {'name': 'pv-postgres-0', 'capacity': '20Gi', 'access_modes': ['ReadWriteOnce'],
+                 'reclaim_policy': 'Retain', 'status': 'Bound', 'claim': 'default/postgres-data-0'},
+            ],
+            'count': 1
+        }
+    if tool_name == 'list_pvcs':
+        return {
+            'success': True, 'simulated': True,
+            'pvcs': [
+                {'name': 'postgres-data-0', 'namespace': ns, 'status': 'Bound',
+                 'volume': 'pv-postgres-0', 'capacity': '20Gi', 'storage_class': 'gp2'},
+            ],
+            'count': 1
+        }
+    # --- RBAC ---
+    if tool_name == 'list_roles':
+        return {
+            'success': True, 'simulated': True,
+            'roles': [
+                {'name': 'pod-reader', 'namespace': ns, 'age': '5d'},
+                {'name': 'deployment-manager', 'namespace': ns, 'age': '5d'},
+            ],
+            'count': 2
+        }
+    if 'service_account' in tool_name and 'list' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'service_accounts': [
+                {'name': 'default', 'namespace': ns, 'age': '30d'},
+                {'name': 'app-sa', 'namespace': ns, 'age': '5d', 'annotations': {}},
+            ],
+            'count': 2
+        }
+    # --- Cluster events ---
+    if 'cluster_event' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'events': [
+                {'type': 'Normal', 'reason': 'Scheduled', 'object': 'pod/web-app-abc12',
+                 'message': 'Successfully assigned pod to node-1', 'age': '3d'},
+                {'type': 'Warning', 'reason': 'BackOff', 'object': 'pod/redis-0',
+                 'message': 'Back-off restarting failed container', 'age': '1h'},
+            ],
+            'count': 2
+        }
+    # --- Context ---
+    if tool_name == 'list_contexts':
+        return {
+            'success': True, 'simulated': True,
+            'contexts': [
+                {'name': 'prod-cluster', 'cluster': 'prod-cluster', 'user': 'admin', 'current': False},
+                {'name': 'staging-cluster', 'cluster': 'staging-cluster', 'user': 'admin', 'current': True},
+            ],
+            'count': 2
+        }
+    if tool_name == 'get_current_context':
+        return {'success': True, 'simulated': True, 'current_context': 'staging-cluster'}
+    if tool_name == 'apply_manifest':
+        return {'success': True, 'simulated': True,
+                'message': '[Sandbox] Manifest applied successfully',
+                'kind': tool_input.get('manifest', {}).get('kind', 'Unknown')}
     if 'create' in tool_name:
         return {
             'success': True, 'simulated': True,
@@ -1042,6 +1272,206 @@ def _mock_nexus(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     return {'success': True, 'simulated': True, 'message': f'[Sandbox] Nexus "{tool_name}" completed successfully'}
 
 
+def _mock_rds_extended(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Mock RDS extended operations."""
+    tn = tool_name
+    db_id = tool_input.get('db_instance_identifier', 'sandbox-db')
+    cluster_id = tool_input.get('db_cluster_identifier', 'sandbox-cluster')
+
+    _base_instance = {
+        'db_instance_identifier': db_id,
+        'engine': 'mysql', 'engine_version': '8.0.35',
+        'db_instance_class': 'db.t3.medium',
+        'status': 'available',
+        'endpoint': f'{db_id}.cxyz1234.us-east-1.rds.amazonaws.com',
+        'port': 3306, 'allocated_storage': 100, 'multi_az': False,
+        'publicly_accessible': False, 'backup_retention_period': 7,
+        'deletion_protection': False,
+    }
+
+    if tn == 'describe_rds_instance':
+        return {'success': True, 'simulated': True, **_base_instance}
+    if tn == 'start_rds_instance':
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'status': 'starting', 'message': f'[Sandbox] RDS instance {db_id} starting'}
+    if tn == 'stop_rds_instance':
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'status': 'stopping', 'message': f'[Sandbox] RDS instance {db_id} stopping'}
+    if tn == 'reboot_rds_instance':
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'status': 'rebooting', 'force_failover': tool_input.get('force_failover', False),
+                'message': f'[Sandbox] RDS instance {db_id} rebooting'}
+    if tn == 'modify_rds_instance':
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'status': 'modifying',
+                'pending_modified_values': {'DBInstanceClass': tool_input.get('db_instance_class')},
+                'message': f'[Sandbox] RDS instance {db_id} modification initiated'}
+    if tn == 'tag_rds_instance':
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'tags': tool_input.get('tags', {}), 'message': f'[Sandbox] Tags applied to {db_id}'}
+    if tn == 'create_rds_snapshot':
+        snap_id = tool_input.get('db_snapshot_identifier', 'sandbox-snap')
+        return {'success': True, 'simulated': True,
+                'snapshot_identifier': snap_id, 'db_instance_identifier': db_id,
+                'status': 'creating', 'message': f'[Sandbox] Snapshot {snap_id} creation initiated'}
+    if tn == 'list_rds_snapshots':
+        return {
+            'success': True, 'simulated': True,
+            'snapshots': [
+                {'snapshot_identifier': f'{db_id}-snap-20260115', 'db_instance_identifier': db_id,
+                 'engine': 'mysql', 'engine_version': '8.0.35', 'status': 'available',
+                 'allocated_storage': 100, 'created_time': '2026-01-15T02:00:00', 'encrypted': True},
+            ], 'count': 1
+        }
+    if tn == 'delete_rds_snapshot':
+        snap_id = tool_input.get('db_snapshot_identifier', 'sandbox-snap')
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Snapshot {snap_id} deleted'}
+    if tn == 'restore_rds_from_snapshot':
+        new_id = tool_input.get('db_instance_identifier', 'restored-db')
+        return {'success': True, 'simulated': True, 'db_instance_identifier': new_id,
+                'status': 'creating', 'engine': 'mysql',
+                'message': f'[Sandbox] Restoring {new_id} from snapshot'}
+    if tn == 'copy_rds_snapshot':
+        target = tool_input.get('target_snapshot_identifier', 'snapshot-copy')
+        return {'success': True, 'simulated': True, 'target_snapshot_identifier': target,
+                'status': 'copying', 'message': f'[Sandbox] Snapshot copy {target} initiated'}
+    if tn == 'restore_rds_to_point_in_time':
+        target = tool_input.get('target_db_instance_identifier', 'restored-pitr')
+        return {'success': True, 'simulated': True, 'db_instance_identifier': target,
+                'status': 'creating', 'message': f'[Sandbox] Point-in-time restore to {target} initiated'}
+    if tn == 'create_db_parameter_group':
+        group = tool_input.get('group_name', 'sandbox-params')
+        return {'success': True, 'simulated': True, 'parameter_group_name': group,
+                'family': tool_input.get('family', 'mysql8.0'),
+                'message': f'[Sandbox] Parameter group {group} created'}
+    if tn == 'list_db_parameter_groups':
+        return {
+            'success': True, 'simulated': True,
+            'parameter_groups': [
+                {'name': 'default.mysql8.0', 'family': 'mysql8.0', 'description': 'Default parameter group for mysql8.0'},
+                {'name': 'sandbox-custom-params', 'family': 'mysql8.0', 'description': 'Custom parameters'},
+            ], 'count': 2
+        }
+    if tn == 'modify_db_parameter_group':
+        group = tool_input.get('group_name', 'sandbox-params')
+        params = tool_input.get('parameters', [])
+        return {'success': True, 'simulated': True, 'parameter_group_name': group,
+                'parameters_modified': len(params),
+                'message': f'[Sandbox] {len(params)} parameter(s) updated in {group}'}
+    if tn == 'delete_db_parameter_group':
+        group = tool_input.get('group_name', 'sandbox-params')
+        return {'success': True, 'simulated': True, 'message': f'[Sandbox] Parameter group {group} deleted'}
+    if tn == 'create_db_subnet_group':
+        group = tool_input.get('group_name', 'sandbox-subnet-group')
+        return {'success': True, 'simulated': True, 'subnet_group_name': group,
+                'vpc_id': 'vpc-sandbox', 'subnet_count': len(tool_input.get('subnet_ids', [])),
+                'message': f'[Sandbox] DB subnet group {group} created'}
+    if tn == 'list_db_subnet_groups':
+        return {
+            'success': True, 'simulated': True,
+            'subnet_groups': [
+                {'name': 'sandbox-subnet-group', 'vpc_id': 'vpc-sandbox',
+                 'status': 'Complete', 'availability_zones': ['us-east-1a', 'us-east-1b']},
+            ], 'count': 1
+        }
+    if tn == 'delete_db_subnet_group':
+        group = tool_input.get('group_name', 'sandbox-subnet-group')
+        return {'success': True, 'simulated': True, 'message': f'[Sandbox] DB subnet group {group} deleted'}
+    if tn == 'rotate_rds_master_password':
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'status': 'modifying', 'message': f'[Sandbox] Master password rotation initiated for {db_id}'}
+    if tn == 'enable_rds_iam_auth':
+        enable = tool_input.get('enable', True)
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'iam_auth_enabled': enable,
+                'message': f'[Sandbox] IAM authentication {"enabled" if enable else "disabled"} for {db_id}'}
+    if tn == 'list_rds_log_files':
+        return {
+            'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+            'log_files': [
+                {'log_file_name': 'error/mysql-error.log', 'last_written': 1705312800000, 'size': 4096},
+                {'log_file_name': 'slowquery/mysql-slowquery.log', 'last_written': 1705309200000, 'size': 1024},
+            ], 'count': 2
+        }
+    if tn == 'download_rds_log_file':
+        log_name = tool_input.get('log_file_name', 'error/mysql-error.log')
+        return {'success': True, 'simulated': True,
+                'log_file_name': log_name, 'additional_data_pending': False,
+                'log_content': '[Sandbox] 2026-01-15T10:00:00 [Note] InnoDB: buffer pool(s) load completed\n[Sandbox] 2026-01-15T10:01:00 [Note] /rds/sbin/mysqld: ready for connections\n'}
+    if tn == 'list_rds_events':
+        return {
+            'success': True, 'simulated': True,
+            'events': [
+                {'source_identifier': db_id, 'source_type': 'db-instance',
+                 'message': 'Backing up DB instance', 'event_categories': ['backup'],
+                 'date': '2026-01-15T02:00:00'},
+                {'source_identifier': db_id, 'source_type': 'db-instance',
+                 'message': 'Finished DB Instance backup', 'event_categories': ['backup'],
+                 'date': '2026-01-15T02:30:00'},
+            ], 'count': 2
+        }
+    if tn == 'create_rds_read_replica':
+        replica_id = tool_input.get('replica_identifier', 'sandbox-replica')
+        return {'success': True, 'simulated': True, 'replica_identifier': replica_id,
+                'source_identifier': tool_input.get('source_db_instance_identifier', db_id),
+                'status': 'creating', 'message': f'[Sandbox] Read replica {replica_id} creation initiated'}
+    if tn == 'promote_rds_read_replica':
+        return {'success': True, 'simulated': True, 'db_instance_identifier': db_id,
+                'status': 'modifying',
+                'message': f'[Sandbox] Read replica {db_id} promotion initiated — replication will stop'}
+    if tn == 'create_aurora_cluster':
+        return {
+            'success': True, 'simulated': True,
+            'cluster_identifier': cluster_id, 'status': 'creating',
+            'engine': tool_input.get('engine', 'aurora-mysql'),
+            'endpoint': f'{cluster_id}.cluster-cxyz1234.us-east-1.rds.amazonaws.com',
+            'reader_endpoint': f'{cluster_id}.cluster-ro-cxyz1234.us-east-1.rds.amazonaws.com',
+            'message': f'[Sandbox] Aurora cluster {cluster_id} creation initiated'
+        }
+    if tn == 'list_aurora_clusters':
+        return {
+            'success': True, 'simulated': True,
+            'clusters': [
+                {'cluster_identifier': 'sandbox-aurora', 'engine': 'aurora-mysql',
+                 'engine_version': '8.0.mysql_aurora.3.04.0', 'status': 'available',
+                 'endpoint': 'sandbox-aurora.cluster-cxyz.us-east-1.rds.amazonaws.com',
+                 'reader_endpoint': 'sandbox-aurora.cluster-ro-cxyz.us-east-1.rds.amazonaws.com',
+                 'member_count': 2, 'backup_retention': 7, 'encrypted': True},
+            ], 'count': 1
+        }
+    if tn == 'delete_aurora_cluster':
+        return {'success': True, 'simulated': True, 'cluster_identifier': cluster_id,
+                'status': 'deleting', 'message': f'[Sandbox] Aurora cluster {cluster_id} deletion initiated'}
+    if tn == 'failover_aurora_cluster':
+        return {'success': True, 'simulated': True, 'cluster_identifier': cluster_id,
+                'status': 'failing-over', 'message': f'[Sandbox] Aurora cluster {cluster_id} failover initiated'}
+    if tn == 'describe_pending_rds_maintenance':
+        return {
+            'success': True, 'simulated': True,
+            'pending_actions': [
+                {'resource_identifier': f'arn:aws:rds:us-east-1:123456789012:db:{db_id}',
+                 'action': 'system-update', 'description': 'New Operating System update is available',
+                 'auto_applied_after_date': '2026-02-01T00:00:00', 'current_apply_date': None},
+            ], 'count': 1
+        }
+    if tn == 'describe_rds_engine_versions':
+        engine = tool_input.get('engine', 'mysql')
+        return {
+            'success': True, 'simulated': True,
+            'engine_versions': [
+                {'engine': engine, 'engine_version': '8.0.36', 'status': 'available',
+                 'supports_multi_az': True, 'supports_read_replica': True,
+                 'default_parameter_group_family': f'{engine}8.0'},
+                {'engine': engine, 'engine_version': '8.0.35', 'status': 'available',
+                 'supports_multi_az': True, 'supports_read_replica': True,
+                 'default_parameter_group_family': f'{engine}8.0'},
+            ], 'count': 2
+        }
+
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} executed'}
+
+
 def _mock_vpc_extended(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     """Mock VPC extended operations."""
     tn = tool_name
@@ -1359,6 +1789,125 @@ def _mock_iam(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} executed'}
 
 
+def _mock_gitlab(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    project_id = tool_input.get('project_id', 'mygroup/myrepo')
+    if 'list_gitlab_pipelines' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'project_id': project_id,
+            'pipelines': [
+                {'id': 1042, 'status': 'success', 'ref': 'main', 'sha': 'a1b2c3d4', 'created_at': _recent_time(60)},
+                {'id': 1041, 'status': 'failed', 'ref': 'feature/auth', 'sha': 'e5f6g7h8', 'created_at': _recent_time(120)},
+                {'id': 1040, 'status': 'success', 'ref': 'main', 'sha': 'i9j0k1l2', 'created_at': _recent_time(240)},
+            ],
+            'count': 3
+        }
+    if 'get_gitlab_pipeline' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'id': tool_input.get('pipeline_id', 1042),
+            'status': 'success', 'ref': 'main', 'sha': 'a1b2c3d4e5f6',
+            'source': 'push', 'duration': 187,
+            'created_at': _recent_time(60), 'finished_at': _recent_time(57),
+            'web_url': f'https://gitlab.com/{project_id}/-/pipelines/1042'
+        }
+    if 'trigger_gitlab_pipeline' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'pipeline_id': 1043, 'status': 'created',
+            'ref': tool_input.get('ref', 'main'),
+            'web_url': f'https://gitlab.com/{project_id}/-/pipelines/1043',
+            'message': f'[Sandbox] Pipeline triggered on {tool_input.get("ref", "main")} (id: 1043)'
+        }
+    if 'list_gitlab_jobs' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'pipeline_id': tool_input.get('pipeline_id', 1042),
+            'jobs': [
+                {'id': 5001, 'name': 'test', 'stage': 'test', 'status': 'success', 'duration': 45, 'web_url': '#'},
+                {'id': 5002, 'name': 'build', 'stage': 'build', 'status': 'success', 'duration': 120, 'web_url': '#'},
+                {'id': 5003, 'name': 'deploy', 'stage': 'deploy', 'status': 'success', 'duration': 22, 'web_url': '#'},
+            ],
+            'count': 3
+        }
+    if 'get_gitlab_job_log' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'job_id': tool_input.get('job_id', 5001),
+            'log': '[Sandbox] Running with gitlab-runner...\n$ npm test\nAll tests passed (42/42)\nJob succeeded',
+            'truncated': False
+        }
+    if 'approve_gitlab_deployment' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'deployment_id': tool_input.get('deployment_id', 99),
+            'status': tool_input.get('status', 'approved'),
+            'message': f'[Sandbox] Deployment {tool_input.get("deployment_id", 99)} approved'
+        }
+    if 'create_gitlab_pipeline_trigger' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'trigger_id': 42,
+            'token': 'glptt-simulated-trigger-token-abc123',
+            'description': tool_input.get('description', 'External CI trigger'),
+            'message': f'[Sandbox] Trigger token created'
+        }
+    # retry / cancel / default
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} completed'}
+
+
+def _mock_deployment_strategy(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    if 'rollout_status' in tool_name:
+        name = tool_input.get('deployment_name', 'my-deployment')
+        return {
+            'success': True, 'simulated': True,
+            'deployment_name': name,
+            'namespace': tool_input.get('namespace', 'default'),
+            'desired': 3, 'ready': 3, 'updated': 3, 'available': 3,
+            'complete': True,
+            'message': '[Sandbox] Rollout complete'
+        }
+    if 'blue_green' in tool_name:
+        color = tool_input.get('target_color', 'green')
+        return {
+            'success': True, 'simulated': True,
+            'service_name': tool_input.get('service_name', 'my-service'),
+            'namespace': tool_input.get('namespace', 'default'),
+            'active_color': color,
+            'message': f'[Sandbox] Service switched to {color} deployment'
+        }
+    if 'canary_update' in tool_name:
+        weight = tool_input.get('canary_weight_percent', 20)
+        return {
+            'success': True, 'simulated': True,
+            'stable_deployment': tool_input.get('stable_deployment', 'app-stable'),
+            'canary_deployment': tool_input.get('canary_deployment', 'app-canary'),
+            'stable_replicas': max(5 - round(5 * weight / 100), 0),
+            'canary_replicas': max(round(5 * weight / 100), 0),
+            'canary_weight_percent': weight,
+            'message': f'[Sandbox] Canary weight set to {weight}%'
+        }
+    if 'smoke_test' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'url': tool_input.get('url', 'https://api.example.com/health'),
+            'status_code': 200,
+            'expected_status': tool_input.get('expected_status', 200),
+            'response_time_ms': 42,
+            'healthy': True,
+            'message': '[Sandbox] Smoke test passed: 200 (expected 200)'
+        }
+    if 'auto_rollback' in tool_name:
+        return {
+            'success': True, 'simulated': True,
+            'deployment_name': tool_input.get('deployment_name', 'my-deployment'),
+            'healthy': True,
+            'action': 'none',
+            'message': '[Sandbox] Health check passed — deployment is healthy (no rollback needed)'
+        }
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} completed'}
+
+
 def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
     """
     Generate a realistic simulated response for a tool call.
@@ -1375,6 +1924,8 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
     # Route CI/CD tools
     is_jenkins = any(k in tn for k in ('jenkins',))
     is_github_actions = any(k in tn for k in ('github_workflow', 'github_runner', 'github_secret', 'github_environment'))
+    is_gitlab = any(k in tn for k in ('gitlab',))
+    is_deployment_strategy = any(k in tn for k in ('blue_green', 'canary_update', 'smoke_test', 'auto_rollback', 'rollout_status'))
     is_docker = any(k in tn for k in ('docker',))
     is_terraform = any(k in tn for k in ('terraform',))
     is_sonarqube = any(k in tn for k in ('sonar',))
@@ -1384,6 +1935,10 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
         return _mock_jenkins(tn, tool_input)
     if is_github_actions:
         return _mock_github_actions(tn, tool_input)
+    if is_gitlab:
+        return _mock_gitlab(tn, tool_input)
+    if is_deployment_strategy:
+        return _mock_deployment_strategy(tn, tool_input)
     if is_docker:
         return _mock_docker(tn, tool_input)
     if is_terraform:
@@ -1394,11 +1949,31 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
         return _mock_nexus(tn, tool_input)
 
     # Categorize by cloud provider
-    is_k8s = any(k in tn for k in ('k8s', 'kube', 'pod', 'deploy', 'namespace', 'node', 'ingress', 'job'))
+    is_k8s = any(k in tn for k in (
+        'k8s', 'kube', 'pod', 'deploy', 'namespace', 'node', 'ingress', 'job',
+        'rollout', 'statefulset', 'replicaset', 'configmap', '_hpa', '_pvc', '_pvs',
+        'service_account', 'cluster_event', 'manifest', 'list_roles', 'create_role',
+        'describe_service', 'list_secrets', 'list_contexts', 'get_current_context',
+        'eks_cluster', 'eks_node', 'eks_fargate', 'eks_addon', 'eks_access', 'eks_oidc', 'eks_kubeconfig',
+    ))
     is_azure = 'azure' in tn or tn.startswith(('list_azure', 'create_azure', 'delete_azure',
                                                  'start_azure', 'stop_azure', 'restart_azure'))
     is_gcp = any(k in tn for k in ('gcp', 'gcloud', 'gke', 'gcs', 'cloud_run', 'cloud_sql',
                                      'bigquery', 'pubsub', 'cloud_function', 'cloud_log'))
+
+    # RDS extended operations (must come before generic AWS handlers)
+    is_rds_extended = any(k in tn for k in (
+        'describe_rds', 'start_rds', 'stop_rds', 'reboot_rds', 'modify_rds',
+        'tag_rds', 'create_rds_snapshot', 'list_rds_snapshot', 'delete_rds_snapshot',
+        'restore_rds', 'copy_rds_snapshot', 'create_db_parameter', 'list_db_parameter',
+        'modify_db_parameter', 'delete_db_parameter', 'create_db_subnet', 'list_db_subnet',
+        'delete_db_subnet', 'rotate_rds', 'enable_rds_iam', 'list_rds_log', 'download_rds_log',
+        'list_rds_events', 'create_rds_read_replica', 'promote_rds_read_replica',
+        'create_aurora', 'list_aurora', 'delete_aurora', 'failover_aurora',
+        'describe_pending_rds', 'describe_rds_engine',
+    ))
+    if is_rds_extended:
+        return _mock_rds_extended(tn, tool_input)
 
     # IAM extended operations (must come before generic AWS handlers)
     is_iam_extended = any(k in tn for k in (

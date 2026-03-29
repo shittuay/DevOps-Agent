@@ -1,5 +1,6 @@
 """AWS tools for DevOps Agent."""
 import boto3
+import json
 from botocore.exceptions import ClientError, NoCredentialsError
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -506,6 +507,694 @@ def create_eks_node_group(
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error creating EKS node group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ---- EKS Extended ----
+
+def describe_eks_cluster(cluster_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Get detailed info about an EKS cluster: endpoint, version, OIDC, logging, status."""
+    try:
+        eks = _get_boto_client('eks', region)
+        cluster = eks.describe_cluster(name=cluster_name)['cluster']
+        return {
+            'success': True,
+            'name': cluster['name'],
+            'arn': cluster['arn'],
+            'status': cluster['status'],
+            'version': cluster['version'],
+            'endpoint': cluster.get('endpoint'),
+            'role_arn': cluster.get('roleArn'),
+            'kubernetes_network_config': cluster.get('kubernetesNetworkConfig'),
+            'resources_vpc_config': cluster.get('resourcesVpcConfig'),
+            'logging': cluster.get('logging'),
+            'identity': cluster.get('identity'),
+            'tags': cluster.get('tags', {}),
+            'created_at': cluster['createdAt'].isoformat() if cluster.get('createdAt') else None,
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def update_eks_cluster_version(
+    cluster_name: str,
+    kubernetes_version: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Upgrade the Kubernetes control plane version of an EKS cluster."""
+    try:
+        eks = _get_boto_client('eks', region)
+        response = eks.update_cluster_version(name=cluster_name, version=kubernetes_version)
+        update = response['update']
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'update_id': update['id'],
+            'status': update['status'],
+            'kubernetes_version': kubernetes_version,
+            'message': f'Cluster version update initiated to {kubernetes_version}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def update_eks_cluster_config(
+    cluster_name: str,
+    endpoint_public_access: Optional[bool] = None,
+    endpoint_private_access: Optional[bool] = None,
+    public_access_cidrs: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Modify EKS API server endpoint access (public/private)."""
+    try:
+        eks = _get_boto_client('eks', region)
+        vpc_config = {}
+        if endpoint_public_access is not None:
+            vpc_config['endpointPublicAccess'] = endpoint_public_access
+        if endpoint_private_access is not None:
+            vpc_config['endpointPrivateAccess'] = endpoint_private_access
+        if public_access_cidrs:
+            vpc_config['publicAccessCidrs'] = public_access_cidrs
+        response = eks.update_cluster_config(name=cluster_name, resourcesVpcConfig=vpc_config)
+        update = response['update']
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'update_id': update['id'],
+            'status': update['status'],
+            'message': f'Cluster config update initiated for {cluster_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def enable_eks_control_plane_logging(
+    cluster_name: str,
+    log_types: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable EKS control plane logging to CloudWatch (api, audit, authenticator, controllerManager, scheduler)."""
+    try:
+        eks = _get_boto_client('eks', region)
+        types = log_types or ['api', 'audit', 'authenticator', 'controllerManager', 'scheduler']
+        response = eks.update_cluster_config(
+            name=cluster_name,
+            logging={'clusterLogging': [{'types': types, 'enabled': True}]}
+        )
+        update = response['update']
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'update_id': update['id'],
+            'log_types_enabled': types,
+            'message': f'Control plane logging enabled for {cluster_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def associate_eks_oidc_provider(
+    cluster_name: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Associate an OIDC identity provider with an EKS cluster to enable IRSA."""
+    try:
+        import urllib.request
+        import hashlib
+        eks = _get_boto_client('eks', region)
+        iam = _get_boto_client('iam', region)
+
+        cluster = eks.describe_cluster(name=cluster_name)['cluster']
+        oidc_issuer = cluster.get('identity', {}).get('oidc', {}).get('issuer')
+        if not oidc_issuer:
+            return {'success': False, 'error': 'Cluster has no OIDC issuer. Ensure the cluster is active.'}
+
+        # Derive thumbprint from OIDC issuer
+        oidc_host = oidc_issuer.replace('https://', '')
+        try:
+            import ssl
+            conn = ssl.create_default_context()
+            cert = ssl.get_server_certificate((oidc_host.split('/')[0], 443))
+            thumbprint = hashlib.sha1(ssl.PEM_cert_to_DER_cert(cert)).hexdigest()
+        except Exception as ssl_err:
+            return {'success': False, 'error': f'Could not derive OIDC thumbprint from {oidc_host}: {ssl_err}'}
+
+        iam.create_open_id_connect_provider(
+            Url=oidc_issuer,
+            ClientIDList=['sts.amazonaws.com'],
+            ThumbprintList=[thumbprint]
+        )
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'oidc_issuer': oidc_issuer,
+            'message': f'OIDC provider associated for {cluster_name}. IRSA is now enabled.',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'EntityAlreadyExists':
+            return {'success': True, 'message': 'OIDC provider already exists', 'cluster_name': cluster_name}
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_eks_node_group(
+    cluster_name: str,
+    node_group_name: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a managed node group from an EKS cluster."""
+    try:
+        eks = _get_boto_client('eks', region)
+        eks.delete_nodegroup(clusterName=cluster_name, nodegroupName=node_group_name)
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'node_group_name': node_group_name,
+            'message': f'Node group {node_group_name} deletion initiated',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_eks_node_groups(cluster_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """List all node groups in an EKS cluster."""
+    try:
+        eks = _get_boto_client('eks', region)
+        response = eks.list_nodegroups(clusterName=cluster_name)
+        node_groups = []
+        for ng_name in response.get('nodegroups', []):
+            ng = eks.describe_nodegroup(clusterName=cluster_name, nodegroupName=ng_name)['nodegroup']
+            node_groups.append({
+                'name': ng['nodegroupName'],
+                'status': ng['status'],
+                'instance_types': ng.get('instanceTypes', []),
+                'ami_type': ng.get('amiType'),
+                'scaling_config': ng.get('scalingConfig', {}),
+                'disk_size': ng.get('diskSize'),
+                'release_version': ng.get('releaseVersion'),
+                'created_at': ng['createdAt'].isoformat() if ng.get('createdAt') else None,
+            })
+        return {'success': True, 'cluster_name': cluster_name, 'node_groups': node_groups, 'count': len(node_groups)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def describe_eks_node_group(
+    cluster_name: str,
+    node_group_name: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Get full details of an EKS node group: AMI, instance type, scaling, and status."""
+    try:
+        eks = _get_boto_client('eks', region)
+        ng = eks.describe_nodegroup(clusterName=cluster_name, nodegroupName=node_group_name)['nodegroup']
+        return {
+            'success': True,
+            'name': ng['nodegroupName'],
+            'cluster_name': cluster_name,
+            'status': ng['status'],
+            'instance_types': ng.get('instanceTypes', []),
+            'ami_type': ng.get('amiType'),
+            'release_version': ng.get('releaseVersion'),
+            'scaling_config': ng.get('scalingConfig', {}),
+            'disk_size': ng.get('diskSize'),
+            'node_role': ng.get('nodeRole'),
+            'subnets': ng.get('subnets', []),
+            'labels': ng.get('labels', {}),
+            'taints': ng.get('taints', []),
+            'tags': ng.get('tags', {}),
+            'created_at': ng['createdAt'].isoformat() if ng.get('createdAt') else None,
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def update_eks_node_group_version(
+    cluster_name: str,
+    node_group_name: str,
+    kubernetes_version: Optional[str] = None,
+    release_version: Optional[str] = None,
+    force: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Upgrade node group AMI or Kubernetes version."""
+    try:
+        eks = _get_boto_client('eks', region)
+        params = {'clusterName': cluster_name, 'nodegroupName': node_group_name, 'force': force}
+        if kubernetes_version:
+            params['version'] = kubernetes_version
+        if release_version:
+            params['releaseVersion'] = release_version
+        response = eks.update_nodegroup_version(**params)
+        update = response['update']
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'node_group_name': node_group_name,
+            'update_id': update['id'],
+            'status': update['status'],
+            'message': f'Node group version update initiated for {node_group_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def update_eks_node_group_config(
+    cluster_name: str,
+    node_group_name: str,
+    min_size: Optional[int] = None,
+    max_size: Optional[int] = None,
+    desired_size: Optional[int] = None,
+    labels_add: Optional[Dict[str, str]] = None,
+    labels_remove: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Modify min/max/desired scaling values for a node group."""
+    try:
+        eks = _get_boto_client('eks', region)
+        params = {'clusterName': cluster_name, 'nodegroupName': node_group_name}
+        scaling = {}
+        if min_size is not None:
+            scaling['minSize'] = min_size
+        if max_size is not None:
+            scaling['maxSize'] = max_size
+        if desired_size is not None:
+            scaling['desiredSize'] = desired_size
+        if scaling:
+            params['scalingConfig'] = scaling
+        labels = {}
+        if labels_add:
+            labels['addOrUpdateLabels'] = labels_add
+        if labels_remove:
+            labels['removeLabels'] = labels_remove
+        if labels:
+            params['labels'] = labels
+        response = eks.update_nodegroup_config(**params)
+        update = response['update']
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'node_group_name': node_group_name,
+            'update_id': update['id'],
+            'message': f'Node group config update initiated for {node_group_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def create_eks_fargate_profile(
+    cluster_name: str,
+    profile_name: str,
+    pod_execution_role_arn: str,
+    selectors: List[Dict],
+    subnets: Optional[List[str]] = None,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a Fargate profile to run pods serverlessly without managing nodes."""
+    try:
+        eks = _get_boto_client('eks', region)
+        params = {
+            'clusterName': cluster_name,
+            'fargateProfileName': profile_name,
+            'podExecutionRoleArn': pod_execution_role_arn,
+            'selectors': selectors,
+        }
+        if subnets:
+            params['subnets'] = subnets
+        if tags:
+            params['tags'] = tags
+        response = eks.create_fargate_profile(**params)
+        profile = response['fargateProfile']
+        return {
+            'success': True,
+            'profile_name': profile['fargateProfileName'],
+            'cluster_name': cluster_name,
+            'status': profile['status'],
+            'selectors': profile.get('selectors', []),
+            'message': f'Fargate profile {profile_name} creation initiated',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_eks_fargate_profile(
+    cluster_name: str,
+    profile_name: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete an EKS Fargate profile."""
+    try:
+        eks = _get_boto_client('eks', region)
+        eks.delete_fargate_profile(clusterName=cluster_name, fargateProfileName=profile_name)
+        return {
+            'success': True,
+            'profile_name': profile_name,
+            'cluster_name': cluster_name,
+            'message': f'Fargate profile {profile_name} deletion initiated',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_eks_fargate_profiles(cluster_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """List all Fargate profiles for an EKS cluster."""
+    try:
+        eks = _get_boto_client('eks', region)
+        response = eks.list_fargate_profiles(clusterName=cluster_name)
+        profiles = []
+        for name in response.get('fargateProfileNames', []):
+            p = eks.describe_fargate_profile(clusterName=cluster_name, fargateProfileName=name)['fargateProfile']
+            profiles.append({
+                'name': p['fargateProfileName'],
+                'status': p['status'],
+                'selectors': p.get('selectors', []),
+                'subnets': p.get('subnets', []),
+            })
+        return {'success': True, 'cluster_name': cluster_name, 'fargate_profiles': profiles, 'count': len(profiles)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def create_eks_access_entry(
+    cluster_name: str,
+    principal_arn: str,
+    username: Optional[str] = None,
+    groups: Optional[List[str]] = None,
+    entry_type: str = 'STANDARD',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Add an IAM principal to cluster access using the EKS Access API."""
+    try:
+        eks = _get_boto_client('eks', region)
+        params = {'clusterName': cluster_name, 'principalArn': principal_arn, 'type': entry_type}
+        if username:
+            params['username'] = username
+        if groups:
+            params['kubernetesGroups'] = groups
+        response = eks.create_access_entry(**params)
+        entry = response['accessEntry']
+        return {
+            'success': True,
+            'principal_arn': principal_arn,
+            'cluster_name': cluster_name,
+            'username': entry.get('username'),
+            'groups': entry.get('kubernetesGroups', []),
+            'message': f'Access entry created for {principal_arn}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_eks_access_entry(
+    cluster_name: str,
+    principal_arn: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Remove an IAM principal's cluster access entry."""
+    try:
+        eks = _get_boto_client('eks', region)
+        eks.delete_access_entry(clusterName=cluster_name, principalArn=principal_arn)
+        return {
+            'success': True,
+            'principal_arn': principal_arn,
+            'cluster_name': cluster_name,
+            'message': f'Access entry deleted for {principal_arn}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def associate_eks_access_policy(
+    cluster_name: str,
+    principal_arn: str,
+    policy_arn: str,
+    access_scope_type: str = 'cluster',
+    namespaces: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Bind an EKS access policy (e.g., AmazonEKSClusterAdminPolicy) to a principal."""
+    try:
+        eks = _get_boto_client('eks', region)
+        access_scope = {'type': access_scope_type}
+        if access_scope_type == 'namespace' and namespaces:
+            access_scope['namespaces'] = namespaces
+        eks.associate_access_policy(
+            clusterName=cluster_name,
+            principalArn=principal_arn,
+            policyArn=policy_arn,
+            accessScope=access_scope
+        )
+        return {
+            'success': True,
+            'principal_arn': principal_arn,
+            'policy_arn': policy_arn,
+            'cluster_name': cluster_name,
+            'access_scope': access_scope,
+            'message': f'Policy {policy_arn} associated with {principal_arn}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def generate_eks_kubeconfig(
+    cluster_name: str,
+    region: Optional[str] = None,
+    role_arn: Optional[str] = None
+) -> Dict[str, Any]:
+    """Generate kubeconfig content for kubectl access to an EKS cluster."""
+    try:
+        import subprocess
+        cmd = ['aws', 'eks', 'update-kubeconfig', '--name', cluster_name]
+        if region:
+            cmd.extend(['--region', region])
+        if role_arn:
+            cmd.extend(['--role-arn', role_arn])
+        cmd.extend(['--dry-run'])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            return {
+                'success': True,
+                'cluster_name': cluster_name,
+                'kubeconfig': result.stdout,
+                'message': f'Kubeconfig generated for {cluster_name}',
+                'region': region or 'default'
+            }
+        # Fallback: build config manually using boto3
+        eks = _get_boto_client('eks', region)
+        cluster = eks.describe_cluster(name=cluster_name)['cluster']
+        endpoint = cluster.get('endpoint', '')
+        ca_data = cluster.get('certificateAuthority', {}).get('data', '')
+        kubeconfig = {
+            'apiVersion': 'v1',
+            'clusters': [{'cluster': {'certificate-authority-data': ca_data, 'server': endpoint}, 'name': cluster_name}],
+            'contexts': [{'context': {'cluster': cluster_name, 'user': cluster_name}, 'name': cluster_name}],
+            'current-context': cluster_name,
+            'kind': 'Config',
+            'users': [{'name': cluster_name, 'user': {'exec': {
+                'apiVersion': 'client.authentication.k8s.io/v1beta1',
+                'command': 'aws',
+                'args': ['eks', 'get-token', '--cluster-name', cluster_name] + (['--region', region] if region else []),
+            }}}]
+        }
+        return {
+            'success': True,
+            'cluster_name': cluster_name,
+            'kubeconfig': json.dumps(kubeconfig, indent=2),
+            'message': f'Kubeconfig generated for {cluster_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def create_eks_addon(
+    cluster_name: str,
+    addon_name: str,
+    addon_version: Optional[str] = None,
+    service_account_role_arn: Optional[str] = None,
+    resolve_conflicts: str = 'OVERWRITE',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Install a managed EKS add-on (CoreDNS, kube-proxy, vpc-cni, aws-ebs-csi-driver)."""
+    try:
+        eks = _get_boto_client('eks', region)
+        params = {
+            'clusterName': cluster_name,
+            'addonName': addon_name,
+            'resolveConflicts': resolve_conflicts,
+        }
+        if addon_version:
+            params['addonVersion'] = addon_version
+        if service_account_role_arn:
+            params['serviceAccountRoleArn'] = service_account_role_arn
+        response = eks.create_addon(**params)
+        addon = response['addon']
+        return {
+            'success': True,
+            'addon_name': addon['addonName'],
+            'cluster_name': cluster_name,
+            'status': addon['status'],
+            'version': addon.get('addonVersion'),
+            'message': f'Add-on {addon_name} installation initiated on {cluster_name}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_eks_addon(
+    cluster_name: str,
+    addon_name: str,
+    preserve: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Remove an installed EKS add-on."""
+    try:
+        eks = _get_boto_client('eks', region)
+        eks.delete_addon(clusterName=cluster_name, addonName=addon_name, preserve=preserve)
+        return {
+            'success': True,
+            'addon_name': addon_name,
+            'cluster_name': cluster_name,
+            'message': f'Add-on {addon_name} deletion initiated',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_eks_addons(cluster_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """List all installed add-ons and their versions for an EKS cluster."""
+    try:
+        eks = _get_boto_client('eks', region)
+        response = eks.list_addons(clusterName=cluster_name)
+        addons = []
+        for name in response.get('addons', []):
+            addon = eks.describe_addon(clusterName=cluster_name, addonName=name)['addon']
+            addons.append({
+                'name': addon['addonName'],
+                'version': addon.get('addonVersion'),
+                'status': addon['status'],
+                'service_account_role_arn': addon.get('serviceAccountRoleArn'),
+                'created_at': addon['createdAt'].isoformat() if addon.get('createdAt') else None,
+            })
+        return {'success': True, 'cluster_name': cluster_name, 'addons': addons, 'count': len(addons)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def update_eks_addon(
+    cluster_name: str,
+    addon_name: str,
+    addon_version: str,
+    resolve_conflicts: str = 'OVERWRITE',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Upgrade an EKS add-on to a newer version."""
+    try:
+        eks = _get_boto_client('eks', region)
+        response = eks.update_addon(
+            clusterName=cluster_name,
+            addonName=addon_name,
+            addonVersion=addon_version,
+            resolveConflicts=resolve_conflicts
+        )
+        update = response['update']
+        return {
+            'success': True,
+            'addon_name': addon_name,
+            'cluster_name': cluster_name,
+            'update_id': update['id'],
+            'status': update['status'],
+            'addon_version': addon_version,
+            'message': f'Add-on {addon_name} update initiated to version {addon_version}',
+            'region': region or 'default'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def describe_eks_addon_versions(
+    addon_name: str,
+    kubernetes_version: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List available versions for a given EKS add-on."""
+    try:
+        eks = _get_boto_client('eks', region)
+        params = {'addonName': addon_name}
+        if kubernetes_version:
+            params['kubernetesVersion'] = kubernetes_version
+        response = eks.describe_addon_versions(**params)
+        addons = []
+        for addon in response.get('addons', []):
+            for version in addon.get('addonVersions', []):
+                addons.append({
+                    'addon_name': addon['addonName'],
+                    'version': version['addonVersion'],
+                    'default_version': version.get('compatibilities', [{}])[0].get('defaultVersion', False),
+                    'compatible_k8s': [c.get('clusterVersion') for c in version.get('compatibilities', [])],
+                })
+        return {'success': True, 'addon_name': addon_name, 'versions': addons, 'count': len(addons)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
@@ -1212,7 +1901,6 @@ def list_iam_groups_for_user(username: str) -> Dict[str, Any]:
 def get_iam_role(role_name: str) -> Dict[str, Any]:
     """Get details of an IAM role including trust policy and attached policies."""
     try:
-        import json as _json
         iam = _get_boto_client('iam')
         response = iam.get_role(RoleName=role_name)
         role = response['Role']
@@ -1226,7 +1914,7 @@ def get_iam_role(role_name: str) -> Dict[str, Any]:
         trust_policy = role.get('AssumeRolePolicyDocument', {})
         if isinstance(trust_policy, str):
             from urllib.parse import unquote
-            trust_policy = _json.loads(unquote(trust_policy))
+            trust_policy = json.loads(unquote(trust_policy))
 
         return {
             'success': True, 'role_name': role_name,
@@ -1248,11 +1936,10 @@ def get_iam_role(role_name: str) -> Dict[str, Any]:
 def update_iam_role_trust_policy(role_name: str, trust_policy: Dict) -> Dict[str, Any]:
     """Update the trust policy (assume role policy) of an IAM role."""
     try:
-        import json as _json
         iam = _get_boto_client('iam')
         iam.update_assume_role_policy(
             RoleName=role_name,
-            PolicyDocument=_json.dumps(trust_policy)
+            PolicyDocument=json.dumps(trust_policy)
         )
         return {
             'success': True, 'role_name': role_name,
@@ -1352,7 +2039,6 @@ def list_iam_policies(scope: str = 'Local', max_items: int = 100) -> Dict[str, A
 def get_iam_policy(policy_arn: str) -> Dict[str, Any]:
     """Get details and the current policy document for an IAM managed policy."""
     try:
-        import json as _json
         iam = _get_boto_client('iam')
         policy = iam.get_policy(PolicyArn=policy_arn)['Policy']
         version = iam.get_policy_version(
@@ -1479,9 +2165,8 @@ def put_iam_inline_policy(
     entity_type: 'user', 'group', or 'role'
     """
     try:
-        import json as _json
         iam = _get_boto_client('iam')
-        doc = _json.dumps(policy_document)
+        doc = json.dumps(policy_document)
         if entity_type == 'user':
             iam.put_user_policy(UserName=entity_name, PolicyName=policy_name, PolicyDocument=doc)
         elif entity_type == 'group':
@@ -2921,10 +3606,9 @@ def put_s3_bucket_policy(
         Dictionary with result
     """
     try:
-        import json as _json
         s3 = _get_boto_client('s3', region)
 
-        policy_str = _json.dumps(policy) if isinstance(policy, dict) else policy
+        policy_str = json.dumps(policy) if isinstance(policy, dict) else policy
         s3.put_bucket_policy(Bucket=bucket_name, Policy=policy_str)
 
         return {
@@ -3219,10 +3903,9 @@ def generate_s3_presigned_url(
 def get_s3_bucket_policy(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
     """Read the current bucket policy JSON for an S3 bucket."""
     try:
-        import json as _json
         s3 = _get_boto_client('s3', region)
         response = s3.get_bucket_policy(Bucket=bucket_name)
-        policy = _json.loads(response['Policy'])
+        policy = json.loads(response['Policy'])
         return {
             'success': True,
             'bucket_name': bucket_name,
@@ -6146,6 +6829,944 @@ def list_rds_instances(region: Optional[str] = None) -> Dict[str, Any]:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error listing RDS instances: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# RDS EXTENDED OPERATIONS
+# ============================================================================
+
+def describe_rds_instance(db_instance_identifier: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Get full details of a specific RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.describe_db_instances(DBInstanceIdentifier=db_instance_identifier)
+        db = response['DBInstances'][0]
+        return {
+            'success': True,
+            'db_instance_identifier': db['DBInstanceIdentifier'],
+            'engine': db.get('Engine'),
+            'engine_version': db.get('EngineVersion'),
+            'db_instance_class': db.get('DBInstanceClass'),
+            'status': db.get('DBInstanceStatus'),
+            'endpoint': db.get('Endpoint', {}).get('Address'),
+            'port': db.get('Endpoint', {}).get('Port'),
+            'allocated_storage': db.get('AllocatedStorage'),
+            'max_allocated_storage': db.get('MaxAllocatedStorage'),
+            'multi_az': db.get('MultiAZ'),
+            'availability_zone': db.get('AvailabilityZone'),
+            'secondary_az': db.get('SecondaryAvailabilityZone'),
+            'publicly_accessible': db.get('PubliclyAccessible'),
+            'db_name': db.get('DBName'),
+            'master_username': db.get('MasterUsername'),
+            'parameter_group': db.get('DBParameterGroups', [{}])[0].get('DBParameterGroupName'),
+            'subnet_group': db.get('DBSubnetGroup', {}).get('DBSubnetGroupName'),
+            'vpc_id': db.get('DBSubnetGroup', {}).get('VpcId'),
+            'security_groups': [sg['VpcSecurityGroupId'] for sg in db.get('VpcSecurityGroups', [])],
+            'backup_retention_period': db.get('BackupRetentionPeriod'),
+            'preferred_backup_window': db.get('PreferredBackupWindow'),
+            'preferred_maintenance_window': db.get('PreferredMaintenanceWindow'),
+            'auto_minor_version_upgrade': db.get('AutoMinorVersionUpgrade'),
+            'iam_database_authentication_enabled': db.get('IAMDatabaseAuthenticationEnabled'),
+            'performance_insights_enabled': db.get('PerformanceInsightsEnabled'),
+            'deletion_protection': db.get('DeletionProtection'),
+            'created_time': db.get('InstanceCreateTime').isoformat() if db.get('InstanceCreateTime') else None,
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def start_rds_instance(db_instance_identifier: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Start a stopped RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.start_db_instance(DBInstanceIdentifier=db_instance_identifier)
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'message': f'RDS instance {db_instance_identifier} starting'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def stop_rds_instance(
+    db_instance_identifier: str,
+    db_snapshot_identifier: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Stop a running RDS instance to save costs (with optional snapshot)."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {'DBInstanceIdentifier': db_instance_identifier}
+        if db_snapshot_identifier:
+            kwargs['DBSnapshotIdentifier'] = db_snapshot_identifier
+        response = rds.stop_db_instance(**kwargs)
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'message': f'RDS instance {db_instance_identifier} stopping'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def reboot_rds_instance(
+    db_instance_identifier: str,
+    force_failover: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Reboot a DB instance, optionally forcing Multi-AZ failover."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.reboot_db_instance(
+            DBInstanceIdentifier=db_instance_identifier,
+            ForceFailover=force_failover
+        )
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'force_failover': force_failover,
+            'message': f'RDS instance {db_instance_identifier} rebooting'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def modify_rds_instance(
+    db_instance_identifier: str,
+    db_instance_class: Optional[str] = None,
+    allocated_storage: Optional[int] = None,
+    backup_retention_period: Optional[int] = None,
+    preferred_backup_window: Optional[str] = None,
+    preferred_maintenance_window: Optional[str] = None,
+    multi_az: Optional[bool] = None,
+    auto_minor_version_upgrade: Optional[bool] = None,
+    deletion_protection: Optional[bool] = None,
+    engine_version: Optional[str] = None,
+    apply_immediately: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Modify RDS instance settings (class, storage, Multi-AZ, engine version, etc.)."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'DBInstanceIdentifier': db_instance_identifier,
+            'ApplyImmediately': apply_immediately,
+        }
+        if db_instance_class:
+            kwargs['DBInstanceClass'] = db_instance_class
+        if allocated_storage is not None:
+            kwargs['AllocatedStorage'] = allocated_storage
+        if backup_retention_period is not None:
+            kwargs['BackupRetentionPeriod'] = backup_retention_period
+        if preferred_backup_window:
+            kwargs['PreferredBackupWindow'] = preferred_backup_window
+        if preferred_maintenance_window:
+            kwargs['PreferredMaintenanceWindow'] = preferred_maintenance_window
+        if multi_az is not None:
+            kwargs['MultiAZ'] = multi_az
+        if auto_minor_version_upgrade is not None:
+            kwargs['AutoMinorVersionUpgrade'] = auto_minor_version_upgrade
+        if deletion_protection is not None:
+            kwargs['DeletionProtection'] = deletion_protection
+        if engine_version:
+            kwargs['EngineVersion'] = engine_version
+        response = rds.modify_db_instance(**kwargs)
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'pending_modified_values': db.get('PendingModifiedValues', {}),
+            'apply_immediately': apply_immediately,
+            'message': f'RDS instance {db_instance_identifier} modification initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def tag_rds_instance(db_instance_identifier: str, tags: Dict[str, str], region: Optional[str] = None) -> Dict[str, Any]:
+    """Add or update tags on an RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        # Build the ARN from the instance identifier
+        response = rds.describe_db_instances(DBInstanceIdentifier=db_instance_identifier)
+        arn = response['DBInstances'][0]['DBInstanceArn']
+        rds.add_tags_to_resource(
+            ResourceName=arn,
+            Tags=[{'Key': k, 'Value': v} for k, v in tags.items()]
+        )
+        return {
+            'success': True, 'db_instance_identifier': db_instance_identifier,
+            'tags': tags, 'message': f'Tags applied to RDS instance {db_instance_identifier}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- RDS Snapshots ----
+
+def create_rds_snapshot(
+    db_instance_identifier: str,
+    db_snapshot_identifier: str,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Take a manual point-in-time snapshot of a DB instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'DBInstanceIdentifier': db_instance_identifier,
+            'DBSnapshotIdentifier': db_snapshot_identifier,
+        }
+        if tags:
+            kwargs['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+        response = rds.create_db_snapshot(**kwargs)
+        snap = response['DBSnapshot']
+        return {
+            'success': True,
+            'snapshot_identifier': snap['DBSnapshotIdentifier'],
+            'db_instance_identifier': db_instance_identifier,
+            'status': snap.get('Status'),
+            'message': f'Snapshot {db_snapshot_identifier} creation initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_rds_snapshots(
+    db_instance_identifier: Optional[str] = None,
+    snapshot_type: str = 'manual',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List DB snapshots (manual or automated)."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {'SnapshotType': snapshot_type}
+        if db_instance_identifier:
+            kwargs['DBInstanceIdentifier'] = db_instance_identifier
+        response = rds.describe_db_snapshots(**kwargs)
+        snapshots = []
+        for snap in response.get('DBSnapshots', []):
+            snapshots.append({
+                'snapshot_identifier': snap['DBSnapshotIdentifier'],
+                'db_instance_identifier': snap.get('DBInstanceIdentifier'),
+                'engine': snap.get('Engine'),
+                'engine_version': snap.get('EngineVersion'),
+                'status': snap.get('Status'),
+                'allocated_storage': snap.get('AllocatedStorage'),
+                'created_time': snap.get('SnapshotCreateTime').isoformat() if snap.get('SnapshotCreateTime') else None,
+                'availability_zone': snap.get('AvailabilityZone'),
+                'encrypted': snap.get('Encrypted'),
+            })
+        return {'success': True, 'snapshots': snapshots, 'count': len(snapshots)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_rds_snapshot(db_snapshot_identifier: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a manual RDS snapshot."""
+    try:
+        rds = _get_boto_client('rds', region)
+        rds.delete_db_snapshot(DBSnapshotIdentifier=db_snapshot_identifier)
+        return {
+            'success': True, 'snapshot_identifier': db_snapshot_identifier,
+            'message': f'Snapshot {db_snapshot_identifier} deleted'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def restore_rds_from_snapshot(
+    db_snapshot_identifier: str,
+    db_instance_identifier: str,
+    db_instance_class: Optional[str] = None,
+    db_subnet_group_name: Optional[str] = None,
+    vpc_security_group_ids: Optional[List[str]] = None,
+    publicly_accessible: bool = False,
+    multi_az: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Launch a new RDS instance from a snapshot."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'DBSnapshotIdentifier': db_snapshot_identifier,
+            'DBInstanceIdentifier': db_instance_identifier,
+            'PubliclyAccessible': publicly_accessible,
+            'MultiAZ': multi_az,
+        }
+        if db_instance_class:
+            kwargs['DBInstanceClass'] = db_instance_class
+        if db_subnet_group_name:
+            kwargs['DBSubnetGroupName'] = db_subnet_group_name
+        if vpc_security_group_ids:
+            kwargs['VpcSecurityGroupIds'] = vpc_security_group_ids
+        response = rds.restore_db_instance_from_db_snapshot(**kwargs)
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'engine': db.get('Engine'),
+            'message': f'Restoring {db_instance_identifier} from snapshot {db_snapshot_identifier}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def copy_rds_snapshot(
+    source_snapshot_identifier: str,
+    target_snapshot_identifier: str,
+    source_region: Optional[str] = None,
+    kms_key_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Copy a DB snapshot within or across regions."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'SourceDBSnapshotIdentifier': source_snapshot_identifier,
+            'TargetDBSnapshotIdentifier': target_snapshot_identifier,
+        }
+        if source_region:
+            kwargs['SourceRegion'] = source_region
+        if kms_key_id:
+            kwargs['KmsKeyId'] = kms_key_id
+        response = rds.copy_db_snapshot(**kwargs)
+        snap = response['DBSnapshot']
+        return {
+            'success': True,
+            'target_snapshot_identifier': target_snapshot_identifier,
+            'status': snap.get('Status'),
+            'message': f'Snapshot copy {target_snapshot_identifier} initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def restore_rds_to_point_in_time(
+    source_db_instance_identifier: str,
+    target_db_instance_identifier: str,
+    restore_time: Optional[str] = None,
+    use_latest_restorable_time: bool = False,
+    db_instance_class: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Restore a DB instance to a specific point in time."""
+    try:
+        import datetime
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'SourceDBInstanceIdentifier': source_db_instance_identifier,
+            'TargetDBInstanceIdentifier': target_db_instance_identifier,
+            'UseLatestRestorableTime': use_latest_restorable_time,
+        }
+        if restore_time and not use_latest_restorable_time:
+            kwargs['RestoreTime'] = datetime.datetime.fromisoformat(restore_time)
+        if db_instance_class:
+            kwargs['DBInstanceClass'] = db_instance_class
+        response = rds.restore_db_instance_to_point_in_time(**kwargs)
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': target_db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'message': f'Point-in-time restore to {target_db_instance_identifier} initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- RDS Parameter Groups ----
+
+def create_db_parameter_group(
+    group_name: str,
+    family: str,
+    description: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a DB parameter group for custom engine configuration."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.create_db_parameter_group(
+            DBParameterGroupName=group_name,
+            DBParameterGroupFamily=family,
+            Description=description
+        )
+        pg = response['DBParameterGroup']
+        return {
+            'success': True,
+            'parameter_group_name': pg['DBParameterGroupName'],
+            'family': pg.get('DBParameterGroupFamily'),
+            'description': pg.get('Description'),
+            'message': f'Parameter group {group_name} created'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_db_parameter_groups(region: Optional[str] = None) -> Dict[str, Any]:
+    """List all DB parameter groups in the account."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.describe_db_parameter_groups()
+        groups = []
+        for pg in response.get('DBParameterGroups', []):
+            groups.append({
+                'name': pg['DBParameterGroupName'],
+                'family': pg.get('DBParameterGroupFamily'),
+                'description': pg.get('Description'),
+                'arn': pg.get('DBParameterGroupArn'),
+            })
+        return {'success': True, 'parameter_groups': groups, 'count': len(groups)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def modify_db_parameter_group(
+    group_name: str,
+    parameters: List[Dict],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update parameter values in a DB parameter group.
+
+    Parameters format: [{"name": "max_connections", "value": "200", "apply_method": "immediate"}]
+    """
+    try:
+        rds = _get_boto_client('rds', region)
+        params = [
+            {
+                'ParameterName': p['name'],
+                'ParameterValue': p['value'],
+                'ApplyMethod': p.get('apply_method', 'pending-reboot'),
+            }
+            for p in parameters
+        ]
+        rds.modify_db_parameter_group(
+            DBParameterGroupName=group_name,
+            Parameters=params
+        )
+        return {
+            'success': True, 'parameter_group_name': group_name,
+            'parameters_modified': len(parameters),
+            'message': f'Parameter group {group_name} updated with {len(parameters)} parameter(s)'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_db_parameter_group(group_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a custom DB parameter group."""
+    try:
+        rds = _get_boto_client('rds', region)
+        rds.delete_db_parameter_group(DBParameterGroupName=group_name)
+        return {'success': True, 'parameter_group_name': group_name,
+                'message': f'Parameter group {group_name} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- RDS Subnet Groups ----
+
+def create_db_subnet_group(
+    group_name: str,
+    description: str,
+    subnet_ids: List[str],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a DB subnet group for VPC placement."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.create_db_subnet_group(
+            DBSubnetGroupName=group_name,
+            DBSubnetGroupDescription=description,
+            SubnetIds=subnet_ids
+        )
+        sg = response['DBSubnetGroup']
+        return {
+            'success': True,
+            'subnet_group_name': sg['DBSubnetGroupName'],
+            'vpc_id': sg.get('VpcId'),
+            'subnet_count': len(sg.get('Subnets', [])),
+            'message': f'DB subnet group {group_name} created'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_db_subnet_groups(region: Optional[str] = None) -> Dict[str, Any]:
+    """List all DB subnet groups."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.describe_db_subnet_groups()
+        groups = []
+        for sg in response.get('DBSubnetGroups', []):
+            groups.append({
+                'name': sg['DBSubnetGroupName'],
+                'description': sg.get('DBSubnetGroupDescription'),
+                'vpc_id': sg.get('VpcId'),
+                'status': sg.get('SubnetGroupStatus'),
+                'subnets': [s['SubnetIdentifier'] for s in sg.get('Subnets', [])],
+                'availability_zones': list({s['SubnetAvailabilityZone']['Name'] for s in sg.get('Subnets', [])}),
+            })
+        return {'success': True, 'subnet_groups': groups, 'count': len(groups)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_db_subnet_group(group_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a DB subnet group."""
+    try:
+        rds = _get_boto_client('rds', region)
+        rds.delete_db_subnet_group(DBSubnetGroupName=group_name)
+        return {'success': True, 'subnet_group_name': group_name,
+                'message': f'DB subnet group {group_name} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- RDS Security & Auth ----
+
+def rotate_rds_master_password(
+    db_instance_identifier: str,
+    new_password: str,
+    apply_immediately: bool = True,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update the master user password on an RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.modify_db_instance(
+            DBInstanceIdentifier=db_instance_identifier,
+            MasterUserPassword=new_password,
+            ApplyImmediately=apply_immediately
+        )
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'message': f'Master password rotation initiated for {db_instance_identifier}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def enable_rds_iam_auth(
+    db_instance_identifier: str,
+    enable: bool = True,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable or disable IAM database authentication on an RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.modify_db_instance(
+            DBInstanceIdentifier=db_instance_identifier,
+            EnableIAMDatabaseAuthentication=enable,
+            ApplyImmediately=True
+        )
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'iam_auth_enabled': enable,
+            'status': db.get('DBInstanceStatus'),
+            'message': f'IAM authentication {"enabled" if enable else "disabled"} for {db_instance_identifier}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- RDS Monitoring ----
+
+def list_rds_log_files(db_instance_identifier: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """List available log files on an RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.describe_db_log_files(DBInstanceIdentifier=db_instance_identifier)
+        logs = []
+        for log in response.get('DescribeDBLogFiles', []):
+            logs.append({
+                'log_file_name': log['LogFileName'],
+                'last_written': log.get('LastWritten'),
+                'size': log.get('Size'),
+            })
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'log_files': logs,
+            'count': len(logs)
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def download_rds_log_file(
+    db_instance_identifier: str,
+    log_file_name: str,
+    max_lines: int = 500,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Download a specific log file from an RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.download_db_log_file_portion(
+            DBInstanceIdentifier=db_instance_identifier,
+            LogFileName=log_file_name,
+            NumberOfLines=max_lines
+        )
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'log_file_name': log_file_name,
+            'log_content': response.get('LogFileData', ''),
+            'additional_data_pending': response.get('AdditionalDataPending', False),
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_rds_events(
+    db_instance_identifier: Optional[str] = None,
+    duration_minutes: int = 60,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List recent RDS events (failover, backup, maintenance, errors)."""
+    try:
+        import datetime
+        rds = _get_boto_client('rds', region)
+        kwargs = {'Duration': duration_minutes}
+        if db_instance_identifier:
+            kwargs['SourceIdentifier'] = db_instance_identifier
+            kwargs['SourceType'] = 'db-instance'
+        response = rds.describe_events(**kwargs)
+        events = []
+        for event in response.get('Events', []):
+            events.append({
+                'source_identifier': event.get('SourceIdentifier'),
+                'source_type': event.get('SourceType'),
+                'message': event.get('Message'),
+                'event_categories': event.get('EventCategories', []),
+                'date': event.get('Date').isoformat() if event.get('Date') else None,
+            })
+        return {'success': True, 'events': events, 'count': len(events)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- RDS Read Replicas ----
+
+def create_rds_read_replica(
+    source_db_instance_identifier: str,
+    replica_identifier: str,
+    db_instance_class: Optional[str] = None,
+    availability_zone: Optional[str] = None,
+    publicly_accessible: bool = False,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a read-only replica of an RDS instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'SourceDBInstanceIdentifier': source_db_instance_identifier,
+            'DBInstanceIdentifier': replica_identifier,
+            'PubliclyAccessible': publicly_accessible,
+        }
+        if db_instance_class:
+            kwargs['DBInstanceClass'] = db_instance_class
+        if availability_zone:
+            kwargs['AvailabilityZone'] = availability_zone
+        response = rds.create_db_instance_read_replica(**kwargs)
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'replica_identifier': replica_identifier,
+            'source_identifier': source_db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'message': f'Read replica {replica_identifier} creation initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def promote_rds_read_replica(
+    db_instance_identifier: str,
+    backup_retention_period: int = 1,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Promote a read replica to a standalone DB instance."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.promote_read_replica(
+            DBInstanceIdentifier=db_instance_identifier,
+            BackupRetentionPeriod=backup_retention_period
+        )
+        db = response['DBInstance']
+        return {
+            'success': True,
+            'db_instance_identifier': db_instance_identifier,
+            'status': db.get('DBInstanceStatus'),
+            'message': f'Read replica {db_instance_identifier} promotion initiated — it will become a standalone instance'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- Aurora Clusters ----
+
+def create_aurora_cluster(
+    db_cluster_identifier: str,
+    engine: str,
+    master_username: str,
+    master_password: str,
+    db_subnet_group_name: Optional[str] = None,
+    vpc_security_group_ids: Optional[List[str]] = None,
+    availability_zones: Optional[List[str]] = None,
+    backup_retention_period: int = 7,
+    database_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Provision an Aurora MySQL or PostgreSQL cluster."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'DBClusterIdentifier': db_cluster_identifier,
+            'Engine': engine,
+            'MasterUsername': master_username,
+            'MasterUserPassword': master_password,
+            'BackupRetentionPeriod': backup_retention_period,
+            'StorageEncrypted': True,
+        }
+        if db_subnet_group_name:
+            kwargs['DBSubnetGroupName'] = db_subnet_group_name
+        if vpc_security_group_ids:
+            kwargs['VpcSecurityGroupIds'] = vpc_security_group_ids
+        if availability_zones:
+            kwargs['AvailabilityZones'] = availability_zones
+        if database_name:
+            kwargs['DatabaseName'] = database_name
+        if engine_version:
+            kwargs['EngineVersion'] = engine_version
+        response = rds.create_db_cluster(**kwargs)
+        cluster = response['DBCluster']
+        return {
+            'success': True,
+            'cluster_identifier': cluster['DBClusterIdentifier'],
+            'status': cluster.get('Status'),
+            'engine': cluster.get('Engine'),
+            'engine_version': cluster.get('EngineVersion'),
+            'endpoint': cluster.get('Endpoint'),
+            'reader_endpoint': cluster.get('ReaderEndpoint'),
+            'message': f'Aurora cluster {db_cluster_identifier} creation initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_aurora_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """List all Aurora DB clusters."""
+    try:
+        rds = _get_boto_client('rds', region)
+        response = rds.describe_db_clusters()
+        clusters = []
+        for cluster in response.get('DBClusters', []):
+            clusters.append({
+                'cluster_identifier': cluster['DBClusterIdentifier'],
+                'engine': cluster.get('Engine'),
+                'engine_version': cluster.get('EngineVersion'),
+                'status': cluster.get('Status'),
+                'endpoint': cluster.get('Endpoint'),
+                'reader_endpoint': cluster.get('ReaderEndpoint'),
+                'multi_az': cluster.get('MultiAZ'),
+                'database_name': cluster.get('DatabaseName'),
+                'member_count': len(cluster.get('DBClusterMembers', [])),
+                'backup_retention': cluster.get('BackupRetentionPeriod'),
+                'encrypted': cluster.get('StorageEncrypted'),
+            })
+        return {'success': True, 'clusters': clusters, 'count': len(clusters)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_aurora_cluster(
+    db_cluster_identifier: str,
+    skip_final_snapshot: bool = False,
+    final_snapshot_identifier: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete an Aurora cluster (all instances must be deleted first)."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {
+            'DBClusterIdentifier': db_cluster_identifier,
+            'SkipFinalSnapshot': skip_final_snapshot,
+        }
+        if not skip_final_snapshot and final_snapshot_identifier:
+            kwargs['FinalDBSnapshotIdentifier'] = final_snapshot_identifier
+        response = rds.delete_db_cluster(**kwargs)
+        cluster = response['DBCluster']
+        return {
+            'success': True,
+            'cluster_identifier': db_cluster_identifier,
+            'status': cluster.get('Status'),
+            'message': f'Aurora cluster {db_cluster_identifier} deletion initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def failover_aurora_cluster(
+    db_cluster_identifier: str,
+    target_db_instance_identifier: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Trigger a failover for an Aurora cluster (promotes a reader to writer)."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {'DBClusterIdentifier': db_cluster_identifier}
+        if target_db_instance_identifier:
+            kwargs['TargetDBInstanceIdentifier'] = target_db_instance_identifier
+        response = rds.failover_db_cluster(**kwargs)
+        cluster = response['DBCluster']
+        return {
+            'success': True,
+            'cluster_identifier': db_cluster_identifier,
+            'status': cluster.get('Status'),
+            'message': f'Aurora cluster {db_cluster_identifier} failover initiated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- RDS Maintenance ----
+
+def describe_pending_rds_maintenance(
+    db_instance_identifier: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """View queued maintenance actions for RDS instances."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {}
+        if db_instance_identifier:
+            kwargs['Filters'] = [{'Name': 'db-instance-id', 'Values': [db_instance_identifier]}]
+        response = rds.describe_pending_maintenance_actions(**kwargs)
+        actions = []
+        for item in response.get('PendingMaintenanceActions', []):
+            for action in item.get('PendingMaintenanceActionDetails', []):
+                actions.append({
+                    'resource_identifier': item.get('ResourceIdentifier'),
+                    'action': action.get('Action'),
+                    'auto_applied_after_date': action.get('AutoAppliedAfterDate').isoformat() if action.get('AutoAppliedAfterDate') else None,
+                    'current_apply_date': action.get('CurrentApplyDate').isoformat() if action.get('CurrentApplyDate') else None,
+                    'description': action.get('Description'),
+                })
+        return {'success': True, 'pending_actions': actions, 'count': len(actions)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def describe_rds_engine_versions(
+    engine: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List supported RDS engine versions and their features."""
+    try:
+        rds = _get_boto_client('rds', region)
+        kwargs = {}
+        if engine:
+            kwargs['Engine'] = engine
+        if engine_version:
+            kwargs['EngineVersion'] = engine_version
+        response = rds.describe_db_engine_versions(**kwargs)
+        versions = []
+        for v in response.get('DBEngineVersions', []):
+            versions.append({
+                'engine': v.get('Engine'),
+                'engine_version': v.get('EngineVersion'),
+                'db_engine_description': v.get('DBEngineDescription'),
+                'db_engine_version_description': v.get('DBEngineVersionDescription'),
+                'default_parameter_group_family': v.get('DBParameterGroupFamily'),
+                'status': v.get('Status'),
+                'supports_multi_az': v.get('MultiAZCapable', False),
+                'supports_read_replica': v.get('ReadReplicaCapable', False),
+            })
+        return {'success': True, 'engine_versions': versions, 'count': len(versions)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
@@ -15138,6 +16759,336 @@ def get_tools() -> List[Dict[str, Any]]:
             },
             'handler': create_eks_node_group
         },
+        # ---- EKS Extended ----
+        {
+            'name': 'describe_eks_cluster',
+            'description': 'Get detailed info about an EKS cluster including endpoint, version, OIDC issuer, logging config, and VPC settings.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': describe_eks_cluster
+        },
+        {
+            'name': 'update_eks_cluster_version',
+            'description': 'Upgrade the Kubernetes control plane version of an EKS cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'kubernetes_version': {'type': 'string', 'description': 'Target K8s version (e.g., "1.29")'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'kubernetes_version']
+            },
+            'handler': update_eks_cluster_version
+        },
+        {
+            'name': 'update_eks_cluster_config',
+            'description': 'Modify EKS API server endpoint access (public/private) and allowed CIDRs.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'endpoint_public_access': {'type': 'boolean', 'description': 'Enable/disable public endpoint'},
+                    'endpoint_private_access': {'type': 'boolean', 'description': 'Enable/disable private endpoint'},
+                    'public_access_cidrs': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Allowed CIDRs for public access'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': update_eks_cluster_config
+        },
+        {
+            'name': 'enable_eks_control_plane_logging',
+            'description': 'Enable EKS control plane logging to CloudWatch (api, audit, authenticator, controllerManager, scheduler).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'log_types': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Log types to enable (default: all)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': enable_eks_control_plane_logging
+        },
+        {
+            'name': 'associate_eks_oidc_provider',
+            'description': 'Associate OIDC identity provider with EKS cluster to enable IAM Roles for Service Accounts (IRSA).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': associate_eks_oidc_provider
+        },
+        {
+            'name': 'delete_eks_node_group',
+            'description': 'Delete a managed node group from an EKS cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'node_group_name': {'type': 'string', 'description': 'Node group name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'node_group_name']
+            },
+            'handler': delete_eks_node_group
+        },
+        {
+            'name': 'list_eks_node_groups',
+            'description': 'List all node groups in an EKS cluster with instance types, scaling config, and status.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': list_eks_node_groups
+        },
+        {
+            'name': 'describe_eks_node_group',
+            'description': 'Get full details of an EKS node group: AMI type, instance types, scaling config, labels, and status.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'node_group_name': {'type': 'string', 'description': 'Node group name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'node_group_name']
+            },
+            'handler': describe_eks_node_group
+        },
+        {
+            'name': 'update_eks_node_group_version',
+            'description': 'Upgrade node group AMI or Kubernetes version.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'node_group_name': {'type': 'string', 'description': 'Node group name'},
+                    'kubernetes_version': {'type': 'string', 'description': 'Target K8s version'},
+                    'release_version': {'type': 'string', 'description': 'Specific AMI release version'},
+                    'force': {'type': 'boolean', 'description': 'Force update even if pods cannot be evicted', 'default': False},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'node_group_name']
+            },
+            'handler': update_eks_node_group_version
+        },
+        {
+            'name': 'update_eks_node_group_config',
+            'description': 'Modify min/max/desired scaling values and labels for an EKS node group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'node_group_name': {'type': 'string', 'description': 'Node group name'},
+                    'min_size': {'type': 'integer', 'description': 'Minimum node count'},
+                    'max_size': {'type': 'integer', 'description': 'Maximum node count'},
+                    'desired_size': {'type': 'integer', 'description': 'Desired node count'},
+                    'labels_add': {'type': 'object', 'description': 'Labels to add or update'},
+                    'labels_remove': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Label keys to remove'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'node_group_name']
+            },
+            'handler': update_eks_node_group_config
+        },
+        {
+            'name': 'create_eks_fargate_profile',
+            'description': 'Create a Fargate profile to run pods serverlessly without managing EC2 nodes.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'profile_name': {'type': 'string', 'description': 'Fargate profile name'},
+                    'pod_execution_role_arn': {'type': 'string', 'description': 'IAM role ARN for Fargate pod execution'},
+                    'selectors': {'type': 'array', 'description': 'Namespace/label selectors [{namespace, labels}]', 'items': {'type': 'object'}},
+                    'subnets': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Private subnet IDs'},
+                    'tags': {'type': 'object', 'description': 'Tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'profile_name', 'pod_execution_role_arn', 'selectors']
+            },
+            'handler': create_eks_fargate_profile
+        },
+        {
+            'name': 'delete_eks_fargate_profile',
+            'description': 'Delete an EKS Fargate profile.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'profile_name': {'type': 'string', 'description': 'Fargate profile name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'profile_name']
+            },
+            'handler': delete_eks_fargate_profile
+        },
+        {
+            'name': 'list_eks_fargate_profiles',
+            'description': 'List all Fargate profiles for an EKS cluster with selectors and status.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': list_eks_fargate_profiles
+        },
+        {
+            'name': 'create_eks_access_entry',
+            'description': 'Add an IAM principal (user or role) to EKS cluster access using the EKS Access API.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'principal_arn': {'type': 'string', 'description': 'IAM user or role ARN'},
+                    'username': {'type': 'string', 'description': 'Kubernetes username override'},
+                    'groups': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Kubernetes group memberships'},
+                    'entry_type': {'type': 'string', 'enum': ['STANDARD', 'FARGATE_LINUX', 'EC2_LINUX', 'EC2_WINDOWS'], 'default': 'STANDARD'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'principal_arn']
+            },
+            'handler': create_eks_access_entry
+        },
+        {
+            'name': 'delete_eks_access_entry',
+            'description': 'Remove an IAM principal from EKS cluster access.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'principal_arn': {'type': 'string', 'description': 'IAM user or role ARN'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'principal_arn']
+            },
+            'handler': delete_eks_access_entry
+        },
+        {
+            'name': 'associate_eks_access_policy',
+            'description': 'Bind an EKS access policy (AmazonEKSClusterAdminPolicy, AmazonEKSAdminPolicy, etc.) to an IAM principal.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'principal_arn': {'type': 'string', 'description': 'IAM user or role ARN'},
+                    'policy_arn': {'type': 'string', 'description': 'EKS policy ARN (e.g., arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy)'},
+                    'access_scope_type': {'type': 'string', 'enum': ['cluster', 'namespace'], 'default': 'cluster'},
+                    'namespaces': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Namespaces (only for namespace scope)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'principal_arn', 'policy_arn']
+            },
+            'handler': associate_eks_access_policy
+        },
+        {
+            'name': 'generate_eks_kubeconfig',
+            'description': 'Generate kubeconfig content for kubectl access to an EKS cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'region': {'type': 'string', 'description': 'AWS region'},
+                    'role_arn': {'type': 'string', 'description': 'IAM role ARN to assume when authenticating'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': generate_eks_kubeconfig
+        },
+        {
+            'name': 'create_eks_addon',
+            'description': 'Install a managed EKS add-on (CoreDNS, kube-proxy, vpc-cni, aws-ebs-csi-driver).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'addon_name': {'type': 'string', 'description': 'Add-on name (e.g., "coredns", "kube-proxy", "vpc-cni", "aws-ebs-csi-driver")'},
+                    'addon_version': {'type': 'string', 'description': 'Specific version (omit for latest)'},
+                    'service_account_role_arn': {'type': 'string', 'description': 'IAM role ARN for IRSA'},
+                    'resolve_conflicts': {'type': 'string', 'enum': ['OVERWRITE', 'NONE', 'PRESERVE'], 'default': 'OVERWRITE'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'addon_name']
+            },
+            'handler': create_eks_addon
+        },
+        {
+            'name': 'delete_eks_addon',
+            'description': 'Remove an installed EKS add-on from a cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'addon_name': {'type': 'string', 'description': 'Add-on name'},
+                    'preserve': {'type': 'boolean', 'description': 'Preserve add-on software on cluster', 'default': False},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'addon_name']
+            },
+            'handler': delete_eks_addon
+        },
+        {
+            'name': 'list_eks_addons',
+            'description': 'List all installed EKS add-ons and their versions for a cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name']
+            },
+            'handler': list_eks_addons
+        },
+        {
+            'name': 'update_eks_addon',
+            'description': 'Upgrade an EKS add-on to a newer version.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'cluster_name': {'type': 'string', 'description': 'EKS cluster name'},
+                    'addon_name': {'type': 'string', 'description': 'Add-on name'},
+                    'addon_version': {'type': 'string', 'description': 'Target version'},
+                    'resolve_conflicts': {'type': 'string', 'enum': ['OVERWRITE', 'NONE', 'PRESERVE'], 'default': 'OVERWRITE'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['cluster_name', 'addon_name', 'addon_version']
+            },
+            'handler': update_eks_addon
+        },
+        {
+            'name': 'describe_eks_addon_versions',
+            'description': 'List all available versions for a given EKS add-on and compatible Kubernetes versions.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'addon_name': {'type': 'string', 'description': 'Add-on name'},
+                    'kubernetes_version': {'type': 'string', 'description': 'Filter by compatible K8s version (e.g., "1.29")'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['addon_name']
+            },
+            'handler': describe_eks_addon_versions
+        },
         # ---- ECR Container Registry ----
         {
             'name': 'create_ecr_repository',
@@ -15433,6 +17384,483 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['db_instance_id']
             },
             'handler': delete_rds_instance
+        },
+        # ---- RDS Extended Operations ----
+        {
+            'name': 'describe_rds_instance',
+            'description': 'Get full details of a specific RDS instance (engine, class, endpoints, storage, Multi-AZ, etc.).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': describe_rds_instance
+        },
+        {
+            'name': 'start_rds_instance',
+            'description': 'Start a stopped RDS instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': start_rds_instance
+        },
+        {
+            'name': 'stop_rds_instance',
+            'description': 'Stop a running RDS instance to save costs.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'db_snapshot_identifier': {'type': 'string', 'description': 'Optional snapshot to create on stop'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': stop_rds_instance
+        },
+        {
+            'name': 'reboot_rds_instance',
+            'description': 'Reboot a DB instance, optionally forcing a Multi-AZ failover.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'force_failover': {'type': 'boolean', 'description': 'Force failover to standby (Multi-AZ only, default: false)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': reboot_rds_instance
+        },
+        {
+            'name': 'modify_rds_instance',
+            'description': 'Modify RDS instance settings — class, storage, Multi-AZ, engine version, backup window, deletion protection.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'db_instance_class': {'type': 'string', 'description': 'New instance class (e.g., db.t3.medium)'},
+                    'allocated_storage': {'type': 'integer', 'description': 'New storage in GB'},
+                    'backup_retention_period': {'type': 'integer', 'description': 'Backup retention days (1-35)'},
+                    'preferred_backup_window': {'type': 'string', 'description': 'Backup window (e.g., 03:00-04:00)'},
+                    'preferred_maintenance_window': {'type': 'string', 'description': 'Maintenance window (e.g., Mon:05:00-Mon:06:00)'},
+                    'multi_az': {'type': 'boolean', 'description': 'Enable Multi-AZ'},
+                    'auto_minor_version_upgrade': {'type': 'boolean', 'description': 'Enable auto minor version upgrades'},
+                    'deletion_protection': {'type': 'boolean', 'description': 'Enable deletion protection'},
+                    'engine_version': {'type': 'string', 'description': 'Target engine version for upgrade'},
+                    'apply_immediately': {'type': 'boolean', 'description': 'Apply immediately vs next maintenance window (default: false)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': modify_rds_instance
+        },
+        {
+            'name': 'tag_rds_instance',
+            'description': 'Add or update tags on an RDS instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags to apply'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier', 'tags']
+            },
+            'handler': tag_rds_instance
+        },
+        {
+            'name': 'create_rds_snapshot',
+            'description': 'Take a manual point-in-time snapshot of an RDS instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'Source DB instance identifier'},
+                    'db_snapshot_identifier': {'type': 'string', 'description': 'Name for the snapshot'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier', 'db_snapshot_identifier']
+            },
+            'handler': create_rds_snapshot
+        },
+        {
+            'name': 'list_rds_snapshots',
+            'description': 'List DB snapshots (manual or automated).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'Filter by DB instance (optional)'},
+                    'snapshot_type': {'type': 'string', 'enum': ['manual', 'automated', 'shared', 'public'], 'description': 'Snapshot type (default: manual)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_rds_snapshots
+        },
+        {
+            'name': 'delete_rds_snapshot',
+            'description': 'Delete a manual RDS snapshot.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_snapshot_identifier': {'type': 'string', 'description': 'Snapshot identifier to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_snapshot_identifier']
+            },
+            'handler': delete_rds_snapshot
+        },
+        {
+            'name': 'restore_rds_from_snapshot',
+            'description': 'Launch a new RDS instance from a snapshot.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_snapshot_identifier': {'type': 'string', 'description': 'Snapshot to restore from'},
+                    'db_instance_identifier': {'type': 'string', 'description': 'Name for the new DB instance'},
+                    'db_instance_class': {'type': 'string', 'description': 'Instance class (e.g., db.t3.medium)'},
+                    'db_subnet_group_name': {'type': 'string', 'description': 'DB subnet group'},
+                    'vpc_security_group_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'VPC security group IDs'},
+                    'publicly_accessible': {'type': 'boolean', 'description': 'Make publicly accessible (default: false)'},
+                    'multi_az': {'type': 'boolean', 'description': 'Enable Multi-AZ (default: false)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_snapshot_identifier', 'db_instance_identifier']
+            },
+            'handler': restore_rds_from_snapshot
+        },
+        {
+            'name': 'copy_rds_snapshot',
+            'description': 'Duplicate a DB snapshot within or across regions.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'source_snapshot_identifier': {'type': 'string', 'description': 'Source snapshot identifier or ARN'},
+                    'target_snapshot_identifier': {'type': 'string', 'description': 'Name for the copy'},
+                    'source_region': {'type': 'string', 'description': 'Source region (for cross-region copy)'},
+                    'kms_key_id': {'type': 'string', 'description': 'KMS key for encrypting the copy'},
+                    'region': {'type': 'string', 'description': 'Target AWS region'}
+                },
+                'required': ['source_snapshot_identifier', 'target_snapshot_identifier']
+            },
+            'handler': copy_rds_snapshot
+        },
+        {
+            'name': 'restore_rds_to_point_in_time',
+            'description': 'Launch a new DB instance from any point within the backup retention window.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'source_db_instance_identifier': {'type': 'string', 'description': 'Source DB instance'},
+                    'target_db_instance_identifier': {'type': 'string', 'description': 'Name for the restored instance'},
+                    'restore_time': {'type': 'string', 'description': 'ISO 8601 timestamp to restore to (e.g., 2026-01-14T12:00:00)'},
+                    'use_latest_restorable_time': {'type': 'boolean', 'description': 'Restore to latest restorable time (overrides restore_time)'},
+                    'db_instance_class': {'type': 'string', 'description': 'Instance class for restored instance'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['source_db_instance_identifier', 'target_db_instance_identifier']
+            },
+            'handler': restore_rds_to_point_in_time
+        },
+        {
+            'name': 'create_db_parameter_group',
+            'description': 'Create a DB parameter group for custom engine configuration.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'Parameter group name'},
+                    'family': {'type': 'string', 'description': 'Parameter group family (e.g., mysql8.0, postgres15, aurora-mysql8.0)'},
+                    'description': {'type': 'string', 'description': 'Description'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_name', 'family', 'description']
+            },
+            'handler': create_db_parameter_group
+        },
+        {
+            'name': 'list_db_parameter_groups',
+            'description': 'List all DB parameter groups in the account.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_db_parameter_groups
+        },
+        {
+            'name': 'modify_db_parameter_group',
+            'description': 'Update parameter values in a DB parameter group. Parameters format: [{"name": "max_connections", "value": "200", "apply_method": "immediate"}]',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'Parameter group name'},
+                    'parameters': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'name': {'type': 'string', 'description': 'Parameter name'},
+                                'value': {'type': 'string', 'description': 'Parameter value'},
+                                'apply_method': {'type': 'string', 'enum': ['immediate', 'pending-reboot'], 'description': 'When to apply'}
+                            },
+                            'required': ['name', 'value']
+                        },
+                        'description': 'List of parameters to modify'
+                    },
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_name', 'parameters']
+            },
+            'handler': modify_db_parameter_group
+        },
+        {
+            'name': 'delete_db_parameter_group',
+            'description': 'Delete a custom DB parameter group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'Parameter group name to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_name']
+            },
+            'handler': delete_db_parameter_group
+        },
+        {
+            'name': 'create_db_subnet_group',
+            'description': 'Create a DB subnet group to define which subnets RDS can use for Multi-AZ deployments.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'Subnet group name'},
+                    'description': {'type': 'string', 'description': 'Description'},
+                    'subnet_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Subnet IDs (at least 2 different AZs required)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_name', 'description', 'subnet_ids']
+            },
+            'handler': create_db_subnet_group
+        },
+        {
+            'name': 'list_db_subnet_groups',
+            'description': 'List all DB subnet groups with their AZ coverage.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_db_subnet_groups
+        },
+        {
+            'name': 'delete_db_subnet_group',
+            'description': 'Delete a DB subnet group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'Subnet group name to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_name']
+            },
+            'handler': delete_db_subnet_group
+        },
+        {
+            'name': 'rotate_rds_master_password',
+            'description': 'Update the master user password on an RDS instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'new_password': {'type': 'string', 'description': 'New master password (min 8 chars)'},
+                    'apply_immediately': {'type': 'boolean', 'description': 'Apply immediately (default: true)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier', 'new_password']
+            },
+            'handler': rotate_rds_master_password
+        },
+        {
+            'name': 'enable_rds_iam_auth',
+            'description': 'Enable or disable IAM database authentication on an RDS instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'enable': {'type': 'boolean', 'description': 'True to enable, False to disable (default: true)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': enable_rds_iam_auth
+        },
+        {
+            'name': 'list_rds_log_files',
+            'description': 'List available log files on an RDS instance (error, slow query, general).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': list_rds_log_files
+        },
+        {
+            'name': 'download_rds_log_file',
+            'description': 'Download a specific log file from an RDS instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'DB instance identifier'},
+                    'log_file_name': {'type': 'string', 'description': 'Log file name (from list_rds_log_files)'},
+                    'max_lines': {'type': 'integer', 'description': 'Maximum lines to return (default: 500)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier', 'log_file_name']
+            },
+            'handler': download_rds_log_file
+        },
+        {
+            'name': 'list_rds_events',
+            'description': 'List recent RDS events (failovers, backups, maintenance, errors).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'Filter by DB instance (optional)'},
+                    'duration_minutes': {'type': 'integer', 'description': 'How far back to look in minutes (default: 60)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_rds_events
+        },
+        {
+            'name': 'create_rds_read_replica',
+            'description': 'Create a read-only replica of an RDS instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'source_db_instance_identifier': {'type': 'string', 'description': 'Source DB instance to replicate'},
+                    'replica_identifier': {'type': 'string', 'description': 'Name for the replica instance'},
+                    'db_instance_class': {'type': 'string', 'description': 'Instance class (defaults to source class)'},
+                    'availability_zone': {'type': 'string', 'description': 'AZ for the replica'},
+                    'publicly_accessible': {'type': 'boolean', 'description': 'Make publicly accessible (default: false)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['source_db_instance_identifier', 'replica_identifier']
+            },
+            'handler': create_rds_read_replica
+        },
+        {
+            'name': 'promote_rds_read_replica',
+            'description': 'Promote a read replica to a standalone DB instance (breaks replication).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'Replica instance identifier'},
+                    'backup_retention_period': {'type': 'integer', 'description': 'Backup retention for the promoted instance (default: 1)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_instance_identifier']
+            },
+            'handler': promote_rds_read_replica
+        },
+        {
+            'name': 'create_aurora_cluster',
+            'description': 'Provision an Aurora MySQL or PostgreSQL cluster.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_cluster_identifier': {'type': 'string', 'description': 'Cluster identifier'},
+                    'engine': {'type': 'string', 'enum': ['aurora-mysql', 'aurora-postgresql'], 'description': 'Engine type'},
+                    'master_username': {'type': 'string', 'description': 'Master username'},
+                    'master_password': {'type': 'string', 'description': 'Master password'},
+                    'db_subnet_group_name': {'type': 'string', 'description': 'DB subnet group name'},
+                    'vpc_security_group_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'VPC security group IDs'},
+                    'availability_zones': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Availability zones'},
+                    'backup_retention_period': {'type': 'integer', 'description': 'Backup retention days (default: 7)'},
+                    'database_name': {'type': 'string', 'description': 'Initial database name'},
+                    'engine_version': {'type': 'string', 'description': 'Engine version'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_cluster_identifier', 'engine', 'master_username', 'master_password']
+            },
+            'handler': create_aurora_cluster
+        },
+        {
+            'name': 'list_aurora_clusters',
+            'description': 'List all Aurora DB clusters with endpoints and member counts.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_aurora_clusters
+        },
+        {
+            'name': 'delete_aurora_cluster',
+            'description': 'Delete an Aurora cluster (all cluster instances must be deleted first).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_cluster_identifier': {'type': 'string', 'description': 'Cluster identifier'},
+                    'skip_final_snapshot': {'type': 'boolean', 'description': 'Skip final snapshot (default: false)'},
+                    'final_snapshot_identifier': {'type': 'string', 'description': 'Name for final snapshot'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_cluster_identifier']
+            },
+            'handler': delete_aurora_cluster
+        },
+        {
+            'name': 'failover_aurora_cluster',
+            'description': 'Trigger a failover for an Aurora cluster (promotes a reader to writer).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_cluster_identifier': {'type': 'string', 'description': 'Cluster identifier'},
+                    'target_db_instance_identifier': {'type': 'string', 'description': 'Specific reader to promote (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['db_cluster_identifier']
+            },
+            'handler': failover_aurora_cluster
+        },
+        {
+            'name': 'describe_pending_rds_maintenance',
+            'description': 'View queued maintenance actions for RDS instances (OS patches, engine upgrades).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'db_instance_identifier': {'type': 'string', 'description': 'Filter by DB instance (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': describe_pending_rds_maintenance
+        },
+        {
+            'name': 'describe_rds_engine_versions',
+            'description': 'List supported RDS engine versions, their features, and upgrade paths.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'engine': {'type': 'string', 'description': 'Filter by engine (e.g., mysql, postgres, aurora-mysql)'},
+                    'engine_version': {'type': 'string', 'description': 'Filter by specific version'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': describe_rds_engine_versions
         },
         {
             'name': 'delete_lambda_function',
