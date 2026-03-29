@@ -273,6 +273,14 @@ class SafetyValidator:
             'delete_ebs_snapshot',
             'delete_ebs_volume',
             'deregister_ami',
+            # S3 destructive
+            'delete_s3_object',
+            'delete_s3_objects_batch',
+            'delete_s3_bucket_policy',
+            'delete_s3_lifecycle_policy',
+            'delete_s3_replication',
+            'delete_s3_website',
+            'delete_s3_bucket_tags',
         }
 
         medium_risk_tools = {
@@ -339,6 +347,15 @@ class SafetyValidator:
             'create_scaling_policy',
             'create_cloudwatch_alarm',
             'disassociate_elastic_ip',
+            # S3 medium risk
+            'upload_s3_object',
+            'set_s3_public_access_block',
+            'set_s3_versioning',
+            'set_s3_default_encryption',
+            'set_s3_notification',
+            'set_s3_website',
+            'set_s3_cors',
+            'set_s3_logging',
         }
 
         # Check if tool is a pentest tool

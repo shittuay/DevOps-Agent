@@ -48,6 +48,81 @@ def _mock_aws_list(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
             'count': 2
         }
     if 's3' in tool_name or 'bucket' in tool_name:
+        if 'list_s3_objects' in tool_name or 'object_version' in tool_name:
+            bucket = tool_input.get('bucket_name', 'my-bucket')
+            prefix = tool_input.get('prefix', '')
+            return {
+                'success': True, 'simulated': True, 'bucket_name': bucket,
+                'objects': [
+                    {'key': f'{prefix}app.log', 'size_bytes': 45231, 'last_modified': _recent_time(60), 'storage_class': 'STANDARD'},
+                    {'key': f'{prefix}config.json', 'size_bytes': 1024, 'last_modified': _recent_time(1440), 'storage_class': 'STANDARD'},
+                    {'key': f'{prefix}backup.tar.gz', 'size_bytes': 1073741824, 'last_modified': _recent_time(10080), 'storage_class': 'STANDARD_IA'},
+                ],
+                'count': 3, 'is_truncated': False
+            }
+        if 'get_s3_object_metadata' in tool_name:
+            return {
+                'success': True, 'simulated': True,
+                'bucket_name': tool_input.get('bucket_name', 'my-bucket'),
+                'key': tool_input.get('key', 'file.txt'),
+                'content_type': 'application/json', 'content_length': 4096,
+                'last_modified': _recent_time(1440), 'storage_class': 'STANDARD',
+                'server_side_encryption': 'AES256', 'etag': 'abc123def456'
+            }
+        if 'download_s3_object' in tool_name:
+            return {
+                'success': True, 'simulated': True,
+                'bucket_name': tool_input.get('bucket_name', 'my-bucket'),
+                'key': tool_input.get('key', 'file.txt'),
+                'content': '{"simulated": true, "message": "This is sandbox content"}',
+                'content_type': 'application/json', 'content_length': 58,
+                'last_modified': _recent_time(1440), 'truncated': False
+            }
+        if 'presigned' in tool_name:
+            bucket = tool_input.get('bucket_name', 'my-bucket')
+            key = tool_input.get('key', 'file.txt')
+            expires = tool_input.get('expires_in', 3600)
+            return {
+                'success': True, 'simulated': True,
+                'url': f'https://{bucket}.s3.amazonaws.com/{key}?X-Amz-Expires={expires}&X-Amz-Signature=simulated123',
+                'expires_in_seconds': expires,
+                'message': f'[Sandbox] Pre-signed URL generated for s3://{bucket}/{key}'
+            }
+        if 'get_s3_bucket_policy' in tool_name:
+            bucket = tool_input.get('bucket_name', 'my-bucket')
+            return {
+                'success': True, 'simulated': True, 'bucket_name': bucket,
+                'policy': {'Version': '2012-10-17', 'Statement': [{
+                    'Effect': 'Deny', 'Principal': '*', 'Action': 's3:*',
+                    'Resource': [f'arn:aws:s3:::{bucket}', f'arn:aws:s3:::{bucket}/*'],
+                    'Condition': {'Bool': {'aws:SecureTransport': 'false'}}
+                }]}
+            }
+        if 'get_s3_bucket_tags' in tool_name:
+            return {
+                'success': True, 'simulated': True,
+                'bucket_name': tool_input.get('bucket_name', 'my-bucket'),
+                'tags': {'Environment': 'production', 'Team': 'platform', 'CostCenter': 'engineering'},
+                'count': 3
+            }
+        if 'get_s3_lifecycle' in tool_name:
+            return {
+                'success': True, 'simulated': True,
+                'bucket_name': tool_input.get('bucket_name', 'my-bucket'),
+                'rules': [{'ID': 'archive-old-logs', 'Status': 'Enabled', 'Filter': {'Prefix': 'logs/'},
+                           'Transitions': [{'Days': 30, 'StorageClass': 'STANDARD_IA'}],
+                           'Expiration': {'Days': 365}}],
+                'rules_count': 1
+            }
+        if 'get_s3_replication' in tool_name:
+            return {
+                'success': True, 'simulated': True,
+                'bucket_name': tool_input.get('bucket_name', 'my-bucket'),
+                'role': 'arn:aws:iam::123456789012:role/s3-replication-role',
+                'rules': [{'ID': 'replication-rule', 'Status': 'Enabled',
+                           'Destination': {'Bucket': 'arn:aws:s3:::my-bucket-backup'}}],
+                'rules_count': 1
+            }
         return {
             'success': True, 'simulated': True,
             'buckets': [
