@@ -296,6 +296,13 @@ def execute_change(change_id):
         # Execute the change
         result = _execute_change(change)
 
+        if result.get('status') == 'no_action':
+            return jsonify({
+                'success': False,
+                'error': result.get('reason', 'Unsupported action/resource type — no action was taken'),
+                'result': result
+            }), 400
+
         change.status = 'executed'
         change.executed_at = datetime.utcnow()
         change.execution_result = result
@@ -494,6 +501,38 @@ def _execute_change(change: InfrastructureChange) -> dict:
                 ApplyImmediately=True
             )
             return {'action': 'resize', 'new_instance_class': new_class}
+
+    elif resource_type == 's3':
+        s3 = get_user_boto_client(change.user_id, 's3')
+        bucket = change.resource_id if change.resource_id and change.resource_id != 'N/A' else change.resource_name
+
+        if not bucket:
+            raise ValueError('Bucket name required (set resource_id or resource_name)')
+
+        if action == 'delete':
+            # Empty bucket first (required before deletion)
+            paginator = s3.get_paginator('list_object_versions')
+            objects_deleted = 0
+            for page in paginator.paginate(Bucket=bucket):
+                delete_batch = []
+                for obj in page.get('Versions', []):
+                    delete_batch.append({'Key': obj['Key'], 'VersionId': obj['VersionId']})
+                for marker in page.get('DeleteMarkers', []):
+                    delete_batch.append({'Key': marker['Key'], 'VersionId': marker['VersionId']})
+                if delete_batch:
+                    s3.delete_objects(Bucket=bucket, Delete={'Objects': delete_batch})
+                    objects_deleted += len(delete_batch)
+
+            # Also delete unversioned objects
+            paginator2 = s3.get_paginator('list_objects_v2')
+            for page in paginator2.paginate(Bucket=bucket):
+                delete_batch = [{'Key': o['Key']} for o in page.get('Contents', [])]
+                if delete_batch:
+                    s3.delete_objects(Bucket=bucket, Delete={'Objects': delete_batch})
+                    objects_deleted += len(delete_batch)
+
+            s3.delete_bucket(Bucket=bucket)
+            return {'action': 'delete', 'bucket': bucket, 'objects_deleted': objects_deleted}
 
     return {'status': 'no_action', 'reason': f'Unsupported: {action} on {resource_type}'}
 
