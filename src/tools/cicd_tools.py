@@ -3,6 +3,7 @@ import os
 import requests
 import jenkins
 from github import Github, GithubException
+from urllib.parse import quote
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
 
@@ -806,6 +807,514 @@ def get_github_workflow_usage(
         return {'success': False, 'error': str(e)}
 
 
+# ==================== GITLAB CI ====================
+
+def _get_gitlab_token(gitlab_token: Optional[str] = None) -> str:
+    token = gitlab_token or os.environ.get('GITLAB_TOKEN', '')
+    if not token:
+        raise ValueError('GitLab token not provided. Set GITLAB_TOKEN env var or pass gitlab_token parameter.')
+    return token
+
+
+def _get_gitlab_base_url(gitlab_url: Optional[str] = None) -> str:
+    return (gitlab_url or os.environ.get('GITLAB_URL', 'https://gitlab.com')).rstrip('/')
+
+
+def list_gitlab_pipelines(
+    project_id: str,
+    ref: Optional[str] = None,
+    status: Optional[str] = None,
+    per_page: int = 20,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """List CI/CD pipelines for a GitLab project."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        params: Dict[str, Any] = {'per_page': per_page}
+        if ref:
+            params['ref'] = ref
+        if status:
+            params['status'] = status
+        response = requests.get(
+            f'{base}/api/v4/projects/{pid}/pipelines',
+            headers={'PRIVATE-TOKEN': token},
+            params=params,
+            timeout=30
+        )
+        response.raise_for_status()
+        pipelines = response.json()
+        return {
+            'success': True,
+            'project_id': project_id,
+            'pipelines': [{'id': p['id'], 'status': p['status'], 'ref': p['ref'],
+                           'sha': p['sha'][:8], 'created_at': p['created_at']} for p in pipelines],
+            'count': len(pipelines)
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def get_gitlab_pipeline(
+    project_id: str,
+    pipeline_id: int,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """Get details of a specific GitLab pipeline."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        response = requests.get(
+            f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}',
+            headers={'PRIVATE-TOKEN': token},
+            timeout=30
+        )
+        response.raise_for_status()
+        p = response.json()
+        return {
+            'success': True,
+            'id': p['id'],
+            'status': p['status'],
+            'ref': p['ref'],
+            'sha': p['sha'],
+            'source': p.get('source'),
+            'duration': p.get('duration'),
+            'created_at': p.get('created_at'),
+            'finished_at': p.get('finished_at'),
+            'web_url': p.get('web_url')
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def trigger_gitlab_pipeline(
+    project_id: str,
+    ref: str,
+    variables: Optional[Dict[str, str]] = None,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """Trigger a GitLab CI/CD pipeline on a branch or tag."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        payload: Dict[str, Any] = {'ref': ref}
+        if variables:
+            payload['variables'] = [{'key': k, 'value': v} for k, v in variables.items()]
+        response = requests.post(
+            f'{base}/api/v4/projects/{pid}/pipeline',
+            headers={'PRIVATE-TOKEN': token},
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        p = response.json()
+        return {
+            'success': True,
+            'pipeline_id': p['id'],
+            'status': p['status'],
+            'ref': p['ref'],
+            'web_url': p.get('web_url'),
+            'message': f'Pipeline triggered on {ref} (id: {p["id"]})'
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def retry_gitlab_pipeline(
+    project_id: str,
+    pipeline_id: int,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """Retry a failed GitLab pipeline."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        response = requests.post(
+            f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/retry',
+            headers={'PRIVATE-TOKEN': token},
+            timeout=30
+        )
+        response.raise_for_status()
+        p = response.json()
+        return {
+            'success': True,
+            'pipeline_id': p['id'],
+            'status': p['status'],
+            'message': f'Pipeline {pipeline_id} retried (new id: {p["id"]})'
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def cancel_gitlab_pipeline(
+    project_id: str,
+    pipeline_id: int,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """Cancel a running GitLab pipeline."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        response = requests.post(
+            f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/cancel',
+            headers={'PRIVATE-TOKEN': token},
+            timeout=30
+        )
+        response.raise_for_status()
+        return {
+            'success': True,
+            'pipeline_id': pipeline_id,
+            'message': f'Pipeline {pipeline_id} cancelled'
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def list_gitlab_jobs(
+    project_id: str,
+    pipeline_id: int,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """List all jobs in a GitLab pipeline."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        response = requests.get(
+            f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs',
+            headers={'PRIVATE-TOKEN': token},
+            timeout=30
+        )
+        response.raise_for_status()
+        jobs = response.json()
+        return {
+            'success': True,
+            'pipeline_id': pipeline_id,
+            'jobs': [{'id': j['id'], 'name': j['name'], 'stage': j['stage'],
+                      'status': j['status'], 'duration': j.get('duration'),
+                      'web_url': j.get('web_url')} for j in jobs],
+            'count': len(jobs)
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def get_gitlab_job_log(
+    project_id: str,
+    job_id: int,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """Get the log output of a specific GitLab job."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        response = requests.get(
+            f'{base}/api/v4/projects/{pid}/jobs/{job_id}/trace',
+            headers={'PRIVATE-TOKEN': token},
+            timeout=60
+        )
+        response.raise_for_status()
+        return {
+            'success': True,
+            'job_id': job_id,
+            'log': response.text[:10000],
+            'truncated': len(response.text) > 10000
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def approve_gitlab_deployment(
+    project_id: str,
+    deployment_id: int,
+    status: str = 'approved',
+    comment: Optional[str] = None,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """Approve or reject a GitLab deployment that requires manual approval."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        payload: Dict[str, Any] = {'status': status}
+        if comment:
+            payload['comment'] = comment
+        response = requests.post(
+            f'{base}/api/v4/projects/{pid}/deployments/{deployment_id}/approval',
+            headers={'PRIVATE-TOKEN': token},
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        return {
+            'success': True,
+            'deployment_id': deployment_id,
+            'status': status,
+            'message': f'Deployment {deployment_id} {status}'
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def create_gitlab_pipeline_trigger(
+    project_id: str,
+    description: str,
+    gitlab_token: Optional[str] = None,
+    gitlab_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a pipeline trigger token for external integrations."""
+    try:
+        token = _get_gitlab_token(gitlab_token)
+        base = _get_gitlab_base_url(gitlab_url)
+        pid = quote(str(project_id), safe='')
+        response = requests.post(
+            f'{base}/api/v4/projects/{pid}/triggers',
+            headers={'PRIVATE-TOKEN': token},
+            json={'description': description},
+            timeout=30
+        )
+        response.raise_for_status()
+        t = response.json()
+        return {
+            'success': True,
+            'trigger_id': t['id'],
+            'token': t['token'],
+            'description': t.get('description'),
+            'message': f'Trigger token created: {description}'
+        }
+    except Exception as e:
+        logger.error(f'GitLab error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+# ==================== DEPLOYMENT STRATEGIES ====================
+
+def get_deployment_rollout_status(
+    deployment_name: str,
+    namespace: str = 'default',
+    context: Optional[str] = None
+) -> Dict[str, Any]:
+    """Check if a Kubernetes deployment rollout is complete (wraps kubectl rollout status logic)."""
+    try:
+        from kubernetes import client, config
+        from kubernetes.client.rest import ApiException
+        if context:
+            config.load_kube_config(context=context)
+        else:
+            config.load_kube_config()
+        apps_v1 = client.AppsV1Api()
+        d = apps_v1.read_namespaced_deployment(name=deployment_name, namespace=namespace)
+        spec_replicas = d.spec.replicas or 0
+        ready = d.status.ready_replicas or 0
+        updated = d.status.updated_replicas or 0
+        available = d.status.available_replicas or 0
+        complete = (ready == spec_replicas and updated == spec_replicas and available == spec_replicas)
+        return {
+            'success': True,
+            'deployment_name': deployment_name,
+            'namespace': namespace,
+            'desired': spec_replicas,
+            'ready': ready,
+            'updated': updated,
+            'available': available,
+            'complete': complete,
+            'message': 'Rollout complete' if complete else f'{ready}/{spec_replicas} pods ready'
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def blue_green_switch(
+    service_name: str,
+    target_color: str,
+    namespace: str = 'default',
+    context: Optional[str] = None
+) -> Dict[str, Any]:
+    """Switch a Kubernetes service selector between blue and green deployments."""
+    try:
+        from kubernetes import client, config
+        from kubernetes.client.rest import ApiException
+        if context:
+            config.load_kube_config(context=context)
+        else:
+            config.load_kube_config()
+        v1 = client.CoreV1Api()
+        color = target_color.lower()
+        if color not in ('blue', 'green'):
+            return {'success': False, 'error': 'target_color must be "blue" or "green"'}
+        patch = {'spec': {'selector': {'color': color}}}
+        v1.patch_namespaced_service(name=service_name, namespace=namespace, body=patch)
+        return {
+            'success': True,
+            'service_name': service_name,
+            'namespace': namespace,
+            'active_color': color,
+            'message': f'Service {service_name} switched to {color} deployment'
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def canary_update_weight(
+    stable_deployment: str,
+    canary_deployment: str,
+    canary_weight_percent: int,
+    namespace: str = 'default',
+    context: Optional[str] = None
+) -> Dict[str, Any]:
+    """Adjust the canary deployment replica ratio to shift a percentage of traffic."""
+    try:
+        from kubernetes import client, config
+        if context:
+            config.load_kube_config(context=context)
+        else:
+            config.load_kube_config()
+        apps_v1 = client.AppsV1Api()
+        if not 0 <= canary_weight_percent <= 100:
+            return {'success': False, 'error': 'canary_weight_percent must be 0-100'}
+        stable = apps_v1.read_namespaced_deployment(name=stable_deployment, namespace=namespace)
+        total_replicas = max((stable.spec.replicas or 1), 1)
+        canary_replicas = max(round(total_replicas * canary_weight_percent / 100), 0)
+        stable_replicas = max(total_replicas - canary_replicas, 0)
+        apps_v1.patch_namespaced_deployment(
+            name=canary_deployment, namespace=namespace,
+            body={'spec': {'replicas': canary_replicas}}
+        )
+        apps_v1.patch_namespaced_deployment(
+            name=stable_deployment, namespace=namespace,
+            body={'spec': {'replicas': stable_replicas}}
+        )
+        return {
+            'success': True,
+            'stable_deployment': stable_deployment,
+            'canary_deployment': canary_deployment,
+            'stable_replicas': stable_replicas,
+            'canary_replicas': canary_replicas,
+            'canary_weight_percent': canary_weight_percent,
+            'message': f'Canary weight set to {canary_weight_percent}% ({canary_replicas} canary, {stable_replicas} stable replicas)'
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def run_smoke_test(
+    url: str,
+    expected_status: int = 200,
+    timeout: int = 30,
+    headers: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Run a basic HTTP smoke test against a deployed service to verify it is healthy."""
+    try:
+        resp = requests.get(url, headers=headers or {}, timeout=timeout, allow_redirects=True)
+        success = resp.status_code == expected_status
+        return {
+            'success': success,
+            'url': url,
+            'status_code': resp.status_code,
+            'expected_status': expected_status,
+            'response_time_ms': int(resp.elapsed.total_seconds() * 1000),
+            'healthy': success,
+            'message': f'Smoke test {"passed" if success else "FAILED"}: {resp.status_code} (expected {expected_status})'
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e), 'url': url, 'healthy': False}
+
+
+def auto_rollback_deployment(
+    deployment_name: str,
+    health_check_url: str,
+    namespace: str = 'default',
+    expected_status: int = 200,
+    health_timeout: int = 30,
+    context: Optional[str] = None
+) -> Dict[str, Any]:
+    """Run health check after deployment. Auto-rollback if it fails."""
+    try:
+        # Run health check
+        try:
+            resp = requests.get(health_check_url, timeout=health_timeout)
+            healthy = resp.status_code == expected_status
+        except Exception:
+            healthy = False
+
+        if healthy:
+            return {
+                'success': True,
+                'deployment_name': deployment_name,
+                'healthy': True,
+                'action': 'none',
+                'message': f'Health check passed — deployment {deployment_name} is healthy'
+            }
+
+        # Health check failed → rollback
+        from kubernetes import client, config
+        from kubernetes.client.rest import ApiException
+        if context:
+            config.load_kube_config(context=context)
+        else:
+            config.load_kube_config()
+        apps_v1 = client.AppsV1Api()
+
+        # Find previous RS
+        rss = apps_v1.list_namespaced_replica_set(namespace=namespace)
+        candidates = []
+        for rs in rss.items:
+            annotations = rs.metadata.annotations or {}
+            owner_refs = rs.metadata.owner_references or []
+            is_owned = any(o.name == deployment_name for o in owner_refs)
+            if is_owned:
+                rev = int(annotations.get('deployment.kubernetes.io/revision', 0))
+                candidates.append((rev, rs))
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        if len(candidates) >= 2:
+            target_rs = candidates[1][1]
+            containers = (target_rs.spec.template.spec.containers
+                          if target_rs.spec and target_rs.spec.template and target_rs.spec.template.spec else [])
+            d = apps_v1.read_namespaced_deployment(name=deployment_name, namespace=namespace)
+            d.spec.template.spec.containers = containers
+            apps_v1.patch_namespaced_deployment(name=deployment_name, namespace=namespace, body=d)
+            return {
+                'success': True,
+                'deployment_name': deployment_name,
+                'healthy': False,
+                'action': 'rolled_back',
+                'rolled_back_to': target_rs.metadata.name,
+                'message': f'Health check failed — auto-rolled back {deployment_name}'
+            }
+        return {
+            'success': False,
+            'deployment_name': deployment_name,
+            'healthy': False,
+            'action': 'none',
+            'message': 'Health check failed and no previous revision found to roll back to'
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 def get_tools() -> List[Dict[str, Any]]:
     """
     Get CI/CD tool definitions.
@@ -1129,5 +1638,224 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['repo_owner', 'repo_name', 'workflow_id']
             },
             'handler': get_github_workflow_usage
+        },
+        # ---- GitLab CI ----
+        {
+            'name': 'list_gitlab_pipelines',
+            'description': 'List CI/CD pipelines for a GitLab project with status and branch info.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or URL-encoded path (e.g., "mygroup/myrepo")'},
+                    'ref': {'type': 'string', 'description': 'Filter by branch or tag'},
+                    'status': {'type': 'string', 'enum': ['running', 'pending', 'success', 'failed', 'canceled', 'skipped'], 'description': 'Filter by status'},
+                    'per_page': {'type': 'integer', 'description': 'Max results (default: 20)', 'default': 20},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab personal/project access token (or set GITLAB_TOKEN env var)'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL (default: https://gitlab.com)'}
+                },
+                'required': ['project_id']
+            },
+            'handler': list_gitlab_pipelines
+        },
+        {
+            'name': 'get_gitlab_pipeline',
+            'description': 'Get details of a specific GitLab pipeline including status, duration, and ref.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'pipeline_id': {'type': 'integer', 'description': 'Pipeline ID'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'pipeline_id']
+            },
+            'handler': get_gitlab_pipeline
+        },
+        {
+            'name': 'trigger_gitlab_pipeline',
+            'description': 'Trigger a GitLab CI/CD pipeline on a specific branch or tag with optional variables.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'ref': {'type': 'string', 'description': 'Branch or tag to run the pipeline on'},
+                    'variables': {'type': 'object', 'description': 'Pipeline variables as key-value pairs'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'ref']
+            },
+            'handler': trigger_gitlab_pipeline
+        },
+        {
+            'name': 'retry_gitlab_pipeline',
+            'description': 'Retry a failed GitLab pipeline.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'pipeline_id': {'type': 'integer', 'description': 'Pipeline ID to retry'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'pipeline_id']
+            },
+            'handler': retry_gitlab_pipeline
+        },
+        {
+            'name': 'cancel_gitlab_pipeline',
+            'description': 'Cancel a running GitLab pipeline.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'pipeline_id': {'type': 'integer', 'description': 'Pipeline ID to cancel'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'pipeline_id']
+            },
+            'handler': cancel_gitlab_pipeline
+        },
+        {
+            'name': 'list_gitlab_jobs',
+            'description': 'List all jobs in a GitLab pipeline with stage, status, and duration.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'pipeline_id': {'type': 'integer', 'description': 'Pipeline ID'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'pipeline_id']
+            },
+            'handler': list_gitlab_jobs
+        },
+        {
+            'name': 'get_gitlab_job_log',
+            'description': 'Get the console log output of a specific GitLab CI job.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'job_id': {'type': 'integer', 'description': 'Job ID'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'job_id']
+            },
+            'handler': get_gitlab_job_log
+        },
+        {
+            'name': 'approve_gitlab_deployment',
+            'description': 'Approve or reject a GitLab deployment that requires manual gate approval.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'deployment_id': {'type': 'integer', 'description': 'Deployment ID'},
+                    'status': {'type': 'string', 'enum': ['approved', 'rejected'], 'default': 'approved'},
+                    'comment': {'type': 'string', 'description': 'Optional approval comment'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'deployment_id']
+            },
+            'handler': approve_gitlab_deployment
+        },
+        {
+            'name': 'create_gitlab_pipeline_trigger',
+            'description': 'Create a GitLab pipeline trigger token for external CI integrations.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'project_id': {'type': 'string', 'description': 'GitLab project ID or path'},
+                    'description': {'type': 'string', 'description': 'Trigger token description'},
+                    'gitlab_token': {'type': 'string', 'description': 'GitLab access token'},
+                    'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL'}
+                },
+                'required': ['project_id', 'description']
+            },
+            'handler': create_gitlab_pipeline_trigger
+        },
+        # ---- Deployment Strategies ----
+        {
+            'name': 'get_deployment_rollout_status',
+            'description': 'Check if a Kubernetes deployment rollout is complete, showing ready/updated/available replica counts.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'deployment_name': {'type': 'string', 'description': 'Deployment name'},
+                    'namespace': {'type': 'string', 'description': 'Kubernetes namespace', 'default': 'default'},
+                    'context': {'type': 'string', 'description': 'Kubernetes context'}
+                },
+                'required': ['deployment_name']
+            },
+            'handler': get_deployment_rollout_status
+        },
+        {
+            'name': 'blue_green_switch',
+            'description': 'Switch a Kubernetes service selector between blue and green deployments for zero-downtime traffic cutover.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'service_name': {'type': 'string', 'description': 'Kubernetes service name'},
+                    'target_color': {'type': 'string', 'enum': ['blue', 'green'], 'description': 'Deployment color to switch to'},
+                    'namespace': {'type': 'string', 'description': 'Kubernetes namespace', 'default': 'default'},
+                    'context': {'type': 'string', 'description': 'Kubernetes context'}
+                },
+                'required': ['service_name', 'target_color']
+            },
+            'handler': blue_green_switch
+        },
+        {
+            'name': 'canary_update_weight',
+            'description': 'Adjust the canary deployment replica ratio to shift a percentage of traffic to a new version.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'stable_deployment': {'type': 'string', 'description': 'Stable deployment name'},
+                    'canary_deployment': {'type': 'string', 'description': 'Canary deployment name'},
+                    'canary_weight_percent': {'type': 'integer', 'description': 'Percentage of traffic for canary (0-100)'},
+                    'namespace': {'type': 'string', 'description': 'Kubernetes namespace', 'default': 'default'},
+                    'context': {'type': 'string', 'description': 'Kubernetes context'}
+                },
+                'required': ['stable_deployment', 'canary_deployment', 'canary_weight_percent']
+            },
+            'handler': canary_update_weight
+        },
+        {
+            'name': 'run_smoke_test',
+            'description': 'Run a basic HTTP smoke test against a deployed service URL to verify it is healthy after deployment.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'url': {'type': 'string', 'description': 'URL to test (e.g., "https://api.example.com/health")'},
+                    'expected_status': {'type': 'integer', 'description': 'Expected HTTP status code (default: 200)', 'default': 200},
+                    'timeout': {'type': 'integer', 'description': 'Request timeout in seconds (default: 30)', 'default': 30},
+                    'headers': {'type': 'object', 'description': 'Optional request headers'}
+                },
+                'required': ['url']
+            },
+            'handler': run_smoke_test
+        },
+        {
+            'name': 'auto_rollback_deployment',
+            'description': 'Run a health check after deployment and automatically roll back to the previous version if it fails.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'deployment_name': {'type': 'string', 'description': 'Kubernetes deployment name'},
+                    'health_check_url': {'type': 'string', 'description': 'URL to health check (expects 200 OK)'},
+                    'namespace': {'type': 'string', 'description': 'Kubernetes namespace', 'default': 'default'},
+                    'expected_status': {'type': 'integer', 'description': 'Expected HTTP status code', 'default': 200},
+                    'health_timeout': {'type': 'integer', 'description': 'Health check timeout seconds', 'default': 30},
+                    'context': {'type': 'string', 'description': 'Kubernetes context'}
+                },
+                'required': ['deployment_name', 'health_check_url']
+            },
+            'handler': auto_rollback_deployment
         },
     ]

@@ -610,6 +610,153 @@ def terraform_workspace_new(
         return {'success': False, 'error': str(e)}
 
 
+def terraform_workspace_delete(working_dir: str, workspace: str) -> Dict[str, Any]:
+    """Delete a Terraform workspace (must not be the current workspace)."""
+    try:
+        command = ['terraform', 'workspace', 'delete', workspace]
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'workspace': workspace,
+            'message': f'Workspace "{workspace}" deleted' if result['success'] else 'Failed to delete workspace',
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_state_show(working_dir: str, resource_address: str) -> Dict[str, Any]:
+    """Display the attributes of a specific resource tracked in Terraform state."""
+    try:
+        command = ['terraform', 'state', 'show', resource_address]
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'resource_address': resource_address,
+            'attributes': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_state_pull(working_dir: str) -> Dict[str, Any]:
+    """Download and print the current state file content."""
+    try:
+        command = ['terraform', 'state', 'pull']
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'state_json': result.get('stdout', ''),
+            'errors': result.get('stderr', ''),
+            'message': 'State pulled successfully' if result['success'] else 'Failed to pull state'
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_state_push(working_dir: str, state_file: str, force: bool = False) -> Dict[str, Any]:
+    """Upload a local state file to the configured backend."""
+    try:
+        command = ['terraform', 'state', 'push']
+        if force:
+            command.append('-force')
+        command.append(state_file)
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'state_file': state_file,
+            'message': 'State pushed successfully' if result['success'] else 'Failed to push state',
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_force_unlock(working_dir: str, lock_id: str) -> Dict[str, Any]:
+    """Release a stuck state lock. Use when a previous run was interrupted."""
+    try:
+        command = ['terraform', 'force-unlock', '-force', lock_id]
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'lock_id': lock_id,
+            'message': f'Lock {lock_id} released' if result['success'] else 'Failed to release lock',
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_get(working_dir: str, update: bool = False) -> Dict[str, Any]:
+    """Download and update modules defined in the configuration."""
+    try:
+        command = ['terraform', 'get']
+        if update:
+            command.append('-update')
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'message': 'Modules downloaded' if result['success'] else 'Failed to get modules',
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_providers(working_dir: str) -> Dict[str, Any]:
+    """List all providers required by the Terraform configuration."""
+    try:
+        command = ['terraform', 'providers']
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'providers': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_providers_lock(working_dir: str, platforms: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Update the dependency lock file with provider checksums."""
+    try:
+        command = ['terraform', 'providers', 'lock']
+        if platforms:
+            for p in platforms:
+                command.extend(['-platform', p])
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'message': 'Lock file updated' if result['success'] else 'Failed to update lock file',
+            'output': result.get('stdout', ''),
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def terraform_graph(working_dir: str, plan_file: Optional[str] = None) -> Dict[str, Any]:
+    """Generate a DOT-format dependency graph of Terraform resources."""
+    try:
+        command = ['terraform', 'graph']
+        if plan_file:
+            command.extend(['-plan', plan_file])
+        result = _run_terraform_command(command, working_dir)
+        return {
+            'success': result['success'],
+            'graph_dot': result.get('stdout', ''),
+            'message': 'Graph generated (DOT format)' if result['success'] else 'Failed to generate graph',
+            'errors': result.get('stderr', '')
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 # ==================== TOOL REGISTRATION ====================
 
 
@@ -924,5 +1071,121 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['working_dir', 'workspace']
             },
             'handler': terraform_workspace_new
+        },
+        {
+            'name': 'terraform_workspace_delete',
+            'description': 'Delete a Terraform workspace. The workspace must not be the current active one.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'},
+                    'workspace': {'type': 'string', 'description': 'Workspace name to delete'}
+                },
+                'required': ['working_dir', 'workspace']
+            },
+            'handler': terraform_workspace_delete
+        },
+        {
+            'name': 'terraform_state_show',
+            'description': 'Display all attributes of a specific resource in Terraform state.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'},
+                    'resource_address': {'type': 'string', 'description': 'Resource address (e.g., "aws_instance.web")'}
+                },
+                'required': ['working_dir', 'resource_address']
+            },
+            'handler': terraform_state_show
+        },
+        {
+            'name': 'terraform_state_pull',
+            'description': 'Download and print the current Terraform state file as JSON.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'}
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_state_pull
+        },
+        {
+            'name': 'terraform_state_push',
+            'description': 'Upload a local state file to the configured Terraform backend.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'},
+                    'state_file': {'type': 'string', 'description': 'Path to state file to push'},
+                    'force': {'type': 'boolean', 'description': 'Force push even if serial is lower', 'default': False}
+                },
+                'required': ['working_dir', 'state_file']
+            },
+            'handler': terraform_state_push
+        },
+        {
+            'name': 'terraform_force_unlock',
+            'description': 'Release a stuck Terraform state lock (use when a previous run was interrupted).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'},
+                    'lock_id': {'type': 'string', 'description': 'Lock ID shown in the lock error message'}
+                },
+                'required': ['working_dir', 'lock_id']
+            },
+            'handler': terraform_force_unlock
+        },
+        {
+            'name': 'terraform_get',
+            'description': 'Download and update Terraform modules defined in the configuration.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'},
+                    'update': {'type': 'boolean', 'description': 'Update modules to latest versions', 'default': False}
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_get
+        },
+        {
+            'name': 'terraform_providers',
+            'description': 'List all providers required by the current Terraform configuration.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'}
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_providers
+        },
+        {
+            'name': 'terraform_providers_lock',
+            'description': 'Update the Terraform dependency lock file (.terraform.lock.hcl) with current provider checksums.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'},
+                    'platforms': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Target platforms (e.g., ["linux_amd64", "darwin_arm64"])'}
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_providers_lock
+        },
+        {
+            'name': 'terraform_graph',
+            'description': 'Generate a DOT-format visual dependency graph of Terraform resources.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'working_dir': {'type': 'string', 'description': 'Terraform working directory'},
+                    'plan_file': {'type': 'string', 'description': 'Optional plan file to visualize'}
+                },
+                'required': ['working_dir']
+            },
+            'handler': terraform_graph
         },
     ]

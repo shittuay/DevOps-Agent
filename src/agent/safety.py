@@ -288,6 +288,11 @@ class SafetyValidator:
             'delete_iam_access_key',
             'delete_iam_inline_policy',
             'delete_iam_login_profile',
+            # RDS extended destructive
+            'delete_rds_snapshot',
+            'delete_db_parameter_group',
+            'delete_db_subnet_group',
+            'delete_aurora_cluster',
             # VPC extended destructive
             'delete_internet_gateway',
             'delete_route_table',
@@ -296,6 +301,19 @@ class SafetyValidator:
             'delete_vpc_endpoint',
             'delete_eni',
             'disable_vpc_flow_logs',
+            # EKS destructive
+            'delete_eks_cluster',
+            'delete_eks_node_group',
+            'delete_eks_fargate_profile',
+            'delete_eks_access_entry',
+            'delete_eks_addon',
+            # K8s extended destructive
+            'delete_statefulset',
+            'delete_pvc',
+            'delete_hpa',
+            'delete_cronjob',
+            'delete_service_account',
+            'drain_node',
         }
 
         medium_risk_tools = {
@@ -383,6 +401,21 @@ class SafetyValidator:
             'detach_iam_policy',
             'put_iam_inline_policy',
             'assume_iam_role',
+            # RDS extended medium risk
+            'start_rds_instance',
+            'stop_rds_instance',
+            'reboot_rds_instance',
+            'modify_rds_instance',
+            'rotate_rds_master_password',
+            'enable_rds_iam_auth',
+            'create_rds_snapshot',
+            'restore_rds_from_snapshot',
+            'restore_rds_to_point_in_time',
+            'modify_db_parameter_group',
+            'create_rds_read_replica',
+            'promote_rds_read_replica',
+            'create_aurora_cluster',
+            'failover_aurora_cluster',
             # VPC extended medium risk
             'modify_vpc_attribute',
             'enable_vpc_flow_logs',
@@ -403,6 +436,49 @@ class SafetyValidator:
             'create_vpc_endpoint',
             'attach_eni',
             'detach_eni',
+            # EKS medium risk
+            'update_eks_cluster_version',
+            'update_eks_cluster_config',
+            'enable_eks_control_plane_logging',
+            'associate_eks_oidc_provider',
+            'update_eks_node_group_version',
+            'update_eks_node_group_config',
+            'create_eks_fargate_profile',
+            'create_eks_access_entry',
+            'associate_eks_access_policy',
+            'create_eks_addon',
+            'update_eks_addon',
+            # Terraform new medium risk
+            'terraform_force_unlock',
+            'terraform_state_push',
+            'terraform_workspace_delete',
+            # GitLab CI medium risk
+            'trigger_gitlab_pipeline',
+            'retry_gitlab_pipeline',
+            'approve_gitlab_deployment',
+            'cancel_gitlab_pipeline',
+            # Deployment strategy medium risk
+            'blue_green_switch',
+            'canary_update_weight',
+            'auto_rollback_deployment',
+            # K8s extended medium risk
+            'rollback_deployment',
+            'pause_rollout',
+            'resume_rollout',
+            'scale_statefulset',
+            'taint_node',
+            'remove_node_taint',
+            'label_node',
+            'create_cronjob',
+            'suspend_cronjob',
+            'create_hpa',
+            'create_pvc',
+            'create_role',
+            'create_role_binding',
+            'create_service_account',
+            'update_configmap',
+            'update_k8s_secret',
+            'apply_manifest',
         }
 
         # Check if tool is a pentest tool
