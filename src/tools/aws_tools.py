@@ -4072,6 +4072,1040 @@ def create_route_table(
         return {'success': False, 'error': str(e)}
 
 
+# ---- VPC EXTENDED OPERATIONS ----
+
+def describe_vpc(vpc_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Get detailed information about a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.describe_vpcs(VpcIds=[vpc_id])
+        vpc = response['Vpcs'][0]
+        tags = {t['Key']: t['Value'] for t in vpc.get('Tags', [])}
+        cidr_blocks = [a['CidrBlock'] for a in vpc.get('CidrBlockAssociationSet', [])]
+        return {
+            'success': True, 'vpc_id': vpc_id,
+            'cidr_block': vpc.get('CidrBlock'),
+            'additional_cidrs': cidr_blocks,
+            'state': vpc.get('State'),
+            'is_default': vpc.get('IsDefault'),
+            'tenancy': vpc.get('InstanceTenancy'),
+            'dhcp_options_id': vpc.get('DhcpOptionsId'),
+            'tags': tags, 'name': tags.get('Name', ''),
+            'owner_id': vpc.get('OwnerId'),
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def modify_vpc_attribute(
+    vpc_id: str,
+    enable_dns_support: Optional[bool] = None,
+    enable_dns_hostnames: Optional[bool] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable or disable DNS resolution and DNS hostnames for a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        if enable_dns_support is not None:
+            ec2.modify_vpc_attribute(VpcId=vpc_id, EnableDnsSupport={'Value': enable_dns_support})
+        if enable_dns_hostnames is not None:
+            ec2.modify_vpc_attribute(VpcId=vpc_id, EnableDnsHostnames={'Value': enable_dns_hostnames})
+        return {
+            'success': True, 'vpc_id': vpc_id,
+            'dns_support': enable_dns_support, 'dns_hostnames': enable_dns_hostnames,
+            'message': f'VPC {vpc_id} attributes updated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def associate_vpc_cidr(vpc_id: str, cidr_block: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Add a secondary CIDR block to an existing VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.associate_vpc_cidr_block(VpcId=vpc_id, CidrBlock=cidr_block)
+        assoc = response.get('CidrBlockAssociation', {})
+        return {
+            'success': True, 'vpc_id': vpc_id, 'cidr_block': cidr_block,
+            'association_id': assoc.get('AssociationId'),
+            'state': assoc.get('CidrBlockState', {}).get('State'),
+            'message': f'CIDR {cidr_block} associated with VPC {vpc_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def disassociate_vpc_cidr(association_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Remove a secondary CIDR block from a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.disassociate_vpc_cidr_block(AssociationId=association_id)
+        assoc = response.get('CidrBlockAssociation', {})
+        return {
+            'success': True, 'association_id': association_id,
+            'cidr_block': assoc.get('CidrBlock'),
+            'state': assoc.get('CidrBlockState', {}).get('State'),
+            'message': f'CIDR association {association_id} disassociated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def tag_vpc(vpc_id: str, tags: Dict[str, str], region: Optional[str] = None) -> Dict[str, Any]:
+    """Add or update tags on a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.create_tags(Resources=[vpc_id], Tags=[{'Key': k, 'Value': v} for k, v in tags.items()])
+        return {'success': True, 'vpc_id': vpc_id, 'tags': tags, 'message': f'Tags applied to VPC {vpc_id}'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def enable_vpc_flow_logs(
+    vpc_id: str,
+    destination_type: str = 'cloud-watch-logs',
+    log_group_name: Optional[str] = None,
+    s3_bucket_arn: Optional[str] = None,
+    iam_role_arn: Optional[str] = None,
+    traffic_type: str = 'ALL',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable VPC Flow Logs to CloudWatch Logs or S3."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {
+            'ResourceIds': [vpc_id],
+            'ResourceType': 'VPC',
+            'TrafficType': traffic_type,
+            'LogDestinationType': destination_type,
+        }
+        if destination_type == 'cloud-watch-logs':
+            kwargs['LogGroupName'] = log_group_name or f'/aws/vpc/flowlogs/{vpc_id}'
+            if iam_role_arn:
+                kwargs['DeliverLogsPermissionArn'] = iam_role_arn
+        else:
+            kwargs['LogDestination'] = s3_bucket_arn
+        response = ec2.create_flow_logs(**kwargs)
+        flow_log_ids = response.get('FlowLogIds', [])
+        return {
+            'success': True, 'vpc_id': vpc_id,
+            'flow_log_ids': flow_log_ids,
+            'destination_type': destination_type,
+            'traffic_type': traffic_type,
+            'message': f'Flow logs enabled for VPC {vpc_id}: {flow_log_ids}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_vpc_flow_logs(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """List VPC Flow Log configurations."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {}
+        if vpc_id:
+            kwargs['Filters'] = [{'Name': 'resource-id', 'Values': [vpc_id]}]
+        response = ec2.describe_flow_logs(**kwargs)
+        logs = []
+        for fl in response.get('FlowLogs', []):
+            logs.append({
+                'flow_log_id': fl.get('FlowLogId'),
+                'resource_id': fl.get('ResourceId'),
+                'traffic_type': fl.get('TrafficType'),
+                'log_destination_type': fl.get('LogDestinationType'),
+                'log_destination': fl.get('LogDestination') or fl.get('LogGroupName'),
+                'flow_log_status': fl.get('FlowLogStatus'),
+            })
+        return {'success': True, 'flow_logs': logs, 'count': len(logs)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def disable_vpc_flow_logs(flow_log_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a VPC Flow Log configuration."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_flow_logs(FlowLogIds=[flow_log_id])
+        return {'success': True, 'flow_log_id': flow_log_id, 'message': f'Flow log {flow_log_id} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- SUBNET EXTENDED ----
+
+def modify_subnet_attribute(
+    subnet_id: str,
+    map_public_ip_on_launch: Optional[bool] = None,
+    assign_ipv6_address_on_creation: Optional[bool] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable/disable auto-assign public IP or IPv6 for a subnet."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        if map_public_ip_on_launch is not None:
+            ec2.modify_subnet_attribute(SubnetId=subnet_id,
+                                        MapPublicIpOnLaunch={'Value': map_public_ip_on_launch})
+        if assign_ipv6_address_on_creation is not None:
+            ec2.modify_subnet_attribute(SubnetId=subnet_id,
+                                        AssignIpv6AddressOnCreation={'Value': assign_ipv6_address_on_creation})
+        return {
+            'success': True, 'subnet_id': subnet_id,
+            'map_public_ip': map_public_ip_on_launch,
+            'message': f'Subnet {subnet_id} attributes updated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def tag_subnet(subnet_id: str, tags: Dict[str, str], region: Optional[str] = None) -> Dict[str, Any]:
+    """Add or update tags on a subnet."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.create_tags(Resources=[subnet_id], Tags=[{'Key': k, 'Value': v} for k, v in tags.items()])
+        return {'success': True, 'subnet_id': subnet_id, 'tags': tags, 'message': f'Tags applied to subnet {subnet_id}'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- INTERNET GATEWAY EXTENDED ----
+
+def list_internet_gateways(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """List all Internet Gateways and their attachment status."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {}
+        if vpc_id:
+            kwargs['Filters'] = [{'Name': 'attachment.vpc-id', 'Values': [vpc_id]}]
+        response = ec2.describe_internet_gateways(**kwargs)
+        igws = []
+        for igw in response.get('InternetGateways', []):
+            tags = {t['Key']: t['Value'] for t in igw.get('Tags', [])}
+            attachments = igw.get('Attachments', [])
+            igws.append({
+                'internet_gateway_id': igw['InternetGatewayId'],
+                'name': tags.get('Name', ''),
+                'state': attachments[0]['State'] if attachments else 'detached',
+                'attached_vpc': attachments[0]['VpcId'] if attachments else None,
+                'tags': tags,
+            })
+        return {'success': True, 'internet_gateways': igws, 'count': len(igws)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def attach_internet_gateway(igw_id: str, vpc_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Attach an existing Internet Gateway to a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.attach_internet_gateway(InternetGatewayId=igw_id, VpcId=vpc_id)
+        return {'success': True, 'internet_gateway_id': igw_id, 'vpc_id': vpc_id,
+                'message': f'IGW {igw_id} attached to VPC {vpc_id}'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def detach_internet_gateway(igw_id: str, vpc_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Detach an Internet Gateway from a VPC without deleting it."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.detach_internet_gateway(InternetGatewayId=igw_id, VpcId=vpc_id)
+        return {'success': True, 'internet_gateway_id': igw_id, 'vpc_id': vpc_id,
+                'message': f'IGW {igw_id} detached from VPC {vpc_id}'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_internet_gateway(igw_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an Internet Gateway (must be detached first)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_internet_gateway(InternetGatewayId=igw_id)
+        return {'success': True, 'internet_gateway_id': igw_id,
+                'message': f'IGW {igw_id} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- ROUTE TABLE EXTENDED ----
+
+def list_route_tables(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """List all route tables in a VPC or region."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {}
+        if vpc_id:
+            kwargs['Filters'] = [{'Name': 'vpc-id', 'Values': [vpc_id]}]
+        response = ec2.describe_route_tables(**kwargs)
+        tables = []
+        for rt in response.get('RouteTables', []):
+            tags = {t['Key']: t['Value'] for t in rt.get('Tags', [])}
+            routes = [{'destination': r.get('DestinationCidrBlock'),
+                       'target': r.get('GatewayId') or r.get('NatGatewayId') or r.get('InstanceId', 'local'),
+                       'state': r.get('State')} for r in rt.get('Routes', [])]
+            associations = [a.get('SubnetId') for a in rt.get('Associations', []) if a.get('SubnetId')]
+            tables.append({
+                'route_table_id': rt['RouteTableId'],
+                'vpc_id': rt.get('VpcId'),
+                'name': tags.get('Name', ''),
+                'is_main': any(a.get('Main') for a in rt.get('Associations', [])),
+                'routes': routes,
+                'associated_subnets': associations,
+                'tags': tags,
+            })
+        return {'success': True, 'route_tables': tables, 'count': len(tables)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_route_table(route_table_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a route table (must have no subnet associations)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_route_table(RouteTableId=route_table_id)
+        return {'success': True, 'route_table_id': route_table_id,
+                'message': f'Route table {route_table_id} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def add_route(
+    route_table_id: str,
+    destination_cidr: str,
+    gateway_id: Optional[str] = None,
+    nat_gateway_id: Optional[str] = None,
+    instance_id: Optional[str] = None,
+    vpc_peering_connection_id: Optional[str] = None,
+    transit_gateway_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Add a route to a route table."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {'RouteTableId': route_table_id, 'DestinationCidrBlock': destination_cidr}
+        if gateway_id:
+            kwargs['GatewayId'] = gateway_id
+        elif nat_gateway_id:
+            kwargs['NatGatewayId'] = nat_gateway_id
+        elif instance_id:
+            kwargs['InstanceId'] = instance_id
+        elif vpc_peering_connection_id:
+            kwargs['VpcPeeringConnectionId'] = vpc_peering_connection_id
+        elif transit_gateway_id:
+            kwargs['TransitGatewayId'] = transit_gateway_id
+        ec2.create_route(**kwargs)
+        return {
+            'success': True, 'route_table_id': route_table_id,
+            'destination_cidr': destination_cidr,
+            'message': f'Route {destination_cidr} added to {route_table_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_route(route_table_id: str, destination_cidr: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Remove a route from a route table."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_route(RouteTableId=route_table_id, DestinationCidrBlock=destination_cidr)
+        return {
+            'success': True, 'route_table_id': route_table_id,
+            'destination_cidr': destination_cidr,
+            'message': f'Route {destination_cidr} deleted from {route_table_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def replace_route(
+    route_table_id: str,
+    destination_cidr: str,
+    gateway_id: Optional[str] = None,
+    nat_gateway_id: Optional[str] = None,
+    instance_id: Optional[str] = None,
+    transit_gateway_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Replace the target of an existing route in a route table."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {'RouteTableId': route_table_id, 'DestinationCidrBlock': destination_cidr}
+        if gateway_id:
+            kwargs['GatewayId'] = gateway_id
+        elif nat_gateway_id:
+            kwargs['NatGatewayId'] = nat_gateway_id
+        elif instance_id:
+            kwargs['InstanceId'] = instance_id
+        elif transit_gateway_id:
+            kwargs['TransitGatewayId'] = transit_gateway_id
+        ec2.replace_route(**kwargs)
+        return {
+            'success': True, 'route_table_id': route_table_id,
+            'destination_cidr': destination_cidr,
+            'message': f'Route {destination_cidr} in {route_table_id} updated'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def associate_route_table(
+    route_table_id: str,
+    subnet_id: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Associate a subnet with a route table."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.associate_route_table(RouteTableId=route_table_id, SubnetId=subnet_id)
+        return {
+            'success': True, 'route_table_id': route_table_id, 'subnet_id': subnet_id,
+            'association_id': response['AssociationId'],
+            'message': f'Subnet {subnet_id} associated with route table {route_table_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def disassociate_route_table(association_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Disassociate a subnet from a route table."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.disassociate_route_table(AssociationId=association_id)
+        return {'success': True, 'association_id': association_id,
+                'message': f'Route table association {association_id} removed'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def set_main_route_table(route_table_id: str, vpc_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Change the main (default) route table for a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        # Find the current main route table association
+        response = ec2.describe_route_tables(
+            Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}, {'Name': 'association.main', 'Values': ['true']}]
+        )
+        if not response.get('RouteTables'):
+            return {'success': False, 'error': 'Could not find current main route table'}
+        main_assoc_id = None
+        for assoc in response['RouteTables'][0].get('Associations', []):
+            if assoc.get('Main'):
+                main_assoc_id = assoc['RouteTableAssociationId']
+                break
+        if not main_assoc_id:
+            return {'success': False, 'error': 'Could not find main route table association ID'}
+        result = ec2.replace_route_table_association(AssociationId=main_assoc_id, RouteTableId=route_table_id)
+        return {
+            'success': True, 'route_table_id': route_table_id, 'vpc_id': vpc_id,
+            'new_association_id': result['NewAssociationId'],
+            'message': f'Route table {route_table_id} set as main for VPC {vpc_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- SECURITY GROUP EXTENDED ----
+
+def authorize_security_group_egress(
+    group_id: str,
+    protocol: str,
+    from_port: int,
+    to_port: int,
+    cidr_ip: str = '0.0.0.0/0',
+    description: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Add an outbound (egress) rule to a security group."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ip_permission = {
+            'IpProtocol': protocol,
+            'FromPort': from_port,
+            'ToPort': to_port,
+            'IpRanges': [{'CidrIp': cidr_ip, 'Description': description or ''}],
+        }
+        ec2.authorize_security_group_egress(GroupId=group_id, IpPermissions=[ip_permission])
+        return {
+            'success': True, 'group_id': group_id,
+            'protocol': protocol, 'ports': f'{from_port}-{to_port}', 'cidr': cidr_ip,
+            'message': f'Outbound rule added to {group_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def revoke_security_group_egress(
+    group_id: str,
+    protocol: str,
+    from_port: int,
+    to_port: int,
+    cidr_ip: str = '0.0.0.0/0',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Remove an outbound (egress) rule from a security group."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ip_permission = {
+            'IpProtocol': protocol,
+            'FromPort': from_port,
+            'ToPort': to_port,
+            'IpRanges': [{'CidrIp': cidr_ip}],
+        }
+        ec2.revoke_security_group_egress(GroupId=group_id, IpPermissions=[ip_permission])
+        return {
+            'success': True, 'group_id': group_id,
+            'message': f'Outbound rule {protocol}/{from_port}-{to_port} from {cidr_ip} removed from {group_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def audit_security_group_rules(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """Identify overly permissive security group rules (0.0.0.0/0 on sensitive ports)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {}
+        if vpc_id:
+            kwargs['Filters'] = [{'Name': 'vpc-id', 'Values': [vpc_id]}]
+        response = ec2.describe_security_groups(**kwargs)
+        sensitive_ports = {22, 3389, 3306, 5432, 6379, 27017, 9200, 8080, 443, 80}
+        findings = []
+        for sg in response.get('SecurityGroups', []):
+            tags = {t['Key']: t['Value'] for t in sg.get('Tags', [])}
+            for perm in sg.get('IpPermissions', []):
+                for ip_range in perm.get('IpRanges', []):
+                    if ip_range.get('CidrIp') in ('0.0.0.0/0', '::/0'):
+                        from_port = perm.get('FromPort', 0)
+                        to_port = perm.get('ToPort', 65535)
+                        risk = 'CRITICAL' if any(p in range(from_port, to_port + 1) for p in sensitive_ports) else 'HIGH'
+                        findings.append({
+                            'group_id': sg['GroupId'],
+                            'group_name': sg.get('GroupName'),
+                            'name': tags.get('Name', ''),
+                            'vpc_id': sg.get('VpcId'),
+                            'protocol': perm.get('IpProtocol'),
+                            'ports': f"{from_port}-{to_port}" if from_port != to_port else str(from_port),
+                            'cidr': ip_range.get('CidrIp'),
+                            'direction': 'inbound',
+                            'risk': risk,
+                        })
+        return {
+            'success': True, 'findings': findings, 'total_findings': len(findings),
+            'critical': len([f for f in findings if f['risk'] == 'CRITICAL']),
+            'high': len([f for f in findings if f['risk'] == 'HIGH']),
+            'message': f'Found {len(findings)} overly permissive inbound rules'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def tag_security_group(group_id: str, tags: Dict[str, str], region: Optional[str] = None) -> Dict[str, Any]:
+    """Add or update tags on a security group."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.create_tags(Resources=[group_id], Tags=[{'Key': k, 'Value': v} for k, v in tags.items()])
+        return {'success': True, 'group_id': group_id, 'tags': tags,
+                'message': f'Tags applied to security group {group_id}'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- NETWORK ACLs ----
+
+def create_network_acl(
+    vpc_id: str,
+    name: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a Network ACL in a VPC."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.create_network_acl(VpcId=vpc_id)
+        nacl_id = response['NetworkAcl']['NetworkAclId']
+        if name:
+            ec2.create_tags(Resources=[nacl_id], Tags=[{'Key': 'Name', 'Value': name}])
+        return {
+            'success': True, 'network_acl_id': nacl_id, 'vpc_id': vpc_id,
+            'message': f'Network ACL {nacl_id} created in VPC {vpc_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_network_acls(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """List Network ACLs in a VPC or region."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {}
+        if vpc_id:
+            kwargs['Filters'] = [{'Name': 'vpc-id', 'Values': [vpc_id]}]
+        response = ec2.describe_network_acls(**kwargs)
+        nacls = []
+        for nacl in response.get('NetworkAcls', []):
+            tags = {t['Key']: t['Value'] for t in nacl.get('Tags', [])}
+            nacls.append({
+                'network_acl_id': nacl['NetworkAclId'],
+                'vpc_id': nacl.get('VpcId'),
+                'name': tags.get('Name', ''),
+                'is_default': nacl.get('IsDefault'),
+                'entries_count': len(nacl.get('Entries', [])),
+                'associated_subnets': [a['SubnetId'] for a in nacl.get('Associations', [])],
+                'tags': tags,
+            })
+        return {'success': True, 'network_acls': nacls, 'count': len(nacls)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_network_acl(network_acl_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a Network ACL (must have no subnet associations)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_network_acl(NetworkAclId=network_acl_id)
+        return {'success': True, 'network_acl_id': network_acl_id,
+                'message': f'Network ACL {network_acl_id} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def create_nacl_entry(
+    network_acl_id: str,
+    rule_number: int,
+    protocol: str,
+    rule_action: str,
+    egress: bool,
+    cidr_block: str,
+    from_port: Optional[int] = None,
+    to_port: Optional[int] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Add an entry (rule) to a Network ACL."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {
+            'NetworkAclId': network_acl_id,
+            'RuleNumber': rule_number,
+            'Protocol': protocol,
+            'RuleAction': rule_action,
+            'Egress': egress,
+            'CidrBlock': cidr_block,
+        }
+        if from_port is not None and to_port is not None:
+            kwargs['PortRange'] = {'From': from_port, 'To': to_port}
+        ec2.create_network_acl_entry(**kwargs)
+        return {
+            'success': True, 'network_acl_id': network_acl_id, 'rule_number': rule_number,
+            'direction': 'egress' if egress else 'ingress', 'action': rule_action,
+            'message': f'NACL rule {rule_number} added to {network_acl_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_nacl_entry(
+    network_acl_id: str,
+    rule_number: int,
+    egress: bool,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete a specific rule from a Network ACL by rule number."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_network_acl_entry(NetworkAclId=network_acl_id, RuleNumber=rule_number, Egress=egress)
+        return {
+            'success': True, 'network_acl_id': network_acl_id, 'rule_number': rule_number,
+            'message': f'NACL rule {rule_number} deleted from {network_acl_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def associate_nacl_with_subnet(
+    network_acl_id: str,
+    subnet_id: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Associate a Network ACL with a subnet (replaces any existing association)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        # Find the current association for this subnet
+        response = ec2.describe_network_acls(
+            Filters=[{'Name': 'association.subnet-id', 'Values': [subnet_id]}]
+        )
+        if not response.get('NetworkAcls'):
+            return {'success': False, 'error': f'No existing NACL association found for subnet {subnet_id}'}
+        current_assoc_id = None
+        for nacl in response['NetworkAcls']:
+            for assoc in nacl.get('Associations', []):
+                if assoc.get('SubnetId') == subnet_id:
+                    current_assoc_id = assoc['NetworkAclAssociationId']
+                    break
+        if not current_assoc_id:
+            return {'success': False, 'error': 'Could not find association ID for subnet'}
+        result = ec2.replace_network_acl_association(
+            AssociationId=current_assoc_id, NetworkAclId=network_acl_id
+        )
+        return {
+            'success': True, 'network_acl_id': network_acl_id, 'subnet_id': subnet_id,
+            'new_association_id': result['NewAssociationId'],
+            'message': f'Subnet {subnet_id} now uses NACL {network_acl_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- VPC PEERING ----
+
+def create_vpc_peering(
+    vpc_id: str,
+    peer_vpc_id: str,
+    peer_owner_id: Optional[str] = None,
+    peer_region: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Initiate a VPC peering connection request."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {'VpcId': vpc_id, 'PeerVpcId': peer_vpc_id}
+        if peer_owner_id:
+            kwargs['PeerOwnerId'] = peer_owner_id
+        if peer_region:
+            kwargs['PeerRegion'] = peer_region
+        response = ec2.create_vpc_peering_connection(**kwargs)
+        pcx = response['VpcPeeringConnection']
+        return {
+            'success': True,
+            'peering_connection_id': pcx['VpcPeeringConnectionId'],
+            'status': pcx['Status']['Code'],
+            'requester_vpc': pcx['RequesterVpcInfo'].get('VpcId'),
+            'accepter_vpc': pcx['AccepterVpcInfo'].get('VpcId'),
+            'message': f'VPC peering request created: {pcx["VpcPeeringConnectionId"]} — accepter must approve'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_vpc_peerings(region: Optional[str] = None) -> Dict[str, Any]:
+    """List all VPC peering connections and their status."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.describe_vpc_peering_connections()
+        peerings = []
+        for pcx in response.get('VpcPeeringConnections', []):
+            tags = {t['Key']: t['Value'] for t in pcx.get('Tags', [])}
+            peerings.append({
+                'peering_connection_id': pcx['VpcPeeringConnectionId'],
+                'status': pcx['Status']['Code'],
+                'status_message': pcx['Status'].get('Message', ''),
+                'requester_vpc': pcx['RequesterVpcInfo'].get('VpcId'),
+                'requester_cidr': pcx['RequesterVpcInfo'].get('CidrBlock'),
+                'accepter_vpc': pcx['AccepterVpcInfo'].get('VpcId'),
+                'accepter_cidr': pcx['AccepterVpcInfo'].get('CidrBlock'),
+                'name': tags.get('Name', ''),
+            })
+        return {'success': True, 'peering_connections': peerings, 'count': len(peerings)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def accept_vpc_peering(peering_connection_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Accept an incoming VPC peering connection request."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.accept_vpc_peering_connection(VpcPeeringConnectionId=peering_connection_id)
+        pcx = response['VpcPeeringConnection']
+        return {
+            'success': True, 'peering_connection_id': peering_connection_id,
+            'status': pcx['Status']['Code'],
+            'message': f'Peering connection {peering_connection_id} accepted — update route tables to route traffic'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_vpc_peering(peering_connection_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a VPC peering connection."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_vpc_peering_connection(VpcPeeringConnectionId=peering_connection_id)
+        return {
+            'success': True, 'peering_connection_id': peering_connection_id,
+            'message': f'VPC peering connection {peering_connection_id} deleted'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- VPC ENDPOINTS ----
+
+def create_vpc_endpoint(
+    vpc_id: str,
+    service_name: str,
+    endpoint_type: str = 'Gateway',
+    route_table_ids: Optional[List[str]] = None,
+    subnet_ids: Optional[List[str]] = None,
+    security_group_ids: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a VPC endpoint (Gateway for S3/DynamoDB, Interface for other services)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {'VpcId': vpc_id, 'ServiceName': service_name, 'VpcEndpointType': endpoint_type}
+        if route_table_ids and endpoint_type == 'Gateway':
+            kwargs['RouteTableIds'] = route_table_ids
+        if subnet_ids and endpoint_type == 'Interface':
+            kwargs['SubnetIds'] = subnet_ids
+        if security_group_ids and endpoint_type == 'Interface':
+            kwargs['SecurityGroupIds'] = security_group_ids
+        response = ec2.create_vpc_endpoint(**kwargs)
+        ep = response.get('VpcEndpoint', {})
+        return {
+            'success': True,
+            'endpoint_id': ep.get('VpcEndpointId'),
+            'state': ep.get('State'),
+            'service_name': service_name,
+            'endpoint_type': endpoint_type,
+            'message': f'{endpoint_type} endpoint created for {service_name}: {ep.get("VpcEndpointId")}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_vpc_endpoints(vpc_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """List VPC endpoints and their service associations."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {}
+        if vpc_id:
+            kwargs['Filters'] = [{'Name': 'vpc-id', 'Values': [vpc_id]}]
+        response = ec2.describe_vpc_endpoints(**kwargs)
+        endpoints = []
+        for ep in response.get('VpcEndpoints', []):
+            endpoints.append({
+                'endpoint_id': ep.get('VpcEndpointId'),
+                'vpc_id': ep.get('VpcId'),
+                'service_name': ep.get('ServiceName'),
+                'state': ep.get('State'),
+                'endpoint_type': ep.get('VpcEndpointType'),
+                'private_dns_enabled': ep.get('PrivateDnsEnabled'),
+                'subnets': ep.get('SubnetIds', []),
+            })
+        return {'success': True, 'endpoints': endpoints, 'count': len(endpoints)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_vpc_endpoint(endpoint_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a VPC endpoint."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_vpc_endpoints(VpcEndpointIds=[endpoint_id])
+        return {'success': True, 'endpoint_id': endpoint_id,
+                'message': f'VPC endpoint {endpoint_id} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+# ---- ELASTIC NETWORK INTERFACES (ENIs) ----
+
+def create_eni(
+    subnet_id: str,
+    description: Optional[str] = None,
+    security_group_ids: Optional[List[str]] = None,
+    private_ip: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an Elastic Network Interface in a subnet."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        kwargs = {'SubnetId': subnet_id}
+        if description:
+            kwargs['Description'] = description
+        if security_group_ids:
+            kwargs['Groups'] = security_group_ids
+        if private_ip:
+            kwargs['PrivateIpAddress'] = private_ip
+        response = ec2.create_network_interface(**kwargs)
+        eni = response['NetworkInterface']
+        return {
+            'success': True,
+            'network_interface_id': eni['NetworkInterfaceId'],
+            'subnet_id': subnet_id,
+            'private_ip': eni.get('PrivateIpAddress'),
+            'status': eni.get('Status'),
+            'message': f'ENI {eni["NetworkInterfaceId"]} created in subnet {subnet_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def list_enis(
+    subnet_id: Optional[str] = None,
+    vpc_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List Elastic Network Interfaces."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        filters = []
+        if subnet_id:
+            filters.append({'Name': 'subnet-id', 'Values': [subnet_id]})
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        kwargs = {'Filters': filters} if filters else {}
+        response = ec2.describe_network_interfaces(**kwargs)
+        enis = []
+        for eni in response.get('NetworkInterfaces', []):
+            attachment = eni.get('Attachment', {})
+            enis.append({
+                'network_interface_id': eni['NetworkInterfaceId'],
+                'subnet_id': eni.get('SubnetId'),
+                'vpc_id': eni.get('VpcId'),
+                'status': eni.get('Status'),
+                'private_ip': eni.get('PrivateIpAddress'),
+                'description': eni.get('Description'),
+                'attached_instance': attachment.get('InstanceId'),
+                'attachment_status': attachment.get('Status'),
+            })
+        return {'success': True, 'network_interfaces': enis, 'count': len(enis)}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def attach_eni(
+    network_interface_id: str,
+    instance_id: str,
+    device_index: int = 1,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Attach a network interface to an EC2 instance."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.attach_network_interface(
+            NetworkInterfaceId=network_interface_id,
+            InstanceId=instance_id,
+            DeviceIndex=device_index
+        )
+        return {
+            'success': True,
+            'network_interface_id': network_interface_id,
+            'instance_id': instance_id,
+            'attachment_id': response['AttachmentId'],
+            'message': f'ENI {network_interface_id} attached to {instance_id}'
+        }
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def detach_eni(attachment_id: str, force: bool = False, region: Optional[str] = None) -> Dict[str, Any]:
+    """Detach a network interface from an EC2 instance."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.detach_network_interface(AttachmentId=attachment_id, Force=force)
+        return {'success': True, 'attachment_id': attachment_id,
+                'message': f'ENI attachment {attachment_id} detached'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_eni(network_interface_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an Elastic Network Interface (must be detached first)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_network_interface(NetworkInterfaceId=network_interface_id)
+        return {'success': True, 'network_interface_id': network_interface_id,
+                'message': f'ENI {network_interface_id} deleted'}
+    except ClientError as e:
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 def allocate_elastic_ip(
     instance_id: Optional[str] = None,
     name: Optional[str] = None,
@@ -12709,6 +13743,634 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['allocation_id']
             },
             'handler': release_elastic_ip
+        },
+        # ---- VPC Extended Operations ----
+        {
+            'name': 'describe_vpc',
+            'description': 'Get detailed information about a VPC including CIDR blocks, DNS settings, and state.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id']
+            },
+            'handler': describe_vpc
+        },
+        {
+            'name': 'modify_vpc_attribute',
+            'description': 'Enable or disable DNS resolution and DNS hostnames for a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'enable_dns_support': {'type': 'boolean', 'description': 'Enable DNS resolution'},
+                    'enable_dns_hostnames': {'type': 'boolean', 'description': 'Enable DNS hostnames'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id']
+            },
+            'handler': modify_vpc_attribute
+        },
+        {
+            'name': 'associate_vpc_cidr',
+            'description': 'Add a secondary CIDR block to an existing VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'cidr_block': {'type': 'string', 'description': 'Additional CIDR block to add'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id', 'cidr_block']
+            },
+            'handler': associate_vpc_cidr
+        },
+        {
+            'name': 'disassociate_vpc_cidr',
+            'description': 'Remove a secondary CIDR block from a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'association_id': {'type': 'string', 'description': 'CIDR block association ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['association_id']
+            },
+            'handler': disassociate_vpc_cidr
+        },
+        {
+            'name': 'tag_vpc',
+            'description': 'Add or update tags on a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags to apply'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id', 'tags']
+            },
+            'handler': tag_vpc
+        },
+        {
+            'name': 'enable_vpc_flow_logs',
+            'description': 'Enable VPC Flow Logs to CloudWatch Logs or S3 for network traffic analysis.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'destination_type': {'type': 'string', 'enum': ['cloud-watch-logs', 's3'], 'description': 'Log destination type (default: cloud-watch-logs)'},
+                    'log_group_name': {'type': 'string', 'description': 'CloudWatch log group name'},
+                    's3_bucket_arn': {'type': 'string', 'description': 'S3 bucket ARN for flow logs'},
+                    'iam_role_arn': {'type': 'string', 'description': 'IAM role ARN for CloudWatch delivery'},
+                    'traffic_type': {'type': 'string', 'enum': ['ACCEPT', 'REJECT', 'ALL'], 'description': 'Traffic to log (default: ALL)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id']
+            },
+            'handler': enable_vpc_flow_logs
+        },
+        {
+            'name': 'list_vpc_flow_logs',
+            'description': 'List VPC Flow Log configurations.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'Filter by VPC ID (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_vpc_flow_logs
+        },
+        {
+            'name': 'disable_vpc_flow_logs',
+            'description': 'Delete a VPC Flow Log configuration.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'flow_log_id': {'type': 'string', 'description': 'Flow log ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['flow_log_id']
+            },
+            'handler': disable_vpc_flow_logs
+        },
+        {
+            'name': 'modify_subnet_attribute',
+            'description': 'Enable or disable auto-assign public IP or IPv6 for a subnet.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'subnet_id': {'type': 'string', 'description': 'Subnet ID'},
+                    'map_public_ip_on_launch': {'type': 'boolean', 'description': 'Auto-assign public IP on launch'},
+                    'assign_ipv6_address_on_creation': {'type': 'boolean', 'description': 'Auto-assign IPv6 on creation'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['subnet_id']
+            },
+            'handler': modify_subnet_attribute
+        },
+        {
+            'name': 'tag_subnet',
+            'description': 'Add or update tags on a subnet.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'subnet_id': {'type': 'string', 'description': 'Subnet ID'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags to apply'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['subnet_id', 'tags']
+            },
+            'handler': tag_subnet
+        },
+        {
+            'name': 'list_internet_gateways',
+            'description': 'List all Internet Gateways and their attachment status.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'Filter by VPC ID (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_internet_gateways
+        },
+        {
+            'name': 'attach_internet_gateway',
+            'description': 'Attach an existing Internet Gateway to a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'igw_id': {'type': 'string', 'description': 'Internet Gateway ID'},
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID to attach to'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['igw_id', 'vpc_id']
+            },
+            'handler': attach_internet_gateway
+        },
+        {
+            'name': 'detach_internet_gateway',
+            'description': 'Detach an Internet Gateway from a VPC without deleting it.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'igw_id': {'type': 'string', 'description': 'Internet Gateway ID'},
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID to detach from'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['igw_id', 'vpc_id']
+            },
+            'handler': detach_internet_gateway
+        },
+        {
+            'name': 'delete_internet_gateway',
+            'description': 'Delete an Internet Gateway (must be detached from all VPCs first).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'igw_id': {'type': 'string', 'description': 'Internet Gateway ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['igw_id']
+            },
+            'handler': delete_internet_gateway
+        },
+        {
+            'name': 'list_route_tables',
+            'description': 'List all route tables in a VPC or region, with routes and subnet associations.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'Filter by VPC ID (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_route_tables
+        },
+        {
+            'name': 'delete_route_table',
+            'description': 'Delete a route table (must have no subnet associations).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'route_table_id': {'type': 'string', 'description': 'Route table ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['route_table_id']
+            },
+            'handler': delete_route_table
+        },
+        {
+            'name': 'add_route',
+            'description': 'Add a route to a route table (e.g., 0.0.0.0/0 via IGW for internet access).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'route_table_id': {'type': 'string', 'description': 'Route table ID'},
+                    'destination_cidr': {'type': 'string', 'description': 'Destination CIDR (e.g., 0.0.0.0/0)'},
+                    'gateway_id': {'type': 'string', 'description': 'Internet Gateway ID'},
+                    'nat_gateway_id': {'type': 'string', 'description': 'NAT Gateway ID'},
+                    'instance_id': {'type': 'string', 'description': 'EC2 Instance ID'},
+                    'vpc_peering_connection_id': {'type': 'string', 'description': 'VPC Peering Connection ID'},
+                    'transit_gateway_id': {'type': 'string', 'description': 'Transit Gateway ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['route_table_id', 'destination_cidr']
+            },
+            'handler': add_route
+        },
+        {
+            'name': 'delete_route',
+            'description': 'Remove a route from a route table by destination CIDR.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'route_table_id': {'type': 'string', 'description': 'Route table ID'},
+                    'destination_cidr': {'type': 'string', 'description': 'Destination CIDR to remove'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['route_table_id', 'destination_cidr']
+            },
+            'handler': delete_route
+        },
+        {
+            'name': 'replace_route',
+            'description': 'Update the target of an existing route in a route table.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'route_table_id': {'type': 'string', 'description': 'Route table ID'},
+                    'destination_cidr': {'type': 'string', 'description': 'Destination CIDR of the route to update'},
+                    'gateway_id': {'type': 'string', 'description': 'New Internet Gateway ID'},
+                    'nat_gateway_id': {'type': 'string', 'description': 'New NAT Gateway ID'},
+                    'instance_id': {'type': 'string', 'description': 'New Instance ID'},
+                    'transit_gateway_id': {'type': 'string', 'description': 'New Transit Gateway ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['route_table_id', 'destination_cidr']
+            },
+            'handler': replace_route
+        },
+        {
+            'name': 'associate_route_table',
+            'description': 'Associate a subnet with a route table.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'route_table_id': {'type': 'string', 'description': 'Route table ID'},
+                    'subnet_id': {'type': 'string', 'description': 'Subnet ID to associate'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['route_table_id', 'subnet_id']
+            },
+            'handler': associate_route_table
+        },
+        {
+            'name': 'disassociate_route_table',
+            'description': 'Disassociate a subnet from a route table (reverts to main route table).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'association_id': {'type': 'string', 'description': 'Route table association ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['association_id']
+            },
+            'handler': disassociate_route_table
+        },
+        {
+            'name': 'set_main_route_table',
+            'description': 'Change the main (default) route table for a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'route_table_id': {'type': 'string', 'description': 'Route table ID to set as main'},
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['route_table_id', 'vpc_id']
+            },
+            'handler': set_main_route_table
+        },
+        {
+            'name': 'authorize_security_group_egress',
+            'description': 'Add an outbound (egress) rule to a security group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_id': {'type': 'string', 'description': 'Security group ID'},
+                    'protocol': {'type': 'string', 'description': 'Protocol: tcp, udp, icmp, or -1 for all'},
+                    'from_port': {'type': 'integer', 'description': 'Start of port range'},
+                    'to_port': {'type': 'integer', 'description': 'End of port range'},
+                    'cidr_ip': {'type': 'string', 'description': 'CIDR block (default: 0.0.0.0/0)'},
+                    'description': {'type': 'string', 'description': 'Rule description'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_id', 'protocol', 'from_port', 'to_port']
+            },
+            'handler': authorize_security_group_egress
+        },
+        {
+            'name': 'revoke_security_group_egress',
+            'description': 'Remove an outbound (egress) rule from a security group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_id': {'type': 'string', 'description': 'Security group ID'},
+                    'protocol': {'type': 'string', 'description': 'Protocol: tcp, udp, icmp, or -1 for all'},
+                    'from_port': {'type': 'integer', 'description': 'Start of port range'},
+                    'to_port': {'type': 'integer', 'description': 'End of port range'},
+                    'cidr_ip': {'type': 'string', 'description': 'CIDR block'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_id', 'protocol', 'from_port', 'to_port']
+            },
+            'handler': revoke_security_group_egress
+        },
+        {
+            'name': 'audit_security_group_rules',
+            'description': 'Find overly permissive security group inbound rules with 0.0.0.0/0 on sensitive ports.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'Filter by VPC ID (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': audit_security_group_rules
+        },
+        {
+            'name': 'tag_security_group',
+            'description': 'Add or update tags on a security group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_id': {'type': 'string', 'description': 'Security group ID'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags to apply'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['group_id', 'tags']
+            },
+            'handler': tag_security_group
+        },
+        {
+            'name': 'create_network_acl',
+            'description': 'Create a Network ACL (stateless subnet-level firewall) in a VPC.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'name': {'type': 'string', 'description': 'Name tag'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id']
+            },
+            'handler': create_network_acl
+        },
+        {
+            'name': 'list_network_acls',
+            'description': 'List Network ACLs in a VPC or region with their rules and subnet associations.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'Filter by VPC ID (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_network_acls
+        },
+        {
+            'name': 'delete_network_acl',
+            'description': 'Delete a Network ACL (must have no subnet associations).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'network_acl_id': {'type': 'string', 'description': 'Network ACL ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['network_acl_id']
+            },
+            'handler': delete_network_acl
+        },
+        {
+            'name': 'create_nacl_entry',
+            'description': 'Add an inbound or outbound rule to a Network ACL.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'network_acl_id': {'type': 'string', 'description': 'Network ACL ID'},
+                    'rule_number': {'type': 'integer', 'description': 'Rule number (1-32766, lower = higher priority)'},
+                    'protocol': {'type': 'string', 'description': 'Protocol number: 6 (TCP), 17 (UDP), -1 (all)'},
+                    'rule_action': {'type': 'string', 'enum': ['allow', 'deny'], 'description': 'Allow or deny'},
+                    'egress': {'type': 'boolean', 'description': 'True for outbound, False for inbound'},
+                    'cidr_block': {'type': 'string', 'description': 'CIDR block'},
+                    'from_port': {'type': 'integer', 'description': 'Start of port range'},
+                    'to_port': {'type': 'integer', 'description': 'End of port range'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['network_acl_id', 'rule_number', 'protocol', 'rule_action', 'egress', 'cidr_block']
+            },
+            'handler': create_nacl_entry
+        },
+        {
+            'name': 'delete_nacl_entry',
+            'description': 'Delete a specific rule from a Network ACL by rule number.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'network_acl_id': {'type': 'string', 'description': 'Network ACL ID'},
+                    'rule_number': {'type': 'integer', 'description': 'Rule number to delete'},
+                    'egress': {'type': 'boolean', 'description': 'True for outbound rule, False for inbound'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['network_acl_id', 'rule_number', 'egress']
+            },
+            'handler': delete_nacl_entry
+        },
+        {
+            'name': 'associate_nacl_with_subnet',
+            'description': 'Apply a Network ACL to a subnet (replaces the existing NACL association).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'network_acl_id': {'type': 'string', 'description': 'Network ACL ID to apply'},
+                    'subnet_id': {'type': 'string', 'description': 'Subnet ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['network_acl_id', 'subnet_id']
+            },
+            'handler': associate_nacl_with_subnet
+        },
+        {
+            'name': 'create_vpc_peering',
+            'description': 'Initiate a VPC peering connection request between two VPCs (same or cross-account/region).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'Requester VPC ID'},
+                    'peer_vpc_id': {'type': 'string', 'description': 'Accepter VPC ID'},
+                    'peer_owner_id': {'type': 'string', 'description': 'Accepter AWS account ID (for cross-account)'},
+                    'peer_region': {'type': 'string', 'description': 'Accepter region (for cross-region)'},
+                    'region': {'type': 'string', 'description': 'Requester AWS region'}
+                },
+                'required': ['vpc_id', 'peer_vpc_id']
+            },
+            'handler': create_vpc_peering
+        },
+        {
+            'name': 'list_vpc_peerings',
+            'description': 'List all VPC peering connections and their status.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_vpc_peerings
+        },
+        {
+            'name': 'accept_vpc_peering',
+            'description': 'Accept an incoming VPC peering connection request.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'peering_connection_id': {'type': 'string', 'description': 'VPC Peering Connection ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['peering_connection_id']
+            },
+            'handler': accept_vpc_peering
+        },
+        {
+            'name': 'delete_vpc_peering',
+            'description': 'Delete a VPC peering connection.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'peering_connection_id': {'type': 'string', 'description': 'VPC Peering Connection ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['peering_connection_id']
+            },
+            'handler': delete_vpc_peering
+        },
+        {
+            'name': 'create_vpc_endpoint',
+            'description': 'Create a VPC endpoint — Gateway (free, for S3/DynamoDB) or Interface (PrivateLink, for other AWS services).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'VPC ID'},
+                    'service_name': {'type': 'string', 'description': 'Service name (e.g., com.amazonaws.us-east-1.s3)'},
+                    'endpoint_type': {'type': 'string', 'enum': ['Gateway', 'Interface'], 'description': 'Endpoint type (default: Gateway)'},
+                    'route_table_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Route table IDs (Gateway endpoints)'},
+                    'subnet_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Subnet IDs (Interface endpoints)'},
+                    'security_group_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Security group IDs (Interface endpoints)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['vpc_id', 'service_name']
+            },
+            'handler': create_vpc_endpoint
+        },
+        {
+            'name': 'list_vpc_endpoints',
+            'description': 'List VPC endpoints and their service associations.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'vpc_id': {'type': 'string', 'description': 'Filter by VPC ID (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_vpc_endpoints
+        },
+        {
+            'name': 'delete_vpc_endpoint',
+            'description': 'Delete a VPC endpoint.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'endpoint_id': {'type': 'string', 'description': 'VPC Endpoint ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['endpoint_id']
+            },
+            'handler': delete_vpc_endpoint
+        },
+        {
+            'name': 'create_eni',
+            'description': 'Create an Elastic Network Interface (ENI) in a subnet.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'subnet_id': {'type': 'string', 'description': 'Subnet ID'},
+                    'description': {'type': 'string', 'description': 'Description of the ENI'},
+                    'security_group_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Security group IDs'},
+                    'private_ip': {'type': 'string', 'description': 'Private IP address (auto-assigned if omitted)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['subnet_id']
+            },
+            'handler': create_eni
+        },
+        {
+            'name': 'list_enis',
+            'description': 'List Elastic Network Interfaces (ENIs) with attachment details.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'subnet_id': {'type': 'string', 'description': 'Filter by subnet ID'},
+                    'vpc_id': {'type': 'string', 'description': 'Filter by VPC ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_enis
+        },
+        {
+            'name': 'attach_eni',
+            'description': 'Attach a network interface to an EC2 instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'network_interface_id': {'type': 'string', 'description': 'Network Interface ID'},
+                    'instance_id': {'type': 'string', 'description': 'EC2 Instance ID'},
+                    'device_index': {'type': 'integer', 'description': 'Device index (default: 1 for secondary interface)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['network_interface_id', 'instance_id']
+            },
+            'handler': attach_eni
+        },
+        {
+            'name': 'detach_eni',
+            'description': 'Detach a network interface from an EC2 instance.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'attachment_id': {'type': 'string', 'description': 'Attachment ID'},
+                    'force': {'type': 'boolean', 'description': 'Force detachment (default: false)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['attachment_id']
+            },
+            'handler': detach_eni
+        },
+        {
+            'name': 'delete_eni',
+            'description': 'Delete an Elastic Network Interface (must be detached first).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'network_interface_id': {'type': 'string', 'description': 'Network Interface ID to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['network_interface_id']
+            },
+            'handler': delete_eni
         },
         # ---- CloudWatch ----
         {

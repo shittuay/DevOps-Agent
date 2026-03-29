@@ -288,6 +288,14 @@ class SafetyValidator:
             'delete_iam_access_key',
             'delete_iam_inline_policy',
             'delete_iam_login_profile',
+            # VPC extended destructive
+            'delete_internet_gateway',
+            'delete_route_table',
+            'delete_network_acl',
+            'delete_vpc_peering',
+            'delete_vpc_endpoint',
+            'delete_eni',
+            'disable_vpc_flow_logs',
         }
 
         medium_risk_tools = {
@@ -375,6 +383,26 @@ class SafetyValidator:
             'detach_iam_policy',
             'put_iam_inline_policy',
             'assume_iam_role',
+            # VPC extended medium risk
+            'modify_vpc_attribute',
+            'enable_vpc_flow_logs',
+            'modify_subnet_attribute',
+            'detach_internet_gateway',
+            'add_route',
+            'delete_route',
+            'replace_route',
+            'associate_route_table',
+            'disassociate_route_table',
+            'set_main_route_table',
+            'authorize_security_group_egress',
+            'revoke_security_group_egress',
+            'create_nacl_entry',
+            'delete_nacl_entry',
+            'associate_nacl_with_subnet',
+            'accept_vpc_peering',
+            'create_vpc_endpoint',
+            'attach_eni',
+            'detach_eni',
         }
 
         # Check if tool is a pentest tool
