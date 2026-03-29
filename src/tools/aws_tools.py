@@ -2110,6 +2110,805 @@ def put_s3_bucket_policy(
 
 
 # ============================================================================
+# S3 EXTENDED OPERATIONS
+# ============================================================================
+
+def list_s3_objects(
+    bucket_name: str,
+    prefix: Optional[str] = None,
+    delimiter: Optional[str] = None,
+    max_keys: int = 100,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List objects in an S3 bucket, optionally filtered by prefix."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        params: Dict = {'Bucket': bucket_name, 'MaxKeys': max_keys}
+        if prefix:
+            params['Prefix'] = prefix
+        if delimiter:
+            params['Delimiter'] = delimiter
+
+        response = s3.list_objects_v2(**params)
+        objects = [
+            {
+                'key': obj['Key'],
+                'size_bytes': obj['Size'],
+                'last_modified': str(obj['LastModified']),
+                'storage_class': obj.get('StorageClass', 'STANDARD'),
+                'etag': obj.get('ETag', '').strip('"')
+            }
+            for obj in response.get('Contents', [])
+        ]
+        common_prefixes = [p['Prefix'] for p in response.get('CommonPrefixes', [])]
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'objects': objects,
+            'count': len(objects),
+            'common_prefixes': common_prefixes,
+            'is_truncated': response.get('IsTruncated', False),
+            'key_count': response.get('KeyCount', len(objects))
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing S3 objects: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def upload_s3_object(
+    bucket_name: str,
+    key: str,
+    content: str,
+    content_type: str = 'text/plain',
+    storage_class: str = 'STANDARD',
+    metadata: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Upload text/JSON content as an object to S3."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        params: Dict = {
+            'Bucket': bucket_name,
+            'Key': key,
+            'Body': content.encode('utf-8'),
+            'ContentType': content_type,
+            'StorageClass': storage_class
+        }
+        if metadata:
+            params['Metadata'] = metadata
+
+        s3.put_object(**params)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'key': key,
+            'size_bytes': len(content.encode('utf-8')),
+            'storage_class': storage_class,
+            'message': f'Object uploaded: s3://{bucket_name}/{key}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error uploading S3 object: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def download_s3_object(
+    bucket_name: str,
+    key: str,
+    max_bytes: int = 102400,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Download an object from S3 and return its text content (up to max_bytes)."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        response = s3.get_object(Bucket=bucket_name, Key=key)
+        body = response['Body'].read(max_bytes)
+        truncated = response['ContentLength'] > max_bytes
+
+        try:
+            content = body.decode('utf-8')
+        except UnicodeDecodeError:
+            content = f'[Binary content — {response["ContentLength"]} bytes. Use generate_s3_presigned_url to download.]'
+
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'key': key,
+            'content': content,
+            'content_type': response.get('ContentType', ''),
+            'content_length': response['ContentLength'],
+            'last_modified': str(response['LastModified']),
+            'truncated': truncated,
+            'etag': response.get('ETag', '').strip('"')
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error downloading S3 object: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_s3_object(bucket_name: str, key: str, version_id: Optional[str] = None, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete a single object from S3 (optionally a specific version)."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        params: Dict = {'Bucket': bucket_name, 'Key': key}
+        if version_id:
+            params['VersionId'] = version_id
+
+        s3.delete_object(**params)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'key': key,
+            'message': f'Deleted s3://{bucket_name}/{key}' + (f' (version {version_id})' if version_id else '')
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting S3 object: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_s3_objects_batch(
+    bucket_name: str,
+    keys: List[str],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete up to 1000 objects from S3 in a single request."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        delete_objects = [{'Key': k} for k in keys[:1000]]
+        response = s3.delete_objects(
+            Bucket=bucket_name,
+            Delete={'Objects': delete_objects, 'Quiet': False}
+        )
+        deleted = [d['Key'] for d in response.get('Deleted', [])]
+        errors = response.get('Errors', [])
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'deleted_count': len(deleted),
+            'error_count': len(errors),
+            'errors': errors,
+            'message': f'Deleted {len(deleted)} object(s) from {bucket_name}' + (
+                f', {len(errors)} failed' if errors else ''
+            )
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error batch deleting S3 objects: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def copy_s3_object(
+    source_bucket: str,
+    source_key: str,
+    dest_bucket: str,
+    dest_key: str,
+    storage_class: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Copy an object within or across S3 buckets."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        params: Dict = {
+            'CopySource': {'Bucket': source_bucket, 'Key': source_key},
+            'Bucket': dest_bucket,
+            'Key': dest_key
+        }
+        if storage_class:
+            params['StorageClass'] = storage_class
+            params['MetadataDirective'] = 'COPY'
+
+        s3.copy_object(**params)
+        return {
+            'success': True,
+            'source': f's3://{source_bucket}/{source_key}',
+            'destination': f's3://{dest_bucket}/{dest_key}',
+            'message': f'Copied s3://{source_bucket}/{source_key} → s3://{dest_bucket}/{dest_key}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error copying S3 object: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_s3_object_metadata(bucket_name: str, key: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Get metadata for an S3 object (ContentType, ETag, size, etc.) without downloading it."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        response = s3.head_object(Bucket=bucket_name, Key=key)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'key': key,
+            'content_type': response.get('ContentType', ''),
+            'content_length': response.get('ContentLength', 0),
+            'last_modified': str(response.get('LastModified', '')),
+            'etag': response.get('ETag', '').strip('"'),
+            'storage_class': response.get('StorageClass', 'STANDARD'),
+            'server_side_encryption': response.get('ServerSideEncryption', 'None'),
+            'version_id': response.get('VersionId', ''),
+            'metadata': response.get('Metadata', {}),
+            'expiration': response.get('Expiration', '')
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting S3 object metadata: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def generate_s3_presigned_url(
+    bucket_name: str,
+    key: str,
+    operation: str = 'get_object',
+    expires_in: int = 3600,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Generate a pre-signed URL for secure time-limited access to an S3 object."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        url = s3.generate_presigned_url(
+            ClientMethod=operation,
+            Params={'Bucket': bucket_name, 'Key': key},
+            ExpiresIn=expires_in
+        )
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'key': key,
+            'url': url,
+            'expires_in_seconds': expires_in,
+            'operation': operation,
+            'message': f'Pre-signed URL generated for s3://{bucket_name}/{key} (expires in {expires_in}s)'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error generating S3 pre-signed URL: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_s3_bucket_policy(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Read the current bucket policy JSON for an S3 bucket."""
+    try:
+        import json as _json
+        s3 = _get_boto_client('s3', region)
+        response = s3.get_bucket_policy(Bucket=bucket_name)
+        policy = _json.loads(response['Policy'])
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'policy': policy
+        }
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchBucketPolicy':
+            return {'success': True, 'bucket_name': bucket_name, 'policy': None,
+                    'message': 'No bucket policy is set on this bucket'}
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting S3 bucket policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_s3_bucket_policy(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Remove the bucket policy from an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.delete_bucket_policy(Bucket=bucket_name)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'message': f'Bucket policy removed from {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting S3 bucket policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def set_s3_public_access_block(
+    bucket_name: str,
+    block_public_acls: bool = True,
+    ignore_public_acls: bool = True,
+    block_public_policy: bool = True,
+    restrict_public_buckets: bool = True,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable or configure public access block settings on an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.put_public_access_block(
+            Bucket=bucket_name,
+            PublicAccessBlockConfiguration={
+                'BlockPublicAcls': block_public_acls,
+                'IgnorePublicAcls': ignore_public_acls,
+                'BlockPublicPolicy': block_public_policy,
+                'RestrictPublicBuckets': restrict_public_buckets
+            }
+        )
+        all_blocked = all([block_public_acls, ignore_public_acls, block_public_policy, restrict_public_buckets])
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'block_public_acls': block_public_acls,
+            'ignore_public_acls': ignore_public_acls,
+            'block_public_policy': block_public_policy,
+            'restrict_public_buckets': restrict_public_buckets,
+            'message': f'Public access {"fully blocked" if all_blocked else "configured"} on {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 public access block: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def set_s3_versioning(
+    bucket_name: str,
+    status: str = 'Enabled',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable or suspend versioning on an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.put_bucket_versioning(
+            Bucket=bucket_name,
+            VersioningConfiguration={'Status': status}
+        )
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'versioning_status': status,
+            'message': f'Versioning {status.lower()} on {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 versioning: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_s3_object_versions(
+    bucket_name: str,
+    prefix: Optional[str] = None,
+    max_keys: int = 100,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List all versions (and delete markers) of objects in a versioned S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        params: Dict = {'Bucket': bucket_name, 'MaxKeys': max_keys}
+        if prefix:
+            params['Prefix'] = prefix
+
+        response = s3.list_object_versions(**params)
+        versions = [
+            {
+                'key': v['Key'],
+                'version_id': v['VersionId'],
+                'is_latest': v['IsLatest'],
+                'last_modified': str(v['LastModified']),
+                'size_bytes': v['Size'],
+                'etag': v.get('ETag', '').strip('"')
+            }
+            for v in response.get('Versions', [])
+        ]
+        delete_markers = [
+            {
+                'key': d['Key'],
+                'version_id': d['VersionId'],
+                'is_latest': d['IsLatest'],
+                'last_modified': str(d['LastModified'])
+            }
+            for d in response.get('DeleteMarkers', [])
+        ]
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'versions': versions,
+            'delete_markers': delete_markers,
+            'versions_count': len(versions),
+            'delete_markers_count': len(delete_markers)
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing S3 object versions: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def set_s3_default_encryption(
+    bucket_name: str,
+    sse_algorithm: str = 'AES256',
+    kms_key_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Enable default server-side encryption on an S3 bucket.
+    Use sse_algorithm='AES256' for SSE-S3 or 'aws:kms' with kms_key_id for SSE-KMS.
+    """
+    try:
+        s3 = _get_boto_client('s3', region)
+        rule: Dict = {'ApplyServerSideEncryptionByDefault': {'SSEAlgorithm': sse_algorithm}}
+        if kms_key_id:
+            rule['ApplyServerSideEncryptionByDefault']['KMSMasterKeyID'] = kms_key_id
+
+        s3.put_bucket_encryption(
+            Bucket=bucket_name,
+            ServerSideEncryptionConfiguration={'Rules': [rule]}
+        )
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'sse_algorithm': sse_algorithm,
+            'kms_key_id': kms_key_id or 'AWS managed',
+            'message': f'Default encryption ({sse_algorithm}) enabled on {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 encryption: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def set_s3_website(
+    bucket_name: str,
+    index_document: str = 'index.html',
+    error_document: str = 'error.html',
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable static website hosting on an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.put_bucket_website(
+            Bucket=bucket_name,
+            WebsiteConfiguration={
+                'IndexDocument': {'Suffix': index_document},
+                'ErrorDocument': {'Key': error_document}
+            }
+        )
+        region_name = region or 'us-east-1'
+        website_url = (
+            f'http://{bucket_name}.s3-website-{region_name}.amazonaws.com'
+            if region_name == 'us-east-1'
+            else f'http://{bucket_name}.s3-website.{region_name}.amazonaws.com'
+        )
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'index_document': index_document,
+            'error_document': error_document,
+            'website_url': website_url,
+            'message': f'Static website hosting enabled: {website_url}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error enabling S3 website: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_s3_website(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Disable static website hosting on an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.delete_bucket_website(Bucket=bucket_name)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'message': f'Static website hosting disabled on {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error disabling S3 website: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def set_s3_cors(
+    bucket_name: str,
+    allowed_origins: List[str],
+    allowed_methods: Optional[List[str]] = None,
+    allowed_headers: Optional[List[str]] = None,
+    max_age_seconds: int = 3600,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Configure CORS rules on an S3 bucket for cross-origin web access."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        rule: Dict = {
+            'AllowedOrigins': allowed_origins,
+            'AllowedMethods': allowed_methods or ['GET', 'HEAD'],
+            'MaxAgeSeconds': max_age_seconds
+        }
+        if allowed_headers:
+            rule['AllowedHeaders'] = allowed_headers
+
+        s3.put_bucket_cors(
+            Bucket=bucket_name,
+            CORSConfiguration={'CORSRules': [rule]}
+        )
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'allowed_origins': allowed_origins,
+            'allowed_methods': rule['AllowedMethods'],
+            'message': f'CORS configured on {bucket_name} for origins: {allowed_origins}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 CORS: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def set_s3_logging(
+    bucket_name: str,
+    target_bucket: str,
+    target_prefix: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Enable server access logging on an S3 bucket, writing logs to a target bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        logging_config: Dict = {
+            'LoggingEnabled': {
+                'TargetBucket': target_bucket,
+                'TargetPrefix': target_prefix or f'{bucket_name}/'
+            }
+        }
+        s3.put_bucket_logging(Bucket=bucket_name, BucketLoggingStatus=logging_config)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'target_bucket': target_bucket,
+            'target_prefix': target_prefix or f'{bucket_name}/',
+            'message': f'Access logging enabled on {bucket_name} → s3://{target_bucket}/{target_prefix or bucket_name + "/"}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error enabling S3 logging: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def tag_s3_bucket(
+    bucket_name: str,
+    tags: Dict[str, str],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Apply tags to an S3 bucket (replaces all existing tags)."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.put_bucket_tagging(
+            Bucket=bucket_name,
+            Tagging={'TagSet': [{'Key': k, 'Value': v} for k, v in tags.items()]}
+        )
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'tags': tags,
+            'message': f'Tags applied to bucket {bucket_name}: {tags}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error tagging S3 bucket: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_s3_bucket_tags(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Get all tags on an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        response = s3.get_bucket_tagging(Bucket=bucket_name)
+        tags = {t['Key']: t['Value'] for t in response.get('TagSet', [])}
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'tags': tags,
+            'count': len(tags)
+        }
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchTagSet':
+            return {'success': True, 'bucket_name': bucket_name, 'tags': {}, 'count': 0,
+                    'message': 'No tags on this bucket'}
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting S3 bucket tags: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_s3_bucket_tags(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Remove all tags from an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.delete_bucket_tagging(Bucket=bucket_name)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'message': f'All tags removed from bucket {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting S3 bucket tags: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def set_s3_notification(
+    bucket_name: str,
+    lambda_arn: Optional[str] = None,
+    sqs_arn: Optional[str] = None,
+    sns_arn: Optional[str] = None,
+    events: Optional[List[str]] = None,
+    prefix_filter: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Configure event notifications on an S3 bucket to trigger Lambda, SQS, or SNS."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        event_list = events or ['s3:ObjectCreated:*']
+        filters: Dict = {}
+        if prefix_filter:
+            filters = {'Key': {'FilterRules': [{'Name': 'prefix', 'Value': prefix_filter}]}}
+
+        config: Dict = {}
+        if lambda_arn:
+            config['LambdaFunctionConfigurations'] = [{
+                'LambdaFunctionArn': lambda_arn,
+                'Events': event_list,
+                **(({'Filter': filters}) if filters else {})
+            }]
+        if sqs_arn:
+            config['QueueConfigurations'] = [{
+                'QueueArn': sqs_arn,
+                'Events': event_list,
+                **(({'Filter': filters}) if filters else {})
+            }]
+        if sns_arn:
+            config['TopicConfigurations'] = [{
+                'TopicArn': sns_arn,
+                'Events': event_list,
+                **(({'Filter': filters}) if filters else {})
+            }]
+
+        if not config:
+            return {'success': False, 'error': 'Provide at least one of: lambda_arn, sqs_arn, sns_arn'}
+
+        s3.put_bucket_notification_configuration(
+            Bucket=bucket_name,
+            NotificationConfiguration=config
+        )
+        targets = [t for t in [lambda_arn, sqs_arn, sns_arn] if t]
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'events': event_list,
+            'targets': targets,
+            'message': f'Event notifications configured on {bucket_name} for events: {event_list}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error setting S3 notifications: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_s3_lifecycle_policy(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Read the current lifecycle configuration on an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        response = s3.get_bucket_lifecycle_configuration(Bucket=bucket_name)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'rules': response.get('Rules', []),
+            'rules_count': len(response.get('Rules', []))
+        }
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchLifecycleConfiguration':
+            return {'success': True, 'bucket_name': bucket_name, 'rules': [], 'rules_count': 0,
+                    'message': 'No lifecycle configuration on this bucket'}
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting S3 lifecycle policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_s3_lifecycle_policy(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Remove all lifecycle rules from an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.delete_bucket_lifecycle(Bucket=bucket_name)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'message': f'Lifecycle configuration removed from {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting S3 lifecycle policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_s3_replication(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Read the current replication configuration on an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        response = s3.get_bucket_replication(Bucket=bucket_name)
+        config = response.get('ReplicationConfiguration', {})
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'role': config.get('Role', ''),
+            'rules': config.get('Rules', []),
+            'rules_count': len(config.get('Rules', []))
+        }
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ReplicationConfigurationNotFoundError':
+            return {'success': True, 'bucket_name': bucket_name, 'rules': [], 'rules_count': 0,
+                    'message': 'No replication configuration on this bucket'}
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting S3 replication: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_s3_replication(bucket_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Remove the replication configuration from an S3 bucket."""
+    try:
+        s3 = _get_boto_client('s3', region)
+        s3.delete_bucket_replication(Bucket=bucket_name)
+        return {
+            'success': True,
+            'bucket_name': bucket_name,
+            'message': f'Replication configuration removed from {bucket_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting S3 replication: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
 # VPC OPERATIONS
 # ============================================================================
 
@@ -8793,6 +9592,389 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['bucket_name', 'policy']
             },
             'handler': put_s3_bucket_policy
+        },
+        # S3 Extended Operations
+        {
+            'name': 'list_s3_objects',
+            'description': 'List objects in an S3 bucket, optionally filtered by prefix or delimiter',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'prefix': {'type': 'string', 'description': 'Filter by key prefix, e.g. "logs/2024/"'},
+                    'delimiter': {'type': 'string', 'description': 'Group keys by delimiter, e.g. "/"'},
+                    'max_keys': {'type': 'integer', 'description': 'Max objects to return (default 100, max 1000)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': list_s3_objects
+        },
+        {
+            'name': 'upload_s3_object',
+            'description': 'Upload text or JSON content as an S3 object',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Destination bucket'},
+                    'key': {'type': 'string', 'description': 'Object key (path), e.g. "configs/app.json"'},
+                    'content': {'type': 'string', 'description': 'Text or JSON content to upload'},
+                    'content_type': {'type': 'string', 'description': 'MIME type, e.g. text/plain, application/json (default text/plain)'},
+                    'storage_class': {'type': 'string', 'description': 'STANDARD, STANDARD_IA, GLACIER, INTELLIGENT_TIERING (default STANDARD)'},
+                    'metadata': {'type': 'object', 'description': 'Custom metadata key-value pairs'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'key', 'content']
+            },
+            'handler': upload_s3_object
+        },
+        {
+            'name': 'download_s3_object',
+            'description': 'Download and return the text content of an S3 object (up to 100KB). Returns a presigned URL suggestion for binary files.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Source bucket'},
+                    'key': {'type': 'string', 'description': 'Object key'},
+                    'max_bytes': {'type': 'integer', 'description': 'Max bytes to read (default 102400 = 100KB)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'key']
+            },
+            'handler': download_s3_object
+        },
+        {
+            'name': 'delete_s3_object',
+            'description': 'Delete a single object from an S3 bucket (optionally a specific version)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'key': {'type': 'string', 'description': 'Object key to delete'},
+                    'version_id': {'type': 'string', 'description': 'Specific version ID to delete (for versioned buckets)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'key']
+            },
+            'handler': delete_s3_object
+        },
+        {
+            'name': 'delete_s3_objects_batch',
+            'description': 'Delete multiple S3 objects in a single request (up to 1000 at once)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'keys': {'type': 'array', 'items': {'type': 'string'}, 'description': 'List of object keys to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'keys']
+            },
+            'handler': delete_s3_objects_batch
+        },
+        {
+            'name': 'copy_s3_object',
+            'description': 'Copy an S3 object within or across buckets without downloading it',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'source_bucket': {'type': 'string', 'description': 'Source bucket name'},
+                    'source_key': {'type': 'string', 'description': 'Source object key'},
+                    'dest_bucket': {'type': 'string', 'description': 'Destination bucket name'},
+                    'dest_key': {'type': 'string', 'description': 'Destination object key'},
+                    'storage_class': {'type': 'string', 'description': 'Storage class for the copy (optional)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['source_bucket', 'source_key', 'dest_bucket', 'dest_key']
+            },
+            'handler': copy_s3_object
+        },
+        {
+            'name': 'get_s3_object_metadata',
+            'description': 'Get metadata for an S3 object (ContentType, ETag, size, storage class, encryption) without downloading it',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'key': {'type': 'string', 'description': 'Object key'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'key']
+            },
+            'handler': get_s3_object_metadata
+        },
+        {
+            'name': 'generate_s3_presigned_url',
+            'description': 'Generate a time-limited pre-signed URL for secure access to an S3 object without requiring AWS credentials',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'key': {'type': 'string', 'description': 'Object key'},
+                    'operation': {'type': 'string', 'description': 'get_object (download) or put_object (upload) — default: get_object'},
+                    'expires_in': {'type': 'integer', 'description': 'Expiry in seconds (default 3600 = 1 hour, max 604800 = 7 days)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'key']
+            },
+            'handler': generate_s3_presigned_url
+        },
+        {
+            'name': 'get_s3_bucket_policy',
+            'description': 'Read the current IAM bucket policy on an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': get_s3_bucket_policy
+        },
+        {
+            'name': 'delete_s3_bucket_policy',
+            'description': 'Remove the bucket policy from an S3 bucket (reverts to default IAM-only access)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': delete_s3_bucket_policy
+        },
+        {
+            'name': 'set_s3_public_access_block',
+            'description': 'Enable or configure public access block settings on an S3 bucket. Recommended: enable all 4 settings to prevent public exposure.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'block_public_acls': {'type': 'boolean', 'description': 'Block new public ACLs (default true)'},
+                    'ignore_public_acls': {'type': 'boolean', 'description': 'Ignore existing public ACLs (default true)'},
+                    'block_public_policy': {'type': 'boolean', 'description': 'Block public bucket policies (default true)'},
+                    'restrict_public_buckets': {'type': 'boolean', 'description': 'Restrict public access via bucket policy (default true)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': set_s3_public_access_block
+        },
+        {
+            'name': 'set_s3_versioning',
+            'description': 'Enable or suspend versioning on an S3 bucket. Versioning keeps all versions of objects for recovery and audit.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'status': {'type': 'string', 'enum': ['Enabled', 'Suspended'], 'description': 'Versioning status (default Enabled)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': set_s3_versioning
+        },
+        {
+            'name': 'list_s3_object_versions',
+            'description': 'List all versions and delete markers for objects in a versioned S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'prefix': {'type': 'string', 'description': 'Filter by key prefix'},
+                    'max_keys': {'type': 'integer', 'description': 'Max versions to return (default 100)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': list_s3_object_versions
+        },
+        {
+            'name': 'set_s3_default_encryption',
+            'description': 'Enable default server-side encryption on an S3 bucket. Use SSE-S3 (AES256) for AWS-managed keys or SSE-KMS for customer-managed keys.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'sse_algorithm': {'type': 'string', 'enum': ['AES256', 'aws:kms'], 'description': 'Encryption algorithm: AES256 (SSE-S3) or aws:kms (SSE-KMS). Default: AES256'},
+                    'kms_key_id': {'type': 'string', 'description': 'KMS key ARN or ID (only for aws:kms algorithm)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': set_s3_default_encryption
+        },
+        {
+            'name': 'set_s3_website',
+            'description': 'Enable static website hosting on an S3 bucket to serve HTML files publicly',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'index_document': {'type': 'string', 'description': 'Index document filename (default index.html)'},
+                    'error_document': {'type': 'string', 'description': 'Error document filename (default error.html)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': set_s3_website
+        },
+        {
+            'name': 'delete_s3_website',
+            'description': 'Disable static website hosting on an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': delete_s3_website
+        },
+        {
+            'name': 'set_s3_cors',
+            'description': 'Configure CORS rules on an S3 bucket to allow cross-origin web requests (e.g. from a React app)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'allowed_origins': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Allowed origins, e.g. ["https://example.com"] or ["*"]'},
+                    'allowed_methods': {'type': 'array', 'items': {'type': 'string'}, 'description': 'HTTP methods: GET, HEAD, PUT, POST, DELETE (default [GET, HEAD])'},
+                    'allowed_headers': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Allowed request headers, e.g. ["Content-Type", "Authorization"]'},
+                    'max_age_seconds': {'type': 'integer', 'description': 'Browser cache duration for preflight responses (default 3600)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'allowed_origins']
+            },
+            'handler': set_s3_cors
+        },
+        {
+            'name': 'set_s3_logging',
+            'description': 'Enable server access logging on an S3 bucket, writing request logs to a target bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Source bucket to enable logging on'},
+                    'target_bucket': {'type': 'string', 'description': 'Destination bucket to receive log files'},
+                    'target_prefix': {'type': 'string', 'description': 'Key prefix for log files (default: source bucket name + "/")'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'target_bucket']
+            },
+            'handler': set_s3_logging
+        },
+        {
+            'name': 'tag_s3_bucket',
+            'description': 'Apply metadata tags to an S3 bucket (replaces all existing tags)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'tags': {'type': 'object', 'description': 'Tag key-value pairs, e.g. {"Environment":"production","Team":"platform"}'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name', 'tags']
+            },
+            'handler': tag_s3_bucket
+        },
+        {
+            'name': 'get_s3_bucket_tags',
+            'description': 'Read all tags on an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': get_s3_bucket_tags
+        },
+        {
+            'name': 'delete_s3_bucket_tags',
+            'description': 'Remove all tags from an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': delete_s3_bucket_tags
+        },
+        {
+            'name': 'set_s3_notification',
+            'description': 'Configure event notifications on an S3 bucket to trigger Lambda, SQS, or SNS on object events (create, delete, restore, etc.)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'lambda_arn': {'type': 'string', 'description': 'Lambda function ARN to invoke on events'},
+                    'sqs_arn': {'type': 'string', 'description': 'SQS queue ARN to send events to'},
+                    'sns_arn': {'type': 'string', 'description': 'SNS topic ARN to publish events to'},
+                    'events': {'type': 'array', 'items': {'type': 'string'}, 'description': 'S3 event types, e.g. ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"] (default: ObjectCreated:*)'},
+                    'prefix_filter': {'type': 'string', 'description': 'Only trigger for keys with this prefix'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': set_s3_notification
+        },
+        {
+            'name': 'get_s3_lifecycle_policy',
+            'description': 'Read the current lifecycle configuration (rules) on an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': get_s3_lifecycle_policy
+        },
+        {
+            'name': 'delete_s3_lifecycle_policy',
+            'description': 'Remove all lifecycle rules from an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': delete_s3_lifecycle_policy
+        },
+        {
+            'name': 'get_s3_replication',
+            'description': 'Read the current replication configuration on an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': get_s3_replication
+        },
+        {
+            'name': 'delete_s3_replication',
+            'description': 'Remove the replication configuration from an S3 bucket',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'bucket_name': {'type': 'string', 'description': 'Bucket name'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['bucket_name']
+            },
+            'handler': delete_s3_replication
         },
         {
             'name': 'get_eks_clusters',
