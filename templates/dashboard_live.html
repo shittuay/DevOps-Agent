@@ -1457,6 +1457,18 @@
                 });
                 var data = await res.json();
 
+                // Inline sync (no Celery) — already complete
+                if (data.status === 'complete') {
+                    showToast('Infrastructure sync complete', 'success');
+                    $('dashContent').style.display = 'none';
+                    $('emptyState').style.display = 'none';
+                    $('loadingState').style.display = 'flex';
+                    utilCache = {};
+                    await loadDashboard();
+                    resetBtn();
+                    return;
+                }
+
                 if (!data.task_id) {
                     showToast('Sync failed: ' + (data.error || 'Unknown error'), 'error');
                     resetBtn();
