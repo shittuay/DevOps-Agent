@@ -1669,7 +1669,7 @@ def update_configmap(
 
 # ---- Secrets Extended ----
 
-def list_secrets(namespace: str = 'default', context: Optional[str] = None) -> Dict[str, Any]:
+def list_k8s_secrets(namespace: str = 'default', context: Optional[str] = None) -> Dict[str, Any]:
     """List all secrets in a namespace (keys only, values not exposed)."""
     try:
         v1, _ = _get_k8s_client(context)
@@ -3239,7 +3239,7 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         # ---- Secret Extended ----
         {
-            'name': 'list_secrets',
+            'name': 'list_k8s_secrets',
             'description': 'List all Secrets in a namespace (shows names and types only, not values).',
             'input_schema': {
                 'type': 'object',
@@ -3248,7 +3248,7 @@ def get_tools() -> List[Dict[str, Any]]:
                     'context': {'type': 'string', 'description': 'Kubernetes context to use'}
                 }
             },
-            'handler': list_secrets
+            'handler': list_k8s_secrets
         },
         {
             'name': 'update_k8s_secret',
