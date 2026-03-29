@@ -1042,6 +1042,111 @@ def _mock_nexus(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     return {'success': True, 'simulated': True, 'message': f'[Sandbox] Nexus "{tool_name}" completed successfully'}
 
 
+def _mock_vpc_extended(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Mock VPC extended operations."""
+    tn = tool_name
+    vpc_id = tool_input.get('vpc_id', 'vpc-0abc123456789def0')
+    subnet_id = tool_input.get('subnet_id', 'subnet-0abc123456789def0')
+    group_id = tool_input.get('group_id', 'sg-0abc123456789def0')
+
+    if tn in ('tag_vpc', 'tag_subnet', 'tag_security_group'):
+        resource = vpc_id if 'vpc' in tn else (subnet_id if 'subnet' in tn else group_id)
+        return {'success': True, 'simulated': True,
+                'resource_id': resource, 'tags': tool_input.get('tags', {}),
+                'message': f'[Sandbox] Tags applied to {resource}'}
+    if tn == 'enable_vpc_flow_logs':
+        return {
+            'success': True, 'simulated': True,
+            'vpc_id': vpc_id, 'flow_log_ids': ['fl-' + _rand_id(length=17)],
+            'destination_type': tool_input.get('destination_type', 'cloud-watch-logs'),
+            'traffic_type': tool_input.get('traffic_type', 'ALL'),
+            'message': f'[Sandbox] Flow logs enabled for VPC {vpc_id}'
+        }
+    if tn == 'disable_vpc_flow_logs':
+        flow_log_id = tool_input.get('flow_log_id', 'fl-sandbox')
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Flow log {flow_log_id} deleted'}
+    if tn == 'list_vpc_flow_logs':
+        return {
+            'success': True, 'simulated': True,
+            'flow_logs': [
+                {'flow_log_id': 'fl-' + _rand_id(length=17), 'resource_id': vpc_id,
+                 'traffic_type': 'ALL', 'log_destination_type': 'cloud-watch-logs',
+                 'log_destination': f'/aws/vpc/flowlogs/{vpc_id}', 'flow_log_status': 'ACTIVE'},
+            ], 'count': 1
+        }
+    if tn in ('attach_internet_gateway',):
+        igw_id = tool_input.get('igw_id', 'igw-sandbox')
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] IGW {igw_id} attached to VPC {vpc_id}'}
+    if tn in ('detach_internet_gateway',):
+        igw_id = tool_input.get('igw_id', 'igw-sandbox')
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] IGW {igw_id} detached from VPC {vpc_id}'}
+    if tn == 'add_route':
+        rtb_id = tool_input.get('route_table_id', 'rtb-sandbox')
+        dest = tool_input.get('destination_cidr', '0.0.0.0/0')
+        return {'success': True, 'simulated': True,
+                'route_table_id': rtb_id, 'destination_cidr': dest,
+                'message': f'[Sandbox] Route {dest} added to {rtb_id}'}
+    if tn == 'replace_route':
+        rtb_id = tool_input.get('route_table_id', 'rtb-sandbox')
+        dest = tool_input.get('destination_cidr', '0.0.0.0/0')
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Route {dest} in {rtb_id} updated'}
+    if tn == 'set_main_route_table':
+        rtb_id = tool_input.get('route_table_id', 'rtb-sandbox')
+        return {'success': True, 'simulated': True,
+                'route_table_id': rtb_id, 'vpc_id': vpc_id,
+                'new_association_id': 'rtbassoc-' + _rand_id(length=17),
+                'message': f'[Sandbox] Route table {rtb_id} set as main for VPC {vpc_id}'}
+    if tn == 'authorize_security_group_egress':
+        return {
+            'success': True, 'simulated': True, 'group_id': group_id,
+            'protocol': tool_input.get('protocol', 'tcp'),
+            'ports': f"{tool_input.get('from_port', 0)}-{tool_input.get('to_port', 65535)}",
+            'message': f'[Sandbox] Outbound rule added to {group_id}'
+        }
+    if tn == 'revoke_security_group_egress':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Outbound rule removed from {group_id}'}
+    if tn == 'audit_security_group_rules':
+        return {
+            'success': True, 'simulated': True,
+            'findings': [
+                {'group_id': 'sg-0abc123456789def0', 'group_name': 'web-sg', 'vpc_id': vpc_id,
+                 'protocol': 'tcp', 'ports': '22', 'cidr': '0.0.0.0/0',
+                 'direction': 'inbound', 'risk': 'CRITICAL'},
+                {'group_id': 'sg-0abc123456789def1', 'group_name': 'app-sg', 'vpc_id': vpc_id,
+                 'protocol': 'tcp', 'ports': '8080', 'cidr': '0.0.0.0/0',
+                 'direction': 'inbound', 'risk': 'HIGH'},
+            ],
+            'total_findings': 2, 'critical': 1, 'high': 1,
+            'message': '[Sandbox] Found 2 overly permissive inbound rules — SSH on port 22 open to 0.0.0.0/0 is CRITICAL'
+        }
+    if tn == 'accept_vpc_peering':
+        pcx_id = tool_input.get('peering_connection_id', 'pcx-sandbox')
+        return {
+            'success': True, 'simulated': True,
+            'peering_connection_id': pcx_id, 'status': 'active',
+            'message': f'[Sandbox] Peering {pcx_id} accepted — update route tables to route peered VPC traffic'
+        }
+    if tn == 'attach_eni':
+        eni_id = tool_input.get('network_interface_id', 'eni-sandbox')
+        inst_id = tool_input.get('instance_id', 'i-sandbox')
+        return {
+            'success': True, 'simulated': True,
+            'network_interface_id': eni_id, 'instance_id': inst_id,
+            'attachment_id': 'eni-attach-' + _rand_id(length=17),
+            'message': f'[Sandbox] ENI {eni_id} attached to {inst_id}'
+        }
+    if tn == 'detach_eni':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] ENI attachment {tool_input.get("attachment_id", "eni-attach-sandbox")} detached'}
+
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} executed'}
+
+
 def _mock_iam(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     """Mock IAM extended operations."""
     tn = tool_name
@@ -1312,6 +1417,20 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
         return _mock_gcp(tn, tool_input)
     if is_iam_extended:
         return _mock_iam(tn, tool_input)
+
+    # VPC extended operations (must come before generic AWS handlers)
+    is_vpc_extended = any(k in tn for k in (
+        'enable_vpc_flow', 'disable_vpc_flow', 'list_vpc_flow',
+        'attach_internet_gateway', 'detach_internet_gateway',
+        'add_route', 'replace_route', 'set_main_route',
+        'authorize_security_group_egress', 'revoke_security_group_egress',
+        'audit_security_group',
+        'accept_vpc_peering',
+        'attach_eni', 'detach_eni',
+        'tag_vpc', 'tag_subnet', 'tag_security_group',
+    ))
+    if is_vpc_extended:
+        return _mock_vpc_extended(tn, tool_input)
 
     # AWS / generic — categorize by operation type
     if tn.startswith('list_') or tn.startswith('get_') and 'list' in tn:
