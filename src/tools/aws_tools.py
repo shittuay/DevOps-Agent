@@ -596,56 +596,6 @@ def get_cloudwatch_logs(
         }
 
 
-def create_cloudwatch_alarm(
-    alarm_name: str,
-    metric_name: str,
-    namespace: str,
-    statistic: str = 'Average',
-    period: int = 300,
-    evaluation_periods: int = 1,
-    threshold: float = 80.0,
-    comparison_operator: str = 'GreaterThanThreshold',
-    dimensions: Optional[List[Dict[str, str]]] = None,
-    alarm_actions: Optional[List[str]] = None,
-    description: Optional[str] = None,
-    region: Optional[str] = None
-) -> Dict[str, Any]:
-    """Create a CloudWatch metric alarm."""
-    try:
-        cw = _get_boto_client('cloudwatch', region)
-        params = {
-            'AlarmName': alarm_name,
-            'MetricName': metric_name,
-            'Namespace': namespace,
-            'Statistic': statistic,
-            'Period': period,
-            'EvaluationPeriods': evaluation_periods,
-            'Threshold': threshold,
-            'ComparisonOperator': comparison_operator,
-        }
-        if dimensions:
-            params['Dimensions'] = [{'Name': d['name'], 'Value': d['value']} for d in dimensions]
-        if alarm_actions:
-            params['AlarmActions'] = alarm_actions
-        if description:
-            params['AlarmDescription'] = description
-
-        cw.put_metric_alarm(**params)
-        return {
-            'success': True, 'alarm_name': alarm_name, 'metric_name': metric_name,
-            'namespace': namespace, 'threshold': threshold,
-            'comparison_operator': comparison_operator,
-            'message': f'Successfully created CloudWatch alarm {alarm_name}',
-            'region': region or 'default'
-        }
-    except ClientError as e:
-        logger.error(f"AWS API error: {str(e)}")
-        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
-    except Exception as e:
-        logger.error(f"Error creating CloudWatch alarm: {str(e)}", exc_info=True)
-        return {'success': False, 'error': str(e)}
-
-
 def list_iam_users() -> Dict[str, Any]:
     """
     List IAM users.
@@ -14371,50 +14321,6 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['network_interface_id']
             },
             'handler': delete_eni
-        },
-        # ---- CloudWatch ----
-        {
-            'name': 'create_cloudwatch_alarm',
-            'description': (
-                'Create a CloudWatch metric alarm for monitoring. '
-                'Common namespaces: AWS/EC2, AWS/RDS, AWS/ELB, AWS/Lambda.'
-            ),
-            'input_schema': {
-                'type': 'object',
-                'properties': {
-                    'alarm_name': {'type': 'string', 'description': 'Alarm name'},
-                    'metric_name': {'type': 'string', 'description': 'Metric name (e.g., CPUUtilization, DatabaseConnections)'},
-                    'namespace': {'type': 'string', 'description': 'Metric namespace (e.g., AWS/EC2, AWS/RDS)'},
-                    'statistic': {'type': 'string', 'enum': ['Average', 'Sum', 'Minimum', 'Maximum', 'SampleCount'], 'default': 'Average'},
-                    'period': {'type': 'integer', 'description': 'Period in seconds (default: 300)', 'default': 300},
-                    'evaluation_periods': {'type': 'integer', 'description': 'Evaluation periods (default: 1)', 'default': 1},
-                    'threshold': {'type': 'number', 'description': 'Threshold value (default: 80)', 'default': 80},
-                    'comparison_operator': {
-                        'type': 'string',
-                        'enum': ['GreaterThanThreshold', 'LessThanThreshold', 'GreaterThanOrEqualToThreshold', 'LessThanOrEqualToThreshold'],
-                        'default': 'GreaterThanThreshold'
-                    },
-                    'dimensions': {
-                        'type': 'array',
-                        'items': {
-                            'type': 'object',
-                            'properties': {
-                                'name': {'type': 'string'}, 'value': {'type': 'string'}
-                            },
-                            'required': ['name', 'value']
-                        },
-                        'description': 'Dimensions (e.g., [{"name": "InstanceId", "value": "i-xxx"}])'
-                    },
-                    'alarm_actions': {
-                        'type': 'array', 'items': {'type': 'string'},
-                        'description': 'SNS topic ARNs to notify on alarm'
-                    },
-                    'description': {'type': 'string', 'description': 'Alarm description'},
-                    'region': {'type': 'string', 'description': 'AWS region'}
-                },
-                'required': ['alarm_name', 'metric_name', 'namespace']
-            },
-            'handler': create_cloudwatch_alarm
         },
         # ---- Route 53 DNS ----
         {
