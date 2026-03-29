@@ -842,6 +842,888 @@ def delete_iam_role(role_name: str) -> Dict[str, Any]:
 
 
 # ============================================================================
+# IAM EXTENDED OPERATIONS
+# ============================================================================
+
+# --- Users ---
+
+def create_iam_user(
+    username: str,
+    path: Optional[str] = None,
+    tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Create a new IAM user."""
+    try:
+        iam = _get_boto_client('iam')
+        params: Dict = {'UserName': username}
+        if path:
+            params['Path'] = path
+        if tags:
+            params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
+        response = iam.create_user(**params)
+        user = response['User']
+        return {
+            'success': True, 'username': username,
+            'user_id': user['UserId'], 'arn': user['Arn'],
+            'message': f'IAM user "{username}" created'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating IAM user: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_iam_user(username: str) -> Dict[str, Any]:
+    """Get details of a specific IAM user including groups and attached policies."""
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.get_user(UserName=username)
+        user = response['User']
+
+        groups = [g['GroupName'] for g in iam.list_groups_for_user(UserName=username).get('Groups', [])]
+        attached = [p['PolicyName'] for p in iam.list_attached_user_policies(UserName=username).get('AttachedPolicies', [])]
+        inline = iam.list_user_policies(UserName=username).get('PolicyNames', [])
+
+        login_profile = None
+        try:
+            iam.get_login_profile(UserName=username)
+            login_profile = 'enabled'
+        except ClientError:
+            login_profile = 'disabled'
+
+        return {
+            'success': True, 'username': username,
+            'user_id': user['UserId'], 'arn': user['Arn'],
+            'created': str(user['CreateDate']),
+            'console_access': login_profile,
+            'groups': groups, 'attached_policies': attached, 'inline_policies': inline,
+            'tags': {t['Key']: t['Value'] for t in user.get('Tags', [])}
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting IAM user: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_iam_user(username: str) -> Dict[str, Any]:
+    """
+    Delete an IAM user and all associated resources (access keys, login profile,
+    group memberships, policy attachments, MFA devices).
+    """
+    try:
+        iam = _get_boto_client('iam')
+
+        # Delete access keys
+        for key in iam.list_access_keys(UserName=username).get('AccessKeyMetadata', []):
+            iam.delete_access_key(UserName=username, AccessKeyId=key['AccessKeyId'])
+
+        # Delete login profile
+        try:
+            iam.delete_login_profile(UserName=username)
+        except ClientError:
+            pass
+
+        # Deactivate and delete MFA devices
+        for device in iam.list_mfa_devices(UserName=username).get('MFADevices', []):
+            iam.deactivate_mfa_device(UserName=username, SerialNumber=device['SerialNumber'])
+            if device['SerialNumber'].startswith('arn'):
+                try:
+                    iam.delete_virtual_mfa_device(SerialNumber=device['SerialNumber'])
+                except ClientError:
+                    pass
+
+        # Remove from groups
+        for group in iam.list_groups_for_user(UserName=username).get('Groups', []):
+            iam.remove_user_from_group(GroupName=group['GroupName'], UserName=username)
+
+        # Detach managed policies
+        for policy in iam.list_attached_user_policies(UserName=username).get('AttachedPolicies', []):
+            iam.detach_user_policy(UserName=username, PolicyArn=policy['PolicyArn'])
+
+        # Delete inline policies
+        for policy_name in iam.list_user_policies(UserName=username).get('PolicyNames', []):
+            iam.delete_user_policy(UserName=username, PolicyName=policy_name)
+
+        iam.delete_user(UserName=username)
+        return {
+            'success': True, 'username': username,
+            'message': f'IAM user "{username}" and all associated resources deleted'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting IAM user: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_iam_login_profile(
+    username: str,
+    password: str,
+    password_reset_required: bool = True
+) -> Dict[str, Any]:
+    """Enable AWS console access for an IAM user by creating a login profile."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.create_login_profile(
+            UserName=username, Password=password,
+            PasswordResetRequired=password_reset_required
+        )
+        return {
+            'success': True, 'username': username,
+            'password_reset_required': password_reset_required,
+            'message': f'Console access enabled for "{username}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating login profile: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_iam_login_profile(username: str) -> Dict[str, Any]:
+    """Disable AWS console access for an IAM user."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.delete_login_profile(UserName=username)
+        return {
+            'success': True, 'username': username,
+            'message': f'Console access disabled for "{username}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting login profile: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def tag_iam_user(username: str, tags: Dict[str, str]) -> Dict[str, Any]:
+    """Apply tags to an IAM user."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.tag_user(UserName=username, Tags=[{'Key': k, 'Value': v} for k, v in tags.items()])
+        return {
+            'success': True, 'username': username, 'tags': tags,
+            'message': f'Tags applied to IAM user "{username}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error tagging IAM user: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# --- Access Keys ---
+
+def create_iam_access_key(username: str) -> Dict[str, Any]:
+    """Create a new programmatic access key for an IAM user. Returns secret key once — save it."""
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.create_access_key(UserName=username)
+        key = response['AccessKey']
+        return {
+            'success': True, 'username': username,
+            'access_key_id': key['AccessKeyId'],
+            'secret_access_key': key['SecretAccessKey'],
+            'status': key['Status'],
+            'warning': 'Save the SecretAccessKey now — it cannot be retrieved again.',
+            'message': f'Access key {key["AccessKeyId"]} created for "{username}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating access key: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_iam_access_keys(username: str) -> Dict[str, Any]:
+    """List all access keys for an IAM user with their status and creation date."""
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.list_access_keys(UserName=username)
+        keys = [
+            {
+                'access_key_id': k['AccessKeyId'],
+                'status': k['Status'],
+                'created': str(k['CreateDate'])
+            }
+            for k in response.get('AccessKeyMetadata', [])
+        ]
+        return {
+            'success': True, 'username': username,
+            'access_keys': keys, 'count': len(keys)
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing access keys: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_iam_access_key(username: str, access_key_id: str) -> Dict[str, Any]:
+    """Delete an IAM access key."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.delete_access_key(UserName=username, AccessKeyId=access_key_id)
+        return {
+            'success': True, 'username': username, 'access_key_id': access_key_id,
+            'message': f'Access key {access_key_id} deleted for "{username}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting access key: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def update_iam_access_key(username: str, access_key_id: str, status: str) -> Dict[str, Any]:
+    """Activate or deactivate an IAM access key without deleting it."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.update_access_key(UserName=username, AccessKeyId=access_key_id, Status=status)
+        return {
+            'success': True, 'username': username,
+            'access_key_id': access_key_id, 'new_status': status,
+            'message': f'Access key {access_key_id} set to {status} for "{username}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error updating access key: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_access_key_last_used(access_key_id: str) -> Dict[str, Any]:
+    """Check when an access key was last used and which service/region it accessed."""
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.get_access_key_last_used(AccessKeyId=access_key_id)
+        last_used = response.get('AccessKeyLastUsed', {})
+        return {
+            'success': True, 'access_key_id': access_key_id,
+            'username': response.get('UserName', ''),
+            'last_used_date': str(last_used.get('LastUsedDate', 'Never')),
+            'service_name': last_used.get('ServiceName', 'N/A'),
+            'region': last_used.get('Region', 'N/A')
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting key last used: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# --- Groups ---
+
+def create_iam_group(group_name: str, path: Optional[str] = None) -> Dict[str, Any]:
+    """Create a new IAM group."""
+    try:
+        iam = _get_boto_client('iam')
+        params: Dict = {'GroupName': group_name}
+        if path:
+            params['Path'] = path
+        response = iam.create_group(**params)
+        group = response['Group']
+        return {
+            'success': True, 'group_name': group_name,
+            'group_id': group['GroupId'], 'arn': group['Arn'],
+            'message': f'IAM group "{group_name}" created'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating IAM group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_iam_groups() -> Dict[str, Any]:
+    """List all IAM groups in the account."""
+    try:
+        iam = _get_boto_client('iam')
+        paginator = iam.get_paginator('list_groups')
+        groups = []
+        for page in paginator.paginate():
+            for g in page['Groups']:
+                groups.append({
+                    'group_name': g['GroupName'],
+                    'group_id': g['GroupId'],
+                    'arn': g['Arn'],
+                    'created': str(g['CreateDate'])
+                })
+        return {'success': True, 'groups': groups, 'count': len(groups)}
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing IAM groups: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_iam_group(group_name: str) -> Dict[str, Any]:
+    """Delete an IAM group. Removes all members and policy attachments first."""
+    try:
+        iam = _get_boto_client('iam')
+
+        # Remove all users from the group
+        for user in iam.get_group(GroupName=group_name).get('Users', []):
+            iam.remove_user_from_group(GroupName=group_name, UserName=user['UserName'])
+
+        # Detach managed policies
+        for policy in iam.list_attached_group_policies(GroupName=group_name).get('AttachedPolicies', []):
+            iam.detach_group_policy(GroupName=group_name, PolicyArn=policy['PolicyArn'])
+
+        # Delete inline policies
+        for policy_name in iam.list_group_policies(GroupName=group_name).get('PolicyNames', []):
+            iam.delete_group_policy(GroupName=group_name, PolicyName=policy_name)
+
+        iam.delete_group(GroupName=group_name)
+        return {
+            'success': True, 'group_name': group_name,
+            'message': f'IAM group "{group_name}" deleted'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting IAM group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def add_iam_user_to_group(username: str, group_name: str) -> Dict[str, Any]:
+    """Add an IAM user to a group."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.add_user_to_group(GroupName=group_name, UserName=username)
+        return {
+            'success': True, 'username': username, 'group_name': group_name,
+            'message': f'User "{username}" added to group "{group_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error adding user to group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def remove_iam_user_from_group(username: str, group_name: str) -> Dict[str, Any]:
+    """Remove an IAM user from a group."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.remove_user_from_group(GroupName=group_name, UserName=username)
+        return {
+            'success': True, 'username': username, 'group_name': group_name,
+            'message': f'User "{username}" removed from group "{group_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error removing user from group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_iam_groups_for_user(username: str) -> Dict[str, Any]:
+    """List all IAM groups a user belongs to."""
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.list_groups_for_user(UserName=username)
+        groups = [
+            {'group_name': g['GroupName'], 'group_id': g['GroupId'], 'arn': g['Arn']}
+            for g in response.get('Groups', [])
+        ]
+        return {
+            'success': True, 'username': username,
+            'groups': groups, 'count': len(groups)
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing groups for user: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# --- Roles ---
+
+def get_iam_role(role_name: str) -> Dict[str, Any]:
+    """Get details of an IAM role including trust policy and attached policies."""
+    try:
+        import json as _json
+        iam = _get_boto_client('iam')
+        response = iam.get_role(RoleName=role_name)
+        role = response['Role']
+
+        attached = [
+            {'policy_name': p['PolicyName'], 'policy_arn': p['PolicyArn']}
+            for p in iam.list_attached_role_policies(RoleName=role_name).get('AttachedPolicies', [])
+        ]
+        inline = iam.list_role_policies(RoleName=role_name).get('PolicyNames', [])
+
+        trust_policy = role.get('AssumeRolePolicyDocument', {})
+        if isinstance(trust_policy, str):
+            from urllib.parse import unquote
+            trust_policy = _json.loads(unquote(trust_policy))
+
+        return {
+            'success': True, 'role_name': role_name,
+            'role_id': role['RoleId'], 'arn': role['Arn'],
+            'created': str(role['CreateDate']),
+            'trust_policy': trust_policy,
+            'attached_policies': attached,
+            'inline_policies': inline,
+            'tags': {t['Key']: t['Value'] for t in role.get('Tags', [])}
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting IAM role: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def update_iam_role_trust_policy(role_name: str, trust_policy: Dict) -> Dict[str, Any]:
+    """Update the trust policy (assume role policy) of an IAM role."""
+    try:
+        import json as _json
+        iam = _get_boto_client('iam')
+        iam.update_assume_role_policy(
+            RoleName=role_name,
+            PolicyDocument=_json.dumps(trust_policy)
+        )
+        return {
+            'success': True, 'role_name': role_name,
+            'message': f'Trust policy updated for role "{role_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error updating trust policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def assume_iam_role(
+    role_arn: str,
+    session_name: str,
+    duration_seconds: int = 3600,
+    external_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Assume an IAM role and return temporary credentials via STS."""
+    try:
+        sts = _get_boto_client('sts')
+        params: Dict = {
+            'RoleArn': role_arn,
+            'RoleSessionName': session_name,
+            'DurationSeconds': duration_seconds
+        }
+        if external_id:
+            params['ExternalId'] = external_id
+        response = sts.assume_role(**params)
+        creds = response['Credentials']
+        return {
+            'success': True, 'role_arn': role_arn, 'session_name': session_name,
+            'access_key_id': creds['AccessKeyId'],
+            'secret_access_key': creds['SecretAccessKey'],
+            'session_token': creds['SessionToken'],
+            'expiration': str(creds['Expiration']),
+            'message': f'Assumed role {role_arn} — credentials expire at {creds["Expiration"]}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error assuming role: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def tag_iam_role(role_name: str, tags: Dict[str, str]) -> Dict[str, Any]:
+    """Apply tags to an IAM role."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.tag_role(RoleName=role_name, Tags=[{'Key': k, 'Value': v} for k, v in tags.items()])
+        return {
+            'success': True, 'role_name': role_name, 'tags': tags,
+            'message': f'Tags applied to IAM role "{role_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error tagging IAM role: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# --- Policies ---
+
+def list_iam_policies(scope: str = 'Local', max_items: int = 100) -> Dict[str, Any]:
+    """
+    List IAM managed policies.
+    scope: 'Local' (customer-managed only), 'AWS' (AWS-managed only), or 'All'
+    """
+    try:
+        iam = _get_boto_client('iam')
+        paginator = iam.get_paginator('list_policies')
+        policies = []
+        for page in paginator.paginate(Scope=scope, MaxItems=max_items):
+            for p in page['Policies']:
+                policies.append({
+                    'policy_name': p['PolicyName'],
+                    'policy_id': p['PolicyId'],
+                    'arn': p['Arn'],
+                    'attachment_count': p['AttachmentCount'],
+                    'created': str(p['CreateDate']),
+                    'updated': str(p['UpdateDate'])
+                })
+            if len(policies) >= max_items:
+                break
+        return {'success': True, 'policies': policies[:max_items], 'count': len(policies[:max_items])}
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing IAM policies: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_iam_policy(policy_arn: str) -> Dict[str, Any]:
+    """Get details and the current policy document for an IAM managed policy."""
+    try:
+        import json as _json
+        iam = _get_boto_client('iam')
+        policy = iam.get_policy(PolicyArn=policy_arn)['Policy']
+        version = iam.get_policy_version(
+            PolicyArn=policy_arn, VersionId=policy['DefaultVersionId']
+        )['PolicyVersion']
+        return {
+            'success': True, 'policy_name': policy['PolicyName'],
+            'arn': policy_arn,
+            'attachment_count': policy['AttachmentCount'],
+            'default_version': policy['DefaultVersionId'],
+            'document': version['Document'],
+            'created': str(policy['CreateDate'])
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting IAM policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_iam_policy(policy_arn: str) -> Dict[str, Any]:
+    """Delete a customer-managed IAM policy. Detaches from all entities first."""
+    try:
+        iam = _get_boto_client('iam')
+
+        # Detach from all entities
+        entities = iam.list_entities_for_policy(PolicyArn=policy_arn)
+        for user in entities.get('PolicyUsers', []):
+            iam.detach_user_policy(UserName=user['UserName'], PolicyArn=policy_arn)
+        for group in entities.get('PolicyGroups', []):
+            iam.detach_group_policy(GroupName=group['GroupName'], PolicyArn=policy_arn)
+        for role in entities.get('PolicyRoles', []):
+            iam.detach_role_policy(RoleName=role['RoleName'], PolicyArn=policy_arn)
+
+        # Delete non-default versions first
+        for version in iam.list_policy_versions(PolicyArn=policy_arn).get('Versions', []):
+            if not version['IsDefaultVersion']:
+                iam.delete_policy_version(PolicyArn=policy_arn, VersionId=version['VersionId'])
+
+        iam.delete_policy(PolicyArn=policy_arn)
+        return {
+            'success': True, 'policy_arn': policy_arn,
+            'message': f'Policy {policy_arn} deleted'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting IAM policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def attach_iam_user_policy(username: str, policy_arn: str) -> Dict[str, Any]:
+    """Attach a managed policy directly to an IAM user."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.attach_user_policy(UserName=username, PolicyArn=policy_arn)
+        return {
+            'success': True, 'username': username, 'policy_arn': policy_arn,
+            'message': f'Policy {policy_arn} attached to user "{username}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error attaching policy to user: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def attach_iam_group_policy(group_name: str, policy_arn: str) -> Dict[str, Any]:
+    """Attach a managed policy to an IAM group."""
+    try:
+        iam = _get_boto_client('iam')
+        iam.attach_group_policy(GroupName=group_name, PolicyArn=policy_arn)
+        return {
+            'success': True, 'group_name': group_name, 'policy_arn': policy_arn,
+            'message': f'Policy {policy_arn} attached to group "{group_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error attaching policy to group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def detach_iam_policy(entity_type: str, entity_name: str, policy_arn: str) -> Dict[str, Any]:
+    """
+    Detach a managed policy from a user, group, or role.
+    entity_type: 'user', 'group', or 'role'
+    """
+    try:
+        iam = _get_boto_client('iam')
+        if entity_type == 'user':
+            iam.detach_user_policy(UserName=entity_name, PolicyArn=policy_arn)
+        elif entity_type == 'group':
+            iam.detach_group_policy(GroupName=entity_name, PolicyArn=policy_arn)
+        elif entity_type == 'role':
+            iam.detach_role_policy(RoleName=entity_name, PolicyArn=policy_arn)
+        else:
+            return {'success': False, 'error': 'entity_type must be user, group, or role'}
+        return {
+            'success': True, 'entity_type': entity_type,
+            'entity_name': entity_name, 'policy_arn': policy_arn,
+            'message': f'Policy {policy_arn} detached from {entity_type} "{entity_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error detaching policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def put_iam_inline_policy(
+    entity_type: str,
+    entity_name: str,
+    policy_name: str,
+    policy_document: Dict
+) -> Dict[str, Any]:
+    """
+    Embed an inline policy directly into a user, group, or role.
+    entity_type: 'user', 'group', or 'role'
+    """
+    try:
+        import json as _json
+        iam = _get_boto_client('iam')
+        doc = _json.dumps(policy_document)
+        if entity_type == 'user':
+            iam.put_user_policy(UserName=entity_name, PolicyName=policy_name, PolicyDocument=doc)
+        elif entity_type == 'group':
+            iam.put_group_policy(GroupName=entity_name, PolicyName=policy_name, PolicyDocument=doc)
+        elif entity_type == 'role':
+            iam.put_role_policy(RoleName=entity_name, PolicyName=policy_name, PolicyDocument=doc)
+        else:
+            return {'success': False, 'error': 'entity_type must be user, group, or role'}
+        return {
+            'success': True, 'entity_type': entity_type,
+            'entity_name': entity_name, 'policy_name': policy_name,
+            'message': f'Inline policy "{policy_name}" applied to {entity_type} "{entity_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error putting inline policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_iam_inline_policy(
+    entity_type: str,
+    entity_name: str,
+    policy_name: str
+) -> Dict[str, Any]:
+    """Remove an inline policy from a user, group, or role."""
+    try:
+        iam = _get_boto_client('iam')
+        if entity_type == 'user':
+            iam.delete_user_policy(UserName=entity_name, PolicyName=policy_name)
+        elif entity_type == 'group':
+            iam.delete_group_policy(GroupName=entity_name, PolicyName=policy_name)
+        elif entity_type == 'role':
+            iam.delete_role_policy(RoleName=entity_name, PolicyName=policy_name)
+        else:
+            return {'success': False, 'error': 'entity_type must be user, group, or role'}
+        return {
+            'success': True, 'entity_type': entity_type,
+            'entity_name': entity_name, 'policy_name': policy_name,
+            'message': f'Inline policy "{policy_name}" deleted from {entity_type} "{entity_name}"'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting inline policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_attached_role_policies(role_name: str) -> Dict[str, Any]:
+    """List all managed policies attached to an IAM role."""
+    try:
+        iam = _get_boto_client('iam')
+        managed = [
+            {'policy_name': p['PolicyName'], 'policy_arn': p['PolicyArn']}
+            for p in iam.list_attached_role_policies(RoleName=role_name).get('AttachedPolicies', [])
+        ]
+        inline = iam.list_role_policies(RoleName=role_name).get('PolicyNames', [])
+        return {
+            'success': True, 'role_name': role_name,
+            'managed_policies': managed, 'managed_count': len(managed),
+            'inline_policies': inline, 'inline_count': len(inline)
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing role policies: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# --- Audit ---
+
+def generate_iam_credential_report() -> Dict[str, Any]:
+    """Trigger generation of the IAM credential report (CSV of all users and credential status)."""
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.generate_credential_report()
+        return {
+            'success': True,
+            'state': response['State'],
+            'description': response.get('Description', ''),
+            'message': f'Credential report generation: {response["State"]}. Call get_iam_credential_report to retrieve it.'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error generating credential report: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_iam_credential_report() -> Dict[str, Any]:
+    """Download and parse the IAM credential report as structured data."""
+    try:
+        import csv, io
+        iam = _get_boto_client('iam')
+        response = iam.get_credential_report()
+        content = response['Content'].decode('utf-8')
+        reader = csv.DictReader(io.StringIO(content))
+        users = list(reader)
+        return {
+            'success': True,
+            'generated_time': str(response['GeneratedTime']),
+            'users': users,
+            'count': len(users)
+        }
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ReportNotPresent':
+            return {'success': False, 'error': 'No credential report available. Call generate_iam_credential_report first.'}
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting credential report: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_iam_account_summary() -> Dict[str, Any]:
+    """Get IAM usage statistics and limits for the account."""
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.get_account_summary()
+        summary = response.get('SummaryMap', {})
+        return {
+            'success': True,
+            'users': summary.get('Users', 0),
+            'users_quota': summary.get('UsersQuota', 5000),
+            'groups': summary.get('Groups', 0),
+            'groups_quota': summary.get('GroupsQuota', 300),
+            'roles': summary.get('Roles', 0),
+            'roles_quota': summary.get('RolesQuota', 1000),
+            'policies': summary.get('Policies', 0),
+            'policies_quota': summary.get('PoliciesQuota', 1500),
+            'mfa_devices': summary.get('MFADevices', 0),
+            'account_mfa_enabled': summary.get('AccountMFAEnabled', 0) == 1,
+            'access_keys_per_user_quota': summary.get('AccessKeysPerUserQuota', 2)
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting account summary: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_iam_services_last_accessed(arn: str) -> Dict[str, Any]:
+    """
+    List AWS services a user, group, role, or policy last accessed.
+    Useful for identifying unused permissions for least-privilege enforcement.
+    """
+    try:
+        iam = _get_boto_client('iam')
+        response = iam.generate_service_last_accessed_details(Arn=arn)
+        job_id = response['JobId']
+
+        # Poll for completion (max 10 attempts)
+        import time as _time
+        for _ in range(10):
+            details = iam.get_service_last_accessed_details(JobId=job_id)
+            if details['JobStatus'] in ('COMPLETED', 'FAILED'):
+                break
+            _time.sleep(1)
+
+        services = [
+            {
+                'service_name': s['ServiceName'],
+                'service_namespace': s['ServiceNamespace'],
+                'last_authenticated': str(s.get('LastAuthenticated', 'Never')),
+                'last_authenticated_entity': s.get('LastAuthenticatedEntity', 'N/A'),
+                'total_authenticated_entities': s.get('TotalAuthenticatedEntities', 0)
+            }
+            for s in details.get('ServicesLastAccessed', [])
+        ]
+        used = [s for s in services if s['last_authenticated'] != 'Never']
+        unused = [s for s in services if s['last_authenticated'] == 'Never']
+
+        return {
+            'success': True, 'arn': arn,
+            'services_used': used, 'services_unused': unused,
+            'used_count': len(used), 'unused_count': len(unused),
+            'message': f'{len(used)} services used, {len(unused)} services never accessed — consider revoking unused'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error getting services last accessed: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
 # CREATE OPERATIONS
 # ============================================================================
 
@@ -11283,6 +12165,428 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['role_name', 'policy_arn']
             },
             'handler': attach_iam_role_policy
+        },
+        # ---- IAM Extended Operations ----
+        {
+            'name': 'create_iam_user',
+            'description': 'Create a new IAM user.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'path': {'type': 'string', 'description': 'Path for the user (default: /)'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags to apply'}
+                },
+                'required': ['username']
+            },
+            'handler': create_iam_user
+        },
+        {
+            'name': 'get_iam_user',
+            'description': 'Get details of an IAM user including groups and attached policies.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'}
+                },
+                'required': ['username']
+            },
+            'handler': get_iam_user
+        },
+        {
+            'name': 'delete_iam_user',
+            'description': 'Delete an IAM user and all associated resources (access keys, group memberships, attached policies, login profile).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username to delete'}
+                },
+                'required': ['username']
+            },
+            'handler': delete_iam_user
+        },
+        {
+            'name': 'create_iam_login_profile',
+            'description': 'Enable AWS Console access for an IAM user by setting a password.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'password': {'type': 'string', 'description': 'Console password'},
+                    'password_reset_required': {'type': 'boolean', 'description': 'Force password reset on first login (default: true)'}
+                },
+                'required': ['username', 'password']
+            },
+            'handler': create_iam_login_profile
+        },
+        {
+            'name': 'delete_iam_login_profile',
+            'description': 'Remove AWS Console access from an IAM user.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'}
+                },
+                'required': ['username']
+            },
+            'handler': delete_iam_login_profile
+        },
+        {
+            'name': 'tag_iam_user',
+            'description': 'Add or update tags on an IAM user.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags to apply'}
+                },
+                'required': ['username', 'tags']
+            },
+            'handler': tag_iam_user
+        },
+        {
+            'name': 'create_iam_access_key',
+            'description': 'Create a new IAM access key for a user.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'}
+                },
+                'required': ['username']
+            },
+            'handler': create_iam_access_key
+        },
+        {
+            'name': 'list_iam_access_keys',
+            'description': 'List IAM access keys for a user.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'}
+                },
+                'required': ['username']
+            },
+            'handler': list_iam_access_keys
+        },
+        {
+            'name': 'delete_iam_access_key',
+            'description': 'Delete an IAM access key.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'access_key_id': {'type': 'string', 'description': 'Access key ID to delete'}
+                },
+                'required': ['username', 'access_key_id']
+            },
+            'handler': delete_iam_access_key
+        },
+        {
+            'name': 'update_iam_access_key',
+            'description': 'Activate or deactivate an IAM access key.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'access_key_id': {'type': 'string', 'description': 'Access key ID'},
+                    'status': {'type': 'string', 'description': 'Active or Inactive', 'enum': ['Active', 'Inactive']}
+                },
+                'required': ['username', 'access_key_id', 'status']
+            },
+            'handler': update_iam_access_key
+        },
+        {
+            'name': 'get_access_key_last_used',
+            'description': 'Get when an IAM access key was last used and for which service/region.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'access_key_id': {'type': 'string', 'description': 'Access key ID'}
+                },
+                'required': ['access_key_id']
+            },
+            'handler': get_access_key_last_used
+        },
+        {
+            'name': 'create_iam_group',
+            'description': 'Create a new IAM group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'IAM group name'},
+                    'path': {'type': 'string', 'description': 'Path for the group (default: /)'}
+                },
+                'required': ['group_name']
+            },
+            'handler': create_iam_group
+        },
+        {
+            'name': 'list_iam_groups',
+            'description': 'List all IAM groups in the account.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {}
+            },
+            'handler': list_iam_groups
+        },
+        {
+            'name': 'delete_iam_group',
+            'description': 'Delete an IAM group (removes all users and detaches all policies first).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'IAM group name to delete'}
+                },
+                'required': ['group_name']
+            },
+            'handler': delete_iam_group
+        },
+        {
+            'name': 'add_iam_user_to_group',
+            'description': 'Add an IAM user to a group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'group_name': {'type': 'string', 'description': 'IAM group name'}
+                },
+                'required': ['username', 'group_name']
+            },
+            'handler': add_iam_user_to_group
+        },
+        {
+            'name': 'remove_iam_user_from_group',
+            'description': 'Remove an IAM user from a group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'group_name': {'type': 'string', 'description': 'IAM group name'}
+                },
+                'required': ['username', 'group_name']
+            },
+            'handler': remove_iam_user_from_group
+        },
+        {
+            'name': 'list_iam_groups_for_user',
+            'description': 'List all IAM groups a user belongs to.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'}
+                },
+                'required': ['username']
+            },
+            'handler': list_iam_groups_for_user
+        },
+        {
+            'name': 'get_iam_role',
+            'description': 'Get details of an IAM role including trust policy and attached policies.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_name': {'type': 'string', 'description': 'IAM role name'}
+                },
+                'required': ['role_name']
+            },
+            'handler': get_iam_role
+        },
+        {
+            'name': 'update_iam_role_trust_policy',
+            'description': 'Update the trust relationship (assume role policy) of an IAM role.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_name': {'type': 'string', 'description': 'IAM role name'},
+                    'trust_policy': {'type': 'object', 'description': 'New trust policy document as JSON object'}
+                },
+                'required': ['role_name', 'trust_policy']
+            },
+            'handler': update_iam_role_trust_policy
+        },
+        {
+            'name': 'assume_iam_role',
+            'description': 'Assume an IAM role via STS and return temporary credentials.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_arn': {'type': 'string', 'description': 'ARN of the role to assume'},
+                    'session_name': {'type': 'string', 'description': 'Name for the assumed role session'},
+                    'duration_seconds': {'type': 'integer', 'description': 'Duration of credentials in seconds (900-43200, default: 3600)'},
+                    'external_id': {'type': 'string', 'description': 'External ID for cross-account role assumption'}
+                },
+                'required': ['role_arn', 'session_name']
+            },
+            'handler': assume_iam_role
+        },
+        {
+            'name': 'tag_iam_role',
+            'description': 'Add or update tags on an IAM role.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_name': {'type': 'string', 'description': 'IAM role name'},
+                    'tags': {'type': 'object', 'description': 'Key-value tags to apply'}
+                },
+                'required': ['role_name', 'tags']
+            },
+            'handler': tag_iam_role
+        },
+        {
+            'name': 'list_iam_policies',
+            'description': 'List IAM policies in the account.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'scope': {'type': 'string', 'description': 'Local (customer-managed), AWS (managed), or All (default: Local)', 'enum': ['Local', 'AWS', 'All']},
+                    'max_items': {'type': 'integer', 'description': 'Maximum number of policies to return (default: 100)'}
+                }
+            },
+            'handler': list_iam_policies
+        },
+        {
+            'name': 'get_iam_policy',
+            'description': 'Get an IAM policy and its default version document.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'policy_arn': {'type': 'string', 'description': 'Policy ARN'}
+                },
+                'required': ['policy_arn']
+            },
+            'handler': get_iam_policy
+        },
+        {
+            'name': 'delete_iam_policy',
+            'description': 'Delete a customer-managed IAM policy (detaches from all entities first).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'policy_arn': {'type': 'string', 'description': 'Policy ARN to delete'}
+                },
+                'required': ['policy_arn']
+            },
+            'handler': delete_iam_policy
+        },
+        {
+            'name': 'attach_iam_user_policy',
+            'description': 'Attach a managed policy directly to an IAM user.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'username': {'type': 'string', 'description': 'IAM username'},
+                    'policy_arn': {'type': 'string', 'description': 'Policy ARN to attach'}
+                },
+                'required': ['username', 'policy_arn']
+            },
+            'handler': attach_iam_user_policy
+        },
+        {
+            'name': 'attach_iam_group_policy',
+            'description': 'Attach a managed policy to an IAM group.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_name': {'type': 'string', 'description': 'IAM group name'},
+                    'policy_arn': {'type': 'string', 'description': 'Policy ARN to attach'}
+                },
+                'required': ['group_name', 'policy_arn']
+            },
+            'handler': attach_iam_group_policy
+        },
+        {
+            'name': 'detach_iam_policy',
+            'description': 'Detach a managed policy from a user, group, or role.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'entity_type': {'type': 'string', 'description': 'user, group, or role', 'enum': ['user', 'group', 'role']},
+                    'entity_name': {'type': 'string', 'description': 'Name of the user, group, or role'},
+                    'policy_arn': {'type': 'string', 'description': 'Policy ARN to detach'}
+                },
+                'required': ['entity_type', 'entity_name', 'policy_arn']
+            },
+            'handler': detach_iam_policy
+        },
+        {
+            'name': 'put_iam_inline_policy',
+            'description': 'Create or update an inline policy on a user, group, or role.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'entity_type': {'type': 'string', 'description': 'user, group, or role', 'enum': ['user', 'group', 'role']},
+                    'entity_name': {'type': 'string', 'description': 'Name of the user, group, or role'},
+                    'policy_name': {'type': 'string', 'description': 'Name of the inline policy'},
+                    'policy_document': {'type': 'object', 'description': 'IAM policy document as JSON object'}
+                },
+                'required': ['entity_type', 'entity_name', 'policy_name', 'policy_document']
+            },
+            'handler': put_iam_inline_policy
+        },
+        {
+            'name': 'delete_iam_inline_policy',
+            'description': 'Delete an inline policy from a user, group, or role.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'entity_type': {'type': 'string', 'description': 'user, group, or role', 'enum': ['user', 'group', 'role']},
+                    'entity_name': {'type': 'string', 'description': 'Name of the user, group, or role'},
+                    'policy_name': {'type': 'string', 'description': 'Name of the inline policy to delete'}
+                },
+                'required': ['entity_type', 'entity_name', 'policy_name']
+            },
+            'handler': delete_iam_inline_policy
+        },
+        {
+            'name': 'list_attached_role_policies',
+            'description': 'List all managed policies attached to an IAM role.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'role_name': {'type': 'string', 'description': 'IAM role name'}
+                },
+                'required': ['role_name']
+            },
+            'handler': list_attached_role_policies
+        },
+        {
+            'name': 'generate_iam_credential_report',
+            'description': 'Generate an IAM credential report for all users in the account.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {}
+            },
+            'handler': generate_iam_credential_report
+        },
+        {
+            'name': 'get_iam_credential_report',
+            'description': 'Download the latest IAM credential report (generate first if needed).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {}
+            },
+            'handler': get_iam_credential_report
+        },
+        {
+            'name': 'get_iam_account_summary',
+            'description': 'Get a summary of IAM entity counts and limits for the AWS account.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {}
+            },
+            'handler': get_iam_account_summary
+        },
+        {
+            'name': 'list_iam_services_last_accessed',
+            'description': 'List services that an IAM entity (user, role, group, or policy) has accessed, for least-privilege analysis.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'arn': {'type': 'string', 'description': 'ARN of the IAM user, role, group, or policy'}
+                },
+                'required': ['arn']
+            },
+            'handler': list_iam_services_last_accessed
         },
         # ---- VPC & Networking ----
         {

@@ -1042,6 +1042,218 @@ def _mock_nexus(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
     return {'success': True, 'simulated': True, 'message': f'[Sandbox] Nexus "{tool_name}" completed successfully'}
 
 
+def _mock_iam(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Mock IAM extended operations."""
+    tn = tool_name
+
+    username = tool_input.get('username', 'sandbox-user')
+    group_name = tool_input.get('group_name', 'sandbox-group')
+    role_name = tool_input.get('role_name', 'sandbox-role')
+    policy_arn = tool_input.get('policy_arn', 'arn:aws:iam::123456789012:policy/SandboxPolicy')
+
+    if tn == 'create_iam_user':
+        return {
+            'success': True, 'simulated': True,
+            'user': {'username': username, 'arn': f'arn:aws:iam::123456789012:user/{username}',
+                     'user_id': 'AIDAIOSFODNN7EXAMPLE', 'path': tool_input.get('path', '/'),
+                     'created': '2026-01-15T10:00:00Z'},
+            'message': f'[Sandbox] IAM user {username} created'
+        }
+    if tn == 'get_iam_user':
+        return {
+            'success': True, 'simulated': True,
+            'user': {'username': username, 'arn': f'arn:aws:iam::123456789012:user/{username}',
+                     'user_id': 'AIDAIOSFODNN7EXAMPLE', 'created': '2026-01-15T10:00:00Z',
+                     'groups': ['Developers', 'ReadOnlyAccess'],
+                     'attached_policies': ['arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess']},
+            'message': f'[Sandbox] IAM user {username} retrieved'
+        }
+    if tn in ('delete_iam_user',):
+        return {'success': True, 'simulated': True, 'message': f'[Sandbox] IAM user {username} deleted'}
+    if tn == 'create_iam_login_profile':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Console access enabled for {username}',
+                'password_reset_required': tool_input.get('password_reset_required', True)}
+    if tn == 'delete_iam_login_profile':
+        return {'success': True, 'simulated': True, 'message': f'[Sandbox] Console access removed for {username}'}
+    if tn in ('tag_iam_user', 'tag_iam_role'):
+        entity = username if 'user' in tn else role_name
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Tags applied to {entity}',
+                'tags': tool_input.get('tags', {})}
+    if tn == 'create_iam_access_key':
+        return {
+            'success': True, 'simulated': True,
+            'access_key': {
+                'access_key_id': 'AKIAIOSFODNN7EXAMPLE',
+                'secret_access_key': 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+                'status': 'Active', 'username': username,
+                'created': '2026-01-15T10:00:00Z'
+            },
+            'message': f'[Sandbox] Access key created for {username} — store the secret key now, it is not retrievable later'
+        }
+    if tn == 'list_iam_access_keys':
+        return {
+            'success': True, 'simulated': True,
+            'username': username,
+            'access_keys': [
+                {'access_key_id': 'AKIAIOSFODNN7EXAMPLE', 'status': 'Active', 'created': '2026-01-15T10:00:00Z'},
+            ]
+        }
+    if tn == 'delete_iam_access_key':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Access key {tool_input.get("access_key_id", "AKIA...")} deleted for {username}'}
+    if tn == 'update_iam_access_key':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Access key set to {tool_input.get("status", "Active")} for {username}'}
+    if tn == 'get_access_key_last_used':
+        return {
+            'success': True, 'simulated': True,
+            'access_key_id': tool_input.get('access_key_id', 'AKIAIOSFODNN7EXAMPLE'),
+            'last_used': {'service': 'ec2', 'region': 'us-east-1', 'last_used_date': '2026-01-14T08:30:00Z'},
+            'username': username
+        }
+    if tn == 'create_iam_group':
+        return {'success': True, 'simulated': True,
+                'group': {'group_name': group_name, 'arn': f'arn:aws:iam::123456789012:group/{group_name}',
+                          'group_id': 'AGPAIOSFODNN7EXAMPLE', 'path': tool_input.get('path', '/')},
+                'message': f'[Sandbox] IAM group {group_name} created'}
+    if tn == 'list_iam_groups':
+        return {
+            'success': True, 'simulated': True,
+            'groups': [
+                {'group_name': 'Developers', 'arn': 'arn:aws:iam::123456789012:group/Developers', 'path': '/'},
+                {'group_name': 'ReadOnlyAccess', 'arn': 'arn:aws:iam::123456789012:group/ReadOnlyAccess', 'path': '/'},
+                {'group_name': 'Admins', 'arn': 'arn:aws:iam::123456789012:group/Admins', 'path': '/'},
+            ]
+        }
+    if tn == 'delete_iam_group':
+        return {'success': True, 'simulated': True, 'message': f'[Sandbox] IAM group {group_name} deleted'}
+    if tn in ('add_iam_user_to_group', 'remove_iam_user_from_group'):
+        action = 'added to' if 'add' in tn else 'removed from'
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] {username} {action} {group_name}'}
+    if tn == 'list_iam_groups_for_user':
+        return {
+            'success': True, 'simulated': True,
+            'username': username,
+            'groups': ['Developers', 'ReadOnlyAccess']
+        }
+    if tn == 'get_iam_role':
+        return {
+            'success': True, 'simulated': True,
+            'role': {'role_name': role_name, 'arn': f'arn:aws:iam::123456789012:role/{role_name}',
+                     'role_id': 'AROAIOSFODNN7EXAMPLE', 'path': '/',
+                     'trust_policy': {'Version': '2012-10-17', 'Statement': [
+                         {'Effect': 'Allow', 'Principal': {'Service': 'ec2.amazonaws.com'}, 'Action': 'sts:AssumeRole'}
+                     ]},
+                     'attached_policies': ['arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess']},
+            'message': f'[Sandbox] IAM role {role_name} retrieved'
+        }
+    if tn == 'update_iam_role_trust_policy':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Trust policy updated for role {role_name}'}
+    if tn == 'assume_iam_role':
+        return {
+            'success': True, 'simulated': True,
+            'credentials': {
+                'access_key_id': 'ASIAIOSFODNN7EXAMPLE',
+                'secret_access_key': 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYSIMULATED',
+                'session_token': 'AQoDYXdzEJr//////////wEa...SIMULATED',
+                'expiration': '2026-01-15T14:00:00Z'
+            },
+            'assumed_role': {'arn': tool_input.get('role_arn', 'arn:aws:iam::123456789012:role/SandboxRole'),
+                             'session_name': tool_input.get('session_name', 'sandbox-session')},
+            'message': '[Sandbox] Role assumed — temporary credentials valid for 1 hour'
+        }
+    if tn == 'list_iam_policies':
+        return {
+            'success': True, 'simulated': True,
+            'policies': [
+                {'policy_name': 'SandboxReadOnly', 'arn': 'arn:aws:iam::123456789012:policy/SandboxReadOnly',
+                 'description': 'Read-only access to sandbox resources', 'attached_entities': 2},
+                {'policy_name': 'S3FullAccess', 'arn': 'arn:aws:iam::123456789012:policy/S3FullAccess',
+                 'description': 'Full S3 bucket access', 'attached_entities': 5},
+            ],
+            'scope': tool_input.get('scope', 'Local')
+        }
+    if tn == 'get_iam_policy':
+        return {
+            'success': True, 'simulated': True,
+            'policy': {'arn': policy_arn, 'policy_name': 'SandboxPolicy', 'attached_entities': 3,
+                       'document': {'Version': '2012-10-17', 'Statement': [
+                           {'Effect': 'Allow', 'Action': 'ec2:Describe*', 'Resource': '*'}
+                       ]}},
+            'message': f'[Sandbox] Policy retrieved'
+        }
+    if tn in ('delete_iam_policy',):
+        return {'success': True, 'simulated': True, 'message': f'[Sandbox] Policy {policy_arn} deleted'}
+    if tn in ('attach_iam_user_policy', 'attach_iam_group_policy'):
+        entity = username if 'user' in tn else group_name
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Policy attached to {entity}'}
+    if tn == 'detach_iam_policy':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Policy detached from {tool_input.get("entity_name", "entity")}'}
+    if tn in ('put_iam_inline_policy',):
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Inline policy {tool_input.get("policy_name", "policy")} applied'}
+    if tn == 'delete_iam_inline_policy':
+        return {'success': True, 'simulated': True,
+                'message': f'[Sandbox] Inline policy {tool_input.get("policy_name", "policy")} deleted'}
+    if tn == 'list_attached_role_policies':
+        return {
+            'success': True, 'simulated': True,
+            'role_name': role_name,
+            'attached_policies': [
+                {'policy_name': 'AmazonEC2ReadOnlyAccess', 'arn': 'arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess'},
+                {'policy_name': 'AmazonS3ReadOnlyAccess', 'arn': 'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess'},
+            ]
+        }
+    if tn == 'generate_iam_credential_report':
+        return {'success': True, 'simulated': True,
+                'message': '[Sandbox] Credential report generation initiated', 'state': 'COMPLETE'}
+    if tn == 'get_iam_credential_report':
+        return {
+            'success': True, 'simulated': True,
+            'report': [
+                {'user': 'sandbox-user', 'arn': 'arn:aws:iam::123456789012:user/sandbox-user',
+                 'password_enabled': True, 'password_last_used': '2026-01-14',
+                 'mfa_active': False, 'access_key_1_active': True, 'access_key_1_last_used': '2026-01-14'},
+                {'user': 'admin', 'arn': 'arn:aws:iam::123456789012:user/admin',
+                 'password_enabled': True, 'password_last_used': '2026-01-15',
+                 'mfa_active': True, 'access_key_1_active': False, 'access_key_1_last_used': 'N/A'},
+            ]
+        }
+    if tn == 'get_iam_account_summary':
+        return {
+            'success': True, 'simulated': True,
+            'summary': {
+                'users': 12, 'users_quota': 5000,
+                'groups': 5, 'groups_quota': 300,
+                'roles': 28, 'roles_quota': 1000,
+                'policies': 8, 'policies_quota': 1500,
+                'mfa_devices': 3, 'mfa_devices_in_use': 2,
+                'account_access_keys_present': 0,
+                'account_mfa_enabled': True,
+            }
+        }
+    if tn == 'list_iam_services_last_accessed':
+        return {
+            'success': True, 'simulated': True,
+            'arn': tool_input.get('arn', 'arn:aws:iam::123456789012:user/sandbox-user'),
+            'services_accessed': [
+                {'service_name': 'Amazon EC2', 'last_accessed': '2026-01-14T08:30:00Z', 'region': 'us-east-1'},
+                {'service_name': 'Amazon S3', 'last_accessed': '2026-01-13T14:00:00Z', 'region': 'us-east-1'},
+                {'service_name': 'AWS IAM', 'last_accessed': '2026-01-10T09:00:00Z', 'region': 'us-east-1'},
+            ],
+            'services_not_accessed': ['Amazon RDS', 'AWS Lambda', 'Amazon ECS'],
+            'message': '[Sandbox] Services last accessed report — use this to apply least-privilege'
+        }
+
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} executed'}
+
+
 def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
     """
     Generate a realistic simulated response for a tool call.
@@ -1083,6 +1295,14 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
     is_gcp = any(k in tn for k in ('gcp', 'gcloud', 'gke', 'gcs', 'cloud_run', 'cloud_sql',
                                      'bigquery', 'pubsub', 'cloud_function', 'cloud_log'))
 
+    # IAM extended operations (must come before generic AWS handlers)
+    is_iam_extended = any(k in tn for k in (
+        'iam_user', 'iam_group', 'iam_policy', 'iam_access_key', 'iam_login_profile',
+        'iam_role', 'iam_inline', 'iam_services_last_accessed', 'iam_account_summary',
+        'iam_credential_report', 'access_key_last_used', 'attached_role_policies',
+        'iam_groups_for_user', 'iam_user_to_group',
+    ))
+
     # Route to provider-specific mock
     if is_k8s:
         return _mock_k8s(tn, tool_input)
@@ -1090,6 +1310,8 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
         return _mock_azure(tn, tool_input)
     if is_gcp:
         return _mock_gcp(tn, tool_input)
+    if is_iam_extended:
+        return _mock_iam(tn, tool_input)
 
     # AWS / generic — categorize by operation type
     if tn.startswith('list_') or tn.startswith('get_') and 'list' in tn:

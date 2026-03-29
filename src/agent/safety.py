@@ -281,6 +281,13 @@ class SafetyValidator:
             'delete_s3_replication',
             'delete_s3_website',
             'delete_s3_bucket_tags',
+            # IAM destructive
+            'delete_iam_user',
+            'delete_iam_group',
+            'delete_iam_policy',
+            'delete_iam_access_key',
+            'delete_iam_inline_policy',
+            'delete_iam_login_profile',
         }
 
         medium_risk_tools = {
@@ -356,6 +363,18 @@ class SafetyValidator:
             'set_s3_website',
             'set_s3_cors',
             'set_s3_logging',
+            # IAM medium risk
+            'create_iam_user',
+            'create_iam_group',
+            'create_iam_login_profile',
+            'create_iam_access_key',
+            'update_iam_access_key',
+            'update_iam_role_trust_policy',
+            'attach_iam_user_policy',
+            'attach_iam_group_policy',
+            'detach_iam_policy',
+            'put_iam_inline_policy',
+            'assume_iam_role',
         }
 
         # Check if tool is a pentest tool
