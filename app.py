@@ -3409,8 +3409,20 @@ def sync_infrastructure():
         task = sync_user_infrastructure_task.delay(current_user.id)
         return jsonify({'task_id': task.id, 'status': 'queued'})
     except Exception as e:
-        app.logger.error(f"Failed to queue sync task for user {current_user.id}: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        # Celery/Redis unavailable — run synchronously
+        app.logger.warning(f"Celery unavailable, running sync inline for user {current_user.id}: {e}")
+        try:
+            from services.infrastructure_sync import sync_user_infrastructure
+            result = sync_user_infrastructure(current_user.id)
+            return jsonify({
+                'status': 'complete',
+                'success': True,
+                'total_resources': result.get('total_resources', 0),
+                'total_savings': result.get('total_savings', 0),
+            })
+        except Exception as sync_err:
+            app.logger.error(f"Inline sync failed for user {current_user.id}: {sync_err}")
+            return jsonify({'success': False, 'error': str(sync_err)}), 500
 
 
 @app.route('/api/dashboard/sync/status/<task_id>', methods=['GET'])
