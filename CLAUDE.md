@@ -23,6 +23,7 @@ src/
   agent/
     core.py         # DevOpsAgent - main AI orchestration
     safety.py       # SafetyValidator - command/tool risk classification
+    
     conversation.py # ConversationManager - message handling
     guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
