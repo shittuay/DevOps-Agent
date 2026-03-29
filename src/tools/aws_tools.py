@@ -920,6 +920,24 @@ def create_ec2_keypair(
         }
 
 
+def delete_ec2_keypair(key_name: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an EC2 key pair."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_key_pair(KeyName=key_name)
+        return {
+            'success': True,
+            'key_name': key_name,
+            'message': f'Key pair "{key_name}" deleted successfully'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting key pair: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def create_ec2_instance(
     ami_id: str,
     instance_type: str,
@@ -2423,6 +2441,58 @@ def release_elastic_ip(allocation_id: str, region: Optional[str] = None) -> Dict
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error releasing Elastic IP: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def associate_elastic_ip(
+    allocation_id: str,
+    instance_id: Optional[str] = None,
+    network_interface_id: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Associate an existing Elastic IP with an instance or network interface."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params: Dict = {'AllocationId': allocation_id}
+        if instance_id:
+            params['InstanceId'] = instance_id
+        elif network_interface_id:
+            params['NetworkInterfaceId'] = network_interface_id
+        else:
+            return {'success': False, 'error': 'instance_id or network_interface_id required'}
+
+        response = ec2.associate_address(**params)
+        target = instance_id or network_interface_id
+        return {
+            'success': True,
+            'allocation_id': allocation_id,
+            'association_id': response['AssociationId'],
+            'target': target,
+            'message': f'Elastic IP {allocation_id} associated with {target}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error associating Elastic IP: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def disassociate_elastic_ip(association_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Disassociate an Elastic IP from an instance or network interface."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.disassociate_address(AssociationId=association_id)
+        return {
+            'success': True,
+            'association_id': association_id,
+            'message': f'Elastic IP disassociated (association {association_id} removed)'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error disassociating Elastic IP: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -4013,6 +4083,266 @@ def update_auto_scaling_group(
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
     except Exception as e:
         logger.error(f"Error updating Auto Scaling group: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_scaling_policy(
+    asg_name: str,
+    policy_name: str,
+    policy_type: str = 'TargetTrackingScaling',
+    target_value: float = 50.0,
+    predefined_metric: str = 'ASGAverageCPUUtilization',
+    adjustment_type: Optional[str] = None,
+    scaling_adjustment: Optional[int] = None,
+    cooldown: int = 300,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a scaling policy for an Auto Scaling Group.
+
+    Args:
+        asg_name: Auto Scaling Group name
+        policy_name: Name for the policy
+        policy_type: 'TargetTrackingScaling' (recommended), 'SimpleScaling', or 'StepScaling'
+        target_value: For TargetTracking — target metric value (e.g. 50.0 for 50% CPU)
+        predefined_metric: For TargetTracking — 'ASGAverageCPUUtilization',
+                          'ASGAverageNetworkIn', 'ASGAverageNetworkOut',
+                          or 'ALBRequestCountPerTarget'
+        adjustment_type: For SimpleScaling — 'ChangeInCapacity', 'ExactCapacity', 'PercentChangeInCapacity'
+        scaling_adjustment: For SimpleScaling — number of instances to add/remove
+        cooldown: Cooldown seconds between scaling actions (SimpleScaling only)
+        region: AWS region
+    """
+    try:
+        autoscaling = _get_boto_client('autoscaling', region)
+        params: Dict = {
+            'AutoScalingGroupName': asg_name,
+            'PolicyName': policy_name,
+            'PolicyType': policy_type
+        }
+
+        if policy_type == 'TargetTrackingScaling':
+            params['TargetTrackingConfiguration'] = {
+                'PredefinedMetricSpecification': {
+                    'PredefinedMetricType': predefined_metric
+                },
+                'TargetValue': target_value,
+                'DisableScaleIn': False
+            }
+        elif policy_type == 'SimpleScaling':
+            params['AdjustmentType'] = adjustment_type or 'ChangeInCapacity'
+            params['ScalingAdjustment'] = scaling_adjustment or 1
+            params['Cooldown'] = cooldown
+
+        response = autoscaling.put_scaling_policy(**params)
+        return {
+            'success': True,
+            'policy_arn': response.get('PolicyARN', ''),
+            'asg_name': asg_name,
+            'policy_name': policy_name,
+            'policy_type': policy_type,
+            'message': f'Scaling policy "{policy_name}" created for {asg_name}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating scaling policy: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_cloudwatch_alarm(
+    alarm_name: str,
+    metric_name: str,
+    namespace: str,
+    threshold: float,
+    comparison_operator: str,
+    evaluation_periods: int = 2,
+    period: int = 300,
+    statistic: str = 'Average',
+    dimensions: Optional[List[Dict[str, str]]] = None,
+    alarm_actions: Optional[List[str]] = None,
+    ok_actions: Optional[List[str]] = None,
+    description: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a CloudWatch alarm on any metric.
+
+    Args:
+        alarm_name: Unique alarm name
+        metric_name: e.g. 'CPUUtilization', 'NetworkIn', 'StatusCheckFailed'
+        namespace: e.g. 'AWS/EC2', 'AWS/RDS', 'AWS/ECS', 'AWS/Lambda'
+        threshold: Numeric threshold to trigger alarm
+        comparison_operator: 'GreaterThanThreshold', 'LessThanThreshold',
+                            'GreaterThanOrEqualToThreshold', 'LessThanOrEqualToThreshold'
+        evaluation_periods: Number of periods to evaluate before alarming
+        period: Evaluation period in seconds (60, 300, 3600, etc.)
+        statistic: 'Average', 'Sum', 'Maximum', 'Minimum', 'SampleCount'
+        dimensions: e.g. [{'Name': 'InstanceId', 'Value': 'i-0abc123'}]
+        alarm_actions: List of SNS topic ARNs to notify when alarm fires
+        ok_actions: List of SNS topic ARNs to notify when alarm clears
+        description: Human-readable alarm description
+        region: AWS region
+    """
+    try:
+        cloudwatch = _get_boto_client('cloudwatch', region)
+        params: Dict = {
+            'AlarmName': alarm_name,
+            'MetricName': metric_name,
+            'Namespace': namespace,
+            'Threshold': threshold,
+            'ComparisonOperator': comparison_operator,
+            'EvaluationPeriods': evaluation_periods,
+            'Period': period,
+            'Statistic': statistic
+        }
+        if dimensions:
+            params['Dimensions'] = dimensions
+        if alarm_actions:
+            params['AlarmActions'] = alarm_actions
+        if ok_actions:
+            params['OKActions'] = ok_actions
+        if description:
+            params['AlarmDescription'] = description
+
+        cloudwatch.put_metric_alarm(**params)
+        return {
+            'success': True,
+            'alarm_name': alarm_name,
+            'metric': f'{namespace}/{metric_name}',
+            'threshold': threshold,
+            'comparison_operator': comparison_operator,
+            'message': f'CloudWatch alarm "{alarm_name}" created on {namespace}/{metric_name} {comparison_operator} {threshold}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating CloudWatch alarm: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def add_tags(
+    resource_ids: List[str],
+    tags: Dict[str, str],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Add or update tags on EC2 resources (instances, volumes, snapshots, AMIs, etc.)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.create_tags(
+            Resources=resource_ids,
+            Tags=[{'Key': k, 'Value': v} for k, v in tags.items()]
+        )
+        return {
+            'success': True,
+            'resource_ids': resource_ids,
+            'tags_applied': tags,
+            'message': f'Tags applied to {len(resource_ids)} resource(s): {tags}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error adding tags: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def remove_tags(
+    resource_ids: List[str],
+    tag_keys: List[str],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Remove specific tags from EC2 resources."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_tags(
+            Resources=resource_ids,
+            Tags=[{'Key': k} for k in tag_keys]
+        )
+        return {
+            'success': True,
+            'resource_ids': resource_ids,
+            'tags_removed': tag_keys,
+            'message': f'Removed tags {tag_keys} from {len(resource_ids)} resource(s)'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error removing tags: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_resources_by_tag(
+    tag_key: str,
+    tag_value: Optional[str] = None,
+    resource_types: Optional[List[str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Find EC2 resources by tag key (and optionally value).
+
+    Args:
+        tag_key: Tag key to filter by (e.g. 'Environment', 'Project')
+        tag_value: Optional tag value (e.g. 'production'). Omit to match any value.
+        resource_types: Optional list of resource types to search:
+                       'instance', 'volume', 'snapshot', 'image', 'security-group',
+                       'subnet', 'vpc', 'elastic-ip'. Omit to search all.
+        region: AWS region
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        filter_value = tag_value if tag_value else '*'
+        filters = [{'Name': f'tag:{tag_key}', 'Values': [filter_value]}]
+
+        results: Dict[str, List] = {}
+        types_to_check = resource_types or ['instance', 'volume', 'snapshot', 'image']
+
+        if 'instance' in types_to_check:
+            resp = ec2.describe_instances(Filters=filters)
+            instances = [
+                {'id': i['InstanceId'], 'state': i['State']['Name'],
+                 'type': i['InstanceType'], 'tags': {t['Key']: t['Value'] for t in i.get('Tags', [])}}
+                for r in resp['Reservations'] for i in r['Instances']
+            ]
+            if instances:
+                results['instances'] = instances
+
+        if 'volume' in types_to_check:
+            resp = ec2.describe_volumes(Filters=filters)
+            volumes = [
+                {'id': v['VolumeId'], 'size_gb': v['Size'], 'state': v['State'],
+                 'tags': {t['Key']: t['Value'] for t in v.get('Tags', [])}}
+                for v in resp['Volumes']
+            ]
+            if volumes:
+                results['volumes'] = volumes
+
+        if 'snapshot' in types_to_check:
+            resp = ec2.describe_snapshots(Filters=filters, OwnerIds=['self'])
+            snapshots = [
+                {'id': s['SnapshotId'], 'size_gb': s['VolumeSize'], 'state': s['State'],
+                 'tags': {t['Key']: t['Value'] for t in s.get('Tags', [])}}
+                for s in resp['Snapshots']
+            ]
+            if snapshots:
+                results['snapshots'] = snapshots
+
+        total = sum(len(v) for v in results.values())
+        return {
+            'success': True,
+            'tag_filter': {tag_key: tag_value or '*'},
+            'total_resources': total,
+            'resources': results,
+            'message': f'Found {total} resource(s) with tag {tag_key}={tag_value or "*"}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing resources by tag: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -6309,6 +6639,218 @@ def create_ebs_snapshot(
         return {'success': False, 'error': str(e)}
 
 
+def delete_ebs_snapshot(snapshot_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an EBS snapshot."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_snapshot(SnapshotId=snapshot_id)
+        return {
+            'success': True,
+            'snapshot_id': snapshot_id,
+            'message': f'Snapshot {snapshot_id} deleted successfully'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting snapshot: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def copy_snapshot(
+    snapshot_id: str,
+    source_region: str,
+    destination_region: str,
+    description: Optional[str] = None,
+    encrypted: bool = False
+) -> Dict[str, Any]:
+    """Copy an EBS snapshot to another region."""
+    try:
+        ec2 = _get_boto_client('ec2', destination_region)
+        params: Dict = {
+            'SourceSnapshotId': snapshot_id,
+            'SourceRegion': source_region,
+            'Encrypted': encrypted
+        }
+        if description:
+            params['Description'] = description
+
+        response = ec2.copy_snapshot(**params)
+        return {
+            'success': True,
+            'source_snapshot_id': snapshot_id,
+            'new_snapshot_id': response['SnapshotId'],
+            'source_region': source_region,
+            'destination_region': destination_region,
+            'message': f'Snapshot {snapshot_id} copy initiated in {destination_region} as {response["SnapshotId"]}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error copying snapshot: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def delete_ebs_volume(volume_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Delete an EBS volume (must be detached first)."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        ec2.delete_volume(VolumeId=volume_id)
+        return {
+            'success': True,
+            'volume_id': volume_id,
+            'message': f'EBS volume {volume_id} deleted successfully'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting EBS volume: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def resize_ebs_volume(
+    volume_id: str,
+    new_size_gb: Optional[int] = None,
+    new_volume_type: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Resize an EBS volume (size and/or type). Changes take effect immediately;
+    OS-level partition expansion may be required after resize.
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params: Dict = {'VolumeId': volume_id}
+        if new_size_gb:
+            params['Size'] = new_size_gb
+        if new_volume_type:
+            params['VolumeType'] = new_volume_type
+
+        response = ec2.modify_volume(**params)
+        mod = response['VolumeModification']
+        return {
+            'success': True,
+            'volume_id': volume_id,
+            'modification_state': mod['ModificationState'],
+            'target_size': mod.get('TargetSize'),
+            'target_volume_type': mod.get('TargetVolumeType'),
+            'message': f'Volume {volume_id} modification initiated — state: {mod["ModificationState"]}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error resizing EBS volume: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def create_ami(
+    instance_id: str,
+    name: str,
+    description: Optional[str] = None,
+    no_reboot: bool = True,
+    tags: Optional[Dict[str, str]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an AMI (Amazon Machine Image) from a running or stopped instance."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        params: Dict = {
+            'InstanceId': instance_id,
+            'Name': name,
+            'NoReboot': no_reboot
+        }
+        if description:
+            params['Description'] = description
+        if tags:
+            params['TagSpecifications'] = [{
+                'ResourceType': 'image',
+                'Tags': [{'Key': k, 'Value': v} for k, v in tags.items()]
+            }]
+
+        response = ec2.create_image(**params)
+        return {
+            'success': True,
+            'image_id': response['ImageId'],
+            'instance_id': instance_id,
+            'name': name,
+            'message': f'AMI creation initiated: {response["ImageId"]} from {instance_id} (state: pending)'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error creating AMI: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def deregister_ami(image_id: str, delete_snapshots: bool = False, region: Optional[str] = None) -> Dict[str, Any]:
+    """Deregister an AMI and optionally delete its backing snapshots."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+
+        snapshot_ids: List[str] = []
+        if delete_snapshots:
+            images = ec2.describe_images(ImageIds=[image_id]).get('Images', [])
+            if images:
+                for mapping in images[0].get('BlockDeviceMappings', []):
+                    if 'Ebs' in mapping and 'SnapshotId' in mapping['Ebs']:
+                        snapshot_ids.append(mapping['Ebs']['SnapshotId'])
+
+        ec2.deregister_image(ImageId=image_id)
+
+        deleted_snapshots = []
+        for snap_id in snapshot_ids:
+            try:
+                ec2.delete_snapshot(SnapshotId=snap_id)
+                deleted_snapshots.append(snap_id)
+            except ClientError:
+                pass
+
+        return {
+            'success': True,
+            'image_id': image_id,
+            'deleted_snapshots': deleted_snapshots,
+            'message': f'AMI {image_id} deregistered' + (
+                f', deleted snapshots: {deleted_snapshots}' if deleted_snapshots else ''
+            )
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deregistering AMI: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_ec2_console_output(instance_id: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """Retrieve the console output (boot log) for an EC2 instance. Useful for debugging boot failures."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        response = ec2.get_console_output(InstanceId=instance_id)
+        output = response.get('Output', '')
+        import base64
+        try:
+            decoded = base64.b64decode(output).decode('utf-8', errors='replace')
+        except Exception:
+            decoded = output
+
+        return {
+            'success': True,
+            'instance_id': instance_id,
+            'output': decoded or '(no output available — instance may be too new or stopped)',
+            'timestamp': str(response.get('Timestamp', ''))
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error fetching console output: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================================================
 # ELASTIC IP OPERATIONS
 # ============================================================================
@@ -7914,6 +8456,19 @@ def get_tools() -> List[Dict[str, Any]]:
             },
             'handler': create_ec2_keypair
         },
+        {
+            'name': 'delete_ec2_keypair',
+            'description': 'Delete an EC2 key pair by name',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'key_name': {'type': 'string', 'description': 'Name of the key pair to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['key_name']
+            },
+            'handler': delete_ec2_keypair
+        },
         # S3 Operations
         {
             'name': 'list_s3_buckets',
@@ -8822,6 +9377,34 @@ def get_tools() -> List[Dict[str, Any]]:
                 }
             },
             'handler': list_elastic_ips
+        },
+        {
+            'name': 'associate_elastic_ip',
+            'description': 'Associate an existing Elastic IP (by allocation ID) with an EC2 instance or network interface',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'allocation_id': {'type': 'string', 'description': 'Elastic IP allocation ID (eipalloc-xxxx)'},
+                    'instance_id': {'type': 'string', 'description': 'EC2 instance ID to associate with'},
+                    'network_interface_id': {'type': 'string', 'description': 'ENI ID (alternative to instance_id)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['allocation_id']
+            },
+            'handler': associate_elastic_ip
+        },
+        {
+            'name': 'disassociate_elastic_ip',
+            'description': 'Disassociate an Elastic IP from an instance or network interface (does not release it)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'association_id': {'type': 'string', 'description': 'Elastic IP association ID (eipassoc-xxxx)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['association_id']
+            },
+            'handler': disassociate_elastic_ip
         },
         # NAT Gateway Operations
         {
@@ -10051,6 +10634,93 @@ def get_tools() -> List[Dict[str, Any]]:
             },
             'handler': update_auto_scaling_group
         },
+        {
+            'name': 'create_scaling_policy',
+            'description': 'Create a scaling policy for an Auto Scaling Group. TargetTracking (recommended) auto-adjusts capacity to maintain a target metric like 50% CPU. SimpleScaling adds/removes a fixed number of instances.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'asg_name': {'type': 'string', 'description': 'Auto Scaling Group name'},
+                    'policy_name': {'type': 'string', 'description': 'Name for this policy'},
+                    'policy_type': {'type': 'string', 'enum': ['TargetTrackingScaling', 'SimpleScaling', 'StepScaling'], 'description': 'Policy type (default: TargetTrackingScaling)'},
+                    'target_value': {'type': 'number', 'description': 'Target metric value for TargetTracking (e.g. 50.0 for 50% CPU)'},
+                    'predefined_metric': {'type': 'string', 'description': 'TargetTracking metric: ASGAverageCPUUtilization, ASGAverageNetworkIn, ASGAverageNetworkOut, ALBRequestCountPerTarget'},
+                    'adjustment_type': {'type': 'string', 'description': 'SimpleScaling: ChangeInCapacity, ExactCapacity, or PercentChangeInCapacity'},
+                    'scaling_adjustment': {'type': 'integer', 'description': 'SimpleScaling: instances to add (positive) or remove (negative)'},
+                    'cooldown': {'type': 'integer', 'description': 'SimpleScaling cooldown in seconds (default 300)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['asg_name', 'policy_name']
+            },
+            'handler': create_scaling_policy
+        },
+        {
+            'name': 'create_cloudwatch_alarm',
+            'description': 'Create a CloudWatch alarm on any AWS metric (EC2 CPU, RDS connections, Lambda errors, etc.) with optional SNS notification',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'alarm_name': {'type': 'string', 'description': 'Unique alarm name'},
+                    'metric_name': {'type': 'string', 'description': 'Metric name, e.g. CPUUtilization, NetworkIn, StatusCheckFailed, DatabaseConnections'},
+                    'namespace': {'type': 'string', 'description': 'Metric namespace, e.g. AWS/EC2, AWS/RDS, AWS/Lambda, AWS/ECS'},
+                    'threshold': {'type': 'number', 'description': 'Numeric threshold value'},
+                    'comparison_operator': {'type': 'string', 'enum': ['GreaterThanThreshold', 'LessThanThreshold', 'GreaterThanOrEqualToThreshold', 'LessThanOrEqualToThreshold'], 'description': 'How to compare metric to threshold'},
+                    'evaluation_periods': {'type': 'integer', 'description': 'Number of consecutive periods before alarming (default 2)'},
+                    'period': {'type': 'integer', 'description': 'Evaluation period in seconds: 60, 300, 3600 (default 300)'},
+                    'statistic': {'type': 'string', 'description': 'Average, Sum, Maximum, Minimum, SampleCount (default Average)'},
+                    'dimensions': {'type': 'array', 'items': {'type': 'object'}, 'description': 'Metric dimensions, e.g. [{"Name":"InstanceId","Value":"i-0abc123"}]'},
+                    'alarm_actions': {'type': 'array', 'items': {'type': 'string'}, 'description': 'SNS topic ARNs to notify when alarm fires'},
+                    'ok_actions': {'type': 'array', 'items': {'type': 'string'}, 'description': 'SNS topic ARNs to notify when alarm clears'},
+                    'description': {'type': 'string', 'description': 'Human-readable alarm description'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['alarm_name', 'metric_name', 'namespace', 'threshold', 'comparison_operator']
+            },
+            'handler': create_cloudwatch_alarm
+        },
+        {
+            'name': 'add_tags',
+            'description': 'Add or update tags on EC2 resources (instances, volumes, snapshots, AMIs, security groups, etc.)',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'List of resource IDs to tag'},
+                    'tags': {'type': 'object', 'description': 'Key-value tag pairs, e.g. {"Environment":"production","Team":"platform"}'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['resource_ids', 'tags']
+            },
+            'handler': add_tags
+        },
+        {
+            'name': 'remove_tags',
+            'description': 'Remove specific tags from EC2 resources',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'resource_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'List of resource IDs'},
+                    'tag_keys': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Tag keys to remove, e.g. ["OldKey","TempTag"]'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['resource_ids', 'tag_keys']
+            },
+            'handler': remove_tags
+        },
+        {
+            'name': 'list_resources_by_tag',
+            'description': 'Find EC2 resources (instances, volumes, snapshots, images) by tag key and optional value. Useful for finding all resources in an environment or project.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'tag_key': {'type': 'string', 'description': 'Tag key to search for, e.g. "Environment" or "Project"'},
+                    'tag_value': {'type': 'string', 'description': 'Tag value to match (omit to match all values)'},
+                    'resource_types': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Resource types to search: instance, volume, snapshot, image (default: all)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['tag_key']
+            },
+            'handler': list_resources_by_tag
+        },
         # ---- ALB Lifecycle (Delete) ----
         {
             'name': 'delete_load_balancer',
@@ -10151,6 +10821,107 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['volume_id']
             },
             'handler': create_ebs_snapshot
+        },
+        {
+            'name': 'delete_ebs_snapshot',
+            'description': 'Delete an EBS snapshot by snapshot ID',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'snapshot_id': {'type': 'string', 'description': 'Snapshot ID (snap-xxxx)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['snapshot_id']
+            },
+            'handler': delete_ebs_snapshot
+        },
+        {
+            'name': 'copy_snapshot',
+            'description': 'Copy an EBS snapshot to another region for disaster recovery or regional backup',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'snapshot_id': {'type': 'string', 'description': 'Source snapshot ID'},
+                    'source_region': {'type': 'string', 'description': 'Region where the source snapshot lives'},
+                    'destination_region': {'type': 'string', 'description': 'Region to copy the snapshot to'},
+                    'description': {'type': 'string', 'description': 'Description for the copied snapshot'},
+                    'encrypted': {'type': 'boolean', 'description': 'Encrypt the copied snapshot (default false)'}
+                },
+                'required': ['snapshot_id', 'source_region', 'destination_region']
+            },
+            'handler': copy_snapshot
+        },
+        {
+            'name': 'delete_ebs_volume',
+            'description': 'Delete an EBS volume. The volume must be detached from all instances first.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'volume_id': {'type': 'string', 'description': 'EBS volume ID (vol-xxxx)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['volume_id']
+            },
+            'handler': delete_ebs_volume
+        },
+        {
+            'name': 'resize_ebs_volume',
+            'description': 'Resize an EBS volume (increase size or change type, e.g. gp2 to gp3). Changes take effect immediately but OS partition expansion may be needed.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'volume_id': {'type': 'string', 'description': 'EBS volume ID'},
+                    'new_size_gb': {'type': 'integer', 'description': 'New size in GB (must be >= current size)'},
+                    'new_volume_type': {'type': 'string', 'description': 'New volume type: gp2, gp3, io1, io2, st1, sc1'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['volume_id']
+            },
+            'handler': resize_ebs_volume
+        },
+        {
+            'name': 'create_ami',
+            'description': 'Create an Amazon Machine Image (AMI) from a running or stopped EC2 instance for use as a template or backup',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'instance_id': {'type': 'string', 'description': 'Source EC2 instance ID'},
+                    'name': {'type': 'string', 'description': 'Name for the AMI (must be unique in region)'},
+                    'description': {'type': 'string', 'description': 'AMI description'},
+                    'no_reboot': {'type': 'boolean', 'description': 'Do not reboot instance during AMI creation (default true — may cause filesystem inconsistency)'},
+                    'tags': {'type': 'object', 'description': 'Tags to apply to the AMI'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['instance_id', 'name']
+            },
+            'handler': create_ami
+        },
+        {
+            'name': 'deregister_ami',
+            'description': 'Deregister (delete) an AMI and optionally delete its backing EBS snapshots',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'image_id': {'type': 'string', 'description': 'AMI ID (ami-xxxx)'},
+                    'delete_snapshots': {'type': 'boolean', 'description': 'Also delete backing EBS snapshots (default false)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['image_id']
+            },
+            'handler': deregister_ami
+        },
+        {
+            'name': 'get_ec2_console_output',
+            'description': 'Retrieve the serial console output (boot log) for an EC2 instance. Useful for diagnosing boot failures, kernel panics, or SSH issues.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'instance_id': {'type': 'string', 'description': 'EC2 instance ID'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['instance_id']
+            },
+            'handler': get_ec2_console_output
         },
         # ---- ACM Certificates ----
         {

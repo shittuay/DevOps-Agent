@@ -178,6 +178,47 @@ def _mock_aws_create(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
             'message': f'Security group {sgid} created',
             'group_id': sgid
         }
+    if 'ami' in tool_name or 'image' in tool_name:
+        image_id = 'ami-' + _rand_id(length=17)
+        iid = tool_input.get('instance_id', 'i-xxxx')
+        name = tool_input.get('name', 'my-ami')
+        return {
+            'success': True, 'simulated': True,
+            'image_id': image_id,
+            'instance_id': iid,
+            'name': name,
+            'message': f'AMI creation initiated: {image_id} from {iid} (state: pending)'
+        }
+    if 'snapshot' in tool_name:
+        snap_id = 'snap-' + _rand_id(length=17)
+        return {
+            'success': True, 'simulated': True,
+            'snapshot_id': snap_id,
+            'source_snapshot_id': tool_input.get('snapshot_id', 'snap-src'),
+            'destination_region': tool_input.get('destination_region', 'eu-west-1'),
+            'message': f'Snapshot copy initiated as {snap_id}'
+        }
+    if 'cloudwatch_alarm' in tool_name or 'alarm' in tool_name:
+        name = tool_input.get('alarm_name', 'my-alarm')
+        metric = tool_input.get('metric_name', 'CPUUtilization')
+        threshold = tool_input.get('threshold', 80)
+        return {
+            'success': True, 'simulated': True,
+            'alarm_name': name,
+            'metric': metric,
+            'threshold': threshold,
+            'message': f'[Sandbox] CloudWatch alarm "{name}" created on {metric} > {threshold}'
+        }
+    if 'scaling_policy' in tool_name:
+        asg = tool_input.get('asg_name', 'my-asg')
+        policy = tool_input.get('policy_name', 'scale-out-policy')
+        return {
+            'success': True, 'simulated': True,
+            'policy_arn': f'arn:aws:autoscaling:us-east-1:123456789012:scalingPolicy:abc123:autoScalingGroupName/{asg}:policyName/{policy}',
+            'asg_name': asg,
+            'policy_name': policy,
+            'message': f'[Sandbox] Scaling policy "{policy}" created for {asg}'
+        }
     return {
         'success': True, 'simulated': True,
         'message': f'Resource created successfully',
@@ -992,8 +1033,44 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
         return {'success': True, 'simulated': True, 'message': 'Resource stopped successfully'}
     if tn.startswith('start_') or tn.startswith('restart_'):
         return {'success': True, 'simulated': True, 'message': 'Resource started successfully'}
-    if tn.startswith('update_') or tn.startswith('modify_'):
+    if tn.startswith('update_') or tn.startswith('modify_') or tn.startswith('resize_'):
         return {'success': True, 'simulated': True, 'message': 'Resource updated successfully'}
+    if tn.startswith('associate_'):
+        return {
+            'success': True, 'simulated': True,
+            'association_id': 'eipassoc-' + _rand_id(length=8),
+            'message': f'[Sandbox] Resource associated successfully'
+        }
+    if tn.startswith('disassociate_'):
+        return {'success': True, 'simulated': True, 'message': '[Sandbox] Resource disassociated successfully'}
+    if tn in ('add_tags', 'remove_tags'):
+        ids = tool_input.get('resource_ids', [])
+        return {
+            'success': True, 'simulated': True,
+            'resource_ids': ids,
+            'message': f'[Sandbox] Tags updated on {len(ids)} resource(s)'
+        }
+    if tn == 'list_resources_by_tag':
+        tag_key = tool_input.get('tag_key', 'Environment')
+        tag_value = tool_input.get('tag_value', 'production')
+        return {
+            'success': True, 'simulated': True,
+            'tag_filter': {tag_key: tag_value},
+            'total_resources': 3,
+            'resources': {
+                'instances': [
+                    {'id': 'i-' + _rand_id(length=17), 'state': 'running', 'type': 't3.medium',
+                     'tags': {tag_key: tag_value, 'Name': 'web-server-1'}},
+                    {'id': 'i-' + _rand_id(length=17), 'state': 'running', 'type': 't3.small',
+                     'tags': {tag_key: tag_value, 'Name': 'api-server-1'}},
+                ],
+                'volumes': [
+                    {'id': 'vol-' + _rand_id(length=17), 'size_gb': 100, 'state': 'in-use',
+                     'tags': {tag_key: tag_value}}
+                ]
+            },
+            'message': f'Found 3 resource(s) with tag {tag_key}={tag_value}'
+        }
 
     # Fallback
     return {

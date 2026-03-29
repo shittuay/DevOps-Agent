@@ -268,6 +268,11 @@ class SafetyValidator:
             'nexus_delete_repository',
             'nexus_delete_component',
             'nexus_delete_asset',
+            # EC2 new destructive
+            'delete_ec2_keypair',
+            'delete_ebs_snapshot',
+            'delete_ebs_volume',
+            'deregister_ami',
         }
 
         medium_risk_tools = {
@@ -329,6 +334,11 @@ class SafetyValidator:
             # Nexus medium risk
             'nexus_create_repository',
             'nexus_run_cleanup_task',
+            # EC2 new medium risk
+            'resize_ebs_volume',
+            'create_scaling_policy',
+            'create_cloudwatch_alarm',
+            'disassociate_elastic_ip',
         }
 
         # Check if tool is a pentest tool
