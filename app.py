@@ -4954,6 +4954,7 @@ if __name__ == '__main__':
         # Backfill mfa_method for existing TOTP users
         # Schema changes are now managed by Alembic migrations (migrations/versions/)
         try:
+            from sqlalchemy import text as sa_text
             _backfill = sa_text(
                 "UPDATE users SET mfa_method='totp' "
                 "WHERE two_factor_enabled=TRUE AND (mfa_method IS NULL OR mfa_method='none')"
