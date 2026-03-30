@@ -196,10 +196,12 @@ def get_change(change_id):
 @login_required
 @approver_required
 def list_pending_approvals():
-    """List changes awaiting approval. Approver/admin only."""
-    changes = InfrastructureChange.query.filter_by(
-        status='pending'
-    ).order_by(InfrastructureChange.created_at.asc()).all()
+    """List changes awaiting approval. Admins see all; approvers/operators see their own."""
+    user_role = getattr(current_user, 'role', 'viewer')
+    query = InfrastructureChange.query.filter_by(status='pending')
+    if user_role != 'admin':
+        query = query.filter_by(user_id=current_user.id)
+    changes = query.order_by(InfrastructureChange.created_at.asc()).all()
 
     return jsonify({
         'pending': [c.to_dict() for c in changes],
@@ -289,9 +291,11 @@ def execute_change(change_id):
         return jsonify({'error': f'Change must be approved before execution (current: {change.status})'}), 400
 
     try:
-        # Capture rollback data before execution
+        # Capture rollback data before execution and persist it immediately
+        # so it's not lost if execution fails or returns no_action
         rollback_data = _capture_rollback_data(change)
         change.rollback_data = rollback_data
+        db.session.commit()
 
         # Execute the change
         result = _execute_change(change)
@@ -408,12 +412,17 @@ def rollback_change(change_id):
 def _purge_resource_from_sync(change: InfrastructureChange) -> None:
     """Remove a deleted/terminated resource from the infrastructure sync table."""
     try:
-        deleted = InfrastructureResource.query.filter_by(
+        query = InfrastructureResource.query.filter_by(
             user_id=change.user_id,
             cloud_provider=change.cloud_provider,
             resource_type=change.resource_type,
             resource_id=change.resource_id,
-        ).delete()
+        )
+        # Scope to region when available to avoid deleting the same resource_id
+        # in a different region (e.g. same instance ID reused across regions)
+        if change.change_details and change.change_details.get('region'):
+            query = query.filter_by(region=change.change_details['region'])
+        deleted = query.delete()
         if deleted:
             logger.info(f"Purged {deleted} sync record(s) for {change.resource_type}/{change.resource_id}")
     except Exception as e:
