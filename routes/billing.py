@@ -317,6 +317,11 @@ def create_credits_checkout_session():
         if pack_size not in [100, 250, 500, 1000]:
             return jsonify({'error': 'Invalid pack size'}), 400
 
+        # Business-tier subscribers already receive 3,000 credits/month — credit packs not available
+        subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
+        if subscription and subscription.tier and subscription.tier.name == 'business':
+            return jsonify({'error': 'Enterprise subscribers cannot purchase credit packs. Your plan includes 3,000 credits per month. Contact support if you need more.'}), 403
+
         # NGN currency: look up NGN Stripe price ID, fall back to USD if not configured
         ngn_price_id = None
         if currency and currency.upper() == 'NGN':
