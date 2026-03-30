@@ -235,6 +235,7 @@ def upgrade_subscription():
 
 @billing_bp.route('/api/subscription/create-checkout', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
 def create_subscription_checkout_session():
     """Create Stripe checkout session for subscription upgrade."""
     if not STRIPE_ENABLED:
@@ -243,11 +244,12 @@ def create_subscription_checkout_session():
 
     try:
         data = request.get_json()
-        tier_name = data.get('tier_name')
+        tier_name = (data.get('tier_name') or '').lower().strip()
         currency = data.get('currency')  # 'NGN' or None/USD
 
-        if not tier_name:
-            return jsonify({'error': 'Tier name is required'}), 400
+        _valid_tiers = ('starter', 'professional', 'business')
+        if tier_name not in _valid_tiers:
+            return jsonify({'error': f'Invalid tier. Must be one of: {", ".join(_valid_tiers)}'}), 400
 
         # Debug: log Stripe config state
         api_key = stripe.api_key
@@ -266,7 +268,7 @@ def create_subscription_checkout_session():
             logger.info(f"Stripe price_id for {tier_name}: {price_id}")
             if not price_id:
                 logger.error(f"No Stripe price ID found for tier '{tier_name}'. Available: {list(STRIPE_PRICES['subscriptions'].keys())} -> {list(STRIPE_PRICES['subscriptions'].values())}")
-                return jsonify({'error': f'Payments are not yet configured. Please contact support or set STRIPE_PRICE_{tier_name.upper()} in your environment.'}), 400
+                return jsonify({'error': f'The {tier_name.capitalize()} plan is not available for purchase at this time. Please contact support.'}), 400
 
         result = create_subscription_checkout(
             current_user, tier_name,
@@ -304,6 +306,7 @@ def purchase_credits():
 
 @billing_bp.route('/api/credits/create-checkout', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
 def create_credits_checkout_session():
     """Create Stripe checkout session for credit pack purchase."""
     if not STRIPE_ENABLED:
@@ -311,11 +314,14 @@ def create_credits_checkout_session():
 
     try:
         data = request.get_json()
-        pack_size = data.get('pack_size', 100)
+        try:
+            pack_size = int(data.get('pack_size', 100))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Invalid pack size'}), 400
         currency = data.get('currency')  # 'NGN' or None/USD
 
         if pack_size not in [100, 250, 500, 1000]:
-            return jsonify({'error': 'Invalid pack size'}), 400
+            return jsonify({'error': 'Invalid pack size. Must be 100, 250, 500, or 1000'}), 400
 
         # Business-tier subscribers already receive 3,000 credits/month — credit packs not available
         subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
@@ -630,8 +636,11 @@ def handle_checkout_completed(session):
             tier = SubscriptionTier.query.filter_by(name=tier_name).first()
 
             if not tier:
-                logger.error(f"Tier '{tier_name}' not found in database")
-                return
+                logger.error(
+                    f"Tier '{tier_name}' not found in database for user {user.id}. "
+                    f"Payment received but subscription NOT created."
+                )
+                raise ValueError(f"Tier '{tier_name}' not found — subscription not created")
 
             from dateutil.relativedelta import relativedelta
             subscription = UserSubscription.query.filter_by(user_id=user.id).first()
@@ -775,8 +784,12 @@ def handle_invoice_payment_succeeded(invoice):
             ).first()
 
         if not user_subscription:
-            logger.warning(f"No subscription found for Stripe customer={customer_id} sub={subscription_id}")
-            return
+            logger.error(
+                f"No subscription found for recurring invoice. "
+                f"Stripe customer={customer_id}, sub={subscription_id}. "
+                f"Credits NOT granted — manual intervention required."
+            )
+            raise ValueError(f"Subscription not found for customer={customer_id} sub={subscription_id}")
 
         # Save customer_id if we found by subscription_id
         if customer_id and not user_subscription.stripe_customer_id:
@@ -785,7 +798,8 @@ def handle_invoice_payment_succeeded(invoice):
         from dateutil.relativedelta import relativedelta
         user_subscription.payment_status = 'active'
         user_subscription.payment_failed_at = None
-        user_subscription.credits_remaining = user_subscription.tier.monthly_credits
+        tier_credits = user_subscription.tier.monthly_credits if user_subscription.tier else 0
+        user_subscription.credits_remaining = tier_credits
         user_subscription.credits_used_this_month = 0
         user_subscription.last_reset_date = datetime.utcnow()
         user_subscription.current_period_start = datetime.utcnow()
@@ -849,9 +863,8 @@ def handle_invoice_payment_failed(invoice):
                 free_tier = SubscriptionTier.query.filter_by(name='free').first()
                 if free_tier:
                     user_subscription.tier_id = free_tier.id
-                    user_subscription.credits_remaining = min(
-                        user_subscription.credits_remaining, free_tier.monthly_credits
-                    )
+                    user_subscription.credits_remaining = free_tier.monthly_credits
+                    user_subscription.credits_used_this_month = 0
                     logger.warning(f"Downgraded user {user_subscription.user_id} to free tier after {days_overdue} days overdue")
 
         db.session.commit()
