@@ -9,7 +9,7 @@ Manages infrastructure change requests with risk-based approval routing:
 
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from models import db, InfrastructureChange
+from models import db, InfrastructureChange, InfrastructureResource
 from services.rbac import require_permission, Permission, approver_required, user_is_admin
 from datetime import datetime
 import logging
@@ -307,6 +307,10 @@ def execute_change(change_id):
         change.executed_at = datetime.utcnow()
         change.execution_result = result
 
+        # Remove deleted/terminated resources from the sync list immediately
+        if change.action_type in ('delete', 'terminate') and change.resource_id:
+            _purge_resource_from_sync(change)
+
         db.session.commit()
 
         _notify_change(change, 'executed')
@@ -380,6 +384,21 @@ def rollback_change(change_id):
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _purge_resource_from_sync(change: InfrastructureChange) -> None:
+    """Remove a deleted/terminated resource from the infrastructure sync table."""
+    try:
+        deleted = InfrastructureResource.query.filter_by(
+            user_id=change.user_id,
+            cloud_provider=change.cloud_provider,
+            resource_type=change.resource_type,
+            resource_id=change.resource_id,
+        ).delete()
+        if deleted:
+            logger.info(f"Purged {deleted} sync record(s) for {change.resource_type}/{change.resource_id}")
+    except Exception as e:
+        logger.warning(f"Failed to purge resource from sync after execute: {e}")
 
 
 def _capture_rollback_data(change: InfrastructureChange) -> dict:
