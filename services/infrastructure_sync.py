@@ -104,16 +104,28 @@ SQS_PRICE_PER_MILLION = 0.40
 
 
 def _remove_stale_resources(user_id: int, resource_type: str, seen_ids: set) -> int:
-    """Delete DB records for resources no longer present in AWS."""
-    if not seen_ids:
-        return 0
-    stale = InfrastructureResource.query.filter_by(
-        user_id=user_id,
-        cloud_provider='aws',
-        resource_type=resource_type,
-    ).filter(
-        ~InfrastructureResource.resource_id.in_(seen_ids)
-    ).all()
+    """Delete DB records for resources no longer present in AWS.
+
+    seen_ids is an empty set when the user has deleted all resources of this
+    type — we still want to wipe those DB rows. The guard against accidental
+    mass-delete is structural: this function is only called after a successful
+    AWS API response (exceptions short-circuit back to 'return 0' first).
+    """
+    if seen_ids:
+        stale = InfrastructureResource.query.filter_by(
+            user_id=user_id,
+            cloud_provider='aws',
+            resource_type=resource_type,
+        ).filter(
+            ~InfrastructureResource.resource_id.in_(seen_ids)
+        ).all()
+    else:
+        # AWS returned zero resources — remove everything of this type for this user
+        stale = InfrastructureResource.query.filter_by(
+            user_id=user_id,
+            cloud_provider='aws',
+            resource_type=resource_type,
+        ).all()
     for r in stale:
         db.session.delete(r)
     return len(stale)
