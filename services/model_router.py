@@ -58,8 +58,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
     ),
     'business': ModelConfig(
         provider='anthropic',
-        model='claude-opus-4-6',
-        display_name='Claude Opus 4.6',
+        model='claude-sonnet-4-6',
+        display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
     ),
@@ -91,8 +91,8 @@ DEFAULT_TIER_MODELS = {
     ),
     'business': ModelConfig(
         provider='anthropic',
-        model='claude-opus-4-6',
-        display_name='Claude Opus 4.6',
+        model='claude-sonnet-4-6',
+        display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
     ),
