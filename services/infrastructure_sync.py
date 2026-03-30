@@ -103,6 +103,22 @@ SNS_PRICE_PER_MILLION = 0.50
 SQS_PRICE_PER_MILLION = 0.40
 
 
+def _remove_stale_resources(user_id: int, resource_type: str, seen_ids: set) -> int:
+    """Delete DB records for resources no longer present in AWS."""
+    if not seen_ids:
+        return 0
+    stale = InfrastructureResource.query.filter_by(
+        user_id=user_id,
+        cloud_provider='aws',
+        resource_type=resource_type,
+    ).filter(
+        ~InfrastructureResource.resource_id.in_(seen_ids)
+    ).all()
+    for r in stale:
+        db.session.delete(r)
+    return len(stale)
+
+
 def sync_user_infrastructure(user_id: int) -> Dict:
     """
     Sync all infrastructure for a user across cloud providers.
@@ -238,11 +254,18 @@ def sync_aws_ec2_instances(user_id: int) -> int:
         response = ec2.describe_instances()
 
         count = 0
+        seen_ids = set()
         for reservation in response.get('Reservations', []):
             for instance in reservation.get('Instances', []):
                 instance_id = instance['InstanceId']
                 instance_type = instance['InstanceType']
                 state = instance['State']['Name']
+
+                # Skip instances that are fully terminated and no longer relevant
+                if state == 'terminated':
+                    continue
+
+                seen_ids.add(instance_id)
 
                 # Get instance name from tags
                 instance_name = instance_id
@@ -283,6 +306,7 @@ def sync_aws_ec2_instances(user_id: int) -> int:
 
                 count += 1
 
+        _remove_stale_resources(user_id, 'ec2', seen_ids)
         db.session.commit()
         return count
 
@@ -298,10 +322,13 @@ def sync_aws_rds_instances(user_id: int) -> int:
         response = rds.describe_db_instances()
 
         count = 0
+        seen_ids = set()
         for db_instance in response.get('DBInstances', []):
             db_id = db_instance['DBInstanceIdentifier']
             db_class = db_instance['DBInstanceClass']
             status = db_instance['DBInstanceStatus']
+
+            seen_ids.add(db_id)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -336,6 +363,7 @@ def sync_aws_rds_instances(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'rds', seen_ids)
         db.session.commit()
         return count
 
@@ -353,8 +381,10 @@ def sync_aws_s3_buckets(user_id: int) -> int:
         response = s3.list_buckets()
 
         count = 0
+        seen_ids = set()
         for bucket in response.get('Buckets', []):
             bucket_name = bucket['Name']
+            seen_ids.add(bucket_name)
 
             try:
                 # Get bucket region
@@ -419,6 +449,7 @@ def sync_aws_s3_buckets(user_id: int) -> int:
                 print(f"Error syncing bucket {bucket_name}: {e}")
                 continue
 
+        _remove_stale_resources(user_id, 's3', seen_ids)
         db.session.commit()
         return count
 
@@ -457,9 +488,11 @@ def sync_aws_lambda_functions(user_id: int) -> int:
         response = lambda_client.list_functions()
 
         count = 0
+        seen_ids = set()
         for function in response.get('Functions', []):
             function_name = function['FunctionName']
             function_arn = function['FunctionArn']
+            seen_ids.add(function_arn)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -495,6 +528,7 @@ def sync_aws_lambda_functions(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'lambda', seen_ids)
         db.session.commit()
         return count
 
@@ -510,10 +544,12 @@ def sync_aws_dynamodb_tables(user_id: int) -> int:
         response = dynamodb.list_tables()
 
         count = 0
+        seen_ids = set()
         for table_name in response.get('TableNames', []):
             try:
                 table_details = dynamodb.describe_table(TableName=table_name)
                 table = table_details['Table']
+                seen_ids.add(table['TableArn'])
 
                 # Get or create resource record
                 resource = InfrastructureResource.query.filter_by(
@@ -555,6 +591,7 @@ def sync_aws_dynamodb_tables(user_id: int) -> int:
                 print(f"Error syncing DynamoDB table {table_name}: {e}")
                 continue
 
+        _remove_stale_resources(user_id, 'dynamodb', seen_ids)
         db.session.commit()
         return count
 
@@ -570,9 +607,11 @@ def sync_aws_load_balancers(user_id: int) -> int:
         response = elbv2.describe_load_balancers()
 
         count = 0
+        seen_ids = set()
         for lb in response.get('LoadBalancers', []):
             lb_arn = lb['LoadBalancerArn']
             lb_type = lb['Type']  # application, network, or classic
+            seen_ids.add(lb_arn)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -612,6 +651,7 @@ def sync_aws_load_balancers(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'load_balancer', seen_ids)
         db.session.commit()
         return count
 
@@ -627,6 +667,7 @@ def sync_aws_ecs_services(user_id: int) -> int:
         clusters = ecs.list_clusters()
 
         count = 0
+        seen_ids = set()
         for cluster_arn in clusters.get('clusterArns', []):
             try:
                 services = ecs.list_services(cluster=cluster_arn)
@@ -636,6 +677,8 @@ def sync_aws_ecs_services(user_id: int) -> int:
                         service_details = ecs.describe_services(cluster=cluster_arn, services=[service_arn])
 
                         for service in service_details.get('services', []):
+                            seen_ids.add(service_arn)
+
                             # Get or create resource record
                             resource = InfrastructureResource.query.filter_by(
                                 user_id=user_id,
@@ -677,6 +720,7 @@ def sync_aws_ecs_services(user_id: int) -> int:
                 print(f"Error syncing ECS cluster {cluster_arn}: {e}")
                 continue
 
+        _remove_stale_resources(user_id, 'ecs', seen_ids)
         db.session.commit()
         return count
 
@@ -692,9 +736,11 @@ def sync_aws_api_gateways(user_id: int) -> int:
         response = apigw.get_rest_apis()
 
         count = 0
+        seen_ids = set()
         for api in response.get('items', []):
             api_id = api['id']
             api_arn = f"arn:aws:apigateway:{api.get('region', 'us-east-1')}::/restapis/{api_id}"
+            seen_ids.add(api_arn)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -728,6 +774,7 @@ def sync_aws_api_gateways(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'api_gateway', seen_ids)
         db.session.commit()
         return count
 
@@ -743,8 +790,10 @@ def sync_aws_sns_topics(user_id: int) -> int:
         response = sns.list_topics()
 
         count = 0
+        seen_ids = set()
         for topic in response.get('Topics', []):
             topic_arn = topic['TopicArn']
+            seen_ids.add(topic_arn)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -783,6 +832,7 @@ def sync_aws_sns_topics(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'sns', seen_ids)
         db.session.commit()
         return count
 
@@ -798,12 +848,14 @@ def sync_aws_sqs_queues(user_id: int) -> int:
         response = sqs.list_queues()
 
         count = 0
+        seen_ids = set()
         for queue_url in response.get('QueueUrls', []):
             try:
                 attrs = sqs.get_queue_attributes(QueueUrl=queue_url, AttributeNames=['All'])
                 attributes = attrs.get('Attributes', {})
 
                 queue_arn = attributes.get('QueueArn', queue_url)
+                seen_ids.add(queue_arn)
 
                 # Get or create resource record
                 resource = InfrastructureResource.query.filter_by(
@@ -840,6 +892,7 @@ def sync_aws_sqs_queues(user_id: int) -> int:
                 print(f"Error syncing SQS queue {queue_url}: {e}")
                 continue
 
+        _remove_stale_resources(user_id, 'sqs', seen_ids)
         db.session.commit()
         return count
 
@@ -855,9 +908,11 @@ def sync_aws_elasticache_clusters(user_id: int) -> int:
         response = elasticache.describe_cache_clusters()
 
         count = 0
+        seen_ids = set()
         for cluster in response.get('CacheClusters', []):
             cluster_id = cluster['CacheClusterId']
             cluster_arn = cluster.get('ARN', f"elasticache:{cluster_id}")
+            seen_ids.add(cluster_arn)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -892,6 +947,7 @@ def sync_aws_elasticache_clusters(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'elasticache', seen_ids)
         db.session.commit()
         return count
 
@@ -907,10 +963,12 @@ def sync_aws_cloudfront_distributions(user_id: int) -> int:
         response = cloudfront.list_distributions()
 
         count = 0
+        seen_ids = set()
         if 'DistributionList' in response and 'Items' in response['DistributionList']:
             for dist in response['DistributionList']['Items']:
                 dist_id = dist['Id']
                 dist_arn = dist['ARN']
+                seen_ids.add(dist_arn)
 
                 # Get or create resource record
                 resource = InfrastructureResource.query.filter_by(
@@ -943,6 +1001,7 @@ def sync_aws_cloudfront_distributions(user_id: int) -> int:
 
                 count += 1
 
+        _remove_stale_resources(user_id, 'cloudfront', seen_ids)
         db.session.commit()
         return count
 
@@ -958,8 +1017,10 @@ def sync_aws_ebs_volumes(user_id: int) -> int:
         response = ec2.describe_volumes()
 
         count = 0
+        seen_ids = set()
         for volume in response.get('Volumes', []):
             volume_id = volume['VolumeId']
+            seen_ids.add(volume_id)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -1014,6 +1075,7 @@ def sync_aws_ebs_volumes(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'ebs', seen_ids)
         db.session.commit()
         return count
 
@@ -1029,8 +1091,10 @@ def sync_aws_elastic_ips(user_id: int) -> int:
         response = ec2.describe_addresses()
 
         count = 0
+        seen_ids = set()
         for eip in response.get('Addresses', []):
             allocation_id = eip.get('AllocationId', eip.get('PublicIp'))
+            seen_ids.add(allocation_id)
 
             # Get or create resource record
             resource = InfrastructureResource.query.filter_by(
@@ -1066,6 +1130,7 @@ def sync_aws_elastic_ips(user_id: int) -> int:
 
             count += 1
 
+        _remove_stale_resources(user_id, 'elastic_ip', seen_ids)
         db.session.commit()
         return count
 
