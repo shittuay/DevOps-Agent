@@ -50,6 +50,84 @@ class DevOpsAgent:
 
         self.logger.info("DevOps Agent initialized")
 
+    _DESTRUCTIVE_PREFIXES = ('delete_', 'terminate_', 'destroy_', 'remove_', 'drop_', 'purge_')
+
+    def _audit_chat_deletion(self, tool_name: str, tool_input: dict, result: dict) -> None:
+        """
+        Auto-create an executed InfrastructureChange record when a delete/terminate
+        tool is called directly from chat (not via the change request UI).
+        This ensures every destructive action has an audit trail.
+        """
+        if not tool_name.startswith(self._DESTRUCTIVE_PREFIXES):
+            return
+        if not result.get('success'):
+            return
+        user_id = getattr(self, '_current_user_id', None)
+        if not user_id:
+            return
+        try:
+            from models import db, InfrastructureChange, InfrastructureResource
+            from datetime import datetime
+
+            # Extract resource identifiers from tool input (best-effort)
+            resource_id = (
+                tool_input.get('instance_id') or
+                tool_input.get('db_instance_identifier') or
+                tool_input.get('bucket_name') or
+                tool_input.get('vpc_id') or
+                tool_input.get('cluster_name') or
+                tool_input.get('function_name') or
+                tool_input.get('resource_id') or
+                tool_input.get('name') or
+                (tool_input.get('instance_ids') or [''])[0]  # terminate_ec2_instances uses a list
+            )
+            resource_name = tool_input.get('resource_name') or resource_id
+
+            # Derive resource_type from tool name (e.g. delete_ec2_instance → ec2)
+            slug = tool_name
+            for prefix in self._DESTRUCTIVE_PREFIXES:
+                slug = slug.replace(prefix, '', 1)
+            # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
+            resource_type = slug.split('_')[0]
+
+            cloud_provider = 'aws'
+            for p in ('azure', 'gcp', 'k8s', 'kubernetes'):
+                if p in tool_name:
+                    cloud_provider = p
+                    break
+
+            change = InfrastructureChange(
+                user_id=user_id,
+                action_type='delete',
+                resource_type=resource_type,
+                resource_id=resource_id,
+                resource_name=resource_name,
+                cloud_provider=cloud_provider,
+                title=f'[Chat] {tool_name.replace("_", " ").title()}',
+                description='Executed directly via chat confirmation',
+                change_details={'risk_level': 'high', 'source': 'chat', 'tool': tool_name},
+                status='executed',
+                approver_id=user_id,
+                approval_comment='Confirmed by user in chat',
+                approved_at=datetime.utcnow(),
+                executed_at=datetime.utcnow(),
+                execution_result=result,
+            )
+            db.session.add(change)
+
+            # Also purge from the sync list
+            if resource_id:
+                InfrastructureResource.query.filter_by(
+                    user_id=user_id,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                ).delete()
+
+            db.session.commit()
+            self.logger.info(f"Audit log created for chat deletion: {tool_name} / {resource_id}")
+        except Exception as e:
+            self.logger.warning(f"Failed to create audit log for {tool_name}: {e}")
+
     def register_tool(
         self,
         name: str,
@@ -201,6 +279,7 @@ class DevOpsAgent:
             self.conversation = ConversationManager()
             self.pending_download = None
             self._sandbox_mode = sandbox_mode
+            self._current_user_id = user_id
 
             # Load conversation history
             for msg in conversation_history:
@@ -442,13 +521,18 @@ Cost Optimization:
 - "What resources do I have" → get_infrastructure_summary
 - "Scan security" / "check compliance" → run_security_scan or run_compliance_check
 - "Show findings" / "what's vulnerable" → get_security_findings
-- Infrastructure changes (stop, start, resize, terminate, delete) → ALWAYS create a change request via create_change_request first — never modify directly
+- Infrastructure changes (stop, start, resize, terminate, delete) → TWO valid paths:
+  1. DIRECT (chat-confirmed): call the provider tool (e.g. terminate_ec2_instances) directly — the action executes immediately and is auto-logged as an executed change request for the audit trail
+  2. TEAM APPROVAL (governance): call create_change_request — leaves status pending so a team member can approve before anything runs
+  - Use path 1 when the user says "just do it" / confirms in chat.
+  - Use path 2 when the user says "create a change request" / wants approval first.
+  - NEVER do both paths for the same action — pick one.
 - "Sync my infrastructure" → sync_infrastructure
 - Resource utilization → get_resource_utilization
 - Specific AWS/Azure/GCP operations → use the dedicated provider tools
 
 === OPERATIONAL RULES ===
-- Never bypass change governance. All infrastructure modifications go through change requests.
+- Every destructive action is automatically audit-logged — direct chat deletions create an executed change record; pending change requests create a pending record until executed.
 - Be specific: costs in dollars, CPU in percentages, memory in GB, dates as relative time ("3 days ago").
 - Security findings must include: severity (Critical/High/Medium/Low), affected resource ARN/ID, remediation steps, estimated effort.
 - If the user hasn't synced recently, suggest sync_infrastructure before reporting stale data.
@@ -697,6 +781,7 @@ User Preferences and Context:
                             try:
                                 result = self.tools[tool_name](**tool_input)
                                 self._last_tools_used.append(tool_name)
+                                self._audit_chat_deletion(tool_name, tool_input, result)
                             except Exception as e:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -862,6 +947,7 @@ User Preferences and Context:
                             try:
                                 result = self.tools[tool_name](**tool_input)
                                 self._last_tools_used.append(tool_name)
+                                self._audit_chat_deletion(tool_name, tool_input, result)
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                         else:
@@ -933,6 +1019,7 @@ User Preferences and Context:
                         result = generate_mock_result(tool_name, tool_input)
                     elif tool_name in self.tools:
                         result = self.tools[tool_name](**tool_input)
+                        self._audit_chat_deletion(tool_name, tool_input, result)
                     else:
                         result = {
                             'success': False,
