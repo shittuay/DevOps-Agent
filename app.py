@@ -72,6 +72,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from src.config import ConfigManager
 from src.agent import DevOpsAgent
 from src.utils import setup_logging, get_logger
+
+# Module-level logger — used as fallback before app-level logger is configured
+logger = get_logger(__name__)
 from src.tools import (
     command_tools,
     aws_tools,
@@ -890,7 +893,6 @@ def initialize_agent():
             json_format=config_manager.get('logging.format') == 'json'
         )
 
-        logger = get_logger(__name__)
         logger.info("Initializing DevOps Agent for web interface")
 
         # Create agent
@@ -1795,21 +1797,17 @@ def remove_team_member(user_id):
 
         username = user.username
 
-        # Delete user's related data
-        # Delete conversations
+        # Delete user's related data — order matters for FK constraints
+        # Messages must go before conversations (no cascade on the FK)
+        ChatMessage.query.filter_by(user_id=user_id).delete()
         Conversation.query.filter_by(user_id=user_id).delete()
-
-        # Delete infrastructure resources
         InfrastructureResource.query.filter_by(user_id=user_id).delete()
-
-        # Delete cost optimizations
         CostOptimization.query.filter_by(user_id=user_id).delete()
-
-        # Delete security findings
         SecurityFinding.query.filter_by(user_id=user_id).delete()
-
-        # Delete alerts
         Alert.query.filter_by(user_id=user_id).delete()
+        UserSubscription.query.filter_by(user_id=user_id).delete()
+        UserPreferences.query.filter_by(user_id=user_id).delete()
+        UsageLog.query.filter_by(user_id=user_id).delete()
 
         # Delete the user
         db.session.delete(user)
@@ -2725,7 +2723,6 @@ def api_chat():
             # Clear the pending download
             agent.pending_download = None
 
-            logger = get_logger(__name__)
             logger.info(f"Download ready for user {current_user.id}: {download_storage[download_token]['filename']}")
 
         response_data = {
@@ -2751,7 +2748,6 @@ def api_chat():
 
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error processing chat message: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -3170,7 +3166,6 @@ def api_chat_stream():
 
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error in streaming chat: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -3306,13 +3301,11 @@ def download_file(token):
         response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         response.headers['X-Download-Success'] = 'true'
 
-        logger = get_logger(__name__)
         logger.info(f"User {current_user.id} downloaded file: {filename}")
 
         return response
 
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error downloading file: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -3780,7 +3773,6 @@ def get_history():
             'messages': [msg.to_dict() for msg in messages]
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error retrieving chat history: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -3851,7 +3843,6 @@ def submit_contact():
         db.session.add(contact_msg)
         db.session.commit()
 
-        logger = get_logger(__name__)
         logger.info(f"New contact message from {email}: {category}")
 
         # Forward message to support inbox
@@ -3878,7 +3869,6 @@ def submit_contact():
         })
 
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error submitting contact form: {str(e)}", exc_info=True)
         return jsonify({'error': 'Failed to send message'}), 500
 
@@ -3939,7 +3929,6 @@ def get_conversations():
             'conversations': [conv.to_dict() for conv in conversations]
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error retrieving conversations: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -3959,6 +3948,24 @@ def new_conversation():
         conversation_id = secrets.token_hex(8)
         session['conversation_id'] = conversation_id
 
+        # Clean up empty "New Chat" conversations older than 7 days for this user
+        from datetime import timedelta
+        cutoff = datetime.utcnow() - timedelta(days=7)
+        stale_ids = [
+            c.id for c in Conversation.query.filter(
+                Conversation.user_id == current_user.id,
+                Conversation.title == 'New Chat',
+                Conversation.updated_at < cutoff,
+            ).all()
+        ]
+        if stale_ids:
+            ChatMessage.query.filter(
+                ChatMessage.conversation_id.in_(stale_ids)
+            ).delete(synchronize_session=False)
+            Conversation.query.filter(
+                Conversation.id.in_(stale_ids)
+            ).delete(synchronize_session=False)
+
         # Create new conversation record
         conversation = Conversation(
             id=conversation_id,
@@ -3974,7 +3981,6 @@ def new_conversation():
         })
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error creating new conversation: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4007,7 +4013,6 @@ def load_conversation(conversation_id):
             'messages': [msg.to_dict() for msg in messages]
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error loading conversation: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4043,7 +4048,6 @@ def delete_conversation(conversation_id):
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error deleting conversation: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4063,7 +4067,6 @@ def get_preferences():
 
         return jsonify({'preferences': prefs.to_dict()})
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error retrieving preferences: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4090,7 +4093,6 @@ def update_preferences():
         return jsonify({'success': True, 'preferences': prefs.to_dict()})
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error updating preferences: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4116,7 +4118,6 @@ def add_favorite():
 
         return jsonify({'success': True, 'favorites': prefs.favorite_commands})
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error adding favorite: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4138,7 +4139,6 @@ def remove_favorite():
 
         return jsonify({'success': True, 'favorites': prefs.favorite_commands if prefs else []})
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error removing favorite: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4165,7 +4165,6 @@ def add_shortcut():
 
         return jsonify({'success': True, 'shortcuts': prefs.custom_shortcuts})
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error adding shortcut: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4181,7 +4180,6 @@ def remove_shortcut(shortcut):
 
         return jsonify({'success': True, 'shortcuts': prefs.custom_shortcuts if prefs else {}})
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error removing shortcut: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4274,7 +4272,6 @@ Transcript:
 
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error generating learning summary: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4300,7 +4297,6 @@ def learning_history():
             'pages': sessions.pages
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error fetching learning history: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4320,7 +4316,6 @@ def learning_proficiency():
             'session_count': session_count
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error fetching proficiency: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4367,7 +4362,6 @@ def learning_paths():
             'proficiency': levels
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error fetching learning paths: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4401,7 +4395,6 @@ def reset_proficiency():
         return jsonify({'success': True, 'levels': sanitized})
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error resetting proficiency: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4415,7 +4408,6 @@ def learning_scenarios():
         scenarios = get_failure_scenarios()
         return jsonify({'scenarios': scenarios})
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error fetching scenarios: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4440,7 +4432,6 @@ def get_templates():
             'public_templates': [t.to_dict() for t in public_templates]
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error retrieving templates: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4472,7 +4463,6 @@ def create_template():
         return jsonify({'success': True, 'template': template.to_dict()})
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error creating template: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4508,7 +4498,6 @@ def update_template(template_id):
         return jsonify({'success': True, 'template': template.to_dict()})
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error updating template: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4532,7 +4521,6 @@ def delete_template(template_id):
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error deleting template: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4556,7 +4544,6 @@ def use_template(template_id):
             'template': template.to_dict()
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error using template: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4603,7 +4590,6 @@ def submit_feedback():
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error submitting feedback: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4636,7 +4622,6 @@ def feedback_stats():
             'rating_distribution': distribution
         })
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error getting feedback stats: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4676,7 +4661,6 @@ def set_language():
 
     except Exception as e:
         db.session.rollback()
-        logger = get_logger(__name__)
         logger.error(f"Error setting language: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
@@ -4703,7 +4687,6 @@ def get_translations():
         })
 
     except Exception as e:
-        logger = get_logger(__name__)
         logger.error(f"Error getting translations: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
