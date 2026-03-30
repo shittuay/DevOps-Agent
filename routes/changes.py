@@ -323,6 +323,25 @@ def execute_change(change_id):
         })
 
     except Exception as e:
+        err_str = str(e).lower()
+        # If the resource no longer exists it was already deleted via chat — treat as executed
+        already_gone = any(k in err_str for k in (
+            'does not exist', 'not found', 'invalidinstanceid', 'dbinstancenotfound',
+            'nosuchbucket', 'notfound', 'resourcenotfound',
+        ))
+        if already_gone:
+            change.status = 'executed'
+            change.executed_at = datetime.utcnow()
+            change.execution_result = {'note': 'Resource was already deleted (likely via chat)', 'error': str(e)}
+            _purge_resource_from_sync(change)
+            db.session.commit()
+            _notify_change(change, 'executed')
+            return jsonify({
+                'success': True,
+                'change': change.to_dict(),
+                'message': f'Change #{change.id} marked executed — resource was already deleted'
+            })
+
         change.status = 'failed'
         change.executed_at = datetime.utcnow()
         change.execution_result = {'error': str(e)}
