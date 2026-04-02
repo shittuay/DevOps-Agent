@@ -525,7 +525,7 @@ def request_mfa_reset():
     import secrets as _secrets
     from datetime import timedelta
     token = _secrets.token_urlsafe(32)
-    user.mfa_reset_token = token
+    user.mfa_reset_token = hashlib.sha256(token.encode()).hexdigest()
     user.mfa_reset_expires = datetime.utcnow() + timedelta(minutes=30)
     db.session.commit()
 
@@ -546,7 +546,8 @@ def reset_mfa():
         return render_template('login.html', error='Invalid reset link.')
 
     user = User.query.get(user_id)
-    if not user or user.mfa_reset_token != token:
+    hashed_token = hashlib.sha256(token.encode()).hexdigest()
+    if not user or user.mfa_reset_token != hashed_token:
         return render_template('login.html', error='Invalid or expired reset link.')
 
     if datetime.utcnow() > user.mfa_reset_expires:

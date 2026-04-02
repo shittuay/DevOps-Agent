@@ -661,7 +661,11 @@
             const input = document.getElementById('tagInput');
             const tag = document.createElement('span');
             tag.className = 'tag';
-            tag.innerHTML = `${text}<button onclick="removeTag(this)">&times;</button>`;
+            tag.appendChild(document.createTextNode(text));
+            const btn = document.createElement('button');
+            btn.setAttribute('onclick', 'removeTag(this)');
+            btn.textContent = '\u00d7';
+            tag.appendChild(btn);
             container.insertBefore(tag, input);
         }
 
