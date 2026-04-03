@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}Infrastructure Map — DevOps Agent{% endblock %}
+
+{% block extra_head %}
+<style>
+    .map-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 32px 16px;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 1;
+    }
+    .map-header h1 {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+    .map-header .back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 14px;
+        transition: background .15s;
+    }
+    .map-header .back-btn:hover { background: var(--border-subtle); }
+
+    .map-toolbar {
+        display: flex;
+        gap: 8px;
+        padding: 0 32px 12px;
+        flex-wrap: wrap;
+        position: relative;
+        z-index: 1;
+    }
+    .provider-filter {
+        padding: 6px 14px;
+        border-radius: 20px;
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-elevated);
+        color: var(--text-secondary);
+        font-size: 13px;
+        cursor: pointer;
+        transition: all .15s;
+    }
+    .provider-filter.active {
+        border-color: var(--accent-primary);
+        color: var(--accent-primary);
+        background: rgba(99,102,241,.1);
+    }
+
+    .map-canvas-wrap {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        margin: 0 24px 24px;
+        border: 1px solid var(--border-subtle);
+        border-radius: 16px;
+        background: var(--bg-secondary);
+        z-index: 1;
+    }
+    #mapCanvas {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        overflow: auto;
+    }
+    #svgOverlay {
+        position: absolute;
+        top: 0; left: 0;
+        pointer-events: none;
+        z-index: 0;
+    }
+    .topo-col {
+        display: inline-flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 24px 16px;
+        vertical-align: top;
+        min-width: 200px;
+    }
+    .topo-col-header {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border-subtle);
+        margin-bottom: 4px;
+    }
+    .topo-node {
+        position: relative;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 10px 14px;
+        cursor: pointer;
+        transition: border-color .15s, transform .15s;
+        white-space: nowrap;
+        z-index: 1;
+    }
+    .topo-node:hover {
+        border-color: var(--accent-primary);
+        transform: translateY(-1px);
+    }
+    .topo-node.group-node {
+        border-style: dashed;
+        background: rgba(99,102,241,.05);
+    }
+    .topo-node-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .topo-node-meta {
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-top: 3px;
+    }
+    .topo-node-status {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+    }
+    .status-running, .status-active, .status-healthy { background: #22c55e; }
+    .status-stopped, .status-stopped  { background: #6b7280; }
+    .status-error, .status-failed     { background: #ef4444; }
+    .status-unknown, .status-pending  { background: #f59e0b; }
+
+    .provider-icon { margin-right: 5px; }
+
+    .map-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--text-secondary);
+        gap: 12px;
+    }
+    .map-empty p { font-size: 15px; }
+    .map-empty a {
+        padding: 10px 20px;
+        background: var(--accent-primary);
+        color: #fff;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .node-tooltip {
+        position: absolute;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 12px;
+        color: var(--text-primary);
+        z-index: 100;
+        pointer-events: none;
+        max-width: 240px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.3);
+        display: none;
+    }
+    .node-tooltip dt { color: var(--text-secondary); font-size: 11px; }
+    .node-tooltip dd { font-weight: 600; margin-bottom: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; flex-direction:column; height:100vh; overflow:hidden;">
+
+    <div class="map-header">
+        <div style="display:flex; align-items:center; gap:16px;">
+            <a href="/dashboard" class="back-btn">← Dashboard</a>
+            <h1>Infrastructure Map</h1>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <button onclick="refreshMap()" style="padding:8px 16px; background:var(--accent-primary); border:none; border-radius:8px; color:#fff; font-size:13px; cursor:pointer; font-weight:600;">↻ Refresh</button>
+        </div>
+    </div>
+
+    <div class="map-toolbar" id="providerFilters">
+        <button class="provider-filter active" data-provider="all" onclick="filterProvider(this, 'all')">All</button>
+    </div>
+
+    <div class="map-canvas-wrap">
+        <div id="mapCanvas" style="white-space:nowrap;">
+            <svg id="svgOverlay" style="width:0;height:0;"></svg>
+        </div>
+        <div class="node-tooltip" id="nodeTooltip"></div>
+        <div class="map-empty" id="mapEmpty" style="display:none;">
+            <span style="font-size:48px;">🗺️</span>
+            <p>No infrastructure resources found</p>
+            <a href="/">Ask the agent to scan your cloud</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const PROVIDER_ICONS = { aws: '☁️', azure: '🔷', gcp: '🟡', kubernetes: '⚙️', docker: '🐳' };
+    const TYPE_ORDER = ['vpc', 'cluster', 'instance', 'node', 'pod', 'service', 'database', 'storage', 'network', 'loadbalancer'];
+
+    let _allNodes = [], _allEdges = [], _activeProvider = 'all';
+
+    async function loadTopology() {
+        try {
+            const r = await fetch('/api/infrastructure/topology');
+            const data = await r.json();
+            _allNodes = data.nodes || [];
+            _allEdges = data.edges || [];
+            buildProviderFilters();
+            renderMap();
+        } catch(e) {
+            document.getElementById('mapEmpty').style.display = 'flex';
+        }
+    }
+
+    function refreshMap() {
+        document.getElementById('mapCanvas').innerHTML = '<svg id="svgOverlay" style="width:0;height:0;"></svg>';
+        loadTopology();
+    }
+
+    function buildProviderFilters() {
+        const providers = [...new Set(_allNodes.filter(n => !n.group).map(n => n.provider))];
+        const bar = document.getElementById('providerFilters');
+        bar.innerHTML = '<button class="provider-filter active" data-provider="all" onclick="filterProvider(this,\'all\')">All</button>';
+        providers.forEach(p => {
+            const btn = document.createElement('button');
+            btn.className = 'provider-filter';
+            btn.dataset.provider = p;
+            btn.textContent = (PROVIDER_ICONS[p] || '') + ' ' + p.toUpperCase();
+            btn.onclick = function() { filterProvider(this, p); };
+            bar.appendChild(btn);
+        });
+    }
+
+    function filterProvider(btn, provider) {
+        document.querySelectorAll('.provider-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _activeProvider = provider;
+        renderMap();
+    }
+
+    function renderMap() {
+        const canvas = document.getElementById('mapCanvas');
+        canvas.innerHTML = '<svg id="svgOverlay" style="width:0;height:0;"></svg>';
+
+        const visibleNodes = _activeProvider === 'all'
+            ? _allNodes
+            : _allNodes.filter(n => n.provider === _activeProvider || n.group);
+
+        if (visibleNodes.filter(n => !n.group).length === 0) {
+            document.getElementById('mapEmpty').style.display = 'flex';
+            return;
+        }
+        document.getElementById('mapEmpty').style.display = 'none';
+
+        // Group nodes by provider then type
+        const columns = {};
+        visibleNodes.forEach(n => {
+            const key = n.group ? `${n.provider}_group` : `${n.provider}_${n.type}`;
+            if (!columns[key]) columns[key] = { provider: n.provider, type: n.type, isGroup: n.group, nodes: [] };
+            columns[key].nodes.push(n);
+        });
+
+        const nodeEls = {}; // id -> DOM element
+
+        Object.values(columns).forEach(col => {
+            const colEl = document.createElement('div');
+            colEl.className = 'topo-col';
+            const header = document.createElement('div');
+            header.className = 'topo-col-header';
+            header.textContent = `${PROVIDER_ICONS[col.provider] || ''} ${col.provider} / ${col.type}`;
+            colEl.appendChild(header);
+
+            col.nodes.forEach(n => {
+                const nodeEl = document.createElement('div');
+                nodeEl.className = 'topo-node' + (n.group ? ' group-node' : '');
+                nodeEl.dataset.id = n.id;
+
+                const statusClass = 'status-' + (n.status || 'unknown').toLowerCase().replace(/[^a-z]/g, '');
+                const label = document.createElement('div');
+                label.className = 'topo-node-label';
+                if (!n.group) {
+                    const dot = document.createElement('span');
+                    dot.className = `topo-node-status ${statusClass}`;
+                    label.appendChild(dot);
+                }
+                label.appendChild(document.createTextNode(n.label || n.id));
+                nodeEl.appendChild(label);
+
+                const meta = document.createElement('div');
+                meta.className = 'topo-node-meta';
+                meta.textContent = [n.region, n.status].filter(Boolean).join(' · ');
+                nodeEl.appendChild(meta);
+
+                nodeEl.addEventListener('mouseenter', (e) => showTooltip(e, n));
+                nodeEl.addEventListener('mouseleave', hideTooltip);
+
+                colEl.appendChild(nodeEl);
+                nodeEls[n.id] = nodeEl;
+            });
+
+            canvas.appendChild(colEl);
+        });
+
+        // Draw SVG edges after layout
+        requestAnimationFrame(() => drawEdges(nodeEls));
+    }
+
+    function drawEdges(nodeEls) {
+        const canvas = document.getElementById('mapCanvas');
+        const svg = document.getElementById('svgOverlay');
+        const cRect = canvas.getBoundingClientRect();
+        const cScroll = { x: canvas.scrollLeft, y: canvas.scrollTop };
+
+        const w = canvas.scrollWidth;
+        const h = canvas.scrollHeight;
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.style.width = w + 'px';
+        svg.style.height = h + 'px';
+        svg.innerHTML = '<defs><marker id="arrowhead" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="var(--border-subtle)"/></marker></defs>';
+
+        _allEdges.forEach(edge => {
+            const srcEl = nodeEls[edge.source];
+            const tgtEl = nodeEls[edge.target];
+            if (!srcEl || !tgtEl) return;
+
+            const sr = srcEl.getBoundingClientRect();
+            const tr = tgtEl.getBoundingClientRect();
+
+            const sx = sr.right - cRect.left + cScroll.x;
+            const sy = sr.top + sr.height / 2 - cRect.top + cScroll.y;
+            const tx = tr.left - cRect.left + cScroll.x;
+            const ty = tr.top + tr.height / 2 - cRect.top + cScroll.y;
+
+            const cx1 = sx + (tx - sx) * 0.5;
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            line.setAttribute('d', `M${sx},${sy} C${cx1},${sy} ${cx1},${ty} ${tx},${ty}`);
+            line.setAttribute('fill', 'none');
+            line.setAttribute('stroke', 'var(--border-subtle)');
+            line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('marker-end', 'url(#arrowhead)');
+            svg.appendChild(line);
+        });
+    }
+
+    function showTooltip(e, node) {
+        const tip = document.getElementById('nodeTooltip');
+        tip.innerHTML = `
+            <dl>
+                <dt>Name</dt><dd>${escapeHtml(node.label)}</dd>
+                <dt>Type</dt><dd>${escapeHtml(node.type)}</dd>
+                <dt>Provider</dt><dd>${escapeHtml(node.provider)}</dd>
+                ${node.region ? `<dt>Region</dt><dd>${escapeHtml(node.region)}</dd>` : ''}
+                ${node.status ? `<dt>Status</dt><dd>${escapeHtml(node.status)}</dd>` : ''}
+            </dl>`;
+        const wrap = e.target.closest('.map-canvas-wrap');
+        const wr = wrap.getBoundingClientRect();
+        let x = e.clientX - wr.left + 12;
+        let y = e.clientY - wr.top + 12;
+        if (x + 250 > wr.width) x -= 262;
+        tip.style.left = x + 'px';
+        tip.style.top  = y + 'px';
+        tip.style.display = 'block';
+    }
+    function hideTooltip() { document.getElementById('nodeTooltip').style.display = 'none'; }
+
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s)));
+        return d.innerHTML;
+    }
+
+    loadTopology();
+    window.addEventListener('resize', () => {
+        const nodeEls = {};
+        document.querySelectorAll('.topo-node').forEach(el => { nodeEls[el.dataset.id] = el; });
+        if (Object.keys(nodeEls).length) drawEdges(nodeEls);
+    });
+</script>
+{% endblock %}

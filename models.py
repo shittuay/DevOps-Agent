@@ -2702,3 +2702,31 @@ class StatusSubscriber(db.Model):
 
     def __repr__(self):
         return f'<StatusSubscriber {self.email} confirmed={self.confirmed}>'
+
+
+class AppNotification(db.Model):
+    """In-app notification inbox for alerts, incidents, and system events."""
+    __tablename__ = 'app_notifications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    title = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(40), default='info')  # info | warning | critical | success
+    link = db.Column(db.String(500))  # optional deep-link
+    read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'body': self.body,
+            'category': self.category,
+            'link': self.link,
+            'read': self.read,
+            'created_at': self.created_at.isoformat(),
+        }
+
+    def __repr__(self):
+        return f'<AppNotification {self.id} user={self.user_id} read={self.read}>'
