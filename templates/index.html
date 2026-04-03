@@ -821,6 +821,8 @@
             line-height: 1.7;
             color: var(--text-primary);
             font-weight: 400;
+            overflow-wrap: break-word;
+            word-break: break-word;
         }
 
         .message.user .message-text {
@@ -1281,6 +1283,10 @@
                 font-size: 18px;
             }
 
+            .header-button.nav-secondary {
+                display: none;
+            }
+
             #credits-badge {
                 padding: 8px 12px;
                 font-size: 14px;
@@ -1334,6 +1340,7 @@
             .input-wrapper {
                 flex-shrink: 0;
                 padding: 12px 16px;
+                padding-bottom: max(12px, env(safe-area-inset-bottom));
             }
 
             .input-box {
@@ -1374,6 +1381,262 @@
                 padding: 16px;
             }
         }
+
+        /* Notification bell badge */
+        .notif-badge {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: #ef4444;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            min-width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 3px;
+            pointer-events: none;
+        }
+
+        /* Notification slide-in panel */
+        .notif-panel {
+            position: fixed;
+            top: 60px;
+            right: 16px;
+            width: 360px;
+            max-height: 540px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 14px;
+            box-shadow: 0 12px 40px rgba(0,0,0,.35);
+            display: flex;
+            flex-direction: column;
+            z-index: 2000;
+            overflow: hidden;
+            transform: translateY(-8px);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform .18s ease, opacity .18s ease;
+        }
+        .notif-panel.open {
+            transform: translateY(0);
+            opacity: 1;
+            pointer-events: all;
+        }
+        .notif-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-weight: 600;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .notif-panel-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .notif-panel-actions button {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background .15s;
+        }
+        .notif-panel-actions button:hover { background: var(--bg-elevated); }
+        .notif-list {
+            overflow-y: auto;
+            flex: 1;
+        }
+        .notif-empty {
+            padding: 32px 16px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .notif-item {
+            display: flex;
+            gap: 10px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+            cursor: pointer;
+            transition: background .12s;
+        }
+        .notif-item:hover { background: var(--bg-elevated); }
+        .notif-item.unread { background: rgba(59,130,246,.06); }
+        .notif-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-top: 5px;
+            flex-shrink: 0;
+        }
+        .notif-dot.info    { background: #3b82f6; }
+        .notif-dot.warning { background: #f59e0b; }
+        .notif-dot.critical{ background: #ef4444; }
+        .notif-dot.success { background: #22c55e; }
+        .notif-dot.read    { background: var(--border-subtle); }
+        .notif-item-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+        .notif-item-body {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        .notif-item-time {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        @media (max-width: 480px) {
+            .notif-panel { right: 8px; left: 8px; width: auto; }
+        }
+
+        /* Tool execution trace chips */
+        .tool-trace {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .tool-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 500;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            transition: all .2s;
+            white-space: nowrap;
+        }
+        .tool-chip .chip-icon { font-size: 10px; }
+        .tool-chip.running {
+            border-color: #3b82f6;
+            color: #3b82f6;
+            background: rgba(59,130,246,.08);
+            animation: chipPulse 1s infinite;
+        }
+        .tool-chip.success {
+            border-color: #22c55e;
+            color: #22c55e;
+            background: rgba(34,197,94,.07);
+        }
+        .tool-chip.error {
+            border-color: #ef4444;
+            color: #ef4444;
+            background: rgba(239,68,68,.07);
+        }
+        @keyframes chipPulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: .55; }
+        }
+
+        /* Safety confirmation modal */
+        .safety-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.55);
+            z-index: 3000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .2s;
+        }
+        .safety-modal-overlay.open {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .safety-modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 28px 28px 22px;
+            max-width: 440px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,.4);
+            transform: scale(.95);
+            transition: transform .2s;
+        }
+        .safety-modal-overlay.open .safety-modal { transform: scale(1); }
+        .safety-modal-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        .safety-modal-body {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+        .safety-modal-tool {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+        .safety-modal-risk {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        .risk-high     { background: rgba(239,68,68,.15); color: #ef4444; }
+        .risk-critical { background: rgba(239,68,68,.25); color: #dc2626; }
+        .risk-medium   { background: rgba(245,158,11,.15); color: #f59e0b; }
+        .safety-modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .safety-modal-cancel {
+            padding: 9px 18px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .safety-modal-confirm {
+            padding: 9px 18px;
+            background: #ef4444;
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .safety-modal-confirm:hover { background: #dc2626; }
+        .safety-modal-cancel:hover  { background: var(--bg-elevated); filter: brightness(1.1); }
 
         /* Contact Us Widget */
         .contact-widget {
@@ -1821,11 +2084,15 @@
                         <span>⚡</span>
                         <span>Optimize</span>
                     </a>
-                    <a href="/analysis" class="header-button">
+                    <a href="/infrastructure/map" class="header-button nav-secondary">
+                        <span>🗺️</span>
+                        <span>Map</span>
+                    </a>
+                    <a href="/analysis" class="header-button nav-secondary">
                         <span>🔍</span>
                         <span>Analysis</span>
                     </a>
-                    <a href="/curriculum" class="header-button">
+                    <a href="/curriculum" class="header-button nav-secondary">
                         <span>🎓</span>
                         <span>Learn</span>
                     </a>
@@ -1835,7 +2102,7 @@
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
                         💰 <span id="credits-count">{{ initial_credits if initial_credits is defined else '--' }}</span> credits
                     </div>
-                    <button class="header-button" onclick="exportChat()">
+                    <button class="header-button nav-secondary" onclick="exportChat()">
                         <span>📋</span>
                         <span>Export</span>
                     </button>
@@ -1843,6 +2110,14 @@
                         <span>🗑️</span>
                         <span>Clear</span>
                     </button>
+                    <!-- Notification bell -->
+                    <div class="notif-bell-wrap" style="position:relative;">
+                        <button class="header-button notif-bell-btn" onclick="toggleNotifPanel()" title="Notifications" style="position:relative;">
+                            <span>🔔</span>
+                            <span id="notif-unread-badge" class="notif-badge" style="display:none;">0</span>
+                        </button>
+                    </div>
+
                     <div class="theme-toggle">
                         <button class="theme-toggle-btn active" data-theme="dark" title="Dark Mode">🌙</button>
                         <button class="theme-toggle-btn" data-theme="light" title="Light Mode">☀️</button>
@@ -2185,6 +2460,10 @@
             avatar.textContent = 'D';
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
+            const traceDiv = document.createElement('div');
+            traceDiv.className = 'tool-trace';
+            traceDiv.style.display = 'none';
+            contentDiv.appendChild(traceDiv);
             const textDiv = document.createElement('div');
             textDiv.className = 'message-text';
             textDiv.innerHTML = '<span class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></span>';
@@ -2192,6 +2471,7 @@
             messageDiv.appendChild(avatar);
             messageDiv.appendChild(contentDiv);
             container.appendChild(messageDiv);
+            const _chipMap = {}; // tool_name -> chip element
             scrollToBottom();
 
             try {
@@ -2227,7 +2507,29 @@
                         if (!line.startsWith('data: ')) continue;
                         try {
                             const evt = JSON.parse(line.slice(6));
-                            if (evt.type === 'chunk') {
+                            if (evt.type === 'tool_start') {
+                                traceDiv.style.display = 'flex';
+                                const chip = document.createElement('span');
+                                chip.className = 'tool-chip running';
+                                chip.dataset.tool = evt.tool;
+                                const iconEl = document.createElement('span');
+                                iconEl.className = 'chip-icon';
+                                iconEl.textContent = '⚙';
+                                const nameEl = document.createTextNode(evt.tool.replace(/_/g, ' '));
+                                chip.appendChild(iconEl);
+                                chip.appendChild(nameEl);
+                                traceDiv.appendChild(chip);
+                                _chipMap[evt.tool] = chip;
+                                scrollToBottom();
+                            } else if (evt.type === 'tool_done') {
+                                const chip = _chipMap[evt.tool];
+                                if (chip) {
+                                    chip.classList.remove('running');
+                                    chip.classList.add(evt.success === false ? 'error' : 'success');
+                                    const iconEl = chip.querySelector('.chip-icon');
+                                    if (iconEl) iconEl.textContent = evt.success === false ? '✗' : '✓';
+                                }
+                            } else if (evt.type === 'chunk') {
                                 rawText += evt.content;
                                 textDiv.innerHTML = formatMessage(rawText);
                                 scrollToBottom();
@@ -3101,9 +3403,156 @@
         });
 
         // Load on page ready - handled in toggleSidebarCollapse function above
+
+        // ── Safety confirmation modal (Feature 2) ───────────────────────────
+        let _safetyResolve = null;
+
+        function showSafetyModal(toolName, riskLevel, description) {
+            return new Promise(resolve => {
+                _safetyResolve = resolve;
+                document.getElementById('safetyModalTool').textContent = toolName;
+                document.getElementById('safetyModalDesc').textContent =
+                    description || 'This is a ' + riskLevel + '-risk operation. Are you sure you want to proceed?';
+                const riskEl = document.getElementById('safetyModalRisk');
+                riskEl.textContent = riskLevel.toUpperCase() + ' RISK';
+                riskEl.className = 'safety-modal-risk risk-' + riskLevel.toLowerCase();
+                document.getElementById('safetyModalOverlay').classList.add('open');
+            });
+        }
+
+        function safetyModalRespond(confirmed) {
+            document.getElementById('safetyModalOverlay').classList.remove('open');
+            if (_safetyResolve) { _safetyResolve(confirmed); _safetyResolve = null; }
+        }
+
+        // ── Notification inbox ──────────────────────────────────────────────
+        let notifPanelOpen = false;
+
+        function toggleNotifPanel() {
+            notifPanelOpen = !notifPanelOpen;
+            const panel = document.getElementById('notifPanel');
+            panel.classList.toggle('open', notifPanelOpen);
+            if (notifPanelOpen) fetchNotifications();
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!notifPanelOpen) return;
+            const panel = document.getElementById('notifPanel');
+            const bell = document.querySelector('.notif-bell-wrap');
+            if (!panel.contains(e.target) && !bell.contains(e.target)) {
+                notifPanelOpen = false;
+                panel.classList.remove('open');
+            }
+        });
+
+        function fetchNotifications() {
+            fetch('/api/notifications')
+                .then(r => r.json())
+                .then(data => {
+                    const badge = document.getElementById('notif-unread-badge');
+                    if (data.unread > 0) {
+                        badge.textContent = data.unread > 99 ? '99+' : data.unread;
+                        badge.style.display = 'flex';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                    renderNotifications(data.notifications);
+                })
+                .catch(() => {});
+        }
+
+        function renderNotifications(notifs) {
+            const list = document.getElementById('notifList');
+            if (!notifs || notifs.length === 0) {
+                list.innerHTML = '<div class="notif-empty">No notifications</div>';
+                return;
+            }
+            list.innerHTML = notifs.map(n => {
+                const dotClass = n.read ? 'read' : n.category;
+                const unreadClass = n.read ? '' : ' unread';
+                const timeAgo = formatNotifTime(n.created_at);
+                const titleEl = document.createElement('div');
+                titleEl.className = 'notif-item-title';
+                titleEl.textContent = n.title;
+                const bodyEl = document.createElement('div');
+                bodyEl.className = 'notif-item-body';
+                bodyEl.textContent = n.body;
+                // Build safe HTML
+                return `<div class="notif-item${unreadClass}" onclick="handleNotifClick(${n.id}, ${JSON.stringify(n.link || '')})">
+                    <div class="notif-dot ${dotClass}"></div>
+                    <div>
+                        <div class="notif-item-title">${escapeHtml(n.title)}</div>
+                        <div class="notif-item-body">${escapeHtml(n.body)}</div>
+                        <div class="notif-item-time">${timeAgo}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function escapeHtml(str) {
+            const d = document.createElement('div');
+            d.appendChild(document.createTextNode(str));
+            return d.innerHTML;
+        }
+
+        function formatNotifTime(isoStr) {
+            const diff = Math.floor((Date.now() - new Date(isoStr)) / 1000);
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        }
+
+        function handleNotifClick(id, link) {
+            fetch('/api/notifications/read', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+            if (link) window.location.href = link;
+            else fetchNotifications();
+        }
+
+        function markAllNotifsRead() {
+            fetch('/api/notifications/read', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})})
+                .then(() => fetchNotifications());
+        }
+
+        function clearAllNotifs() {
+            fetch('/api/notifications', {method:'DELETE'})
+                .then(() => fetchNotifications());
+        }
+
+        // Poll unread count every 60s
+        fetchNotifications();
+        setInterval(fetchNotifications, 60000);
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
+
+    <!-- Safety Confirmation Modal (Feature 2) -->
+    <div class="safety-modal-overlay" id="safetyModalOverlay">
+        <div class="safety-modal">
+            <div class="safety-modal-title">⚠️ Confirm Operation</div>
+            <div class="safety-modal-body" id="safetyModalDesc">This operation requires confirmation.</div>
+            <div class="safety-modal-tool" id="safetyModalTool"></div>
+            <div><span class="safety-modal-risk" id="safetyModalRisk"></span></div>
+            <div class="safety-modal-actions">
+                <button class="safety-modal-cancel" onclick="safetyModalRespond(false)">Cancel</button>
+                <button class="safety-modal-confirm" onclick="safetyModalRespond(true)">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Panel -->
+    <div class="notif-panel" id="notifPanel">
+        <div class="notif-panel-header">
+            <span>Notifications</span>
+            <div class="notif-panel-actions">
+                <button onclick="markAllNotifsRead()">Mark all read</button>
+                <button onclick="clearAllNotifs()">Clear all</button>
+            </div>
+        </div>
+        <div class="notif-list" id="notifList">
+            <div class="notif-empty">No notifications</div>
+        </div>
+    </div>
 
     <!-- Contact Us Widget -->
     <div class="contact-widget">

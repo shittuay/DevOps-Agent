@@ -99,7 +99,7 @@ from src.tools import (
 from models import (
     db, User, ChatMessage, Conversation, UserPreferences, CommandTemplate,
     ResponseFeedback, SubscriptionTier, UserSubscription, CreditPurchase, UsageLog,
-    LearningSession, PaymentWebhookEvent, NGNPriceConfig, ConversionEvent
+    LearningSession, PaymentWebhookEvent, NGNPriceConfig, ConversionEvent, AppNotification
 )
 
 
@@ -1351,6 +1351,52 @@ def dashboard():
     return render_template('dashboard_live.html', user=current_user)
 
 
+@app.route('/infrastructure/map')
+@login_required
+def infrastructure_map():
+    return render_template('infrastructure/map.html', user=current_user)
+
+
+@app.route('/api/infrastructure/topology')
+@login_required
+def api_infrastructure_topology():
+    resources = InfrastructureResource.query.filter_by(user_id=current_user.id).all()
+    nodes = []
+    edges = []
+    seen_vpcs = {}
+    seen_clusters = {}
+
+    for r in resources:
+        meta = r.resource_metadata or {}
+        node = {
+            'id': str(r.id),
+            'label': r.resource_name or r.resource_id,
+            'type': r.resource_type,
+            'provider': r.provider,
+            'region': r.region,
+            'status': r.status,
+        }
+        nodes.append(node)
+
+        # VPC grouping edges (AWS)
+        vpc_id = meta.get('vpc_id')
+        if vpc_id:
+            if vpc_id not in seen_vpcs:
+                seen_vpcs[vpc_id] = f'vpc_{vpc_id}'
+                nodes.append({'id': f'vpc_{vpc_id}', 'label': vpc_id, 'type': 'vpc', 'provider': 'aws', 'group': True})
+            edges.append({'source': f'vpc_{vpc_id}', 'target': str(r.id)})
+
+        # K8s cluster grouping
+        cluster = meta.get('cluster_name') or meta.get('cluster')
+        if cluster and r.provider == 'kubernetes':
+            if cluster not in seen_clusters:
+                seen_clusters[cluster] = f'cluster_{cluster}'
+                nodes.append({'id': f'cluster_{cluster}', 'label': cluster, 'type': 'cluster', 'provider': 'kubernetes', 'group': True})
+            edges.append({'source': f'cluster_{cluster}', 'target': str(r.id)})
+
+    return jsonify({'nodes': nodes, 'edges': edges})
+
+
 @app.route('/workflows')
 @login_required
 def workflows_page():
@@ -1641,6 +1687,37 @@ def api_status_health():
     overall = status_service.get_overall_status(services)
     code = 200 if overall == 'operational' else 503
     return jsonify({'status': overall, 'services': services, 'ts': datetime.utcnow().isoformat()}), code
+
+
+@app.route('/api/notifications')
+@login_required
+def get_notifications():
+    notifs = AppNotification.query.filter_by(user_id=current_user.id).order_by(AppNotification.created_at.desc()).limit(50).all()
+    unread = AppNotification.query.filter_by(user_id=current_user.id, read=False).count()
+    return jsonify({'notifications': [n.to_dict() for n in notifs], 'unread': unread})
+
+
+@app.route('/api/notifications/read', methods=['POST'])
+@login_required
+def mark_notifications_read():
+    data = request.get_json(silent=True) or {}
+    notif_id = data.get('id')
+    if notif_id:
+        notif = AppNotification.query.filter_by(id=notif_id, user_id=current_user.id).first()
+        if notif:
+            notif.read = True
+    else:
+        AppNotification.query.filter_by(user_id=current_user.id, read=False).update({'read': True})
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/notifications', methods=['DELETE'])
+@login_required
+def clear_notifications():
+    AppNotification.query.filter_by(user_id=current_user.id).delete()
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/privacy-policy')
@@ -2985,6 +3062,18 @@ def api_chat_stream():
             )
             full_response = []
             actual_mc = mc
+
+            # Tool event queue — callbacks fire synchronously inside the generator
+            _tool_events = []
+            def _tool_cb(event_type, tool_name, data):
+                _tool_events.append({'type': event_type, 'tool': tool_name,
+                                     'success': data.get('success', True)})
+            agent.set_tool_event_callback(_tool_cb)
+
+            def _drain_tool_events():
+                while _tool_events:
+                    ev = _tool_events.pop(0)
+                    yield f"data: {_json.dumps(ev)}\n\n"
             _log.debug(f"stream: tier={getattr(mc, 'provider', '?')}, model={getattr(mc, 'model', '?')}")
             try:
                 if mc.provider not in ('anthropic', 'kimi'):
@@ -3017,6 +3106,7 @@ def api_chat_stream():
                             # If we've accumulated a reasonable first chunk without error, emit and continue
                             if len(combined) > 20 or not combined.startswith(('\u274c', 'Error', 'API', '{')):
                                 # Looks like a real response, emit buffered chunks
+                                yield from _drain_tool_events()
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
                                     yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
@@ -3039,8 +3129,10 @@ def api_chat_stream():
                         stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
 
                 for chunk in stream_source:
+                    yield from _drain_tool_events()
                     full_response.append(chunk)
                     yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(chunk)})}\n\n"
+                yield from _drain_tool_events()
 
                 # Append fallback note if we switched providers
                 if actual_mc.provider != mc.provider:
@@ -3144,6 +3236,8 @@ def api_chat_stream():
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             finally:
+                # Clear tool event callback
+                agent.set_tool_event_callback(None)
                 # Safety net: clear is_streaming even if an error occurred before the success path
                 try:
                     with app.app_context():
