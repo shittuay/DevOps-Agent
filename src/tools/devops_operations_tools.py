@@ -303,12 +303,16 @@ def sync_infrastructure() -> Dict[str, Any]:
         except Exception:
             pass
 
+        total = result.get('total_resources', 0)
+        aws_synced = result.get('aws', {}).get('synced', 0)
+        aws_errors = result.get('aws', {}).get('errors', [])
         return {
             'success': True,
-            'resources_synced': result.get('total_synced', 0),
-            'new_resources': result.get('new_resources', 0),
-            'updated': result.get('updated', 0),
-            'message': f'Synced {result.get("total_synced", 0)} resources from AWS'
+            'resources_synced': total,
+            'aws_synced': aws_synced,
+            'aws_errors': aws_errors,
+            'total_cost': result.get('total_cost', 0.0),
+            'message': f'Synced {total} resources (AWS: {aws_synced})'
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
