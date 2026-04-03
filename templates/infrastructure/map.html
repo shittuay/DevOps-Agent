@@ -131,9 +131,8 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 }
 .nd.grp {
     width: 188px;
-    border-style: dashed;
     border-color: #6366f1;
-    background: rgba(99,102,241,.05);
+    background: rgba(99,102,241,.07);
 }
 .nd-head { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
 .nd-ico {
@@ -260,7 +259,7 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
     <div id="statsBar" style="display:none">
         <div class="pill">Nodes: <strong id="sNodes">0</strong></div>
         <div class="pill">Edges: <strong id="sEdges">0</strong></div>
-        <div class="pill">~<strong id="sCost">$0</strong>/mo</div>
+        <div class="pill">Est. <strong id="sCost">$0</strong>/mo</div>
     </div>
     <div id="legend">
         <div class="leg-h">Status</div>
@@ -380,12 +379,16 @@ function layout(nodes, edges) {
     // anything left (cycles / isolated)
     nodes.forEach(n=>{ if(!visited.has(n.id)) layers.push([n.id]); });
 
+    // Compute max column height for vertical centering
+    const maxColH = Math.max(...layers.map(l => l.length*(NH+ROW_PAD) - ROW_PAD));
+
     const pos={};
     let x=40;
     layers.forEach(layer => {
-        const totalH = layer.length*(NH+ROW_PAD) - ROW_PAD;
+        const colH = layer.length*(NH+ROW_PAD) - ROW_PAD;
+        const startY = 40 + (maxColH - colH) / 2; // center shorter columns
         layer.forEach((id, i) => {
-            pos[id] = { x, y: 40 + i*(NH+ROW_PAD) };
+            pos[id] = { x, y: startY + i*(NH+ROW_PAD) };
         });
         x += NW + COL_PAD;
     });
