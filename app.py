@@ -1372,7 +1372,7 @@ def api_infrastructure_topology():
             'id': str(r.id),
             'label': r.resource_name or r.resource_id,
             'type': r.resource_type,
-            'provider': r.provider,
+            'provider': r.cloud_provider,
             'region': r.region,
             'status': r.status,
         }
@@ -1388,10 +1388,10 @@ def api_infrastructure_topology():
 
         # K8s cluster grouping
         cluster = meta.get('cluster_name') or meta.get('cluster')
-        if cluster and r.provider == 'kubernetes':
+        if cluster and r.cloud_provider == 'kubernetes':
             if cluster not in seen_clusters:
                 seen_clusters[cluster] = f'cluster_{cluster}'
-                nodes.append({'id': f'cluster_{cluster}', 'label': cluster, 'type': 'cluster', 'provider': 'kubernetes', 'group': True})
+                nodes.append({'id': f'cluster_{cluster}', 'label': cluster, 'type': 'cluster', 'provider': 'kubernetes', 'group': True, 'region': r.region})
             edges.append({'source': f'cluster_{cluster}', 'target': str(r.id)})
 
     return jsonify({'nodes': nodes, 'edges': edges})
