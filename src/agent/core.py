@@ -48,7 +48,15 @@ class DevOpsAgent:
         # Track tools used in the most recent process_message_isolated call
         self._last_tools_used: List[str] = []
 
+        # Optional callback for streaming tool events to the UI
+        # Signature: callback(event_type: str, tool_name: str, data: dict)
+        self._tool_event_callback: Optional[Callable] = None
+
         self.logger.info("DevOps Agent initialized")
+
+    def set_tool_event_callback(self, callback: Optional[Callable]) -> None:
+        """Set a callback to receive tool start/done events during execution."""
+        self._tool_event_callback = callback
 
     _DESTRUCTIVE_PREFIXES = ('delete_', 'terminate_', 'destroy_', 'remove_', 'drop_', 'purge_')
 
@@ -1014,6 +1022,12 @@ User Preferences and Context:
 
                 # Execute tool
                 try:
+                    if self._tool_event_callback:
+                        try:
+                            self._tool_event_callback('tool_start', tool_name, {'input': tool_input})
+                        except Exception:
+                            pass
+
                     if getattr(self, '_sandbox_mode', False):
                         from services.learning_sandbox import generate_mock_result
                         result = generate_mock_result(tool_name, tool_input)
@@ -1028,6 +1042,14 @@ User Preferences and Context:
 
                     self.logger.info(f"Tool {tool_name} executed successfully")
                     self._last_tools_used.append(tool_name)
+
+                    if self._tool_event_callback:
+                        try:
+                            self._tool_event_callback('tool_done', tool_name, {
+                                'success': result.get('success', True) if isinstance(result, dict) else True
+                            })
+                        except Exception:
+                            pass
 
                     # Check if result contains a file download
                     if isinstance(result, dict) and 'download_file' in result:
