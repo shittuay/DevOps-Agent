@@ -1361,6 +1361,10 @@ def infrastructure_map():
 @login_required
 def api_infrastructure_topology():
     resources = InfrastructureResource.query.filter_by(user_id=current_user.id).all()
+
+    # Build a lookup: resource_id → node id (str(r.id))
+    rid_to_node_id = {r.resource_id: str(r.id) for r in resources}
+
     nodes = []
     edges = []
     seen_vpcs = {}
@@ -1371,28 +1375,43 @@ def api_infrastructure_topology():
         node = {
             'id': str(r.id),
             'label': r.resource_name or r.resource_id,
+            'sub': r.resource_id,
             'type': r.resource_type,
             'provider': r.cloud_provider,
             'region': r.region,
             'status': r.status,
+            'cost': r.monthly_cost,
         }
         nodes.append(node)
 
-        # VPC grouping edges (AWS)
+        # VPC → EC2 edges
         vpc_id = meta.get('vpc_id')
         if vpc_id:
             if vpc_id not in seen_vpcs:
                 seen_vpcs[vpc_id] = f'vpc_{vpc_id}'
-                nodes.append({'id': f'vpc_{vpc_id}', 'label': vpc_id, 'type': 'vpc', 'provider': 'aws', 'group': True})
-            edges.append({'source': f'vpc_{vpc_id}', 'target': str(r.id)})
+                nodes.append({'id': f'vpc_{vpc_id}', 'label': vpc_id[:20], 'sub': vpc_id,
+                               'type': 'vpc', 'provider': 'aws', 'group': True, 'status': 'active'})
+            edges.append({'source': f'vpc_{vpc_id}', 'target': str(r.id), 'label': 'contains'})
+
+        # EBS → EC2 edges
+        attached_to = meta.get('attached_to')
+        if attached_to and attached_to in rid_to_node_id:
+            edges.append({'source': str(r.id), 'target': rid_to_node_id[attached_to], 'label': 'attached'})
+
+        # Elastic IP → EC2 edges
+        eip_instance = meta.get('instance_id')
+        if eip_instance and eip_instance in rid_to_node_id:
+            edges.append({'source': str(r.id), 'target': rid_to_node_id[eip_instance], 'label': 'assigned'})
 
         # K8s cluster grouping
         cluster = meta.get('cluster_name') or meta.get('cluster')
         if cluster and r.cloud_provider == 'kubernetes':
             if cluster not in seen_clusters:
                 seen_clusters[cluster] = f'cluster_{cluster}'
-                nodes.append({'id': f'cluster_{cluster}', 'label': cluster, 'type': 'cluster', 'provider': 'kubernetes', 'group': True, 'region': r.region})
-            edges.append({'source': f'cluster_{cluster}', 'target': str(r.id)})
+                nodes.append({'id': f'cluster_{cluster}', 'label': cluster, 'sub': cluster,
+                               'type': 'cluster', 'provider': 'kubernetes', 'group': True,
+                               'region': r.region, 'status': 'active'})
+            edges.append({'source': f'cluster_{cluster}', 'target': str(r.id), 'label': 'contains'})
 
     return jsonify({'nodes': nodes, 'edges': edges})
 
