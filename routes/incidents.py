@@ -668,3 +668,81 @@ def api_delete_playbook(playbook_id):
         'success': True,
         'message': 'Playbook deleted successfully'
     })
+
+
+# ==================== JOURNAL & CORRELATION ENDPOINTS ====================
+
+
+@incidents_bp.route('/api/incidents/groups', methods=['GET'])
+@login_required
+def api_incident_groups():
+    """List all correlation groups for the current user."""
+    from models import IncidentCorrelationGroup
+    groups = IncidentCorrelationGroup.query.filter_by(
+        user_id=current_user.id
+    ).order_by(IncidentCorrelationGroup.created_at.desc()).limit(50).all()
+    return jsonify({'groups': [g.to_dict() for g in groups]})
+
+
+@incidents_bp.route('/api/incidents/<incident_id>/journal', methods=['GET'])
+@login_required
+def api_incident_journal(incident_id):
+    """List journal entries for an incident."""
+    from models import InvestigationJournalEntry, IncidentModel
+    # Verify ownership
+    row = IncidentModel.query.filter_by(
+        incident_key=incident_id, user_id=current_user.id
+    ).first()
+    if not row:
+        return jsonify({'error': 'Incident not found'}), 404
+    entries = InvestigationJournalEntry.query.filter_by(
+        user_id=current_user.id,
+        incident_key=incident_id
+    ).order_by(InvestigationJournalEntry.created_at.asc()).all()
+    return jsonify({'entries': [e.to_dict() for e in entries]})
+
+
+@incidents_bp.route('/api/incidents/<incident_id>/journal', methods=['POST'])
+@login_required
+def api_add_journal_note(incident_id):
+    """Add a manual note to the incident journal."""
+    from models import db, InvestigationJournalEntry, IncidentModel
+    row = IncidentModel.query.filter_by(
+        incident_key=incident_id, user_id=current_user.id
+    ).first()
+    if not row:
+        return jsonify({'error': 'Incident not found'}), 404
+    data = request.get_json() or {}
+    content = data.get('content', '').strip()
+    if not content:
+        return jsonify({'error': 'content is required'}), 400
+    entry = InvestigationJournalEntry(
+        user_id=current_user.id,
+        incident_key=incident_id,
+        entry_type='note',
+        content=content,
+        author='user',
+    )
+    db.session.add(entry)
+    db.session.commit()
+    return jsonify(entry.to_dict()), 201
+
+
+@incidents_bp.route('/api/incidents/<incident_id>/related', methods=['GET'])
+@login_required
+def api_incident_related(incident_id):
+    """Get incidents sharing the same correlation group."""
+    from models import IncidentModel
+    row = IncidentModel.query.filter_by(
+        incident_key=incident_id, user_id=current_user.id
+    ).first()
+    if not row:
+        return jsonify({'error': 'Incident not found'}), 404
+    related = []
+    if row.correlation_group_key:
+        related_rows = IncidentModel.query.filter_by(
+            user_id=current_user.id,
+            correlation_group_key=row.correlation_group_key
+        ).filter(IncidentModel.incident_key != incident_id).limit(20).all()
+        related = [r.to_dict() for r in related_rows]
+    return jsonify({'related': related, 'correlation_group_key': row.correlation_group_key})

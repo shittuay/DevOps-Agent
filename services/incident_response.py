@@ -474,6 +474,79 @@ class IncidentResponseEngine:
                 row.resolved_at = incident.resolved_at
             db.session.commit()
 
+    def find_or_create_correlation_group(self, user_id: int, incident: 'Incident') -> Optional[str]:
+        """Find an open correlation group for this incident or create a new one."""
+        if not self._app:
+            return None
+        with self._app.app_context():
+            from models import db, IncidentCorrelationGroup
+            now = datetime.utcnow()
+            cutoff = now - timedelta(minutes=20)
+            open_groups = IncidentCorrelationGroup.query.filter_by(
+                user_id=user_id, status='open'
+            ).filter(IncidentCorrelationGroup.window_start >= cutoff).all()
+
+            meta = incident.metadata or {}
+            resource_type = meta.get('resource_type', meta.get('type', ''))
+            matched = None
+            for grp in open_groups:
+                # Match on same severity tier
+                if grp.severity == incident.severity.value:
+                    matched = grp
+                    break
+                # Match on resource_type hint embedded in group title
+                if resource_type and resource_type in (grp.title or ''):
+                    matched = grp
+                    break
+
+            if matched:
+                keys = list(matched.incident_keys or [])
+                if incident.id not in keys:
+                    keys.append(incident.id)
+                matched.incident_keys = keys
+                db.session.commit()
+                return matched.group_key
+            else:
+                import hashlib
+                raw = f"{user_id}:{incident.severity.value}:{resource_type}:{now.isoformat()}"
+                group_key = hashlib.md5(raw.encode()).hexdigest()[:12]
+                title = incident.title[:200] if incident.title else 'Correlation Group'
+                grp = IncidentCorrelationGroup(
+                    user_id=user_id,
+                    group_key=group_key,
+                    title=title,
+                    severity=incident.severity.value,
+                    status='open',
+                    window_start=now,
+                    window_end=now + timedelta(minutes=20),
+                    incident_keys=[incident.id],
+                )
+                db.session.add(grp)
+                db.session.commit()
+                return group_key
+
+    def _write_journal_entry(self, user_id: int, incident_key: str, entry_type: str,
+                              content: str, author: str = 'system',
+                              tool_name: str = None, tool_input: dict = None,
+                              tool_result: dict = None):
+        """Write an immutable journal entry for an incident."""
+        if not self._app:
+            return
+        with self._app.app_context():
+            from models import db, InvestigationJournalEntry
+            entry = InvestigationJournalEntry(
+                user_id=user_id,
+                incident_key=incident_key,
+                entry_type=entry_type,
+                content=content,
+                author=author,
+                tool_name=tool_name,
+                tool_input=tool_input,
+                tool_result=tool_result,
+            )
+            db.session.add(entry)
+            db.session.commit()
+
     def _save_playbook_to_db(self, user_id: int, playbook: ResponsePlaybook):
         """Write-through: save/update custom playbook in DB."""
         if not self._app:
@@ -627,6 +700,15 @@ class IncidentResponseEngine:
         })
         self._user_incidents[user_id][incident_id] = incident
         self._save_incident_to_db(user_id, incident)
+        group_key = self.find_or_create_correlation_group(user_id, incident)
+        if group_key:
+            incident.correlation_group_key = group_key
+            self._save_incident_to_db(user_id, incident)
+        self._write_journal_entry(
+            user_id, incident.id, 'status_change',
+            f'Incident created from {source} (severity: {severity.value})',
+            author='system'
+        )
         logger.info(f"Created incident {incident_id}: {title} for user {user_id}")
         return incident
 
@@ -759,6 +841,14 @@ class IncidentResponseEngine:
                 'details': f'Executed: {action.name}',
                 'result': 'success' if result.get('success') else 'failed'
             })
+            self._write_journal_entry(
+                incident.user_id or 0, incident.id, 'tool_call',
+                f'Executed action: {action.name}',
+                author='agent',
+                tool_name=action.action_type.value,
+                tool_input=action.parameters,
+                tool_result={'success': result.get('success'), 'message': result.get('message', '')},
+            )
             return result
         except Exception as e:
             logger.error(f"Error executing action {action.name}: {str(e)}", exc_info=True)
@@ -783,6 +873,8 @@ class IncidentResponseEngine:
             'details': f'Acknowledged by {user}'
         })
         self._save_incident_to_db(user_id, incident)
+        self._write_journal_entry(user_id, incident.id, 'status_change',
+                                   f'Acknowledged by {user}', author='user')
         return {'success': True, 'incident_id': incident_id}
 
     def resolve_incident(self, user_id: int, incident_id: str, resolution: str = None) -> Dict[str, Any]:
@@ -799,6 +891,8 @@ class IncidentResponseEngine:
             'details': resolution or 'Incident resolved'
         })
         self._save_incident_to_db(user_id, incident)
+        self._write_journal_entry(user_id, incident.id, 'status_change',
+                                   resolution or 'Incident resolved', author='system')
         return {'success': True, 'incident_id': incident_id}
 
     def get_incident(self, user_id: int, incident_id: str) -> Optional[Incident]:

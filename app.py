@@ -296,6 +296,13 @@ app.register_blueprint(curriculum_bp)
 from routes.workflows import workflows_bp
 app.register_blueprint(workflows_bp)
 
+from routes.artifacts import artifacts_bp
+app.register_blueprint(artifacts_bp)
+csrf.exempt(artifacts_bp)
+
+from routes.skills import skills_bp
+app.register_blueprint(skills_bp)
+
 # MCP server (Model Context Protocol — remote tool access for Claude Desktop)
 from routes.mcp import mcp_bp
 app.register_blueprint(mcp_bp)
@@ -1597,6 +1604,13 @@ def setup():
 def settings():
     """Settings page for AWS and other configurations."""
     return render_template('settings.html', user=current_user)
+
+
+@app.route('/settings/skills')
+@login_required
+def settings_skills():
+    """Skills management settings page."""
+    return render_template('settings/skills.html', user=current_user)
 
 
 @app.route('/templates')
@@ -3024,6 +3038,25 @@ def api_chat_stream():
                 preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
                 sandbox_active = True
 
+        # Inject page and resource context (sent by frontend when user is on a specific page/resource)
+        _page_ctx = data.get('page_context', '')
+        _resource_ctx = data.get('resource_context', '')
+        if _page_ctx:
+            preferences_context = (preferences_context or '') + \
+                f'\n\nCURRENT PAGE CONTEXT: User is viewing {_page_ctx}.'
+        if _resource_ctx:
+            preferences_context = (preferences_context or '') + \
+                f'\nFOCUSED RESOURCE: {_resource_ctx}'
+
+        # Inject skills context (trigger-matched built-in skills + learned infrastructure summary)
+        try:
+            from services.skills_engine import get_skills_engine as _get_se
+            _skills_ctx = _get_se().get_active_skills_context(current_user.id, message)
+            if _skills_ctx:
+                preferences_context = (preferences_context or '') + _skills_ctx
+        except Exception:
+            pass
+
         # Inject cloud credential status so the agent knows upfront what's configured
         try:
             from services.credential_service import get_user_configured_providers
@@ -3084,9 +3117,12 @@ def api_chat_stream():
 
             # Tool event queue — callbacks fire synchronously inside the generator
             _tool_events = []
+            _tool_events_log = []  # persistent log for DB storage (not drained)
             def _tool_cb(event_type, tool_name, data):
-                _tool_events.append({'type': event_type, 'tool': tool_name,
-                                     'success': data.get('success', True)})
+                ev = {'type': event_type, 'tool': tool_name,
+                      'success': data.get('success', True)}
+                _tool_events.append(ev)
+                _tool_events_log.append(ev)
             agent.set_tool_event_callback(_tool_cb)
 
             def _drain_tool_events():
@@ -3167,12 +3203,15 @@ def api_chat_stream():
                 complete = redact_secrets(complete)
 
                 # Save assistant response in app context
+                # Capture all tool events for the trace (accumulated in _tool_events_log)
                 with app.app_context():
                     assistant_msg = ChatMessage(
                         user_id=uid,
                         conversation_id=cid,
                         role='assistant',
-                        content=complete
+                        content=complete,
+                        tool_trace=_tool_events_log if _tool_events_log else None,
+                        page_context=_page_ctx[:100] if _page_ctx else None,
                     )
                     db.session.add(assistant_msg)
 
@@ -5059,6 +5098,15 @@ if __name__ == '__main__':
     print("=" * 60)
     print("DevOps Automation Agent - Web Interface")
     print("=" * 60)
+
+    # Load skills from disk
+    try:
+        import os as _os
+        from services.skills_engine import get_skills_engine as _gse
+        _skills_dir = _os.path.join(_os.path.dirname(__file__), 'skills')
+        _gse().load_skills_from_disk(_skills_dir)
+    except Exception as _se:
+        print(f"Skills loading warning: {_se}")
 
     # Initialize database
     with app.app_context():
