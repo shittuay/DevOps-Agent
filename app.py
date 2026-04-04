@@ -3038,11 +3038,13 @@ def api_chat_stream():
         else:
             db.session.commit()
 
-        # Load prior messages BEFORE adding the new message to avoid autoflush
-        # including the pending insert in the SELECT result
-        prior_messages = ChatMessage.query.filter_by(
-            user_id=current_user.id,
-            conversation_id=conversation_id
+        # Load prior messages — use explicit columns to avoid crashing on
+        # tool_trace/page_context if the migration hasn't run yet.
+        prior_messages = db.session.query(
+            ChatMessage.role, ChatMessage.content
+        ).filter(
+            ChatMessage.user_id == current_user.id,
+            ChatMessage.conversation_id == conversation_id
         ).order_by(ChatMessage.timestamp).all()
 
         conversation_history = [
@@ -3238,15 +3240,27 @@ def api_chat_stream():
                 # Save assistant response in app context
                 # Capture all tool events for the trace (accumulated in _tool_events_log)
                 with app.app_context():
-                    assistant_msg = ChatMessage(
-                        user_id=uid,
-                        conversation_id=cid,
-                        role='assistant',
-                        content=complete,
-                        tool_trace=_tool_events_log if _tool_events_log else None,
-                        page_context=_page_ctx[:100] if _page_ctx else None,
-                    )
-                    db.session.add(assistant_msg)
+                    try:
+                        assistant_msg = ChatMessage(
+                            user_id=uid,
+                            conversation_id=cid,
+                            role='assistant',
+                            content=complete,
+                            tool_trace=_tool_events_log if _tool_events_log else None,
+                            page_context=_page_ctx[:100] if _page_ctx else None,
+                        )
+                        db.session.add(assistant_msg)
+                        db.session.flush()
+                    except Exception:
+                        # Columns not yet migrated — save without new fields
+                        db.session.rollback()
+                        assistant_msg = ChatMessage(
+                            user_id=uid,
+                            conversation_id=cid,
+                            role='assistant',
+                            content=complete,
+                        )
+                        db.session.add(assistant_msg)
 
                     _stream_tools = getattr(agent, 'last_tools_used', [])
                     _stream_primary = _stream_tools[0] if _stream_tools else None
