@@ -3301,27 +3301,30 @@ def api_chat_stream():
                 # Save assistant response in app context
                 # Capture all tool events for the trace (accumulated in _tool_events_log)
                 with app.app_context():
-                    try:
-                        assistant_msg = ChatMessage(
-                            user_id=uid,
-                            conversation_id=cid,
-                            role='assistant',
-                            content=complete,
-                            tool_trace=_tool_events_log if _tool_events_log else None,
-                            page_context=_page_ctx[:100] if _page_ctx else None,
-                        )
-                        db.session.add(assistant_msg)
-                        db.session.flush()
-                    except Exception:
-                        # Columns not yet migrated — save without new fields
-                        db.session.rollback()
-                        assistant_msg = ChatMessage(
-                            user_id=uid,
-                            conversation_id=cid,
-                            role='assistant',
-                            content=complete,
-                        )
-                        db.session.add(assistant_msg)
+                    # no_autoflush: prevent any SELECT from triggering an implicit INSERT
+                    # before we've had a chance to test if the new columns exist.
+                    with db.session.no_autoflush:
+                        try:
+                            assistant_msg = ChatMessage(
+                                user_id=uid,
+                                conversation_id=cid,
+                                role='assistant',
+                                content=complete,
+                                tool_trace=_tool_events_log if _tool_events_log else None,
+                                page_context=_page_ctx[:100] if _page_ctx else None,
+                            )
+                            db.session.add(assistant_msg)
+                            db.session.flush()
+                        except Exception:
+                            # Columns not yet migrated — save without new fields
+                            db.session.rollback()
+                            assistant_msg = ChatMessage(
+                                user_id=uid,
+                                conversation_id=cid,
+                                role='assistant',
+                                content=complete,
+                            )
+                            db.session.add(assistant_msg)
 
                     _stream_tools = getattr(agent, 'last_tools_used', [])
                     _stream_primary = _stream_tools[0] if _stream_tools else None
@@ -5226,6 +5229,53 @@ if __name__ == '__main__':
     # Initialize database
     with app.app_context():
         db.create_all()
+
+        # Auto-migration: add any columns present in models but missing from DB.
+        # Runs on every startup — idempotent and safe.
+        try:
+            from sqlalchemy import inspect as _sa_inspect, text as _sa_text
+            _COLUMN_TYPE_MAP = {
+                'Boolean': 'BOOLEAN', 'Integer': 'INTEGER', 'String': 'VARCHAR(255)',
+                'Text': 'TEXT', 'DateTime': 'TIMESTAMP', 'Float': 'FLOAT', 'JSON': 'JSONB',
+            }
+            def _col_sql_type(col):
+                tn = type(col.type).__name__
+                if tn == 'String' and getattr(col.type, 'length', None):
+                    return f'VARCHAR({col.type.length})'
+                return _COLUMN_TYPE_MAP.get(tn, 'TEXT')
+            def _col_default(col):
+                if col.default and col.default.is_scalar:
+                    v = col.default.arg
+                    if isinstance(v, bool): return ' DEFAULT ' + ('TRUE' if v else 'FALSE')
+                    if isinstance(v, int): return f' DEFAULT {v}'
+                if not col.nullable:
+                    tn = type(col.type).__name__
+                    if tn == 'Boolean': return ' DEFAULT FALSE'
+                    if tn == 'Integer': return ' DEFAULT 0'
+                return ''
+            _inspector = _sa_inspect(db.engine)
+            _existing_tables = set(_inspector.get_table_names())
+            _auto_migrated = []
+            for _mapper in db.Model.registry.mappers:
+                _cls = _mapper.class_
+                _table = getattr(_cls, '__tablename__', None)
+                if not _table or _table not in _existing_tables:
+                    continue
+                _db_cols = {c['name'] for c in _inspector.get_columns(_table)}
+                _missing = [c for c in _cls.__table__.columns if c.key not in _db_cols]
+                if not _missing:
+                    continue
+                with db.engine.connect() as _conn:
+                    for _col in _missing:
+                        _sql = (f'ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS '
+                                f'{_col.key} {_col_sql_type(_col)}{_col_default(_col)}')
+                        _conn.execute(_sa_text(_sql))
+                        _auto_migrated.append(f'{_table}.{_col.key}')
+                    _conn.commit()
+            if _auto_migrated:
+                print(f"Auto-migration: added {len(_auto_migrated)} column(s): {', '.join(_auto_migrated)}")
+        except Exception as _me:
+            print(f"Auto-migration warning (non-fatal): {_me}")
 
         # Backfill mfa_method for existing TOTP users
         # Schema changes are now managed by Alembic migrations (migrations/versions/)
