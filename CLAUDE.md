@@ -52,8 +52,27 @@ services/
   credential_encryption.py # Fernet encryption for credentials
   input_sanitizer.py       # sanitize_input() + validate_message() (injection blocking)
   learning_sandbox.py      # Mock tool results for sandbox/learning mode
+  prevention_engine.py     # ProactiveRecommendation: SQL pattern analysis + Claude spec generation
+  skills_engine.py         # Skills: frontmatter parsing, trigger matching, learned infra context
+routes/
+  incidents.py             # Incident dashboard, journal, correlation group APIs
+  artifacts.py             # Chat artifact CRUD + markdown export
+  optimization.py          # Cost + proactive prevention endpoints
+  skills.py                # Skills activate/deactivate/list/learned endpoints
+skills/                    # Built-in skill *.md files (loaded at startup, cached in memory)
+  aws_cost_optimization.md
+  kubernetes_troubleshooting.md
+  security_hardening.md
+  incident_runbooks.md
+  terraform_best_practices.md
 templates/
-  chat.html, settings.html, etc.
+  index.html               # Main chat UI (dark terminal aesthetic, centered nav, artifacts panel)
+  optimization/
+    prevention.html        # Proactive prevention — 4-category card UI with spec generation
+  settings/
+    skills.html            # Skills toggle grid + learned infrastructure summary
+  incidents/
+    detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
 ## Tool Inventory (401 total)
@@ -320,6 +339,10 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 | **Azure/GCP test endpoints missing (FIXED)** | Settings page called `/api/azure/test` and `/api/gcp/test` but endpoints didn't exist in `app.py`. Added both — Azure tests via `SubscriptionClient.subscriptions.list()`, GCP via `cloudresourcemanager.projects().get()`. |
 | **GCP credentials never saved (FIXED)** | `settings.html` POST to `/api/gcp/config` sent field `service_account_key` but handler reads `credentials_json`. Credentials silently saved as empty. Fixed field name in `settings.html`. |
 | **Frontend↔backend field name mismatches** | Common pattern: frontend `fetch()` calls use different JSON keys or endpoint URLs than the backend expects. Always cross-check every `fetch()` URL and payload key in templates against actual route handlers in `app.py` and `routes/`. |
+| **`column tool_trace/page_context does not exist` on PostgreSQL** | New `ChatMessage` columns added to model but never migrated to DB. Fix: (1) auto-migration now runs at every startup — catches all missing columns. (2) `ChatMessage.query` uses explicit column selection (`role`, `content` only) so `SELECT` never hits missing columns. (3) assistant INSERT uses `no_autoflush` + try/except fallback that strips new fields if column missing. |
+| **`Another request is already streaming for this conversation.`** | `is_streaming=True` committed but error crashed before `finally` block reset it. Fix: (1) outer `except` handler now resets `is_streaming=False`. (2) guard stamps `updated_at=now()` when acquiring lock. (3) stale locks >90s auto-reset before the guard check. (4) `POST /api/reset-streaming` clears all stuck locks for current user. |
+| **Incidents 500 on load (UndefinedColumn correlation_group_key)** | `_ensure_user_loaded` did `IncidentModel.query` (`SELECT *`) which hit missing `correlation_group_key`. Wrapped in try/except — returns empty incidents list instead of crashing. Permanent fix: auto-migration adds the column on next restart. |
+| **Auto-migration documented but not implemented (FIXED)** | CLAUDE.md said "Added auto-migration after db.create_all()" but app.py only had `db.create_all()` with no column inspection. Now implemented: after `db.create_all()` at startup, inspector iterates all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for missing columns. |
 
 ## Verification Commands
 
@@ -518,8 +541,9 @@ python -m pytest tests/ -v   # Verbose
 ## Adding a New Model
 
 1. Define in `models.py`
-2. Run migration: `python migrate_*.py`
-3. Add API routes in `app.py`
+2. **Migration is automatic** — restart the server and `app.py` startup will run `ALTER TABLE ADD COLUMN IF NOT EXISTS` for any missing columns. New tables are created by `db.create_all()`.
+3. For manual/immediate migration without restart: `python migrate_missing_columns.py` or `POST /api/run-migration` (browser console, must be logged in)
+4. Add API routes in `app.py` or appropriate `routes/*.py`
 
 ## Current User Context
 
@@ -529,6 +553,164 @@ Each user has isolated:
 - Infrastructure resources
 - Cost optimizations and alerts
 - Subscriptions and credits
+- Proactive recommendations, artifacts, skill activations, incident journal entries
+
+---
+
+## Feature Reference
+
+### Incident Intelligence
+**Access:** `/incidents/` dashboard → click any incident → right-side "Investigation Journal" panel
+
+**What it does:** Groups cascading alerts into a single correlation group (same resource type or severity tier within a 20-minute window). Every tool call, finding, status change, and agent action is logged as an immutable journal entry on the incident.
+
+**New models:** `IncidentCorrelationGroup`, `InvestigationJournalEntry`
+**New column:** `IncidentModel.correlation_group_key`
+
+**API endpoints:**
+```
+GET  /api/incidents/groups               → list all correlation groups for user
+GET  /api/incidents/<id>/journal         → list journal entries (chronological)
+POST /api/incidents/<id>/journal         → add manual note (author='user')
+GET  /api/incidents/<id>/related         → incidents sharing same correlation_group_key
+```
+
+**Key logic (`services/incident_response.py`):**
+- `find_or_create_correlation_group()` — called on every new incident; matches open groups within 20-min window by resource type or severity
+- Journal writes fire automatically on `create_incident()`, `acknowledge_incident()`, `resolve_incident()`, and `_execute_action()`
+
+---
+
+### Context-Aware Chat + Artifacts
+**Access:** Chat page → 📄 button in header toggles Artifacts slide-out panel (right side)
+
+**What it does:**
+- Agent knows what page/resource the user is viewing via `page_context` and `resource_context` fields in the POST body
+- Tool traces (every tool call made during a stream) are persisted to `ChatMessage.tool_trace`
+- Generated documents (runbooks, reports, specs) can be saved as versioned `ChatArtifact` records
+
+**URL context shortcut:** Opening `/chat?ctx=resource&type=ec2&id=i-xxx&name=web-01&action=investigate` pre-fills the chat input and sets resource context automatically. The topology map uses this — hovering a node shows "Investigate →" which opens chat with that resource.
+
+**New model:** `ChatArtifact` (fields: `artifact_type`, `title`, `content`, `version`, `is_latest`, `parent_id`)
+**New columns on `ChatMessage`:** `tool_trace` (JSONB), `page_context` (VARCHAR 100)
+
+**API endpoints (`routes/artifacts.py`):**
+```
+GET    /api/chat/artifacts               → list artifacts (filter by conversation_id optional)
+POST   /api/chat/artifacts               → create {artifact_type, title, content, conversation_id}
+GET    /api/chat/artifacts/<id>          → get single artifact
+PUT    /api/chat/artifacts/<id>          → create new version (increments version, flips is_latest)
+DELETE /api/chat/artifacts/<id>          → soft-delete (set is_latest=False)
+GET    /api/chat/artifacts/<id>/export   → download as .md file
+```
+
+---
+
+### Proactive Prevention Engine
+**Access:** `/optimization/prevention` — click "Run Analysis" to scan
+
+**What it does:** Analyzes your synced infrastructure using pure SQL (no AI cost) to surface four categories of recommendations. "Generate Spec" calls Claude to write a detailed implementation plan for any recommendation.
+
+**New model:** `ProactiveRecommendation`
+
+**Recommendation categories:**
+
+| Category | Example types |
+|---|---|
+| Observability | `missing_alert`, `no_log_aggregation`, `no_uptime_check` |
+| Infrastructure | `single_az`, `no_auto_scaling`, `unencrypted_storage`, `unused_resource` |
+| Governance | `untagged_resources`, `overpermissive_iam`, `missing_backup` |
+| Code Optimization | `recurring_pod_crash`, `high_restart_count`, `deploy_without_healthcheck` |
+
+**API endpoints (in `routes/optimization.py`):**
+```
+GET  /optimization/api/recommendations/proactive                    → list (filter: category, status)
+POST /optimization/api/recommendations/proactive/analyze            → trigger analysis, save new recs
+POST /optimization/api/recommendations/<id>/agent-spec              → generate Claude impl spec (costs 1 credit)
+PUT  /optimization/api/recommendations/<id>/status                  → update status (resolved/dismissed/pending)
+```
+
+**Service (`services/prevention_engine.py`):**
+- `analyze_incident_patterns()` — groups incidents by title prefix, count > 2 = recommendation
+- `generate_observability_recommendations()` — resources with no matching monitoring rule
+- `generate_governance_recommendations()` — untagged resources, unattached EBS > 30 days
+- `generate_agent_spec()` — single Claude API call; deducts 1 credit; saves to `ProactiveRecommendation.agent_spec`
+
+---
+
+### Skills System
+**Access:** `/settings/skills` — toggle built-in skills on/off, view learned infrastructure summary
+
+**What it does:** Injects domain expertise into the agent's system prompt when the user's message contains a trigger keyword. "Learned Skills" auto-generates a summary from your synced `InfrastructureResource` records so the agent always knows what you have deployed.
+
+**New model:** `UserSkillActivation`
+
+**Built-in skills (`skills/*.md`):**
+
+| File | Triggers | Content |
+|---|---|---|
+| `aws_cost_optimization.md` | cost, billing, savings, reserved, rightsizing | AWS rightsizing, RIs, Savings Plans |
+| `kubernetes_troubleshooting.md` | pod, deployment, crashloop, kubectl, namespace | Pod lifecycle, events, resource limits |
+| `security_hardening.md` | security, iam, encryption, compliance, cis | CIS benchmarks, IAM least-privilege |
+| `incident_runbooks.md` | incident, runbook, postmortem, oncall | Structured incident response templates |
+| `terraform_best_practices.md` | terraform, tf, module, state, drift | Module design, state management |
+
+**Skill file format (`skills/<id>.md`):**
+```markdown
+---
+id: kubernetes-troubleshooting
+name: Kubernetes Troubleshooting
+triggers: [pod, deployment, crashloop, kubectl]
+compatible_providers: [kubernetes]
+---
+# Content injected into system prompt when triggered
+```
+
+**API endpoints (`routes/skills.py`):**
+```
+GET    /api/skills                       → list all skills with activation status for user
+POST   /api/skills/<id>/activate         → enable skill
+DELETE /api/skills/<id>/activate         → disable skill
+GET    /api/skills/learned               → return learned infrastructure summary text
+POST   /api/skills/refresh-learned       → regenerate from latest infrastructure sync
+```
+
+**Service (`services/skills_engine.py`):**
+- `load_skills_from_disk(skills_dir)` — classmethod, called at app startup, caches parsed skills by id
+- `get_active_skills_context(user_id, message)` — trigger-matches active skills; appends learned infra summary; caps at ~1500 tokens
+- `generate_learned_skills_context(user_id)` — pure SQL GROUP BY resource_type, no AI call
+
+---
+
+### Chat UI — Terminal Aesthetic
+**Fonts:** Syne 800 (headings), IBM Plex Mono (code/mono), Outfit (body)
+**Theme:** Dark terminal with animated grid background, orange accent `#ff6b35`
+
+**Header layout (3 zones):**
+- Left: sidebar toggle (☰)
+- Center: primary nav (Dashboard / Monitoring / Incidents / Optimize) | secondary nav (Map / Analysis / Learn) — orange underline on hover
+- Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
+
+**Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.
+
+---
+
+### Database Migration
+**Auto-migration at startup:** Every time `app.py` starts, it runs `db.create_all()` (new tables) then inspects all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for any columns in the model not yet in the DB. Output: `Auto-migration: added N column(s): table.column, ...`
+
+**Manual options (if needed):**
+```bash
+python migrate_missing_columns.py        # CLI migration script
+```
+```javascript
+// Browser console (must be logged in):
+fetch('/api/run-migration', {method:'POST'}).then(r=>r.json()).then(console.log)
+```
+
+**Emergency: clear stuck streaming locks** (if `is_streaming` gets stuck):
+```javascript
+fetch('/api/reset-streaming', {method:'POST'}).then(r=>r.json()).then(console.log)
+```
 
 ## Skills Available
 
