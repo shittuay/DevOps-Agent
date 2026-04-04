@@ -2483,6 +2483,56 @@ def reset_streaming_locks():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/run-migration', methods=['POST'])
+@login_required
+def run_db_migration():
+    """Run schema migration: creates missing tables and adds missing columns. Safe to re-run."""
+    from sqlalchemy import inspect as _inspect, text as _text
+    _COLUMN_TYPE_MAP = {
+        'Boolean': 'BOOLEAN', 'Integer': 'INTEGER', 'String': 'VARCHAR(255)',
+        'Text': 'TEXT', 'DateTime': 'TIMESTAMP', 'Float': 'FLOAT', 'JSON': 'JSONB',
+    }
+    def _sql_type(col):
+        tn = type(col.type).__name__
+        if tn == 'String' and getattr(col.type, 'length', None):
+            return f'VARCHAR({col.type.length})'
+        return _COLUMN_TYPE_MAP.get(tn, 'TEXT')
+    def _default_clause(col):
+        if col.default and col.default.is_scalar:
+            v = col.default.arg
+            if isinstance(v, bool): return ' DEFAULT ' + ('TRUE' if v else 'FALSE')
+            if isinstance(v, int): return f' DEFAULT {v}'
+        if not col.nullable:
+            tn = type(col.type).__name__
+            if tn == 'Boolean': return ' DEFAULT FALSE'
+            if tn == 'Integer': return ' DEFAULT 0'
+        return ''
+    try:
+        db.create_all()
+        inspector = _inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+        added = []
+        for mapper in db.Model.registry.mappers:
+            cls = mapper.class_
+            table = getattr(cls, '__tablename__', None)
+            if not table or table not in existing_tables:
+                continue
+            db_cols = {c['name'] for c in inspector.get_columns(table)}
+            missing = [c for c in cls.__table__.columns if c.key not in db_cols]
+            if not missing:
+                continue
+            with db.engine.connect() as conn:
+                for col in missing:
+                    sql = f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col.key} {_sql_type(col)}{_default_clause(col)}'
+                    conn.execute(_text(sql))
+                    added.append(f'{table}.{col.key}')
+                conn.commit()
+        return jsonify({'success': True, 'added': added,
+                        'message': f'Migration complete. {len(added)} column(s) added: {", ".join(added) or "none (all up to date)"}.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
@@ -3053,13 +3103,24 @@ def api_chat_stream():
         ]
 
         # Save user message and update conversation preview
-        user_msg = ChatMessage(
-            user_id=current_user.id,
-            conversation_id=conversation_id,
-            role='user',
-            content=message
-        )
-        db.session.add(user_msg)
+        from sqlalchemy import text as _text_sql
+        try:
+            user_msg = ChatMessage(
+                user_id=current_user.id,
+                conversation_id=conversation_id,
+                role='user',
+                content=message
+            )
+            db.session.add(user_msg)
+            db.session.flush()
+        except Exception:
+            # Columns not yet migrated — insert using raw SQL with only the base columns
+            db.session.rollback()
+            db.session.execute(_text_sql(
+                "INSERT INTO chat_messages (user_id, conversation_id, role, content, timestamp) "
+                "VALUES (:uid, :cid, 'user', :content, :ts)"
+            ), {'uid': current_user.id, 'cid': conversation_id,
+                'content': message, 'ts': datetime.utcnow()})
         if conversation and not getattr(conversation, '_preview_set', False):
             conversation.preview = message[:200]
             conversation._preview_set = True
