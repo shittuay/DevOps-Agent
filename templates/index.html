@@ -103,9 +103,8 @@
 
         /* Sidebar */
         .sidebar {
-            width: 320px;
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
+            width: 260px;
+            background: var(--bg-secondary);
             border-right: 1px solid var(--border-subtle);
             display: flex;
             flex-direction: column;
@@ -113,12 +112,11 @@
             flex-shrink: 0;
             position: relative;
             z-index: 10;
-            animation: slideInLeft 0.6s ease-out;
             transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .sidebar.collapsed {
-            width: 70px;
+            width: 56px;
         }
 
         .sidebar.collapsed .sidebar-header {
@@ -206,16 +204,15 @@
         }
 
         .sidebar-header {
-            padding: 24px;
+            padding: 14px 16px;
             border-bottom: 1px solid var(--border-subtle);
         }
 
         .logo-container {
             display: flex;
             align-items: center;
-            gap: 12px;
-            margin-bottom: 20px;
-            animation: fadeIn 0.8s ease-out 0.2s both;
+            gap: 10px;
+            margin-bottom: 12px;
         }
 
         @keyframes fadeIn {
@@ -230,110 +227,69 @@
         }
 
         .logo-icon {
-            width: 48px;
-            height: 48px;
-            background: var(--gradient-primary);
-            border-radius: 12px;
+            width: 34px;
+            height: 34px;
+            background: var(--accent-primary);
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: 'IBM Plex Mono', monospace;
             font-weight: 700;
-            font-size: 24px;
+            font-size: 13px;
             color: white;
-            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .logo-icon::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.2), transparent);
-            animation: shimmer 3s infinite;
-        }
-
-        @keyframes shimmer {
-            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(255, 107, 53, 0.35);
         }
 
         .logo-text {
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
 
         .logo-title {
             font-family: 'Syne', sans-serif;
-            font-size: 22px;
-            font-weight: 800;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-electric));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            letter-spacing: -0.5px;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.3px;
+            white-space: nowrap;
         }
 
         .logo-subtitle {
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 13px;
-            color: var(--text-tertiary);
-            letter-spacing: 1px;
-            text-transform: uppercase;
+            font-size: 10px;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            white-space: nowrap;
         }
 
         .new-chat-button {
             width: 100%;
-            padding: 14px 20px;
-            background: var(--gradient-primary);
+            padding: 9px 14px;
+            background: var(--accent-primary);
             color: white;
             border: none;
-            border-radius: 12px;
+            border-radius: 8px;
             font-family: 'Outfit', sans-serif;
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
-            position: relative;
-            overflow: hidden;
-            animation: fadeIn 0.8s ease-out 0.3s both;
-        }
-
-        .new-chat-button::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
+            gap: 8px;
+            transition: all 0.2s ease;
         }
 
         .new-chat-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 32px rgba(255, 107, 53, 0.5);
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.35);
         }
 
-        .new-chat-button:hover::before {
-            width: 300px;
-            height: 300px;
-        }
-
-        .new-chat-button:active {
-            transform: translateY(0);
-        }
+        .new-chat-button:active { transform: translateY(0); }
 
         /* Learning Mode Toggles */
         .learning-toggles {
@@ -451,34 +407,34 @@
         }
 
         .conversations-header {
-            padding: 12px 12px 8px;
+            padding: 8px 8px 6px;
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 13px;
+            font-size: 10px;
             font-weight: 600;
-            color: var(--text-tertiary);
+            color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 1.5px;
+            letter-spacing: 2px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
         .conversations-header::before {
-            content: '>';
+            content: '//';
             color: var(--accent-primary);
             font-weight: 700;
+            font-size: 12px;
         }
 
         .conversation-item {
-            padding: 14px;
-            margin-bottom: 6px;
-            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 3px;
+            border-radius: 7px;
             cursor: pointer;
             border: 1px solid transparent;
-            background: rgba(255, 255, 255, 0.02);
             position: relative;
-            transition: all 0.3s ease;
-            animation: fadeIn 0.5s ease-out both;
+            transition: all 0.15s ease;
+            animation: fadeIn 0.3s ease-out both;
         }
 
         .conversation-item:nth-child(2) { animation-delay: 0.1s; }
@@ -518,18 +474,18 @@
         }
 
         .conversation-title {
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 13px;
+            font-weight: 500;
             color: var(--text-primary);
-            margin-bottom: 6px;
+            margin-bottom: 3px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
         .conversation-preview {
-            font-size: 13px;
-            color: var(--text-tertiary);
+            font-size: 11px;
+            color: var(--text-muted);
             font-weight: 400;
             white-space: nowrap;
             overflow: hidden;
@@ -539,9 +495,9 @@
 
         .conversation-time {
             position: absolute;
-            top: 14px;
-            right: 14px;
-            font-size: 13px;
+            top: 10px;
+            right: 10px;
+            font-size: 10px;
             color: var(--text-muted);
             font-family: 'IBM Plex Mono', monospace;
         }
@@ -600,12 +556,12 @@
         }
 
         .header-content {
-            max-width: 1400px;
-            margin: 0 auto;
+            max-width: 100%;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px 32px;
+            padding: 0 20px;
+            height: 52px;
         }
 
         .header-left {
@@ -633,88 +589,69 @@
         .header-right {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 3px;
         }
 
         .header-button {
-            padding: 10px 16px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-subtle);
-            border-radius: 10px;
+            padding: 6px 10px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
             color: var(--text-secondary);
-            font-size: 14px;
-            font-weight: 600;
+            font-size: 13px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.15s ease;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .header-button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-            transition: left 0.5s;
+            gap: 5px;
+            white-space: nowrap;
+            font-family: 'Outfit', sans-serif;
         }
 
         .header-button:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: var(--border-medium);
-            transform: translateY(-2px);
-        }
-
-        .header-button:hover::before {
-            left: 100%;
+            background: rgba(255, 255, 255, 0.06);
+            border-color: var(--border-subtle);
+            color: var(--text-primary);
         }
 
         #credits-badge {
-            padding: 10px 16px;
-            background: rgba(255, 107, 53, 0.15);
-            border: 1px solid var(--accent-primary);
-            border-radius: 10px;
-            font-size: 14px;
+            padding: 5px 11px;
+            background: rgba(255, 107, 53, 0.1);
+            border: 1px solid rgba(255, 107, 53, 0.3);
+            border-radius: 6px;
+            font-size: 12px;
             font-weight: 700;
             color: var(--accent-primary);
             cursor: pointer;
             font-family: 'IBM Plex Mono', monospace;
-            transition: all 0.3s ease;
-            box-shadow: 0 0 20px rgba(255, 107, 53, 0.2);
+            transition: all 0.15s ease;
         }
 
         #credits-badge:hover {
-            background: rgba(255, 107, 53, 0.25);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 24px rgba(255, 107, 53, 0.3);
+            background: rgba(255, 107, 53, 0.18);
         }
 
         .profile-button {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
             background: var(--gradient-primary);
-            border: 2px solid var(--border-subtle);
+            border: none;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 20px;
+            transition: all 0.2s ease;
+            font-size: 16px;
             color: white;
             text-decoration: none;
-            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
         }
 
         .profile-button:hover {
-            transform: scale(1.1) rotate(5deg);
-            box-shadow: 0 6px 24px rgba(255, 107, 53, 0.5);
+            transform: scale(1.06);
+            box-shadow: 0 4px 12px rgba(255, 107, 53, 0.4);
         }
 
         /* Chat Container */
@@ -722,7 +659,7 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            padding: 24px;
+            padding: 0;
             overflow: hidden;
         }
 
@@ -730,15 +667,8 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            max-width: 56rem;
             width: 100%;
-            margin: 0 auto;
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-subtle);
-            border-radius: 20px;
             overflow: hidden;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
         }
 
         .chat-wrapper {
@@ -762,62 +692,66 @@
         }
 
         .chat-container {
-            max-width: 100%;
+            max-width: 780px;
             margin: 0 auto;
-            padding: 32px 24px;
+            padding: 28px 24px;
+            width: 100%;
         }
 
         /* Messages */
         .message {
-            margin-bottom: 28px;
+            margin-bottom: 20px;
             display: flex;
-            gap: 16px;
-            animation: messageSlideIn 0.5s ease-out;
+            gap: 12px;
+            animation: messageSlideIn 0.3s ease-out;
         }
 
         @keyframes messageSlideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .message-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
+            width: 30px;
+            height: 30px;
+            border-radius: 7px;
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: 'IBM Plex Mono', monospace;
             font-weight: 700;
-            font-size: 16px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            font-size: 12px;
+            margin-top: 3px;
         }
 
         .message.user .message-avatar {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #6366f1, #818cf8);
             color: white;
+            box-shadow: 0 2px 6px rgba(99,102,241,0.3);
         }
 
         .message.agent .message-avatar {
             background: var(--gradient-primary);
             color: white;
+            box-shadow: 0 2px 6px rgba(255,107,53,0.3);
         }
 
         .message-content {
             flex: 1;
-            padding-top: 2px;
+            padding-top: 0;
             position: relative;
         }
 
+        .message.user .message-content {
+            background: rgba(99,102,241,0.05);
+            border: 1px solid rgba(99,102,241,0.1);
+            border-radius: 0 10px 10px 10px;
+            padding: 10px 14px;
+        }
+
         .message-text {
-            font-size: 16px;
+            font-size: 15px;
             line-height: 1.7;
             color: var(--text-primary);
             font-weight: 400;
@@ -826,162 +760,159 @@
         }
 
         .message.user .message-text {
+            font-size: 14.5px;
             font-weight: 500;
         }
 
         .message-text pre {
             background: var(--bg-elevated);
             border: 1px solid var(--border-subtle);
-            padding: 20px;
-            padding-top: 45px;
-            border-radius: 12px;
+            border-left: 2px solid var(--accent-primary);
+            padding: 14px 16px;
+            padding-top: 34px;
+            border-radius: 8px;
             overflow-x: auto;
-            margin: 16px 0;
-            font-size: 14px;
+            margin: 12px 0;
+            font-size: 13px;
             line-height: 1.6;
             font-family: 'IBM Plex Mono', monospace;
-            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
             position: relative;
         }
 
         .message-text pre::before {
             content: attr(data-lang);
             position: absolute;
-            top: 12px;
-            left: 20px;
-            font-size: 13px;
-            color: var(--text-tertiary);
+            top: 10px;
+            left: 14px;
+            font-size: 10px;
+            color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
+            font-weight: 600;
         }
 
         .message-text code {
-            background: rgba(255, 107, 53, 0.15);
+            background: rgba(255, 107, 53, 0.1);
             color: var(--accent-primary);
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 14px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 13px;
             font-family: 'IBM Plex Mono', monospace;
-            border: 1px solid rgba(255, 107, 53, 0.3);
             font-weight: 500;
         }
 
         /* Welcome */
         .welcome {
             text-align: center;
-            padding: 80px 24px;
-            animation: fadeIn 0.8s ease-out;
+            padding: 64px 24px 48px;
+            animation: fadeIn 0.6s ease-out;
         }
 
-        .welcome-icon {
-            margin-bottom: 24px;
-        }
+        .welcome-icon { margin-bottom: 18px; }
 
         @keyframes float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-10px); }
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
         }
 
         .welcome h2 {
             font-family: 'Syne', sans-serif;
-            font-size: 42px;
+            font-size: 38px;
             font-weight: 800;
-            margin-bottom: 16px;
-            background: linear-gradient(135deg, var(--text-primary), var(--accent-electric));
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, var(--text-primary) 40%, var(--accent-primary));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            letter-spacing: -1px;
+            letter-spacing: -1.5px;
+            line-height: 1.1;
         }
 
         .welcome p {
-            font-size: 18px;
+            font-size: 16px;
             color: var(--text-secondary);
-            margin-bottom: 48px;
-            max-width: 500px;
+            margin-bottom: 36px;
+            max-width: 420px;
             margin-left: auto;
             margin-right: auto;
+            line-height: 1.6;
         }
 
         .welcome-examples {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 16px;
-            max-width: 800px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+            max-width: 720px;
             margin: 0 auto;
         }
 
         .example-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
+            background: var(--bg-secondary);
             border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 24px;
+            border-radius: 10px;
+            padding: 18px;
             text-align: left;
             cursor: pointer;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.2s ease;
             position: relative;
             overflow: hidden;
-            animation: fadeIn 0.6s ease-out both;
+            animation: fadeIn 0.5s ease-out both;
         }
 
-        .example-card:nth-child(1) { animation-delay: 0.1s; }
-        .example-card:nth-child(2) { animation-delay: 0.2s; }
-        .example-card:nth-child(3) { animation-delay: 0.3s; }
+        .example-card:nth-child(1) { animation-delay: 0.08s; }
+        .example-card:nth-child(2) { animation-delay: 0.16s; }
+        .example-card:nth-child(3) { animation-delay: 0.24s; }
 
         .example-card::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
+            top: 0; left: 0; right: 0;
+            height: 2px;
             background: var(--gradient-primary);
             transform: scaleX(0);
             transform-origin: left;
-            transition: transform 0.4s ease;
+            transition: transform 0.25s ease;
         }
 
         .example-card:hover {
-            transform: translateY(-8px);
-            border-color: var(--accent-primary);
-            box-shadow: 0 12px 40px rgba(255, 107, 53, 0.2);
+            transform: translateY(-4px);
+            border-color: rgba(255,107,53,0.3);
+            box-shadow: 0 8px 24px rgba(255,107,53,0.1);
         }
 
-        .example-card:hover::before {
-            transform: scaleX(1);
-        }
+        .example-card:hover::before { transform: scaleX(1); }
 
         .example-icon {
-            font-size: 32px;
-            margin-bottom: 12px;
+            font-size: 26px;
+            margin-bottom: 10px;
             display: block;
         }
 
         .example-card h3 {
-            font-size: 18px;
-            font-weight: 700;
+            font-size: 15px;
+            font-weight: 600;
             color: var(--text-primary);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             font-family: 'Syne', sans-serif;
         }
 
         .example-card p {
-            font-size: 14px;
+            font-size: 13px;
             color: var(--text-secondary);
             margin: 0;
+            line-height: 1.5;
         }
 
         /* Input Area */
         .input-wrapper {
-            background: var(--bg-elevated);
+            background: var(--bg-secondary);
             border-top: 1px solid var(--border-subtle);
-            padding: 20px 24px;
+            padding: 12px 20px 14px;
             flex-shrink: 0;
         }
 
         .input-container {
-            max-width: 100%;
+            max-width: 780px;
             margin: 0 auto;
         }
 
@@ -989,16 +920,17 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 8px;
-            padding: 0 4px;
+            margin-bottom: 7px;
+            padding: 0 2px;
         }
 
         .model-selector-label {
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 500;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.8px;
+            font-family: 'IBM Plex Mono', monospace;
         }
 
         .model-toggle-group {
@@ -1040,25 +972,24 @@
 
         .input-box {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             background: var(--bg-elevated);
-            border: 2px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 12px 16px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            border: 1.5px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 10px 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
         .input-box:focus-within {
             border-color: var(--accent-primary);
-            box-shadow: 0 8px 32px rgba(255, 107, 53, 0.3);
+            box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
         }
 
         #messageInput {
             flex: 1;
             border: none;
             outline: none;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 400;
             font-family: 'Outfit', sans-serif;
             background: transparent;
@@ -1066,36 +997,34 @@
             resize: none;
             min-height: 24px;
             max-height: 200px;
-            line-height: 1.5;
-            padding: 4px 0;
+            line-height: 1.55;
+            padding: 2px 0;
         }
 
-        #messageInput::placeholder {
-            color: var(--text-tertiary);
-        }
+        #messageInput::placeholder { color: var(--text-muted); }
 
         #sendButton {
-            background: var(--gradient-primary);
+            background: var(--accent-primary);
             color: white;
             border: none;
-            border-radius: 10px;
-            padding: 10px 24px;
+            border-radius: 8px;
+            padding: 8px 18px;
             cursor: pointer;
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 600;
             font-family: 'Outfit', sans-serif;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             align-self: flex-end;
-            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+            flex-shrink: 0;
         }
 
         #sendButton:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.5);
+            filter: brightness(1.1);
+            box-shadow: 0 3px 10px rgba(255, 107, 53, 0.4);
         }
 
         #sendButton:disabled {
-            opacity: 0.5;
+            opacity: 0.45;
             cursor: not-allowed;
         }
 
@@ -1183,33 +1112,32 @@
         }
 
         .dropdown-header {
-            padding: 16px;
+            padding: 10px 14px 7px;
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 13px;
+            font-size: 10px;
             font-weight: 600;
-            color: var(--text-tertiary);
+            color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 1.5px;
             border-bottom: 1px solid var(--border-subtle);
-            background: rgba(255, 255, 255, 0.02);
         }
 
         .dropdown-item {
-            padding: 14px 16px;
+            padding: 9px 14px;
             cursor: pointer;
-            font-size: 15px;
-            font-weight: 500;
+            font-size: 13px;
+            font-weight: 400;
             color: var(--text-secondary);
             display: flex;
             align-items: center;
-            gap: 12px;
-            transition: all 0.2s ease;
+            gap: 10px;
+            transition: all 0.12s ease;
+            font-family: 'Outfit', sans-serif;
         }
 
         .dropdown-item:hover {
-            background: rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.05);
             color: var(--text-primary);
-            padding-left: 20px;
         }
 
         .dropdown-divider {
@@ -1222,7 +1150,7 @@
         @media (max-width: 768px) {
             .sidebar {
                 position: fixed;
-                left: -320px;
+                left: -260px;
                 top: 0;
                 z-index: 1000;
                 transition: left 0.3s ease;
@@ -2118,48 +2046,21 @@
                     <button class="mobile-menu-button" onclick="toggleSidebar()">☰</button>
                 </div>
                 <div class="header-right">
-                    <a href="/dashboard" class="header-button">
-                        <span>📊</span>
-                        <span>Dashboard</span>
-                    </a>
-                    <a href="/monitoring" class="header-button">
-                        <span>📡</span>
-                        <span>Monitoring</span>
-                    </a>
-                    <a href="/incidents" class="header-button">
-                        <span>🚨</span>
-                        <span>Incidents</span>
-                    </a>
-                    <a href="/optimization" class="header-button">
-                        <span>⚡</span>
-                        <span>Optimize</span>
-                    </a>
-                    <a href="/infrastructure/map" class="header-button nav-secondary">
-                        <span>🗺️</span>
-                        <span>Map</span>
-                    </a>
-                    <a href="/analysis" class="header-button nav-secondary">
-                        <span>🔍</span>
-                        <span>Analysis</span>
-                    </a>
-                    <a href="/curriculum" class="header-button nav-secondary">
-                        <span>🎓</span>
-                        <span>Learn</span>
-                    </a>
+                    <a href="/dashboard" class="header-button">Dashboard</a>
+                    <a href="/monitoring" class="header-button">Monitoring</a>
+                    <a href="/incidents" class="header-button">Incidents</a>
+                    <a href="/optimization" class="header-button">Optimize</a>
+                    <a href="/infrastructure/map" class="header-button nav-secondary">Map</a>
+                    <a href="/analysis" class="header-button nav-secondary">Analysis</a>
+                    <a href="/curriculum" class="header-button nav-secondary">Learn</a>
                     <div id="learningBadge" class="learning-badge" style="display:none;">
                         Learning<span id="sandboxBadgeTag"></span>
                     </div>
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
                         💰 <span id="credits-count">{{ initial_credits if initial_credits is defined else '--' }}</span> credits
                     </div>
-                    <button class="header-button nav-secondary" onclick="exportChat()">
-                        <span>📋</span>
-                        <span>Export</span>
-                    </button>
-                    <button class="header-button" onclick="clearChat()">
-                        <span>🗑️</span>
-                        <span>Clear</span>
-                    </button>
+                    <button class="header-button nav-secondary" onclick="exportChat()">Export</button>
+                    <button class="header-button" onclick="clearChat()">Clear</button>
                     <!-- Notification bell -->
                     <div class="notif-bell-wrap" style="position:relative;">
                         <button class="header-button notif-bell-btn" onclick="toggleNotifPanel()" title="Notifications" style="position:relative;">
@@ -2253,8 +2154,9 @@
                 <div class="chat-wrapper" id="chatWrapper">
                     <div class="chat-container" id="chatContainer">
                         <div class="welcome">
-                            <div class="welcome-icon"><div class="logo-icon" style="width:72px;height:72px;border-radius:16px;font-size:22px;margin:0 auto;">&gt;_</div></div>
-                            <p>Your AI-powered DevOps automation platform. Let's build something amazing together.</p>
+                            <div class="welcome-icon"><div class="logo-icon" style="width:60px;height:60px;border-radius:14px;font-size:18px;margin:0 auto;box-shadow:0 8px 24px rgba(255,107,53,0.3);">&gt;_</div></div>
+                            <h2>Your DevOps Command Center</h2>
+                            <p>AI-powered infrastructure automation. Manage cloud, Kubernetes, CI/CD, and more — from a single interface.</p>
 
                             <div class="welcome-examples">
                                 <div class="example-card" onclick="sendExample('List all EC2 instances in us-east-1')">
@@ -2990,8 +2892,9 @@
                     const container = document.getElementById('chatContainer');
                     container.innerHTML = `
                         <div class="welcome">
-                            <div class="welcome-icon"><div class="logo-icon" style="width:72px;height:72px;border-radius:16px;font-size:22px;margin:0 auto;">&gt;_</div></div>
-                            <p>I'm an AI assistant powered by Claude that can help you manage your infrastructure</p>
+                            <div class="welcome-icon"><div class="logo-icon" style="width:60px;height:60px;border-radius:14px;font-size:18px;margin:0 auto;box-shadow:0 8px 24px rgba(255,107,53,0.3);">&gt;_</div></div>
+                            <h2>Your DevOps Command Center</h2>
+                            <p>AI-powered infrastructure automation. Manage cloud, Kubernetes, CI/CD, and more.</p>
                         </div>
                     `;
 
