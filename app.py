@@ -3318,6 +3318,13 @@ def api_chat_stream():
 
     except Exception as e:
         db.session.rollback()
+        # Always clear the streaming flag if it was set before the error occurred
+        try:
+            if conversation:
+                conversation.is_streaming = False
+                db.session.commit()
+        except Exception:
+            pass
         logger.error(f"Error in streaming chat: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
