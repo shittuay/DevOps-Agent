@@ -28,7 +28,111 @@
             text-decoration: none;
             margin-left: 1.5rem;
         }
-        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.5rem;
+            align-items: start;
+        }
+        @media (max-width: 1024px) {
+            .content-grid { grid-template-columns: 1fr; }
+        }
+        .journal-panel {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+            position: sticky;
+            top: 1rem;
+        }
+        .journal-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .journal-header h3 { font-size: 0.95rem; font-weight: 600; }
+        .journal-body { padding: 1rem; max-height: 70vh; overflow-y: auto; }
+        .journal-entry { margin-bottom: 1rem; position: relative; }
+        .journal-entry::before {
+            content: '';
+            position: absolute;
+            left: 11px;
+            top: 22px;
+            bottom: -1rem;
+            width: 2px;
+            background: var(--border-subtle);
+        }
+        .journal-entry:last-child::before { display: none; }
+        .journal-dot {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .dot-tool { background: rgba(59,130,246,0.2); color: #3b82f6; }
+        .dot-status { background: rgba(100,116,139,0.2); color: #94a3b8; }
+        .dot-note { background: rgba(16,185,129,0.2); color: #10b981; }
+        .dot-finding { background: rgba(251,191,36,0.2); color: #fbbf24; }
+        .entry-row { display: flex; gap: 0.75rem; align-items: flex-start; }
+        .entry-content { flex: 1; }
+        .entry-content .tool-chip {
+            display: inline-block;
+            background: rgba(59,130,246,0.15);
+            color: #3b82f6;
+            font-family: monospace;
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            margin-bottom: 0.25rem;
+        }
+        .entry-content .entry-text {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        .entry-content .entry-time {
+            font-size: 0.72rem;
+            color: var(--text-tertiary, #64748b);
+            margin-top: 0.2rem;
+        }
+        .divider-entry {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 0.75rem 0;
+        }
+        .divider-entry hr { flex: 1; border: none; border-top: 1px solid var(--border-subtle); }
+        .divider-entry span { font-size: 0.72rem; color: var(--text-tertiary, #64748b); white-space: nowrap; }
+        .journal-note-form { padding: 0.75rem 1rem; border-top: 1px solid var(--border-subtle); }
+        .journal-note-form textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 0.82rem;
+            resize: vertical;
+            min-height: 60px;
+        }
+        .journal-note-form button {
+            margin-top: 0.5rem;
+            padding: 0.4rem 1rem;
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.82rem;
+        }
         .incident-header {
             background: var(--bg-secondary);
             border-radius: 12px;
@@ -186,6 +290,8 @@
     </header>
 
     <div class="container">
+        <div class="content-grid">
+        <div class="main-col">
         <div id="message"></div>
 
         <div class="incident-header">
@@ -313,7 +419,24 @@
             </div>
             {% endif %}
         </div>
-    </div>
+        </div><!-- /.main-col -->
+
+        <div class="journal-panel">
+            <div class="journal-header">
+                <h3>Investigation Journal</h3>
+                <span id="journal-count" style="font-size:0.78rem;color:var(--text-secondary)">0 entries</span>
+            </div>
+            <div class="journal-body" id="journal-body">
+                <p style="font-size:0.82rem;color:var(--text-secondary);text-align:center;padding:1rem 0">Loading...</p>
+            </div>
+            <div class="journal-note-form">
+                <textarea id="journal-note-input" placeholder="Add a note..."></textarea>
+                <button onclick="addJournalNote()">Add Note</button>
+            </div>
+        </div><!-- /.journal-panel -->
+
+        </div><!-- /.content-grid -->
+    </div><!-- /.container -->
 
     <script>
         function showMessage(text, type) {
@@ -430,5 +553,70 @@
         }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script>
+    const INCIDENT_ID = "{{ incident.id }}";
+
+    async function loadJournal() {
+        try {
+            const resp = await fetch(`/incidents/api/incidents/${INCIDENT_ID}/journal`);
+            const data = await resp.json();
+            renderJournal(data.entries || []);
+        } catch(e) {
+            document.getElementById('journal-body').innerHTML = '<p style="font-size:0.82rem;color:#ef4444;text-align:center">Failed to load journal</p>';
+        }
+    }
+
+    function renderJournal(entries) {
+        const body = document.getElementById('journal-body');
+        document.getElementById('journal-count').textContent = entries.length + ' entries';
+        if (!entries.length) {
+            body.innerHTML = '<p style="font-size:0.82rem;color:var(--text-secondary);text-align:center;padding:1rem 0">No journal entries yet.</p>';
+            return;
+        }
+        body.innerHTML = entries.map(e => {
+            const time = new Date(e.created_at).toLocaleString();
+            const dotClass = e.entry_type === 'tool_call' ? 'dot-tool' :
+                              e.entry_type === 'status_change' ? 'dot-status' :
+                              e.entry_type === 'note' ? 'dot-note' : 'dot-finding';
+            const icon = e.entry_type === 'tool_call' ? '\u2699' :
+                         e.entry_type === 'status_change' ? '\u2192' :
+                         e.entry_type === 'note' ? '\u270f' : '!';
+            if (e.entry_type === 'status_change') {
+                return `<div class="divider-entry"><hr><span>${e.content} \u00b7 ${time}</span><hr></div>`;
+            }
+            return `<div class="journal-entry">
+                <div class="entry-row">
+                    <div class="journal-dot ${dotClass}">${icon}</div>
+                    <div class="entry-content">
+                        ${e.tool_name ? `<div class="tool-chip">${e.tool_name}</div>` : ''}
+                        <div class="entry-text">${e.content}</div>
+                        <div class="entry-time">${e.author} \u00b7 ${time}</div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+        body.scrollTop = body.scrollHeight;
+    }
+
+    async function addJournalNote() {
+        const input = document.getElementById('journal-note-input');
+        const content = input.value.trim();
+        if (!content) return;
+        try {
+            const resp = await fetch(`/incidents/api/incidents/${INCIDENT_ID}/journal`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content})
+            });
+            if (resp.ok) {
+                input.value = '';
+                loadJournal();
+            }
+        } catch(e) { console.error('Failed to add note:', e); }
+    }
+
+    loadJournal();
+    setInterval(loadJournal, 30000);
+    </script>
 </body>
 </html>

@@ -205,9 +205,16 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 #tooltip {
     position:fixed; background:var(--bg-elevated); border:1px solid var(--border-subtle);
     border-radius:10px; padding:10px 14px; font-size:12px; color:var(--text-primary);
-    z-index:200; pointer-events:none; max-width:240px; box-shadow:0 8px 28px rgba(0,0,0,.35);
+    z-index:200; pointer-events:auto; max-width:240px; box-shadow:0 8px 28px rgba(0,0,0,.35);
     display:none; line-height:1.6;
 }
+.tip-investigate {
+    display:inline-block; margin-top:8px; padding:4px 10px;
+    background:var(--accent-primary,#6366f1); color:#fff;
+    border-radius:6px; font-size:11px; font-weight:600;
+    text-decoration:none; transition:filter .14s;
+}
+.tip-investigate:hover { filter:brightness(1.12); }
 .tip-k { color:var(--text-secondary); }
 .tip-v { color:var(--text-primary); font-weight:600; }
 
@@ -546,7 +553,10 @@ function setFilter(el,prov){
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
+let _tipHideTimer = null;
+
 function showTip(mx, my, n){
+    if (_tipHideTimer) { clearTimeout(_tipHideTimer); _tipHideTimer = null; }
     const tip=document.getElementById('tooltip');
     const rows=[
         ['Type',n.type],['Provider',n.provider],
@@ -555,15 +565,31 @@ function showTip(mx, my, n){
         n.cost>0?['Est. cost','$'+n.cost.toFixed(2)+'/mo']:null,
         n.sub!==n.label?['ID',n.sub]:null,
     ].filter(Boolean);
+    const investigateUrl = '/chat?ctx=resource'
+        + '&type=' + encodeURIComponent(n.type || 'resource')
+        + '&id='   + encodeURIComponent(n.id)
+        + '&name=' + encodeURIComponent(n.label || n.id)
+        + '&action=investigate';
     tip.innerHTML='<strong>'+esc(n.label)+'</strong>'+
-        rows.map(([k,v])=>`<div><span class="tip-k">${k}: </span><span class="tip-v">${esc(String(v))}</span></div>`).join('');
+        rows.map(([k,v])=>`<div><span class="tip-k">${k}: </span><span class="tip-v">${esc(String(v))}</span></div>`).join('')+
+        `<div><a class="tip-investigate" href="${investigateUrl}" target="_blank">Investigate →</a></div>`;
     tip.style.display='block';
     tip.style.left=(mx+14)+'px'; tip.style.top=(my+14)+'px';
 }
-function hideTip(){ document.getElementById('tooltip').style.display='none'; }
+function hideTip(){
+    _tipHideTimer = setTimeout(()=>{ document.getElementById('tooltip').style.display='none'; }, 300);
+}
+document.getElementById('tooltip').addEventListener('mouseenter', ()=>{
+    if (_tipHideTimer) { clearTimeout(_tipHideTimer); _tipHideTimer = null; }
+});
+document.getElementById('tooltip').addEventListener('mouseleave', ()=>{
+    _tipHideTimer = setTimeout(()=>{ document.getElementById('tooltip').style.display='none'; }, 150);
+});
 document.addEventListener('mousemove',e=>{
     const t=document.getElementById('tooltip');
-    if(t.style.display==='block'){ t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY+14)+'px'; }
+    if(t.style.display==='block' && !t.matches(':hover')){
+        t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY+14)+'px';
+    }
 });
 
 // ── Load ──────────────────────────────────────────────────────────────────────

@@ -249,6 +249,8 @@ class ChatMessage(db.Model):
     role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
     content = db.Column(db.Text, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    tool_trace = db.Column(db.JSON, nullable=True)   # [{tool, success, duration_ms}]
+    page_context = db.Column(db.String(100), nullable=True)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('messages', lazy='dynamic'))
@@ -1255,6 +1257,7 @@ class IncidentModel(db.Model):
     metadata_json = db.Column(db.JSON, default=lambda: {})
     actions_taken = db.Column(db.JSON, default=lambda: [])
     timeline = db.Column(db.JSON, default=lambda: [])
+    correlation_group_key = db.Column(db.String(100), nullable=True, index=True)
     triggered_at = db.Column(db.DateTime, default=datetime.utcnow)
     acknowledged_at = db.Column(db.DateTime, nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
@@ -2730,3 +2733,174 @@ class AppNotification(db.Model):
 
     def __repr__(self):
         return f'<AppNotification {self.id} user={self.user_id} read={self.read}>'
+
+
+class IncidentCorrelationGroup(db.Model):
+    """Groups related incidents that fired within a short time window."""
+    __tablename__ = 'incident_correlation_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
+    group_key = db.Column(db.String(100))
+    title = db.Column(db.String(500))
+    severity = db.Column(db.String(20))
+    status = db.Column(db.String(30), default='open')
+    window_start = db.Column(db.DateTime)
+    window_end = db.Column(db.DateTime)
+    incident_keys = db.Column(db.JSON, default=list)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'group_key': self.group_key,
+            'title': self.title,
+            'severity': self.severity,
+            'status': self.status,
+            'window_start': self.window_start.isoformat() if self.window_start else None,
+            'window_end': self.window_end.isoformat() if self.window_end else None,
+            'incident_keys': self.incident_keys or [],
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f'<IncidentCorrelationGroup {self.id} user={self.user_id} status={self.status}>'
+
+
+class InvestigationJournalEntry(db.Model):
+    """Immutable audit trail of every tool call, finding, and reasoning step per incident."""
+    __tablename__ = 'investigation_journal'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
+    incident_key = db.Column(db.String(50), index=True)
+    entry_type = db.Column(db.String(30))   # 'tool_call'|'finding'|'status_change'|'note'
+    tool_name = db.Column(db.String(100), nullable=True)
+    tool_input = db.Column(db.JSON, nullable=True)
+    tool_result = db.Column(db.JSON, nullable=True)
+    content = db.Column(db.Text)
+    author = db.Column(db.String(20), default='agent')   # 'agent'|'system'|'user'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'incident_key': self.incident_key,
+            'entry_type': self.entry_type,
+            'tool_name': self.tool_name,
+            'tool_input': self.tool_input,
+            'tool_result': self.tool_result,
+            'content': self.content,
+            'author': self.author,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f'<JournalEntry {self.id} incident={self.incident_key} type={self.entry_type}>'
+
+
+class ChatArtifact(db.Model):
+    """Versioned documents (runbooks, reports, specs) generated during chat."""
+    __tablename__ = 'chat_artifacts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
+    conversation_id = db.Column(db.String(50), db.ForeignKey('conversations.id'), index=True)
+    message_id = db.Column(db.Integer, db.ForeignKey('chat_messages.id'), nullable=True)
+    artifact_type = db.Column(db.String(30))   # 'runbook'|'incident_report'|'change_plan'|'agent_spec'
+    title = db.Column(db.String(200))
+    content = db.Column(db.Text)
+    version = db.Column(db.Integer, default=1)
+    parent_id = db.Column(db.Integer, db.ForeignKey('chat_artifacts.id'), nullable=True)
+    is_latest = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'conversation_id': self.conversation_id,
+            'artifact_type': self.artifact_type,
+            'title': self.title,
+            'content': self.content,
+            'version': self.version,
+            'parent_id': self.parent_id,
+            'is_latest': self.is_latest,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f'<ChatArtifact {self.id} type={self.artifact_type} v{self.version}>'
+
+
+class ProactiveRecommendation(db.Model):
+    """Pattern-detected infrastructure recommendations from the Prevention Engine."""
+    __tablename__ = 'proactive_recommendations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
+    category = db.Column(db.String(30), index=True)  # observability|infrastructure|governance|code_optimization
+    recommendation_type = db.Column(db.String(80))
+    title = db.Column(db.String(300))
+    description = db.Column(db.Text)
+    severity = db.Column(db.String(20), default='medium')
+    affected_resource_ids = db.Column(db.JSON, default=list)
+    source_incident_ids = db.Column(db.JSON, default=list)
+    evidence = db.Column(db.JSON, default=dict)
+    remediation_steps = db.Column(db.JSON, default=list)
+    estimated_effort = db.Column(db.String(20))
+    status = db.Column(db.String(20), default='pending')
+    agent_spec = db.Column(db.Text, nullable=True)
+    agent_spec_generated_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'category': self.category,
+            'recommendation_type': self.recommendation_type,
+            'title': self.title,
+            'description': self.description,
+            'severity': self.severity,
+            'affected_resource_ids': self.affected_resource_ids or [],
+            'source_incident_ids': self.source_incident_ids or [],
+            'evidence': self.evidence or {},
+            'remediation_steps': self.remediation_steps or [],
+            'estimated_effort': self.estimated_effort,
+            'status': self.status,
+            'has_agent_spec': bool(self.agent_spec),
+            'agent_spec_generated_at': self.agent_spec_generated_at.isoformat() if self.agent_spec_generated_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f'<ProactiveRecommendation {self.id} type={self.recommendation_type} status={self.status}>'
+
+
+class UserSkillActivation(db.Model):
+    """Tracks which skills are active per user."""
+    __tablename__ = 'user_skill_activations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
+    skill_id = db.Column(db.String(100))
+    is_active = db.Column(db.Boolean, default=True)
+    activation_source = db.Column(db.String(20))   # 'manual'|'learned'|'auto'
+    activated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'skill_id', name='uq_user_skill'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'skill_id': self.skill_id,
+            'is_active': self.is_active,
+            'activation_source': self.activation_source,
+            'activated_at': self.activated_at.isoformat() if self.activated_at else None,
+        }
+
+    def __repr__(self):
+        return f'<UserSkillActivation user={self.user_id} skill={self.skill_id} active={self.is_active}>'

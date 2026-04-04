@@ -190,3 +190,116 @@ def api_implement_recommendation(rec_id: str):
         })
 
     return json_response({"error": "Failed to update status"}, 500)
+
+
+# ==================== PROACTIVE PREVENTION ENDPOINTS ====================
+
+
+@optimization_bp.route('/prevention')
+@login_required
+def prevention_dashboard():
+    """Render the proactive prevention dashboard."""
+    from models import ProactiveRecommendation
+    recs = ProactiveRecommendation.query.filter_by(
+        user_id=current_user.id
+    ).order_by(ProactiveRecommendation.created_at.desc()).limit(100).all()
+    by_category = {}
+    for r in recs:
+        by_category.setdefault(r.category, []).append(r)
+    return render_template(
+        'optimization/prevention.html',
+        by_category=by_category,
+        total=len(recs)
+    )
+
+
+@optimization_bp.route('/api/recommendations/proactive', methods=['GET'])
+@login_required
+def api_list_proactive():
+    """List proactive recommendations with optional filters."""
+    from models import ProactiveRecommendation
+    category = request.args.get('category')
+    status = request.args.get('status')
+    q = ProactiveRecommendation.query.filter_by(user_id=current_user.id)
+    if category:
+        q = q.filter_by(category=category)
+    if status:
+        q = q.filter_by(status=status)
+    recs = q.order_by(ProactiveRecommendation.created_at.desc()).limit(100).all()
+    return jsonify({'recommendations': [r.to_dict() for r in recs], 'total': len(recs)})
+
+
+@optimization_bp.route('/api/recommendations/proactive/analyze', methods=['POST'])
+@login_required
+def api_run_analysis():
+    """Trigger full prevention analysis and save new recommendations."""
+    from models import db, ProactiveRecommendation
+    from services.prevention_engine import get_prevention_engine
+    from flask import current_app
+    try:
+        engine = get_prevention_engine(app=current_app._get_current_object())
+    except Exception:
+        engine = get_prevention_engine()
+
+    recs_data = engine.run_full_analysis(current_user.id)
+    saved = 0
+    for rd in recs_data:
+        exists = ProactiveRecommendation.query.filter_by(
+            user_id=current_user.id,
+            recommendation_type=rd['recommendation_type'],
+            status='pending'
+        ).first()
+        if not exists:
+            rec = ProactiveRecommendation(
+                user_id=current_user.id,
+                category=rd['category'],
+                recommendation_type=rd['recommendation_type'],
+                title=rd['title'],
+                description=rd['description'],
+                severity=rd.get('severity', 'medium'),
+                affected_resource_ids=rd.get('affected_resource_ids', []),
+                source_incident_ids=rd.get('source_incident_ids', []),
+                evidence=rd.get('evidence', {}),
+                remediation_steps=rd.get('remediation_steps', []),
+                estimated_effort=rd.get('estimated_effort', '1d'),
+            )
+            db.session.add(rec)
+            saved += 1
+    db.session.commit()
+    return jsonify({'success': True, 'analyzed': len(recs_data), 'saved': saved})
+
+
+@optimization_bp.route('/api/recommendations/<int:rec_id>/agent-spec', methods=['POST'])
+@login_required
+def api_generate_agent_spec(rec_id):
+    """Generate an AI implementation spec for a recommendation."""
+    from services.prevention_engine import get_prevention_engine
+    from flask import current_app
+    try:
+        engine = get_prevention_engine(app=current_app._get_current_object())
+    except Exception:
+        engine = get_prevention_engine()
+    spec = engine.generate_agent_spec(rec_id, current_user.id)
+    if spec is None:
+        return jsonify({'error': 'Recommendation not found or spec generation failed'}), 404
+    return jsonify({'success': True, 'spec': spec})
+
+
+@optimization_bp.route('/api/recommendations/<int:rec_id>/status', methods=['PUT'])
+@login_required
+def api_update_rec_status(rec_id):
+    """Update the status of a proactive recommendation."""
+    from models import db, ProactiveRecommendation
+    rec = ProactiveRecommendation.query.filter_by(
+        id=rec_id, user_id=current_user.id
+    ).first()
+    if not rec:
+        return jsonify({'error': 'Recommendation not found'}), 404
+    data = request.get_json() or {}
+    new_status = data.get('status', rec.status)
+    allowed = {'pending', 'in_progress', 'resolved', 'dismissed'}
+    if new_status not in allowed:
+        return jsonify({'error': f'Invalid status. Allowed: {allowed}'}), 400
+    rec.status = new_status
+    db.session.commit()
+    return jsonify({'success': True, 'status': new_status})
