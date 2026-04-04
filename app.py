@@ -2991,6 +2991,14 @@ def api_chat_stream():
         # In-flight guard: atomic UPDATE — only sets is_streaming=True if it was False
         from sqlalchemy import update as _sa_update
         if conversation:
+            # Auto-reset stale locks: if is_streaming=True but updated_at is older than 5 minutes,
+            # the previous stream crashed before clearing the flag — safe to reset.
+            if conversation.is_streaming:
+                stale_threshold = datetime.utcnow() - timedelta(minutes=5)
+                if conversation.updated_at and conversation.updated_at < stale_threshold:
+                    conversation.is_streaming = False
+                    db.session.commit()
+                    db.session.refresh(conversation)
             _guard_result = db.session.execute(
                 _sa_update(Conversation).where(
                     Conversation.id == conversation.id,
