@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skills — DevOps Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        .header nav a { color: var(--text-secondary); text-decoration: none; margin-left: 1.5rem; }
+        .container { max-width: 900px; margin: 0 auto; padding: 2rem; }
+        .section { margin-bottom: 2.5rem; }
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+        .skill-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            transition: border-color 0.2s;
+        }
+        .skill-card.active { border-color: var(--accent-primary); }
+        .skill-card-header { display: flex; justify-content: space-between; align-items: center; }
+        .skill-name { font-size: 0.9rem; font-weight: 600; }
+        .skill-toggle {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+        .skill-toggle input { opacity: 0; width: 0; height: 0; }
+        .skill-toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: var(--border-subtle);
+            border-radius: 11px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .skill-toggle-slider::before {
+            content: '';
+            position: absolute;
+            left: 3px;
+            top: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: white;
+            transition: 0.2s;
+        }
+        .skill-toggle input:checked + .skill-toggle-slider { background: var(--accent-primary); }
+        .skill-toggle input:checked + .skill-toggle-slider::before { transform: translateX(18px); }
+        .skill-triggers {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+        .trigger-chip {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 0.15rem 0.45rem;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+        .providers {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        .learned-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 1.25rem;
+        }
+        .learned-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .learned-content {
+            font-size: 0.85rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.82rem;
+            font-weight: 500;
+        }
+        .btn-secondary { background: var(--bg-primary); border: 1px solid var(--border-subtle); color: var(--text-primary); }
+        .btn-secondary:hover { border-color: var(--accent-primary); }
+        .empty { color: var(--text-secondary); font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+<header class="header">
+    <h1>Skills</h1>
+    <nav>
+        <a href="/settings">Settings</a>
+        <a href="/">Chat</a>
+    </nav>
+</header>
+
+<div class="container">
+    <div class="section">
+        <div class="section-title">Built-in Skills</div>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Skills inject domain expertise into the agent when your message matches a trigger keyword. Toggle them on or off per your needs.</p>
+        <div class="skills-grid" id="skills-grid">
+            <p class="empty">Loading skills...</p>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Learned Skills</div>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Auto-generated from your synced infrastructure — tells the agent exactly what you have deployed.</p>
+        <div class="learned-section">
+            <div class="learned-header">
+                <span style="font-size:0.9rem;font-weight:600">Your Infrastructure Context</span>
+                <button class="btn btn-secondary" onclick="refreshLearned()">Refresh</button>
+            </div>
+            <div class="learned-content" id="learned-content">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadSkills() {
+    try {
+        const resp = await fetch('/api/skills');
+        const data = await resp.json();
+        renderSkills(data.skills || []);
+    } catch(e) {
+        document.getElementById('skills-grid').innerHTML = '<p class="empty">Failed to load skills</p>';
+    }
+}
+
+function renderSkills(skills) {
+    const grid = document.getElementById('skills-grid');
+    if (!skills.length) {
+        grid.innerHTML = '<p class="empty">No built-in skills available. Make sure the skills/ directory contains .md files.</p>';
+        return;
+    }
+    grid.innerHTML = skills.map(s => `
+        <div class="skill-card ${s.is_active ? 'active' : ''}" id="skill-card-${s.id}">
+            <div class="skill-card-header">
+                <span class="skill-name">${escapeHtml(s.name)}</span>
+                <label class="skill-toggle">
+                    <input type="checkbox" ${s.is_active ? 'checked' : ''} onchange="toggleSkill('${s.id}', this.checked)">
+                    <span class="skill-toggle-slider"></span>
+                </label>
+            </div>
+            ${s.compatible_providers && s.compatible_providers.length ? `
+            <div class="providers">Providers: ${s.compatible_providers.map(p => p.toUpperCase()).join(', ')}</div>
+            ` : ''}
+            <div class="skill-triggers">
+                ${(s.triggers || []).slice(0, 8).map(t => `<span class="trigger-chip">${escapeHtml(t)}</span>`).join('')}
+                ${s.triggers && s.triggers.length > 8 ? `<span class="trigger-chip">+${s.triggers.length - 8} more</span>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+async function toggleSkill(skillId, active) {
+    const card = document.getElementById('skill-card-' + skillId);
+    try {
+        const method = active ? 'POST' : 'DELETE';
+        const resp = await fetch(`/api/skills/${skillId}/activate`, { method });
+        const data = await resp.json();
+        if (data.success && card) {
+            card.classList.toggle('active', active);
+        }
+    } catch(e) {
+        console.error('Failed to toggle skill:', e);
+    }
+}
+
+async function loadLearnedSkills() {
+    try {
+        const resp = await fetch('/api/skills/learned');
+        const data = await resp.json();
+        const el = document.getElementById('learned-content');
+        el.textContent = data.context || 'No infrastructure synced yet. Go to Settings > Cloud Credentials and sync your cloud resources.';
+    } catch(e) {
+        document.getElementById('learned-content').textContent = 'Failed to load infrastructure context.';
+    }
+}
+
+async function refreshLearned() {
+    const el = document.getElementById('learned-content');
+    el.textContent = 'Refreshing...';
+    try {
+        const resp = await fetch('/api/skills/refresh-learned', { method: 'POST' });
+        const data = await resp.json();
+        el.textContent = data.context || 'No infrastructure data found.';
+    } catch(e) {
+        el.textContent = 'Refresh failed.';
+    }
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+loadSkills();
+loadLearnedSkills();
+</script>
+</body>
+</html>
