@@ -398,10 +398,15 @@ class IncidentResponseEngine:
                 pb = _dict_to_playbook(row.to_dict())
                 self._user_playbooks[user_id][pb.id] = pb
 
-            # Load active incidents from DB
-            incident_rows = IncidentModel.query.filter_by(user_id=user_id).filter(
-                IncidentModel.status.notin_(['closed'])
-            ).order_by(IncidentModel.triggered_at.desc()).limit(200).all()
+            # Load active incidents from DB — use try/except so missing columns
+            # (e.g. correlation_group_key before migration) don't crash the page.
+            try:
+                incident_rows = IncidentModel.query.filter_by(user_id=user_id).filter(
+                    IncidentModel.status.notin_(['closed'])
+                ).order_by(IncidentModel.triggered_at.desc()).limit(200).all()
+            except Exception:
+                db.session.rollback()
+                incident_rows = []
             for row in incident_rows:
                 d = row.to_dict()
                 try:
