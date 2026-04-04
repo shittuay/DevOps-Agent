@@ -2463,6 +2463,26 @@ def _chat_rate_limit() -> str:
     }.get(tier, '10 per hour')
 
 
+@app.route('/api/reset-streaming', methods=['POST'])
+@login_required
+def reset_streaming_locks():
+    """Emergency reset: clears all stuck is_streaming=True locks for the current user."""
+    try:
+        from sqlalchemy import update as _sa_update
+        result = db.session.execute(
+            _sa_update(Conversation).where(
+                Conversation.user_id == current_user.id,
+                Conversation.is_streaming == True  # noqa: E712
+            ).values(is_streaming=False, updated_at=datetime.utcnow())
+        )
+        db.session.commit()
+        return jsonify({'success': True, 'reset': result.rowcount,
+                        'message': f'Cleared {result.rowcount} stuck streaming lock(s).'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
@@ -2988,22 +3008,27 @@ def api_chat_stream():
                 )
                 db.session.add(conversation)
 
-        # In-flight guard: atomic UPDATE — only sets is_streaming=True if it was False
+        # In-flight guard: atomic UPDATE — only sets is_streaming=True if it was False.
+        # updated_at is explicitly stamped when the lock is acquired so stale detection is accurate.
         from sqlalchemy import update as _sa_update
+        _now = datetime.utcnow()
+        _stale_threshold = _now - timedelta(seconds=90)
         if conversation:
-            # Auto-reset stale locks: if is_streaming=True but updated_at is older than 5 minutes,
-            # the previous stream crashed before clearing the flag — safe to reset.
-            if conversation.is_streaming:
-                stale_threshold = datetime.utcnow() - timedelta(minutes=5)
-                if conversation.updated_at and conversation.updated_at < stale_threshold:
-                    conversation.is_streaming = False
-                    db.session.commit()
-                    db.session.refresh(conversation)
+            # Stale lock recovery: if is_streaming=True but the lock was acquired >90s ago,
+            # the stream crashed before the finally-block could clear it — safe to override.
+            if conversation.is_streaming and conversation.updated_at and conversation.updated_at < _stale_threshold:
+                db.session.execute(
+                    _sa_update(Conversation).where(
+                        Conversation.id == conversation.id
+                    ).values(is_streaming=False, updated_at=_now)
+                )
+                db.session.commit()
+                db.session.refresh(conversation)
             _guard_result = db.session.execute(
                 _sa_update(Conversation).where(
                     Conversation.id == conversation.id,
                     Conversation.is_streaming == False  # noqa: E712
-                ).values(is_streaming=True)
+                ).values(is_streaming=True, updated_at=_now)
             )
             db.session.commit()
             if _guard_result.rowcount == 0:
