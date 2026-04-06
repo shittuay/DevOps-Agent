@@ -260,6 +260,7 @@ class SafetyValidator:
             'aws_api_write',
             'azure_api_write',
             'gcp_api_write',
+            'k8s_api_write',
             # CloudWatch destructive
             'delete_cloudwatch_alarm',
             # CI/CD destructive

@@ -2512,6 +2512,110 @@ def apply_manifest(
         return {'success': False, 'error': str(e)}
 
 
+# Map of API group names → client class names in the kubernetes SDK
+_K8S_API_CLIENTS = {
+    'core':           'CoreV1Api',
+    'apps':           'AppsV1Api',
+    'batch':          'BatchV1Api',
+    'networking':     'NetworkingV1Api',
+    'rbac':           'RbacAuthorizationV1Api',
+    'autoscaling':    'AutoscalingV2Api',
+    'policy':         'PolicyV1Api',
+    'storage':        'StorageV1Api',
+    'apiextensions':  'ApiextensionsV1Api',
+    'custom':         'CustomObjectsApi',
+}
+
+_K8S_READ_PREFIXES = ('list_', 'read_', 'get_', 'describe_')
+
+
+def _is_k8s_read(method: str) -> bool:
+    return any(method.lower().startswith(p) for p in _K8S_READ_PREFIXES)
+
+
+def k8s_api_read(
+    api_group: str,
+    method: str,
+    params: Optional[Dict[str, Any]] = None,
+    context: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY Kubernetes read-only API operation when no dedicated tool exists.
+
+    api_group selects the SDK client:
+      core        → CoreV1Api       (pods, services, configmaps, secrets, PVCs, nodes, events)
+      apps        → AppsV1Api       (deployments, statefulsets, daemonsets, replicasets)
+      batch       → BatchV1Api      (jobs, cronjobs)
+      networking  → NetworkingV1Api (ingresses, networkpolicies)
+      rbac        → RbacAuthorizationV1Api (roles, clusterroles, bindings)
+      autoscaling → AutoscalingV2Api (HPAs)
+      policy      → PolicyV1Api     (poddisruptionbudgets)
+      storage     → StorageV1Api    (storageclasses, volumeattachments)
+      custom      → CustomObjectsApi (CRDs and custom resources)
+
+    Examples:
+      k8s_api_read('batch','list_namespaced_cron_job',{'namespace':'default'})
+      k8s_api_read('autoscaling','list_namespaced_horizontal_pod_autoscaler',{'namespace':'production'})
+      k8s_api_read('policy','list_namespaced_pod_disruption_budget',{'namespace':'default'})
+      k8s_api_read('custom','list_cluster_custom_object',{'group':'argoproj.io','version':'v1alpha1','plural':'applications'})
+    """
+    if not _is_k8s_read(method):
+        return {'success': False, 'error': f'"{method}" does not look like a read operation. Use k8s_api_write for create/patch/delete.'}
+    api_cls_name = _K8S_API_CLIENTS.get(api_group.lower())
+    if not api_cls_name:
+        return {'success': False, 'error': f'Unknown api_group "{api_group}". Valid: {", ".join(_K8S_API_CLIENTS)}'}
+    try:
+        _get_k8s_client(context)  # loads kubeconfig
+        api_instance = getattr(client, api_cls_name)()
+        method_fn = getattr(api_instance, method)
+        result = method_fn(**(params or {}))
+        # Convert response object to serializable dict
+        if hasattr(result, 'to_dict'):
+            result = result.to_dict()
+        return {'success': True, 'api_group': api_group, 'method': method, 'result': result}
+    except ApiException as e:
+        return {'success': False, 'error': str(e), 'status_code': e.status}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def k8s_api_write(
+    api_group: str,
+    method: str,
+    params: Optional[Dict[str, Any]] = None,
+    context: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY Kubernetes write API operation (create/patch/replace/delete) when no dedicated tool exists.
+    Requires user confirmation.
+
+    Examples:
+      k8s_api_write('batch','create_namespaced_cron_job',{'namespace':'default','body':{...}})
+      k8s_api_write('autoscaling','patch_namespaced_horizontal_pod_autoscaler',{'name':'my-hpa','namespace':'default','body':{...}})
+      k8s_api_write('policy','create_namespaced_pod_disruption_budget',{'namespace':'default','body':{...}})
+      k8s_api_write('batch','delete_namespaced_job',{'name':'my-job','namespace':'default'})
+      k8s_api_write('custom','create_namespaced_custom_object',{'group':'argoproj.io','version':'v1alpha1','namespace':'argocd','plural':'applications','body':{...}})
+    """
+    if _is_k8s_read(method):
+        return {'success': False, 'error': f'"{method}" looks like a read operation. Use k8s_api_read instead.'}
+    api_cls_name = _K8S_API_CLIENTS.get(api_group.lower())
+    if not api_cls_name:
+        return {'success': False, 'error': f'Unknown api_group "{api_group}". Valid: {", ".join(_K8S_API_CLIENTS)}'}
+    try:
+        _get_k8s_client(context)  # loads kubeconfig
+        api_instance = getattr(client, api_cls_name)()
+        method_fn = getattr(api_instance, method)
+        result = method_fn(**(params or {}))
+        if hasattr(result, 'to_dict'):
+            result = result.to_dict()
+        return {'success': True, 'api_group': api_group, 'method': method, 'result': result,
+                'message': f'Successfully executed {api_group}.{method}'}
+    except ApiException as e:
+        return {'success': False, 'error': str(e), 'status_code': e.status}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 def get_tools() -> List[Dict[str, Any]]:
     """
     Get Kubernetes tool definitions.
@@ -3674,5 +3778,49 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['manifest']
             },
             'handler': apply_manifest
-        }
+        },
+        {
+            'name': 'k8s_api_read',
+            'description': (
+                'Call ANY Kubernetes read-only API when no dedicated tool exists. '
+                'api_group selects the client: core (pods/services/configmaps/PVCs/nodes), '
+                'apps (deployments/statefulsets/daemonsets), batch (jobs/cronjobs), '
+                'networking (ingresses/networkpolicies), rbac (roles/bindings), '
+                'autoscaling (HPAs), policy (PodDisruptionBudgets), '
+                'storage (storageclasses), custom (CRDs/ArgoCD apps/Flux resources). '
+                'Never use for create/patch/delete — use k8s_api_write for those.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'api_group': {'type': 'string', 'enum': list(_K8S_API_CLIENTS.keys()), 'description': 'Kubernetes API group / client'},
+                    'method': {'type': 'string', 'description': 'SDK method name e.g. list_namespaced_cron_job, list_namespaced_horizontal_pod_autoscaler'},
+                    'params': {'type': 'object', 'description': 'Method parameters e.g. {"namespace": "default"}'},
+                    'context': {'type': 'string', 'description': 'Kubernetes context (kubeconfig context name)'}
+                },
+                'required': ['api_group', 'method']
+            },
+            'handler': k8s_api_read
+        },
+        {
+            'name': 'k8s_api_write',
+            'description': (
+                'Call ANY Kubernetes write API (create/patch/replace/delete) when no dedicated tool exists. '
+                'Requires user confirmation. '
+                'Examples: create a CronJob, patch an HPA, create a PodDisruptionBudget, '
+                'delete a Job, create an ArgoCD Application custom resource, '
+                'patch a StorageClass, create an RBAC Role.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'api_group': {'type': 'string', 'enum': list(_K8S_API_CLIENTS.keys()), 'description': 'Kubernetes API group / client'},
+                    'method': {'type': 'string', 'description': 'SDK method name e.g. create_namespaced_cron_job, patch_namespaced_horizontal_pod_autoscaler, delete_namespaced_job'},
+                    'params': {'type': 'object', 'description': 'Method parameters including body for create/patch'},
+                    'context': {'type': 'string', 'description': 'Kubernetes context'}
+                },
+                'required': ['api_group', 'method']
+            },
+            'handler': k8s_api_write
+        },
     ]
