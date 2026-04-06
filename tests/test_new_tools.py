@@ -533,3 +533,120 @@ class TestToolsModuleInit:
     def test_ansible_tools_importable(self):
         from src.tools import ansible_tools
         assert hasattr(ansible_tools, 'get_tools')
+
+
+# ---------------------------------------------------------------------------
+# Cleanup workflow regression tests
+# ---------------------------------------------------------------------------
+
+class TestCleanupWorkflows:
+    """Regression tests for AMI deregister, snapshot delete, and EBS volume cleanup."""
+
+    # --- delete_ebs_snapshot ---
+
+    def test_delete_snapshot_blocked_by_ami(self):
+        from unittest.mock import patch, MagicMock
+        from botocore.exceptions import ClientError
+        from src.tools.aws_tools import delete_ebs_snapshot
+
+        error_response = {'Error': {'Code': 'InvalidSnapshot.InUse', 'Message': 'snapshot in use'}}
+        mock_ec2 = MagicMock()
+        mock_ec2.delete_snapshot.side_effect = ClientError(error_response, 'DeleteSnapshot')
+        mock_ec2.describe_images.return_value = {'Images': [{'ImageId': 'ami-abc123'}]}
+
+        with patch('src.tools.aws_tools._get_boto_client', return_value=mock_ec2):
+            result = delete_ebs_snapshot('snap-111')
+
+        assert result['success'] is False
+        assert result['error_code'] == 'InvalidSnapshot.InUse'
+        assert result['blocking_amis'] == ['ami-abc123']
+        assert 'deregister_ami' in result['error']
+
+    def test_delete_snapshot_success(self):
+        from unittest.mock import patch, MagicMock
+        from src.tools.aws_tools import delete_ebs_snapshot
+
+        mock_ec2 = MagicMock()
+        mock_ec2.delete_snapshot.return_value = {}
+
+        with patch('src.tools.aws_tools._get_boto_client', return_value=mock_ec2):
+            result = delete_ebs_snapshot('snap-999')
+
+        assert result['success'] is True
+        assert result['snapshot_id'] == 'snap-999'
+
+    # --- deregister_ami ---
+
+    def test_deregister_ami_returns_snapshot_ids(self):
+        from unittest.mock import patch, MagicMock
+        from src.tools.aws_tools import deregister_ami
+
+        mock_ec2 = MagicMock()
+        mock_ec2.describe_images.return_value = {'Images': [{
+            'BlockDeviceMappings': [{'Ebs': {'SnapshotId': 'snap-aaa'}}, {'Ebs': {'SnapshotId': 'snap-bbb'}}]
+        }]}
+        mock_ec2.deregister_image.return_value = {}
+
+        with patch('src.tools.aws_tools._get_boto_client', return_value=mock_ec2):
+            result = deregister_ami('ami-xyz', delete_snapshots=False)
+
+        assert result['success'] is True
+        assert result['backing_snapshot_ids'] == ['snap-aaa', 'snap-bbb']
+        assert result['deleted_snapshots'] == []
+
+    def test_deregister_ami_with_delete_snapshots(self):
+        from unittest.mock import patch, MagicMock
+        from src.tools.aws_tools import deregister_ami
+
+        mock_ec2 = MagicMock()
+        mock_ec2.describe_images.return_value = {'Images': [{
+            'BlockDeviceMappings': [{'Ebs': {'SnapshotId': 'snap-111'}}]
+        }]}
+        mock_ec2.deregister_image.return_value = {}
+        mock_ec2.delete_snapshot.return_value = {}
+
+        with patch('src.tools.aws_tools._get_boto_client', return_value=mock_ec2):
+            result = deregister_ami('ami-del', delete_snapshots=True)
+
+        assert result['success'] is True
+        assert result['backing_snapshot_ids'] == ['snap-111']
+        assert result['deleted_snapshots'] == ['snap-111']
+        assert result['failed_snapshots'] == []
+
+    def test_deregister_ami_snapshot_delete_failure(self):
+        from unittest.mock import patch, MagicMock
+        from botocore.exceptions import ClientError
+        from src.tools.aws_tools import deregister_ami
+
+        error_response = {'Error': {'Code': 'InvalidSnapshot.NotFound', 'Message': 'not found'}}
+        mock_ec2 = MagicMock()
+        mock_ec2.describe_images.return_value = {'Images': [{
+            'BlockDeviceMappings': [{'Ebs': {'SnapshotId': 'snap-gone'}}]
+        }]}
+        mock_ec2.deregister_image.return_value = {}
+        mock_ec2.delete_snapshot.side_effect = ClientError(error_response, 'DeleteSnapshot')
+
+        with patch('src.tools.aws_tools._get_boto_client', return_value=mock_ec2):
+            result = deregister_ami('ami-partial', delete_snapshots=True)
+
+        assert result['success'] is True  # AMI was deregistered despite snapshot failure
+        assert result['backing_snapshot_ids'] == ['snap-gone']
+        assert result['deleted_snapshots'] == []
+        assert len(result['failed_snapshots']) == 1
+        assert result['failed_snapshots'][0]['snapshot_id'] == 'snap-gone'
+
+    # --- datetime serialization ---
+
+    def test_datetime_serialization_in_tool_results(self):
+        import json
+        from datetime import datetime
+        from src.agent.core import _json_default
+
+        dt = datetime(2025, 1, 15, 12, 0, 0)
+        result = json.dumps({'created': dt}, default=_json_default)
+        assert '2025-01-15' in result
+
+        # Non-serializable type still raises TypeError
+        import pytest
+        with pytest.raises(TypeError):
+            json.dumps({'obj': object()}, default=_json_default)

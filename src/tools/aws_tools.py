@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError, NoCredentialsError
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import threading
+import time
 from ..utils import get_logger
 
 
@@ -11105,6 +11106,51 @@ def delete_ebs_volume(volume_id: str, region: Optional[str] = None) -> Dict[str,
         return {'success': False, 'error': str(e)}
 
 
+def cleanup_ebs_volume(volume_id: str, force: bool = False, region: Optional[str] = None) -> Dict[str, Any]:
+    """Detach (if attached) then delete an EBS volume in one step."""
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        effective_region = _get_effective_region(region)
+
+        volumes = ec2.describe_volumes(VolumeIds=[volume_id]).get('Volumes', [])
+        if not volumes:
+            return {'success': False, 'error': f'Volume {volume_id} not found in {effective_region}'}
+
+        volume = volumes[0]
+        state = volume.get('State')
+        attachments = volume.get('Attachments', [])
+
+        detached_from = None
+        if attachments and state == 'in-use':
+            instance_id = attachments[0].get('InstanceId')
+            ec2.detach_volume(VolumeId=volume_id, Force=force)
+            detached_from = instance_id
+            for _ in range(15):
+                time.sleep(1)
+                v = ec2.describe_volumes(VolumeIds=[volume_id])['Volumes'][0]
+                if v['State'] == 'available':
+                    break
+
+        ec2.delete_volume(VolumeId=volume_id)
+        return {
+            'success': True,
+            'volume_id': volume_id,
+            'detached_from': detached_from,
+            'region': effective_region,
+            'message': (
+                f'Volume {volume_id} '
+                + (f'detached from {detached_from} and ' if detached_from else '')
+                + 'deleted successfully'
+            )
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error cleaning up EBS volume: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def resize_ebs_volume(
     volume_id: str,
     new_size_gb: Optional[int] = None,
@@ -16772,6 +16818,20 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['volume_id']
             },
             'handler': delete_ebs_volume
+        },
+        {
+            'name': 'cleanup_ebs_volume',
+            'description': 'Detach (if attached) and delete an EBS volume in one step. Use instead of calling detach_ebs_volume + delete_ebs_volume separately.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'volume_id': {'type': 'string', 'description': 'EBS volume ID, e.g. vol-0abc12345'},
+                    'force': {'type': 'boolean', 'description': 'Force detach from running instance (default false)'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['volume_id']
+            },
+            'handler': cleanup_ebs_volume
         },
         {
             'name': 'resize_ebs_volume',
