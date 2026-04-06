@@ -2953,6 +2953,24 @@ def api_chat_stream():
         data = request.get_json()
         message = sanitize_input(data.get('message', ''))
 
+        # Handle file attachments (images as base64 dataURL, text files as plaintext)
+        attachments = data.get('attachments', []) or []
+        if attachments:
+            parts = []
+            for att in attachments[:5]:
+                name = att.get('name', 'file')
+                is_image = att.get('is_image', False)
+                raw_data = att.get('data', '')
+                if is_image and raw_data.startswith('data:'):
+                    header, _, _ = raw_data.partition(',')
+                    media_type = header.replace('data:', '').replace(';base64', '') or 'image/png'
+                    parts.append(f'[Attached image: {name} ({media_type})]')
+                elif not is_image and raw_data:
+                    preview = raw_data[:3000] + ('...(truncated)' if len(raw_data) > 3000 else '')
+                    parts.append(f'[Attached file: {name}]\n```\n{preview}\n```')
+            if parts:
+                message = (message + '\n\n' + '\n\n'.join(parts)).strip()
+
         if not message:
             return jsonify({'error': 'Empty message'}), 400
 
