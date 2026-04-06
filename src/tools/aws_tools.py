@@ -11024,8 +11024,29 @@ def delete_ebs_snapshot(snapshot_id: str, region: Optional[str] = None) -> Dict[
             'message': f'Snapshot {snapshot_id} deleted successfully'
         }
     except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'InvalidSnapshot.InUse':
+            # Snapshot is still backing a registered AMI — find which one(s)
+            try:
+                images = ec2.describe_images(Filters=[
+                    {'Name': 'block-device-mapping.snapshot-id', 'Values': [snapshot_id]}
+                ]).get('Images', [])
+                ami_ids = [img['ImageId'] for img in images]
+            except Exception:
+                ami_ids = []
+            ami_hint = f' AMI(s) still using it: {ami_ids}.' if ami_ids else ''
+            return {
+                'success': False,
+                'error': (
+                    f'Snapshot {snapshot_id} cannot be deleted because it is still associated with a registered AMI.{ami_hint} '
+                    f'Call deregister_ami with delete_snapshots=True (e.g. deregister_ami("{ami_ids[0] if ami_ids else "<ami-id>"}",delete_snapshots=True)) '
+                    f'to deregister the AMI and delete this snapshot in one step.'
+                ),
+                'error_code': error_code,
+                'blocking_amis': ami_ids
+            }
         logger.error(f"AWS API error: {str(e)}")
-        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+        return {'success': False, 'error': str(e), 'error_code': error_code}
     except Exception as e:
         logger.error(f"Error deleting snapshot: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
@@ -11165,31 +11186,41 @@ def deregister_ami(image_id: str, delete_snapshots: bool = False, region: Option
     try:
         ec2 = _get_boto_client('ec2', region)
 
+        # Always collect snapshot IDs — needed for follow-up deletion or to inform the user
+        images = ec2.describe_images(ImageIds=[image_id]).get('Images', [])
         snapshot_ids: List[str] = []
-        if delete_snapshots:
-            images = ec2.describe_images(ImageIds=[image_id]).get('Images', [])
-            if images:
-                for mapping in images[0].get('BlockDeviceMappings', []):
-                    if 'Ebs' in mapping and 'SnapshotId' in mapping['Ebs']:
-                        snapshot_ids.append(mapping['Ebs']['SnapshotId'])
+        if images:
+            for mapping in images[0].get('BlockDeviceMappings', []):
+                if 'Ebs' in mapping and 'SnapshotId' in mapping['Ebs']:
+                    snapshot_ids.append(mapping['Ebs']['SnapshotId'])
 
         ec2.deregister_image(ImageId=image_id)
 
         deleted_snapshots = []
-        for snap_id in snapshot_ids:
-            try:
-                ec2.delete_snapshot(SnapshotId=snap_id)
-                deleted_snapshots.append(snap_id)
-            except ClientError:
-                pass
+        failed_snapshots = []
+        if delete_snapshots:
+            for snap_id in snapshot_ids:
+                try:
+                    ec2.delete_snapshot(SnapshotId=snap_id)
+                    deleted_snapshots.append(snap_id)
+                except ClientError as snap_err:
+                    failed_snapshots.append({'snapshot_id': snap_id, 'error': str(snap_err)})
+
+        msg = f'AMI {image_id} deregistered'
+        if deleted_snapshots:
+            msg += f', deleted snapshots: {deleted_snapshots}'
+        if failed_snapshots:
+            msg += f', failed to delete snapshots: {[s["snapshot_id"] for s in failed_snapshots]}'
+        if snapshot_ids and not delete_snapshots:
+            msg += f'. Backing snapshots NOT deleted (pass delete_snapshots=True to also remove them): {snapshot_ids}'
 
         return {
             'success': True,
             'image_id': image_id,
+            'backing_snapshot_ids': snapshot_ids,
             'deleted_snapshots': deleted_snapshots,
-            'message': f'AMI {image_id} deregistered' + (
-                f', deleted snapshots: {deleted_snapshots}' if deleted_snapshots else ''
-            )
+            'failed_snapshots': failed_snapshots,
+            'message': msg
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
