@@ -189,7 +189,7 @@ def get_ec2_instances(
             'success': True,
             'count': len(instances),
             'instances': instances,
-            'region': region or 'default',
+            'region': _get_effective_region(region),
             'message': f'Found {len(instances)} EC2 instance(s)'
         }
 
@@ -248,7 +248,7 @@ def manage_ec2_instance(
             'action': action,
             'instance_id': instance_id,
             'message': f"Successfully {action}ed instance {instance_id}",
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -401,7 +401,7 @@ def get_eks_clusters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(clusters),
             'clusters': clusters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -453,7 +453,7 @@ def create_eks_cluster(
             'kubernetes_version': cluster.get('version'),
             'endpoint': cluster.get('endpoint', 'Provisioning...'),
             'message': f'Successfully initiated EKS cluster creation: {cluster_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -471,7 +471,7 @@ def delete_eks_cluster(cluster_name: str, region: Optional[str] = None) -> Dict[
         return {
             'success': True, 'cluster_name': cluster_name,
             'message': f'Successfully initiated deletion of EKS cluster {cluster_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -520,7 +520,7 @@ def create_eks_node_group(
             'cluster_name': ng['clusterName'], 'status': ng['status'],
             'scaling': ng.get('scalingConfig'),
             'message': f'Successfully initiated node group creation: {node_group_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -551,7 +551,7 @@ def describe_eks_cluster(cluster_name: str, region: Optional[str] = None) -> Dic
             'identity': cluster.get('identity'),
             'tags': cluster.get('tags', {}),
             'created_at': cluster['createdAt'].isoformat() if cluster.get('createdAt') else None,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -576,7 +576,7 @@ def update_eks_cluster_version(
             'status': update['status'],
             'kubernetes_version': kubernetes_version,
             'message': f'Cluster version update initiated to {kubernetes_version}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -609,7 +609,7 @@ def update_eks_cluster_config(
             'update_id': update['id'],
             'status': update['status'],
             'message': f'Cluster config update initiated for {cluster_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -637,7 +637,7 @@ def enable_eks_control_plane_logging(
             'update_id': update['id'],
             'log_types_enabled': types,
             'message': f'Control plane logging enabled for {cluster_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -681,7 +681,7 @@ def associate_eks_oidc_provider(
             'cluster_name': cluster_name,
             'oidc_issuer': oidc_issuer,
             'message': f'OIDC provider associated for {cluster_name}. IRSA is now enabled.',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         if e.response['Error']['Code'] == 'EntityAlreadyExists':
@@ -705,7 +705,7 @@ def delete_eks_node_group(
             'cluster_name': cluster_name,
             'node_group_name': node_group_name,
             'message': f'Node group {node_group_name} deletion initiated',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -763,7 +763,7 @@ def describe_eks_node_group(
             'taints': ng.get('taints', []),
             'tags': ng.get('tags', {}),
             'created_at': ng['createdAt'].isoformat() if ng.get('createdAt') else None,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -796,7 +796,7 @@ def update_eks_node_group_version(
             'update_id': update['id'],
             'status': update['status'],
             'message': f'Node group version update initiated for {node_group_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -842,7 +842,7 @@ def update_eks_node_group_config(
             'node_group_name': node_group_name,
             'update_id': update['id'],
             'message': f'Node group config update initiated for {node_group_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -881,7 +881,7 @@ def create_eks_fargate_profile(
             'status': profile['status'],
             'selectors': profile.get('selectors', []),
             'message': f'Fargate profile {profile_name} creation initiated',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -903,7 +903,7 @@ def delete_eks_fargate_profile(
             'profile_name': profile_name,
             'cluster_name': cluster_name,
             'message': f'Fargate profile {profile_name} deletion initiated',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -957,7 +957,7 @@ def create_eks_access_entry(
             'username': entry.get('username'),
             'groups': entry.get('kubernetesGroups', []),
             'message': f'Access entry created for {principal_arn}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -979,7 +979,7 @@ def delete_eks_access_entry(
             'principal_arn': principal_arn,
             'cluster_name': cluster_name,
             'message': f'Access entry deleted for {principal_arn}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -1014,7 +1014,7 @@ def associate_eks_access_policy(
             'cluster_name': cluster_name,
             'access_scope': access_scope,
             'message': f'Policy {policy_arn} associated with {principal_arn}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -1043,7 +1043,7 @@ def generate_eks_kubeconfig(
                 'cluster_name': cluster_name,
                 'kubeconfig': result.stdout,
                 'message': f'Kubeconfig generated for {cluster_name}',
-                'region': region or 'default'
+                'region': _get_effective_region(region)
             }
         # Fallback: build config manually using boto3
         eks = _get_boto_client('eks', region)
@@ -1067,7 +1067,7 @@ def generate_eks_kubeconfig(
             'cluster_name': cluster_name,
             'kubeconfig': json.dumps(kubeconfig, indent=2),
             'message': f'Kubeconfig generated for {cluster_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -1104,7 +1104,7 @@ def create_eks_addon(
             'status': addon['status'],
             'version': addon.get('addonVersion'),
             'message': f'Add-on {addon_name} installation initiated on {cluster_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -1127,7 +1127,7 @@ def delete_eks_addon(
             'addon_name': addon_name,
             'cluster_name': cluster_name,
             'message': f'Add-on {addon_name} deletion initiated',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -1182,7 +1182,7 @@ def update_eks_addon(
             'status': update['status'],
             'addon_version': addon_version,
             'message': f'Add-on {addon_name} update initiated to version {addon_version}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
@@ -1287,7 +1287,7 @@ def get_cloudwatch_logs(
             'count': len(formatted_events),
             'events': formatted_events,
             'time_range_hours': hours,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -2974,7 +2974,7 @@ def create_rds_instance(
             'multi_az': multi_az,
             'allocated_storage_gb': allocated_storage,
             'message': f'Successfully initiated creation of RDS instance {db_instance_identifier}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -3014,7 +3014,7 @@ def delete_rds_instance(
             'success': True, 'db_instance_identifier': db['DBInstanceIdentifier'],
             'status': db['DBInstanceStatus'],
             'message': f'Successfully initiated deletion of RDS instance {db_instance_identifier}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -3078,7 +3078,7 @@ def create_security_group(
             'vpc_id': vpc_id,
             'ingress_rules_added': len(ingress_rules) if ingress_rules else 0,
             'message': f'Successfully created security group {group_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -3166,7 +3166,7 @@ def authorize_security_group_ingress(
             'source': source,
             'source_type': 'security_group' if source_security_group_id else 'cidr',
             'message': f'Successfully added ingress rule to {group_id}: {protocol} {from_port}-{to_port} from {source}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -3206,7 +3206,7 @@ def revoke_security_group_ingress(
         return {
             'success': True, 'group_id': group_id,
             'message': f'Successfully revoked ingress rule from {group_id}: {protocol} {from_port}-{to_port} from {source}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -3224,7 +3224,7 @@ def delete_security_group(group_id: str, region: Optional[str] = None) -> Dict[s
         return {
             'success': True, 'group_id': group_id,
             'message': f'Successfully deleted security group {group_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -3301,7 +3301,7 @@ def create_lambda_function(
             'timeout': timeout,
             'state': response['State'],
             'message': f'Successfully created Lambda function {function_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -3327,7 +3327,7 @@ def delete_lambda_function(function_name: str, region: Optional[str] = None) -> 
         return {
             'success': True, 'function_name': function_name,
             'message': f'Successfully deleted Lambda function {function_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -3370,7 +3370,7 @@ def update_lambda_function_config(
             'runtime': response.get('Runtime'), 'timeout': response.get('Timeout'),
             'memory_size': response.get('MemorySize'), 'state': response.get('State'),
             'message': f'Successfully updated Lambda function config for {function_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -4477,7 +4477,7 @@ def list_vpcs(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(vpcs),
             'vpcs': vpcs,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -4526,7 +4526,7 @@ def list_subnets(vpc_id: Optional[str] = None, region: Optional[str] = None) -> 
             'success': True,
             'count': len(subnets),
             'subnets': subnets,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -4562,7 +4562,7 @@ def create_vpc(
             'name': name or 'N/A', 'dns_support': enable_dns_support,
             'dns_hostnames': enable_dns_hostnames,
             'message': f'Successfully created VPC {vpc_id} ({cidr_block})',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -4580,7 +4580,7 @@ def delete_vpc(vpc_id: str, region: Optional[str] = None) -> Dict[str, Any]:
         return {
             'success': True, 'vpc_id': vpc_id,
             'message': f'Successfully deleted VPC {vpc_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -4619,7 +4619,7 @@ def create_subnet(
             'availability_zone': response['Subnet'].get('AvailabilityZone'),
             'map_public_ip': map_public_ip,
             'message': f'Successfully created subnet {subnet_id} in {vpc_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -4637,7 +4637,7 @@ def delete_subnet(subnet_id: str, region: Optional[str] = None) -> Dict[str, Any
         return {
             'success': True, 'subnet_id': subnet_id,
             'message': f'Successfully deleted subnet: {subnet_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -4666,7 +4666,7 @@ def create_internet_gateway(
         return {
             'success': True, 'internet_gateway_id': igw_id, 'vpc_id': vpc_id,
             'message': f'Successfully created and attached internet gateway {igw_id} to {vpc_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -4715,7 +4715,7 @@ def create_route_table(
             'success': True, 'route_table_id': rtb_id, 'vpc_id': vpc_id,
             'routes_added': routes_added, 'subnet_associations': associations,
             'message': f'Successfully created route table {rtb_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -5784,7 +5784,7 @@ def allocate_elastic_ip(
             'association_id': association_id, 'instance_id': instance_id,
             'message': f'Successfully allocated Elastic IP {public_ip}' +
                        (f' and associated with {instance_id}' if instance_id else ''),
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -5802,7 +5802,7 @@ def release_elastic_ip(allocation_id: str, region: Optional[str] = None) -> Dict
         return {
             'success': True, 'allocation_id': allocation_id,
             'message': f'Successfully released Elastic IP {allocation_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -5901,7 +5901,7 @@ def list_security_groups(vpc_id: Optional[str] = None, region: Optional[str] = N
             'success': True,
             'count': len(security_groups),
             'security_groups': security_groups,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -5954,7 +5954,7 @@ def list_dynamodb_tables(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(tables),
             'tables': tables,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6008,7 +6008,7 @@ def create_dynamodb_table(
             'table_arn': table['TableArn'], 'status': table['TableStatus'],
             'billing_mode': billing_mode,
             'message': f'Successfully created DynamoDB table {table_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6026,7 +6026,7 @@ def delete_dynamodb_table(table_name: str, region: Optional[str] = None) -> Dict
         return {
             'success': True, 'table_name': table_name,
             'message': f'Successfully initiated deletion of DynamoDB table {table_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6070,7 +6070,7 @@ def list_elasticache_clusters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(clusters),
             'clusters': clusters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6117,7 +6117,7 @@ def create_elasticache_cluster(
             'engine': cluster['Engine'], 'node_type': cluster['CacheNodeType'],
             'status': cluster['CacheClusterStatus'], 'num_nodes': cluster['NumCacheNodes'],
             'message': f'Successfully created ElastiCache {engine} cluster {cluster_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6135,7 +6135,7 @@ def delete_elasticache_cluster(cluster_id: str, region: Optional[str] = None) ->
         return {
             'success': True, 'cluster_id': cluster_id,
             'message': f'Successfully initiated deletion of ElastiCache cluster {cluster_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6184,7 +6184,7 @@ def list_ecs_clusters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(clusters),
             'clusters': clusters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6233,7 +6233,7 @@ def list_ecs_services(cluster: str, region: Optional[str] = None) -> Dict[str, A
             'cluster': cluster,
             'count': len(services),
             'services': services,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6266,7 +6266,7 @@ def create_ecs_cluster(
             'cluster_arn': cluster['clusterArn'], 'status': cluster['status'],
             'registered_container_instances': cluster.get('registeredContainerInstancesCount', 0),
             'message': f'Successfully created ECS cluster {cluster_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6315,7 +6315,7 @@ def run_ecs_task(
             'success': True, 'tasks_started': len(tasks), 'task_arns': task_arns,
             'failures': [{'arn': f.get('arn', 'N/A'), 'reason': f.get('reason', 'unknown')} for f in failures],
             'message': f'Successfully started {len(tasks)} task(s) on cluster {cluster}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6352,7 +6352,7 @@ def update_ecs_service(
             'running_count': svc['runningCount'], 'pending_count': svc['pendingCount'],
             'task_definition': svc['taskDefinition'],
             'message': f'Successfully updated ECS service {service}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6372,7 +6372,7 @@ def delete_ecs_cluster(cluster: str, region: Optional[str] = None) -> Dict[str, 
             'success': True, 'cluster_name': cl['clusterName'],
             'cluster_arn': cl['clusterArn'], 'status': cl['status'],
             'message': f'Successfully deleted ECS cluster {cluster}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6414,7 +6414,7 @@ def list_beanstalk_applications(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(applications),
             'applications': applications,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6463,7 +6463,7 @@ def list_beanstalk_environments(application_name: Optional[str] = None, region: 
             'success': True,
             'count': len(environments),
             'environments': environments,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6541,7 +6541,7 @@ def create_cloudfront_invalidation(
             'success': True, 'invalidation_id': inv['Id'],
             'status': inv['Status'], 'paths': paths,
             'message': f'Successfully created invalidation for {len(paths)} path(s)',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -6705,7 +6705,7 @@ def list_api_gateways(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(apis),
             'apis': apis,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6745,7 +6745,7 @@ def list_api_gateway_v2(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(apis),
             'apis': apis,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6792,7 +6792,7 @@ def list_lambda_functions(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(functions),
             'functions': functions,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -6841,7 +6841,7 @@ def list_rds_instances(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(instances),
             'instances': instances,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -7830,7 +7830,7 @@ def list_cloudformation_stacks(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(stacks),
             'stacks': stacks,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -7875,7 +7875,7 @@ def create_cloudformation_stack(
         return {
             'success': True, 'stack_id': response['StackId'], 'stack_name': stack_name,
             'message': f'Successfully initiated creation of CloudFormation stack {stack_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -7914,7 +7914,7 @@ def update_cloudformation_stack(
         return {
             'success': True, 'stack_id': response['StackId'], 'stack_name': stack_name,
             'message': f'Successfully initiated update of CloudFormation stack {stack_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -7932,7 +7932,7 @@ def delete_cloudformation_stack(stack_name: str, region: Optional[str] = None) -
         return {
             'success': True, 'stack_name': stack_name,
             'message': f'Successfully initiated deletion of CloudFormation stack {stack_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -7975,7 +7975,7 @@ def list_ssm_parameters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(parameters),
             'parameters': parameters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8017,7 +8017,7 @@ def list_ssm_managed_instances(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(instances),
             'instances': instances,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8055,7 +8055,7 @@ def ssm_run_command(
             'status': cmd['Status'], 'instance_ids': instance_ids,
             'document_name': document_name,
             'message': f'Successfully sent command to {len(instance_ids)} instance(s)',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -8085,7 +8085,7 @@ def ssm_put_parameter(
             'success': True, 'name': name, 'type': param_type,
             'version': response.get('Version'),
             'message': f'Successfully {"updated" if overwrite else "created"} SSM parameter {name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -8139,7 +8139,7 @@ def list_cloudtrail_trails(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(trails),
             'trails': trails,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8192,7 +8192,7 @@ def list_config_rules(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(rules),
             'rules': rules,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8241,7 +8241,7 @@ def list_autoscaling_groups(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(groups),
             'groups': groups,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8287,7 +8287,7 @@ def create_launch_template(
             'success': True, 'template_name': lt['LaunchTemplateName'],
             'template_id': lt['LaunchTemplateId'], 'version': lt['LatestVersionNumber'],
             'message': f'Successfully created launch template {template_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -8349,7 +8349,7 @@ def create_auto_scaling_group(
             'success': True, 'group_name': group_name,
             'min_size': min_size, 'max_size': max_size, 'desired_capacity': desired_capacity,
             'message': f'Successfully created Auto Scaling group {group_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -8382,7 +8382,7 @@ def update_auto_scaling_group(
             'success': True, 'group_name': group_name,
             'min_size': min_size, 'max_size': max_size, 'desired_capacity': desired_capacity,
             'message': f'Successfully updated Auto Scaling group {group_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -8736,7 +8736,7 @@ def list_service_catalog_products(region: Optional[str] = None) -> Dict[str, Any
             'success': True,
             'count': len(products),
             'products': products,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8849,7 +8849,7 @@ def list_resource_groups(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(groups),
             'groups': groups,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8893,7 +8893,7 @@ def list_codeartifact_repositories(region: Optional[str] = None) -> Dict[str, An
             'success': True,
             'count': len(repositories),
             'repositories': repositories,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8950,7 +8950,7 @@ def list_xray_traces(region: Optional[str] = None, hours: int = 1) -> Dict[str, 
             'count': len(traces),
             'traces': traces,
             'time_range_hours': hours,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -8997,7 +8997,7 @@ def list_service_quotas(service_code: str, region: Optional[str] = None) -> Dict
             'service_code': service_code,
             'count': len(quotas),
             'quotas': quotas,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9223,7 +9223,7 @@ def list_sqs_queues(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(queues),
             'queues': queues,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9263,7 +9263,7 @@ def create_sqs_queue(
             'success': True, 'queue_url': response['QueueUrl'], 'queue_name': queue_name,
             'fifo': fifo,
             'message': f'Successfully created SQS queue {queue_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9292,7 +9292,7 @@ def send_sqs_message(
             'success': True, 'message_id': response['MessageId'],
             'md5': response.get('MD5OfMessageBody'),
             'message': f'Successfully sent message to queue',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9310,7 +9310,7 @@ def delete_sqs_queue(queue_url: str, region: Optional[str] = None) -> Dict[str, 
         return {
             'success': True, 'queue_url': queue_url,
             'message': f'Successfully deleted SQS queue: {queue_url}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9362,7 +9362,7 @@ def list_ecr_repositories(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(repositories),
             'repositories': repositories,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9400,7 +9400,7 @@ def create_ecr_repository(
             'repository_uri': repo['repositoryUri'], 'arn': repo['repositoryArn'],
             'registry_id': repo.get('registryId'),
             'message': f'Successfully created ECR repository {repository_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9422,7 +9422,7 @@ def delete_ecr_repository(
         return {
             'success': True, 'repository_name': repository_name,
             'message': f'Successfully deleted ECR repository {repository_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9469,7 +9469,7 @@ def list_secrets_manager_secrets(region: Optional[str] = None) -> Dict[str, Any]
             'success': True,
             'count': len(secrets),
             'secrets': secrets,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9501,7 +9501,7 @@ def create_secret(
             'success': True, 'secret_name': response['Name'],
             'arn': response['ARN'], 'version_id': response.get('VersionId'),
             'message': f'Successfully created secret {secret_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9524,7 +9524,7 @@ def update_secret(
             'success': True, 'secret_name': response['Name'],
             'arn': response['ARN'], 'version_id': response.get('VersionId'),
             'message': f'Successfully updated secret {secret_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9555,7 +9555,7 @@ def delete_secret(
             'arn': response['ARN'],
             'deletion_date': response.get('DeletionDate', '').isoformat() if response.get('DeletionDate') else 'N/A',
             'message': f'Successfully scheduled deletion of secret {secret_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9641,7 +9641,7 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
                 'modern': len(modern_lbs),
                 'classic': len(classic_lbs)
             },
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9706,7 +9706,7 @@ def create_load_balancer(
             'state': lb.get('State', {}).get('Code', 'provisioning'),
             'availability_zones': [az.get('ZoneName') for az in lb.get('AvailabilityZones', [])],
             'message': f'Successfully created {lb_type} load balancer {name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9790,7 +9790,7 @@ def create_target_group(
                 'unhealthy_threshold': tg.get('UnhealthyThresholdCount'),
             },
             'message': f'Successfully created target group {name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9855,7 +9855,7 @@ def create_listener(
                 'target_group_arn': listener['DefaultActions'][0].get('TargetGroupArn', 'N/A'),
             },
             'message': f'Successfully created {protocol}:{port} listener on load balancer',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9874,7 +9874,7 @@ def delete_listener(listener_arn: str, region: Optional[str] = None) -> Dict[str
         return {
             'success': True, 'listener_arn': listener_arn,
             'message': f'Successfully deleted listener: {listener_arn}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9924,7 +9924,7 @@ def register_targets(
             'registered_count': len(target_list),
             'targets': [{'id': t['Id'], 'port': t.get('Port', 'default')} for t in target_list],
             'message': f'Successfully registered {len(target_list)} target(s) with target group',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9978,7 +9978,7 @@ def describe_target_health(
             'unhealthy': unhealthy,
             'targets': targets,
             'message': f'{len(targets)} target(s): {healthy} healthy, {unhealthy} unhealthy',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9997,7 +9997,7 @@ def delete_load_balancer(load_balancer_arn: str, region: Optional[str] = None) -
         return {
             'success': True, 'load_balancer_arn': load_balancer_arn,
             'message': f'Successfully deleted load balancer',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10015,7 +10015,7 @@ def delete_target_group(target_group_arn: str, region: Optional[str] = None) -> 
         return {
             'success': True, 'target_group_arn': target_group_arn,
             'message': f'Successfully deleted target group',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10048,7 +10048,7 @@ def deregister_targets(
             'success': True, 'target_group_arn': target_group_arn,
             'deregistered_count': len(target_list),
             'message': f'Successfully deregistered {len(target_list)} target(s)',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10105,7 +10105,7 @@ def list_efs_file_systems(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(file_systems),
             'file_systems': file_systems,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10144,7 +10144,7 @@ def create_efs_file_system(
             'performance_mode': response['PerformanceMode'],
             'encrypted': response['Encrypted'],
             'message': f'Successfully created EFS file system {response["FileSystemId"]}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10162,7 +10162,7 @@ def delete_efs_file_system(file_system_id: str, region: Optional[str] = None) ->
         return {
             'success': True, 'file_system_id': file_system_id,
             'message': f'Successfully deleted EFS file system {file_system_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10216,7 +10216,7 @@ def list_eventbridge_rules(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(rules),
             'rules': rules,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10262,7 +10262,7 @@ def list_eventbridge_event_buses(region: Optional[str] = None) -> Dict[str, Any]
             'success': True,
             'count': len(event_buses),
             'event_buses': event_buses,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10311,7 +10311,7 @@ def create_eventbridge_rule(
             'success': True, 'rule_name': rule_name, 'rule_arn': rule_arn,
             'targets_added': targets_added,
             'message': f'Successfully created EventBridge rule {rule_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10353,7 +10353,7 @@ def delete_eventbridge_rule(
         return {
             'success': True, 'rule_name': rule_name,
             'message': f'Successfully deleted EventBridge rule {rule_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10406,7 +10406,7 @@ def list_step_functions(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(state_machines),
             'state_machines': state_machines,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10437,7 +10437,7 @@ def start_step_function_execution(
             'success': True, 'execution_arn': response['executionArn'],
             'start_date': response['startDate'].isoformat(),
             'message': f'Successfully started Step Functions execution',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10494,7 +10494,7 @@ def list_kinesis_streams(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(streams),
             'streams': streams,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10525,7 +10525,7 @@ def create_kinesis_stream(
             'success': True, 'stream_name': stream_name,
             'shard_count': shard_count, 'stream_mode': stream_mode,
             'message': f'Successfully created Kinesis stream {stream_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10543,7 +10543,7 @@ def delete_kinesis_stream(stream_name: str, region: Optional[str] = None) -> Dic
         return {
             'success': True, 'stream_name': stream_name,
             'message': f'Successfully initiated deletion of Kinesis stream {stream_name}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10602,7 +10602,7 @@ def list_acm_certificates(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(certificates),
             'certificates': certificates,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10634,7 +10634,7 @@ def request_acm_certificate(
             'success': True, 'certificate_arn': response['CertificateArn'],
             'domain_name': domain_name, 'validation_method': validation_method,
             'message': f'Successfully requested certificate for {domain_name}. Complete {validation_method} validation to activate.',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10696,7 +10696,7 @@ def list_waf_web_acls(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(web_acls),
             'web_acls': web_acls,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10753,7 +10753,7 @@ def list_backup_plans(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(plans),
             'backup_plans': plans,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10811,7 +10811,7 @@ def list_ebs_volumes(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(volumes),
             'volumes': volumes,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -10855,7 +10855,7 @@ def create_ebs_volume(
             'availability_zone': response['AvailabilityZone'],
             'encrypted': response['Encrypted'], 'state': response['State'],
             'message': f'Successfully created EBS volume {response["VolumeId"]} ({size} GB)',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10880,7 +10880,7 @@ def attach_ebs_volume(
             'instance_id': response['InstanceId'], 'device': response['Device'],
             'state': response['State'],
             'message': f'Successfully attached {volume_id} to {instance_id} as {device}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10910,7 +10910,7 @@ def detach_ebs_volume(
             'device': response.get('Device'),
             'state': response['State'],
             'message': f'Successfully detaching {volume_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -10944,7 +10944,7 @@ def create_ebs_snapshot(
             'volume_id': response['VolumeId'], 'state': response['State'],
             'volume_size': response.get('VolumeSize'),
             'message': f'Successfully created snapshot {response["SnapshotId"]} of {volume_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -11203,7 +11203,7 @@ def list_elastic_ips(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(elastic_ips),
             'elastic_ips': elastic_ips,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11258,7 +11258,7 @@ def list_nat_gateways(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(nat_gateways),
             'nat_gateways': nat_gateways,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11295,7 +11295,7 @@ def create_nat_gateway(
             'subnet_id': ngw['SubnetId'], 'state': ngw['State'],
             'connectivity_type': connectivity_type,
             'message': f'Successfully created NAT gateway {ngw["NatGatewayId"]}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -11313,7 +11313,7 @@ def delete_nat_gateway(nat_gateway_id: str, region: Optional[str] = None) -> Dic
         return {
             'success': True, 'nat_gateway_id': nat_gateway_id,
             'message': f'Successfully initiated deletion of NAT gateway {nat_gateway_id}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -11364,7 +11364,7 @@ def list_redshift_clusters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(clusters),
             'clusters': clusters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11421,7 +11421,7 @@ def list_athena_workgroups(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(workgroups),
             'workgroups': workgroups,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11470,7 +11470,7 @@ def list_glue_jobs(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(jobs),
             'jobs': jobs,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11513,7 +11513,7 @@ def list_glue_crawlers(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(crawlers),
             'crawlers': crawlers,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11556,7 +11556,7 @@ def list_sagemaker_endpoints(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(endpoints),
             'endpoints': endpoints,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11603,7 +11603,7 @@ def list_msk_clusters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(clusters),
             'clusters': clusters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11662,7 +11662,7 @@ def list_opensearch_domains(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(domains),
             'domains': domains,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11712,7 +11712,7 @@ def list_neptune_clusters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(clusters),
             'clusters': clusters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11763,7 +11763,7 @@ def list_documentdb_clusters(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(clusters),
             'clusters': clusters,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11809,7 +11809,7 @@ def list_appsync_apis(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(apis),
             'apis': apis,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11865,7 +11865,7 @@ def list_bedrock_foundation_models(region: Optional[str] = None) -> Dict[str, An
             'count': len(models),
             'models': models,
             'providers': providers,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11905,7 +11905,7 @@ def list_bedrock_custom_models(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(models),
             'custom_models': models,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11954,7 +11954,7 @@ def list_bedrock_model_customization_jobs(region: Optional[str] = None) -> Dict[
             'count': len(jobs),
             'jobs': jobs,
             'status_counts': status_counts,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -11994,7 +11994,7 @@ def list_bedrock_knowledge_bases(region: Optional[str] = None) -> Dict[str, Any]
             'success': True,
             'count': len(knowledge_bases),
             'knowledge_bases': knowledge_bases,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -12035,7 +12035,7 @@ def list_bedrock_agents(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(agents),
             'agents': agents,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -12078,7 +12078,7 @@ def list_bedrock_provisioned_model_throughputs(region: Optional[str] = None) -> 
             'success': True,
             'count': len(throughputs),
             'provisioned_throughputs': throughputs,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -12124,7 +12124,7 @@ def get_aws_resource_inventory(
 
         inventory = {
             'success': True,
-            'region': region or 'default',
+            'region': _get_effective_region(region),
             'scan_time': datetime.utcnow().isoformat(),
             'services': {}
         }
