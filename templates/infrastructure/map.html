@@ -578,19 +578,13 @@ function showTip(mx, my, n){
     tip.style.left=(mx+14)+'px'; tip.style.top=(my+14)+'px';
 }
 function hideTip(){
-    _tipHideTimer = setTimeout(()=>{ document.getElementById('tooltip').style.display='none'; }, 300);
+    _tipHideTimer = setTimeout(()=>{ document.getElementById('tooltip').style.display='none'; }, 500);
 }
 document.getElementById('tooltip').addEventListener('mouseenter', ()=>{
     if (_tipHideTimer) { clearTimeout(_tipHideTimer); _tipHideTimer = null; }
 });
 document.getElementById('tooltip').addEventListener('mouseleave', ()=>{
     _tipHideTimer = setTimeout(()=>{ document.getElementById('tooltip').style.display='none'; }, 150);
-});
-document.addEventListener('mousemove',e=>{
-    const t=document.getElementById('tooltip');
-    if(t.style.display==='block' && !t.matches(':hover')){
-        t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY+14)+'px';
-    }
 });
 
 // ── Load ──────────────────────────────────────────────────────────────────────
