@@ -78,8 +78,8 @@ class TestNewSubscriberCredits:
 
     @pytest.mark.parametrize('tier_name,expected_credits', [
         ('starter',      200),
-        ('professional', 2000),
-        ('business',     10000),
+        ('professional', 1000),
+        ('business',     3000),
     ])
     def test_new_subscriber_receives_correct_credits(
         self, app, db_session, tier_name, expected_credits
@@ -124,7 +124,7 @@ class TestUpgradeCredits:
 
         with app.app_context():
             starter = _make_tier(db, 'starter', 200)
-            professional = _make_tier(db, 'professional', 2000)
+            professional = _make_tier(db, 'professional', 1000)
             user = _make_user(db, 'upgrade_test@example.com')
 
             # Start on starter
@@ -144,7 +144,7 @@ class TestUpgradeCredits:
 
             db.session.refresh(sub)
             assert sub.tier_id == professional.id
-            assert sub.credits_remaining == 2000
+            assert sub.credits_remaining == 1000
             assert sub.credits_used_this_month == 0
 
             # Cleanup
@@ -158,7 +158,7 @@ class TestUpgradeCredits:
 
         with app.app_context():
             starter = _make_tier(db, 'starter', 200)
-            professional = _make_tier(db, 'professional', 2000)
+            professional = _make_tier(db, 'professional', 1000)
             user = _make_user(db, 'no_stack_test@example.com')
 
             UserSubscription.query.filter_by(user_id=user.id).delete()
@@ -175,8 +175,8 @@ class TestUpgradeCredits:
             handle_checkout_completed(_checkout_session(user.id, 'professional'))
 
             db.session.refresh(sub)
-            assert sub.credits_remaining == 2000, (
-                f"Credits should be exactly 2000, not 200+2000={sub.credits_remaining}"
+            assert sub.credits_remaining == 1000, (
+                f"Credits should be exactly 1000, not 200+1000={sub.credits_remaining}"
             )
 
             db.session.delete(sub)
