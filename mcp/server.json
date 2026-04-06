@@ -11,6 +11,10 @@
   },
   "remotes": [
     {
+      "url": "https://devopsagent.io/mcp/",
+      "type": "http"
+    },
+    {
       "url": "https://devopsagent.io/mcp/sse",
       "type": "sse"
     }
