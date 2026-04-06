@@ -12680,6 +12680,96 @@ def get_aws_resource_inventory(
         }
 
 
+# ── Read-only operations that are always safe to call without confirmation ──
+_READ_PREFIXES = ('describe_', 'list_', 'get_', 'head_', 'check_', 'search_', 'scan_', 'query_', 'select_', 'batch_get_')
+
+def aws_api_read(
+    service: str,
+    operation: str,
+    params: Optional[Dict[str, Any]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY AWS read-only API operation (describe/list/get/head).
+
+    Use this when no dedicated tool exists for a read operation.
+    Examples: aws_api_read('ecs','describe_task_definition',{'taskDefinition':'my-task'})
+              aws_api_read('route53','list_hosted_zones')
+              aws_api_read('acm','list_certificates')
+    """
+    op_lower = operation.lower()
+    if not any(op_lower.startswith(p) for p in _READ_PREFIXES):
+        return {
+            'success': False,
+            'error': f'"{operation}" does not look like a read-only operation. '
+                     'Use aws_api_write for create/update/delete/put operations.'
+        }
+    try:
+        client = _get_boto_client(service.lower(), region)
+        method = getattr(client, op_lower, None)
+        if method is None:
+            return {'success': False, 'error': f'boto3.client("{service}") has no method "{operation}"'}
+        result = method(**(params or {}))
+        result.pop('ResponseMetadata', None)
+        return {
+            'success': True,
+            'service': service,
+            'operation': operation,
+            'region': _get_effective_region(region),
+            'result': result
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error ({service}.{operation}): {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"aws_api_read error: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def aws_api_write(
+    service: str,
+    operation: str,
+    params: Optional[Dict[str, Any]] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY AWS write API operation (create/update/delete/put/modify/attach/detach/enable/disable).
+
+    Use this when no dedicated tool exists for a write operation.
+    Requires user confirmation (high-risk). Always describe the change to the user before calling.
+    Examples: aws_api_write('cloudwatch','delete_alarms',{'AlarmNames':['my-alarm']})
+              aws_api_write('ec2','modify_instance_attribute',{'InstanceId':'i-xxx','InstanceType':{'Value':'t3.small'}})
+              aws_api_write('route53','change_resource_record_sets',{...})
+    """
+    op_lower = operation.lower()
+    if any(op_lower.startswith(p) for p in _READ_PREFIXES):
+        return {
+            'success': False,
+            'error': f'"{operation}" looks like a read operation. Use aws_api_read instead.'
+        }
+    try:
+        client = _get_boto_client(service.lower(), region)
+        method = getattr(client, op_lower, None)
+        if method is None:
+            return {'success': False, 'error': f'boto3.client("{service}") has no method "{operation}"'}
+        result = method(**(params or {}))
+        result.pop('ResponseMetadata', None)
+        return {
+            'success': True,
+            'service': service,
+            'operation': operation,
+            'region': _get_effective_region(region),
+            'result': result,
+            'message': f'Successfully executed {service}.{operation}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error ({service}.{operation}): {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"aws_api_write error: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def get_tools() -> List[Dict[str, Any]]:
     """
     Get AWS tool definitions.
@@ -18110,5 +18200,49 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['service_code']
             },
             'handler': list_service_quotas
+        },
+        {
+            'name': 'aws_api_read',
+            'description': (
+                'Call ANY AWS read-only API operation when no dedicated tool exists. '
+                'Use for describe/list/get/head operations across any AWS service. '
+                'Examples: describe_task_definition (ECS), list_hosted_zones (Route53), '
+                'list_certificates (ACM), describe_vpc_endpoints (EC2), '
+                'get_function_configuration (Lambda), describe_log_groups (CloudWatch Logs). '
+                'Never use for create/update/delete — use aws_api_write for those.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'service': {'type': 'string', 'description': 'AWS service name (e.g. ec2, s3, ecs, route53, acm, cloudwatch, logs, iam, ssm)'},
+                    'operation': {'type': 'string', 'description': 'boto3 method name (e.g. describe_instances, list_hosted_zones, get_function)'},
+                    'params': {'type': 'object', 'description': 'Method parameters as key-value pairs'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['service', 'operation']
+            },
+            'handler': aws_api_read
+        },
+        {
+            'name': 'aws_api_write',
+            'description': (
+                'Call ANY AWS write API operation when no dedicated tool exists. '
+                'Use for create/update/delete/put/modify/attach/detach/enable/disable operations. '
+                'Examples: delete_alarms (CloudWatch), modify_db_instance (RDS), '
+                'update_function_configuration (Lambda), change_resource_record_sets (Route53), '
+                'put_bucket_lifecycle_configuration (S3). '
+                'Always confirm the exact operation and params with the user before calling.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'service': {'type': 'string', 'description': 'AWS service name (e.g. ec2, rds, lambda, s3, cloudwatch, iam)'},
+                    'operation': {'type': 'string', 'description': 'boto3 method name (e.g. delete_alarms, modify_db_instance, update_function_configuration)'},
+                    'params': {'type': 'object', 'description': 'Method parameters as key-value pairs'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['service', 'operation']
+            },
+            'handler': aws_api_write
         },
     ]
