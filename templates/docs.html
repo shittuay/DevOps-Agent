@@ -1265,10 +1265,33 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
     <!-- MCP Server -->
     <section id="mcp-server">
       <h2 class="section-title">MCP Server</h2>
-      <p>DevOps Agent exposes all 401 cloud tools as an <strong>MCP (Model Context Protocol)</strong> server. Add it to Claude Desktop or any MCP-compatible client and manage your infrastructure directly from your AI assistant — no copy-paste, no tab switching.</p>
+      <p>DevOps Agent exposes all cloud tools as an <strong>MCP (Model Context Protocol)</strong> server registered on the <a href="https://registry.modelcontextprotocol.io" target="_blank">official MCP Registry</a>. Connect any MCP-compatible AI client — Claude Desktop, Claude.ai, or custom agents — and manage your infrastructure without leaving your AI assistant.</p>
 
-      <h3 class="subsection-title">Add to Claude Desktop</h3>
-      <p>Edit your <code>claude_desktop_config.json</code> (macOS: <code>~/Library/Application Support/Claude/</code>, Windows: <code>%APPDATA%\Claude\</code>):</p>
+      <h3 class="subsection-title">Registry</h3>
+      <p>The server is published on the official MCP Registry and npm:</p>
+      <table class="docs-table">
+        <thead><tr><th>Registry</th><th>Identifier</th></tr></thead>
+        <tbody>
+          <tr><td>MCP Registry</td><td><code>io.github.shittuay/devops-agent</code></td></tr>
+          <tr><td>npm</td><td><code>@devopsagent/mcp-server</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Connect via Claude.ai (Connectors)</h3>
+      <p>Go to <strong>Claude.ai → Settings → Connectors → Add custom connector</strong> and fill in:</p>
+      <table class="docs-table">
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Name</td><td><code>DevOps Agent</code></td></tr>
+          <tr><td>Remote MCP server URL</td><td><code>https://devopsagent.io/mcp</code></td></tr>
+          <tr><td>OAuth Client ID</td><td><code>claude-connector</code></td></tr>
+          <tr><td>OAuth Client Secret</td><td><code>devopsagent-mcp-secret-2026</code></td></tr>
+        </tbody>
+      </table>
+      <p>Click <strong>Add</strong>. Claude will open a DevOps Agent login page — sign in with your DevOps Agent credentials to authorize the connection. All your tools will be available in Claude immediately after.</p>
+
+      <h3 class="subsection-title">Connect via Claude Desktop</h3>
+      <p>Generate an API key at <a href="/api-gateway/keys">/api-gateway/keys</a>, then edit your <code>claude_desktop_config.json</code> (macOS: <code>~/Library/Application Support/Claude/</code>, Windows: <code>%APPDATA%\Claude\</code>):</p>
       <pre class="code-block">{
   "mcpServers": {
     "devops-agent": {
@@ -1279,36 +1302,55 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
     }
   }
 }</pre>
-      <p>Restart Claude Desktop. The 401 DevOps Agent tools will appear in the tool list automatically.</p>
+      <p>Restart Claude Desktop — all DevOps Agent tools appear in the tool list automatically.</p>
 
-      <h3 class="subsection-title">Transport</h3>
-      <p>The MCP server uses the HTTP+SSE transport defined in the MCP specification:</p>
+      <h3 class="subsection-title">Endpoints</h3>
       <table class="docs-table">
         <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><span class="badge badge-green">GET</span></td><td><code>/mcp/sse</code></td><td>Open the SSE stream. Server sends an <code>endpoint</code> event with your session's message URL.</td></tr>
-          <tr><td><span class="badge badge-cyan">POST</span></td><td><code>/mcp/messages?sessionId=…</code></td><td>Send JSON-RPC 2.0 requests. Responses are pushed back via the SSE stream.</td></tr>
+          <tr><td><span class="badge badge-cyan">POST</span></td><td><code>/mcp</code></td><td>Streamable HTTP transport (MCP 2025-03-26). Used by Claude.ai connectors. Returns JSON-RPC responses inline.</td></tr>
+          <tr><td><span class="badge badge-green">GET</span></td><td><code>/mcp/sse</code></td><td>HTTP+SSE transport. Used by Claude Desktop. Server sends an <code>endpoint</code> event with your session's message URL.</td></tr>
+          <tr><td><span class="badge badge-cyan">POST</span></td><td><code>/mcp/messages?sessionId=…</code></td><td>JSON-RPC message endpoint for SSE sessions. Responses are pushed back via the SSE stream.</td></tr>
           <tr><td><span class="badge badge-green">GET</span></td><td><code>/mcp/health</code></td><td>Public health check. Returns tool count and protocol version. No auth required.</td></tr>
         </tbody>
       </table>
 
       <h3 class="subsection-title">Authentication</h3>
-      <p>Pass your API key when opening the SSE connection. For clients that cannot set headers, use the query parameter:</p>
-      <pre class="code-block">GET /mcp/sse?api_key=YOUR_API_KEY</pre>
+      <p>Two authentication methods are supported:</p>
+      <table class="docs-table">
+        <thead><tr><th>Method</th><th>How</th><th>Used by</th></tr></thead>
+        <tbody>
+          <tr><td>OAuth 2.0</td><td>Authorization Code flow with PKCE. Client ID + Secret in connector settings.</td><td>Claude.ai connectors</td></tr>
+          <tr><td>API Key</td><td><code>Authorization: Bearer YOUR_API_KEY</code> header, or <code>?api_key=</code> query param.</td><td>Claude Desktop, custom clients</td></tr>
+        </tbody>
+      </table>
+      <p>Generate API keys at <a href="/api-gateway/keys">/api-gateway/keys</a>.</p>
+
+      <h3 class="subsection-title">OAuth 2.0 Endpoints</h3>
+      <table class="docs-table">
+        <thead><tr><th>Path</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>/.well-known/oauth-protected-resource</code></td><td>Resource metadata (RFC 9728) — advertises the authorization server URL.</td></tr>
+          <tr><td><code>/.well-known/oauth-authorization-server</code></td><td>Authorization server metadata (RFC 8414) — lists all OAuth endpoints.</td></tr>
+          <tr><td><code>/mcp/oauth/authorize</code></td><td>Authorization endpoint — shows login page, issues auth code on success.</td></tr>
+          <tr><td><code>/mcp/oauth/token</code></td><td>Token endpoint — exchanges auth code for access token. Supports <code>client_secret_post</code> and <code>client_secret_basic</code>.</td></tr>
+        </tbody>
+      </table>
 
       <h3 class="subsection-title">Supported JSON-RPC methods</h3>
       <table class="docs-table">
         <thead><tr><th>Method</th><th>Description</th></tr></thead>
         <tbody>
           <tr><td><code>initialize</code></td><td>Handshake — returns server name, version, and capabilities</td></tr>
-          <tr><td><code>tools/list</code></td><td>Returns all 401 tools with names, descriptions, and input schemas</td></tr>
+          <tr><td><code>tools/list</code></td><td>Returns all tools with names, descriptions, and input schemas</td></tr>
           <tr><td><code>tools/call</code></td><td>Execute a tool by name with the provided arguments</td></tr>
           <tr><td><code>ping</code></td><td>Keepalive — server returns an empty result</td></tr>
         </tbody>
       </table>
 
-      <h3 class="subsection-title">Example — call a tool</h3>
-      <pre class="code-block">POST /mcp/messages?sessionId=YOUR_SESSION_ID
+      <h3 class="subsection-title">Example — streamable HTTP (Claude.ai)</h3>
+      <pre class="code-block">POST https://devopsagent.io/mcp
+Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 
 {
@@ -1334,8 +1376,8 @@ Content-Type: application/json
         <span>All tool calls go through the same safety validator as the chat interface. High-risk operations (delete, terminate) include a warning in the response so the calling model can re-confirm with the user.</span>
       </div>
 
-      <h3 class="subsection-title">Protocol version</h3>
-      <p>This server implements MCP protocol version <code>2024-11-05</code>. SSE sessions expire after 10 minutes of inactivity — your client will receive a keepalive comment (<code>: keepalive</code>) every 15 seconds to maintain the connection.</p>
+      <h3 class="subsection-title">Protocol</h3>
+      <p>Implements MCP protocol version <code>2025-03-26</code>. SSE sessions expire after 10 minutes of inactivity with keepalive comments every 15 seconds. OAuth access tokens are valid for 30 days.</p>
     </section>
 
     <div class="divider"></div>
