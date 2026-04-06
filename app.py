@@ -304,9 +304,23 @@ from routes.skills import skills_bp
 app.register_blueprint(skills_bp)
 
 # MCP server (Model Context Protocol — remote tool access for Claude Desktop)
-from routes.mcp import mcp_bp
+from routes.mcp import mcp_bp, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 app.register_blueprint(mcp_bp)
 csrf.exempt(mcp_bp)  # MCP clients send raw JSON, not form posts
+
+@app.route('/.well-known/oauth-authorization-server')
+def oauth_metadata():
+    """OAuth 2.0 Authorization Server Metadata (RFC 8414) for MCP discovery."""
+    base = 'https://devopsagent.io'
+    return jsonify({
+        'issuer':                                base,
+        'authorization_endpoint':                f'{base}/mcp/oauth/authorize',
+        'token_endpoint':                        f'{base}/mcp/oauth/token',
+        'response_types_supported':              ['code'],
+        'grant_types_supported':                 ['authorization_code'],
+        'code_challenge_methods_supported':      [],
+        'token_endpoint_auth_methods_supported': ['client_secret_post'],
+    })
 
 # Register REST API v1 blueprint (CLI + programmatic access)
 from api import api_bp
