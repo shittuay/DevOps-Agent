@@ -12,6 +12,13 @@ from .conversation import ConversationManager
 from .safety import SafetyValidator
 
 
+def _json_default(obj):
+    """JSON serializer for objects not serializable by default (e.g. boto3 datetime fields)."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 class DevOpsAgent:
     """Main DevOps Agent class that orchestrates Claude AI and tool execution."""
 
@@ -800,7 +807,7 @@ User Preferences and Context:
                         else:
                             result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
 
-                        result_str = json.dumps(result, indent=2)
+                        result_str = json.dumps(result, indent=2, default=_json_default)
                         sanitized_result = self.safety_validator.sanitize_output(result_str)
 
                         messages.append({
@@ -965,7 +972,7 @@ User Preferences and Context:
                         else:
                             result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
 
-                        result_str = json.dumps(result, indent=2)
+                        result_str = json.dumps(result, indent=2, default=_json_default)
                         sanitized_result = self.safety_validator.sanitize_output(result_str)
 
                         messages.append({
@@ -1077,7 +1084,7 @@ User Preferences and Context:
                         'ready_for_download': True
                     }
 
-                result_str = json.dumps(result_for_claude, indent=2)
+                result_str = json.dumps(result_for_claude, indent=2, default=_json_default)
                 sanitized_result = self.safety_validator.sanitize_output(result_str)
                 self.conversation.add_tool_result(tool_use_id, sanitized_result)
 
