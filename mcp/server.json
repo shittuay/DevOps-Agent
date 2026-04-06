@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.shittuay/devops-agent",
+  "version": "1.0.0",
+  "title": "DevOps Agent",
+  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 401 tools.",
+  "websiteUrl": "https://devopsagent.io",
+  "repository": {
+    "url": "https://github.com/shittuay/DevOps-Agent",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "url": "https://devopsagent.io/mcp/sse",
+      "type": "sse"
+    }
+  ]
+}
