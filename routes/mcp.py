@@ -412,3 +412,64 @@ def mcp_messages():
         return jsonify(responses[0] if not is_batch else responses)
 
     return '', 202
+
+
+@mcp_bp.route('', methods=['POST', 'GET'])
+@mcp_bp.route('/', methods=['POST', 'GET'])
+def mcp_streamable():
+    """
+    Streamable HTTP transport endpoint (MCP spec 2025-03-26).
+
+    Claude Desktop and claude.ai connectors POST JSON-RPC here.
+    Responses are returned inline as JSON or as an SSE stream depending
+    on the Accept header.
+    """
+    key_record = _authenticate()
+    if not key_record:
+        return jsonify({"error": "API key required. Add Authorization: Bearer <key> header."}), 401
+
+    user_id = key_record.user_id if hasattr(key_record, 'user_id') else key_record.get('user_id')
+
+    # GET — return a minimal SSE stream (some clients probe with GET first)
+    if request.method == 'GET':
+        def _ping():
+            yield ": connected\n\n"
+        return Response(_ping(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    # POST — dispatch JSON-RPC and stream responses back
+    try:
+        rpc = request.get_json(force=True)
+    except Exception:
+        return jsonify(_err(None, -32700, "Parse error")), 400
+
+    if rpc is None:
+        return jsonify(_err(None, -32700, "Parse error")), 400
+
+    is_batch = isinstance(rpc, list)
+    requests_list = rpc if is_batch else [rpc]
+
+    wants_stream = 'text/event-stream' in request.headers.get('Accept', '')
+
+    responses = []
+    for req in requests_list:
+        try:
+            resp = _dispatch(req, user_id)
+        except Exception as e:
+            logger.error(f"MCP streamable dispatch error: {e}", exc_info=True)
+            resp = _err(req.get('id'), -32603, f"Internal error: {e}")
+        if resp is not None:
+            responses.append(resp)
+
+    if not responses:
+        return '', 202
+
+    if wants_stream:
+        def generate():
+            for r in responses:
+                yield f"event: message\ndata: {json.dumps(r)}\n\n"
+        return Response(generate(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    result = responses[0] if not is_batch else responses
+    return jsonify(result)
