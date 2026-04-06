@@ -538,6 +538,7 @@ Cost Optimization:
 - "Sync my infrastructure" → sync_infrastructure
 - Resource utilization → get_resource_utilization
 - Specific AWS/Azure/GCP operations → use the dedicated provider tools
+- AWS operation with no dedicated tool → use aws_api_read (for describe/list/get) or aws_api_write (for create/update/delete). NEVER say "I don't have a tool" for AWS — these two cover every boto3 operation.
 
 === OPERATIONAL RULES ===
 - Every destructive action is automatically audit-logged — direct chat deletions create an executed change record; pending change requests create a pending record until executed.
