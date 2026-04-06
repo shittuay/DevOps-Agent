@@ -459,7 +459,7 @@ def mcp_streamable():
             resp.headers[k] = v
         resp.headers['WWW-Authenticate'] = (
             'Bearer realm="DevOps Agent", '
-            'resource_metadata="https://devopsagent.io/.well-known/oauth-authorization-server"'
+            'resource_metadata="https://devopsagent.io/.well-known/oauth-protected-resource"'
         )
         return resp
 
@@ -562,9 +562,10 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 @mcp_bp.route('/oauth/authorize', methods=['GET', 'POST'])
 def oauth_authorize():
     """OAuth 2.0 authorization endpoint."""
-    client_id    = request.values.get('client_id', '')
-    redirect_uri = request.values.get('redirect_uri', '')
-    state        = request.values.get('state', '')
+    client_id      = request.values.get('client_id', '')
+    redirect_uri   = request.values.get('redirect_uri', '')
+    state          = request.values.get('state', '')
+    code_challenge = request.values.get('code_challenge', '')
 
     if client_id != OAUTH_CLIENT_ID:
         return jsonify({'error': 'invalid_client'}), 400
@@ -603,9 +604,10 @@ def oauth_authorize():
     code = secrets.token_urlsafe(32)
     with _oauth_lock:
         _oauth_codes[code] = {
-            'user_id':      user.id,
-            'redirect_uri': redirect_uri,
-            'expires':      time.time() + _CODE_TTL,
+            'user_id':        user.id,
+            'redirect_uri':   redirect_uri,
+            'expires':        time.time() + _CODE_TTL,
+            'code_challenge': code_challenge,
         }
 
     sep = '&' if '?' in redirect_uri else '?'
@@ -620,7 +622,8 @@ def oauth_token():
 
     body = request.get_json(silent=True) or {}
     grant_type = request.form.get('grant_type') or body.get('grant_type')
-    code       = request.form.get('code')        or body.get('code')
+    code          = request.form.get('code')           or body.get('code')
+    code_verifier = request.form.get('code_verifier') or body.get('code_verifier')
 
     # Client credentials: Basic Auth takes priority, then form/JSON body
     import base64
@@ -652,10 +655,22 @@ def oauth_token():
         record = _oauth_codes.pop(code, None)
 
     if not record or time.time() > record['expires']:
-        resp = jsonify({'error': 'invalid_grant'})
+        resp = jsonify({'error': 'invalid_grant', 'error_description': 'Code expired or invalid'})
         for k, v in _cors_headers().items():
             resp.headers[k] = v
         return resp, 400
+
+    # Verify PKCE if challenge was stored
+    stored_challenge = record.get('code_challenge', '')
+    if stored_challenge and code_verifier:
+        import base64
+        digest = hashlib.sha256(code_verifier.encode()).digest()
+        computed = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
+        if not hmac.compare_digest(computed, stored_challenge):
+            resp = jsonify({'error': 'invalid_grant', 'error_description': 'PKCE verification failed'})
+            for k, v in _cors_headers().items():
+                resp.headers[k] = v
+            return resp, 400
 
     access_token = secrets.token_urlsafe(48)
     with _oauth_lock:
