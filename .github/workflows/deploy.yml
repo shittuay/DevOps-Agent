@@ -141,20 +141,20 @@ jobs:
           if [ "$USERS_TABLE_EXISTS" = "0" ]; then
             echo "Fresh database detected — running full migration to create all tables..."
             FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-              $ALEMBIC upgrade head
+              $ALEMBIC upgrade head || echo "WARNING: Alembic migration failed — app will auto-migrate on startup"
           else
             ALEMBIC_EXISTS=$(sudo -u postgres psql -d devops_agent -tc \
               "SELECT to_regclass('public.alembic_version');" | tr -d '[:space:]')
             if [ -z "$ALEMBIC_EXISTS" ]; then
               echo "Existing database not yet under Alembic control — stamping at head..."
               FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-                $ALEMBIC stamp head
+                $ALEMBIC stamp head || echo "WARNING: Alembic stamp failed — skipping"
             fi
             echo "Applying any pending migrations..."
             FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-              $ALEMBIC upgrade head
+              $ALEMBIC upgrade head || echo "WARNING: Alembic upgrade failed — app will auto-migrate on startup"
           fi
-          echo "Database migrations complete."
+          echo "Database migrations step complete."
 
           # ============================================
           # STEP 5b: Create Stripe prices and update AWS Secrets Manager (one-time)

@@ -83,7 +83,6 @@ jobs:
         env:
           SECRET_KEY: test-secret-key-for-ci
           ANTHROPIC_API_KEY: test-api-key
-          DATABASE_URL: sqlite:///test.db
           REDIS_URL: redis://localhost:6379/0
         run: |
           pytest tests/ -v --cov=. --cov-report=xml --cov-report=html --cov-report=term-missing

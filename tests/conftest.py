@@ -2,30 +2,27 @@
 Pytest Configuration and Fixtures
 
 Provides shared fixtures for all tests.
-Uses SQLite in-memory for unit/integration tests (no Postgres required).
-Set DATABASE_URL env var to point at a real Postgres instance for
-system-level tests that need production parity.
+Uses SQLite in-memory with StaticPool so all connections share the same DB,
+preventing the isolation issue where test-client requests see an empty DB.
 """
 
 import os
 import pytest
-from datetime import datetime
 
 # Set test environment before importing app
 os.environ['FLASK_ENV'] = 'testing'
 os.environ['TESTING'] = 'true'
-
-# Use SQLite in-memory so tests run without a running Postgres server.
-# Override by setting DATABASE_URL before running pytest if you need Postgres.
-if 'DATABASE_URL' not in os.environ:
-    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+# Force SQLite in-memory for tests — overrides any external DATABASE_URL
+os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
 
 @pytest.fixture(scope='session')
 def app():
-    """Create application for testing."""
+    """Create application for testing with a shared in-memory SQLite database."""
     from app import app as flask_app
     from models import db
+    from sqlalchemy import event
+    from sqlalchemy.pool import StaticPool
 
     flask_app.config.update({
         'TESTING': True,
@@ -33,6 +30,12 @@ def app():
         'SECRET_KEY': 'test-secret-key',
         'ANTHROPIC_API_KEY': 'test-api-key',
         'RATELIMIT_ENABLED': False,
+        # StaticPool: all connections share one in-memory DB so test-client
+        # requests see data committed by test fixtures.
+        'SQLALCHEMY_ENGINE_OPTIONS': {
+            'connect_args': {'check_same_thread': False},
+            'poolclass': StaticPool,
+        },
     })
 
     # Disable rate limiter for tests
@@ -54,42 +57,42 @@ def client(app):
 
 @pytest.fixture(scope='function')
 def db_session(app):
-    """Create database session for tests."""
+    """Yield the current db session; rollback after each test."""
     from models import db
-
-    with app.app_context():
-        yield db.session
-        db.session.rollback()
+    yield db.session
+    db.session.rollback()
 
 
 @pytest.fixture
 def test_user(app, db_session):
-    """Create a test user."""
+    """Create a test user, cleaning up any leftover from previous runs."""
     from models import User, db
 
-    with app.app_context():
-        # Clean up any leftover test user from previous runs
-        existing = User.query.filter_by(email='test@example.com').first()
-        if existing:
-            db.session.delete(existing)
+    # Clean up both by email AND username to avoid unique constraint errors
+    for existing in User.query.filter(
+        (User.email == 'test@example.com') | (User.username == 'testuser')
+    ).all():
+        db.session.delete(existing)
+    db.session.commit()
+
+    user = User(
+        email='test@example.com',
+        username='testuser',
+        full_name='Test User'
+    )
+    user.set_password('TestPassword123!')
+    db.session.add(user)
+    db.session.commit()
+
+    yield user
+
+    try:
+        u = User.query.get(user.id)
+        if u:
+            db.session.delete(u)
             db.session.commit()
-
-        user = User(
-            email='test@example.com',
-            username='testuser',
-            full_name='Test User'
-        )
-        user.set_password('TestPassword123!')
-        db.session.add(user)
-        db.session.commit()
-
-        yield user
-
-        try:
-            db.session.delete(user)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+    except Exception:
+        db.session.rollback()
 
 
 @pytest.fixture
@@ -107,25 +110,26 @@ def test_api_key(app, test_user, db_session):
     """Create a test API key."""
     from models import APIKey, db
 
-    with app.app_context():
-        key = 'doa_test_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'
-        api_key = APIKey(
-            user_id=test_user.id,
-            name='Test API Key',
-            key_prefix=key[:8],
-            key_hash=APIKey.hash_key(key),
-            scopes=['read', 'write', 'admin']
-        )
-        db.session.add(api_key)
-        db.session.commit()
+    key = 'doa_test_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'
+    api_key = APIKey(
+        user_id=test_user.id,
+        name='Test API Key',
+        key_prefix=key[:8],
+        key_hash=APIKey.hash_key(key),
+        scopes=['read', 'write', 'admin']
+    )
+    db.session.add(api_key)
+    db.session.commit()
 
-        yield {'model': api_key, 'key': key}
+    yield {'model': api_key, 'key': key}
 
-        try:
-            db.session.delete(api_key)
+    try:
+        k = APIKey.query.get(api_key.id)
+        if k:
+            db.session.delete(k)
             db.session.commit()
-        except Exception:
-            db.session.rollback()
+    except Exception:
+        db.session.rollback()
 
 
 @pytest.fixture
@@ -142,30 +146,31 @@ def test_subscription(app, test_user, db_session):
     """Create a test subscription."""
     from models import SubscriptionTier, UserSubscription, db
 
-    with app.app_context():
-        tier = SubscriptionTier.query.filter_by(name='test_tier').first()
-        if not tier:
-            tier = SubscriptionTier(
-                name='test_tier',
-                display_name='Test Tier',
-                monthly_price=0,
-                monthly_credits=100
-            )
-            db.session.add(tier)
-            db.session.commit()
-
-        subscription = UserSubscription(
-            user_id=test_user.id,
-            tier_id=tier.id,
-            credits_remaining=100
+    tier = SubscriptionTier.query.filter_by(name='test_tier').first()
+    if not tier:
+        tier = SubscriptionTier(
+            name='test_tier',
+            display_name='Test Tier',
+            monthly_price=0,
+            monthly_credits=100
         )
-        db.session.add(subscription)
+        db.session.add(tier)
         db.session.commit()
 
-        yield subscription
+    subscription = UserSubscription(
+        user_id=test_user.id,
+        tier_id=tier.id,
+        credits_remaining=100
+    )
+    db.session.add(subscription)
+    db.session.commit()
 
-        try:
-            db.session.delete(subscription)
+    yield subscription
+
+    try:
+        s = UserSubscription.query.get(subscription.id)
+        if s:
+            db.session.delete(s)
             db.session.commit()
-        except Exception:
-            db.session.rollback()
+    except Exception:
+        db.session.rollback()
