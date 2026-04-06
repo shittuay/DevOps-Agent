@@ -309,8 +309,8 @@ app.register_blueprint(mcp_bp)
 csrf.exempt(mcp_bp)  # MCP clients send raw JSON, not form posts
 
 @app.route('/.well-known/oauth-authorization-server')
-def oauth_metadata():
-    """OAuth 2.0 Authorization Server Metadata (RFC 8414) for MCP discovery."""
+def oauth_authorization_server_metadata():
+    """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
     base = 'https://devopsagent.io'
     return jsonify({
         'issuer':                                base,
@@ -318,8 +318,20 @@ def oauth_metadata():
         'token_endpoint':                        f'{base}/mcp/oauth/token',
         'response_types_supported':              ['code'],
         'grant_types_supported':                 ['authorization_code'],
-        'code_challenge_methods_supported':      [],
-        'token_endpoint_auth_methods_supported': ['client_secret_post'],
+        'code_challenge_methods_supported':      ['S256'],
+        'token_endpoint_auth_methods_supported': ['client_secret_post', 'client_secret_basic'],
+        'scopes_supported':                      ['mcp'],
+    })
+
+@app.route('/.well-known/oauth-protected-resource')
+def oauth_protected_resource_metadata():
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728) — MCP spec requirement."""
+    base = 'https://devopsagent.io'
+    return jsonify({
+        'resource':              f'{base}/mcp',
+        'authorization_servers': [base],
+        'bearer_methods_supported': ['header', 'query'],
+        'scopes_supported':      ['mcp'],
     })
 
 # Register REST API v1 blueprint (CLI + programmatic access)
