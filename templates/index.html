@@ -1971,15 +1971,15 @@
             background: none;
             border: 1px solid var(--border-subtle);
             border-radius: 6px;
-            padding: 4px 8px;
+            padding: 3px 8px;
             cursor: pointer;
             color: var(--text-tertiary);
-            font-size: 14px;
+            font-size: 12px;
             transition: all 0.2s;
-            margin-top: 8px;
             display: inline-flex;
             align-items: center;
             gap: 4px;
+            font-family: 'IBM Plex Mono', monospace;
         }
         .tts-btn:hover {
             color: var(--accent-primary);
@@ -2043,6 +2043,183 @@
             padding: 0.15rem 0.45rem;
             border-radius: 4px;
             margin-right: 0.35rem;
+        }
+
+        /* ── Copy Button ─────────────────────────────────────────── */
+        .message-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .copy-btn {
+            background: none;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            font-size: 12px;
+            padding: 3px 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s ease;
+            font-family: 'IBM Plex Mono', monospace;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .message-content:hover .copy-btn {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .copy-btn:hover {
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+            background: rgba(255,107,53,0.08);
+        }
+        .copy-btn.copied {
+            border-color: #22c55e;
+            color: #22c55e;
+            background: rgba(34,197,94,0.08);
+            opacity: 1;
+            pointer-events: none;
+        }
+
+        /* ── Attachment ──────────────────────────────────────────── */
+        .attach-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-tertiary);
+            padding: 6px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.2s, background 0.2s;
+            flex-shrink: 0;
+        }
+        .attach-btn:hover { color: var(--accent-primary); background: rgba(255,107,53,0.08); }
+        .attachment-preview-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 6px 0 0 0;
+        }
+        .attachment-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: var(--glass-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+            max-width: 180px;
+        }
+        .attachment-badge img {
+            width: 28px;
+            height: 28px;
+            object-fit: cover;
+            border-radius: 3px;
+        }
+        .attachment-badge-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 110px;
+        }
+        .attachment-remove {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-tertiary);
+            font-size: 14px;
+            padding: 0 2px;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        .attachment-remove:hover { color: #ef4444; }
+        .attach-error {
+            font-size: 12px;
+            color: #ef4444;
+            padding: 4px 0;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        /* ── Artifact badge in message ───────────────────────────── */
+        .artifact-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(99,102,241,0.12);
+            border: 1px solid rgba(99,102,241,0.3);
+            color: #818cf8;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'IBM Plex Mono', monospace;
+            text-decoration: none;
+            transition: background 0.2s;
+            vertical-align: middle;
+        }
+        .artifact-badge:hover { background: rgba(99,102,241,0.22); }
+
+        /* ── Enhanced artifact card with code ───────────────────── */
+        .artifact-card-code {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            overflow: hidden;
+        }
+        .artifact-card-code-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0.75rem;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .artifact-card-code-lang {
+            font-size: 0.72rem;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--accent-primary);
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .artifact-card-code-actions {
+            display: flex;
+            gap: 4px;
+        }
+        .artifact-action-btn {
+            background: none;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            font-size: 11px;
+            padding: 2px 7px;
+            font-family: 'IBM Plex Mono', monospace;
+            transition: all 0.15s;
+        }
+        .artifact-action-btn:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+        .artifact-card-code pre {
+            margin: 0;
+            padding: 0.6rem 0.75rem;
+            font-size: 0.75rem;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--text-secondary);
+            overflow-x: auto;
+            white-space: pre;
+            max-height: 280px;
+        }
+        .artifact-card-code-filename {
+            font-size: 0.72rem;
+            color: var(--text-tertiary);
         }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
@@ -2260,7 +2437,16 @@
                             </div>
                             <span class="model-active-label" id="modelActiveLabel"></span>
                         </div>
+                        <!-- Attachment previews -->
+                        <div class="attachment-preview-area" id="attachmentPreviewArea" style="display:none;"></div>
                         <div class="input-box">
+                            <!-- Hidden file input -->
+                            <input type="file" id="fileInput" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/csv" style="display:none;" onchange="handleFileSelect(event)">
+                            <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="Attach file">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                                </svg>
+                            </button>
                             <textarea
                                 id="messageInput"
                                 placeholder="Ask me anything about your infrastructure..."
@@ -2496,14 +2682,19 @@
             scrollToBottom();
 
             try {
+                // Build payload — include attachments if any
+                const _attachPayload = await buildAttachmentPayload();
+                const _fetchBody = JSON.stringify({
+                    message,
+                    page_context: window.devopsAgentPageContext || '',
+                    resource_context: window.devopsAgentResourceContext || '',
+                    attachments: _attachPayload
+                });
+                clearAttachments();
                 const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message,
-                        page_context: window.devopsAgentPageContext || '',
-                        resource_context: window.devopsAgentResourceContext || ''
-                    })
+                    body: _fetchBody
                 });
 
                 if (!response.ok) {
@@ -2594,16 +2785,23 @@
                 // Final render
                 if (rawText) {
                     textDiv.innerHTML = formatMessage(rawText);
-                    // Add per-message speaker button
+                    // Actions row: copy + TTS
+                    var actionsRow = document.createElement('div');
+                    actionsRow.className = 'message-actions';
+                    var copyBtn = makeCopyButton(rawText);
+                    actionsRow.appendChild(copyBtn);
                     var ttsBtn = document.createElement('button');
                     ttsBtn.className = 'tts-btn';
                     ttsBtn.innerHTML = '🔊 Listen';
                     ttsBtn.onclick = (function(t, b) { return function() { speakText(t, b); }; })(rawText, ttsBtn);
-                    contentDiv.appendChild(ttsBtn);
+                    actionsRow.appendChild(ttsBtn);
+                    contentDiv.appendChild(actionsRow);
                     // Auto-speak if voice is enabled
                     if (voiceEnabled) {
                         speakText(rawText, ttsBtn);
                     }
+                    // Extract and save code-block artifacts
+                    extractAndSaveArtifacts(rawText, contentDiv);
                 }
             } catch (error) {
                 textDiv.innerHTML = formatMessage(`Error: ${error.message}`);
@@ -2632,11 +2830,15 @@
 
             contentDiv.appendChild(textDiv);
             if (type === 'assistant' || type === 'agent') {
+                var actRow = document.createElement('div');
+                actRow.className = 'message-actions';
+                actRow.appendChild(makeCopyButton(content));
                 var ttsBtn = document.createElement('button');
                 ttsBtn.className = 'tts-btn';
                 ttsBtn.innerHTML = '🔊 Listen';
                 ttsBtn.onclick = (function(t, b) { return function() { speakText(t, b); }; })(content, ttsBtn);
-                contentDiv.appendChild(ttsBtn);
+                actRow.appendChild(ttsBtn);
+                contentDiv.appendChild(actRow);
             }
             messageDiv.appendChild(avatar);
             messageDiv.appendChild(contentDiv);
@@ -3568,6 +3770,197 @@
                 .then(() => fetchNotifications());
         }
 
+        // ── Copy Button Helper ───────────────────────────────────────────
+        function makeCopyButton(text) {
+            const btn = document.createElement('button');
+            btn.className = 'copy-btn';
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy';
+            btn.onclick = function() {
+                const plain = text.replace(/<[^>]+>/g, '');
+                navigator.clipboard.writeText(plain).then(function() {
+                    btn.classList.add('copied');
+                    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+                    setTimeout(function() {
+                        btn.classList.remove('copied');
+                        btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy';
+                    }, 2000);
+                }).catch(function() {
+                    // fallback — legacy execCommand
+                    const ta = document.createElement('textarea');
+                    ta.value = plain;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    btn.classList.add('copied');
+                    btn.textContent = 'Copied!';
+                    setTimeout(function() { btn.classList.remove('copied'); btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy'; }, 2000);
+                });
+            };
+            return btn;
+        }
+
+        // ── File Attachment ──────────────────────────────────────────────
+        let _pendingAttachments = []; // [{name, type, data (base64 or text), isImage}]
+        const MAX_IMG_BYTES = 5 * 1024 * 1024;   // 5 MB
+        const MAX_DOC_BYTES = 25 * 1024 * 1024;  // 25 MB
+
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            event.target.value = ''; // reset so same file can be re-selected
+            const previewArea = document.getElementById('attachmentPreviewArea');
+            const errDiv = previewArea.querySelector('.attach-error') || (() => {
+                const d = document.createElement('div'); d.className = 'attach-error'; previewArea.appendChild(d); return d;
+            })();
+            errDiv.textContent = '';
+
+            files.forEach(file => {
+                const isImage = file.type.startsWith('image/');
+                const limit = isImage ? MAX_IMG_BYTES : MAX_DOC_BYTES;
+                if (file.size > limit) {
+                    errDiv.textContent = `"${file.name}" is too large (max ${isImage ? '5 MB' : '25 MB'}).`;
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const result = e.target.result;
+                    const attachment = { name: file.name, mimeType: file.type, isImage, data: result };
+                    _pendingAttachments.push(attachment);
+                    renderAttachmentBadge(attachment, _pendingAttachments.length - 1, previewArea, errDiv);
+                    previewArea.style.display = 'flex';
+                };
+                if (isImage) {
+                    reader.readAsDataURL(file); // data URL for preview + sending
+                } else {
+                    reader.readAsText(file); // plain text for text/csv/pdf
+                }
+            });
+        }
+
+        function renderAttachmentBadge(att, idx, previewArea, errDiv) {
+            const badge = document.createElement('div');
+            badge.className = 'attachment-badge';
+            badge.dataset.idx = idx;
+            if (att.isImage) {
+                const img = document.createElement('img');
+                img.src = att.data;
+                badge.appendChild(img);
+            }
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'attachment-badge-name';
+            nameSpan.textContent = att.name;
+            badge.appendChild(nameSpan);
+            const rmBtn = document.createElement('button');
+            rmBtn.className = 'attachment-remove';
+            rmBtn.textContent = '×';
+            rmBtn.title = 'Remove';
+            rmBtn.onclick = function() {
+                _pendingAttachments[idx] = null;
+                badge.remove();
+                if (!previewArea.querySelectorAll('.attachment-badge').length) {
+                    previewArea.style.display = 'none';
+                }
+            };
+            badge.appendChild(rmBtn);
+            previewArea.insertBefore(badge, errDiv);
+        }
+
+        async function buildAttachmentPayload() {
+            const active = _pendingAttachments.filter(Boolean);
+            if (!active.length) return [];
+            return active.map(att => ({
+                name: att.name,
+                mime_type: att.mimeType,
+                is_image: att.isImage,
+                data: att.data  // base64 dataURL for images, plaintext for docs
+            }));
+        }
+
+        function clearAttachments() {
+            _pendingAttachments = [];
+            const pa = document.getElementById('attachmentPreviewArea');
+            pa.innerHTML = '';
+            pa.style.display = 'none';
+        }
+
+        // ── Artifact Extraction ──────────────────────────────────────────
+        const _langExtMap = {
+            python: 'py', javascript: 'js', typescript: 'ts', bash: 'sh',
+            shell: 'sh', yaml: 'yaml', yml: 'yaml', json: 'json',
+            dockerfile: 'dockerfile', terraform: 'tf', hcl: 'tf',
+            sql: 'sql', html: 'html', css: 'css', go: 'go',
+            java: 'java', ruby: 'rb', rust: 'rs', cpp: 'cpp',
+            c: 'c', xml: 'xml', toml: 'toml', ini: 'ini'
+        };
+
+        function extractCodeBlocks(text) {
+            const re = /```(\w+)?\n?([\s\S]*?)```/g;
+            const blocks = [];
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                const lang = (m[1] || 'code').toLowerCase();
+                const code = m[2].trim();
+                if (code.length > 10) {
+                    blocks.push({ lang, code, ext: _langExtMap[lang] || lang });
+                }
+            }
+            return blocks;
+        }
+
+        async function extractAndSaveArtifacts(rawText, contentDiv) {
+            const blocks = extractCodeBlocks(rawText);
+            if (!blocks.length) return;
+
+            const activeItem = document.querySelector('.conversation-item.active');
+            const conversationId = activeItem ? activeItem.getAttribute('data-id') : null;
+
+            const badges = [];
+            for (let i = 0; i < blocks.length; i++) {
+                const b = blocks[i];
+                const title = `${b.lang.toUpperCase()} snippet` + (blocks.length > 1 ? ` ${i+1}` : '');
+                try {
+                    const resp = await fetch('/api/chat/artifacts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            artifact_type: b.lang,
+                            title,
+                            content: b.code,
+                            conversation_id: conversationId
+                        })
+                    });
+                    if (resp.ok) {
+                        const saved = await resp.json();
+                        badges.push({ id: saved.id, title, lang: b.lang });
+                    }
+                } catch(e) { /* non-fatal */ }
+            }
+
+            if (badges.length) {
+                const badgeRow = document.createElement('div');
+                badgeRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;';
+                badges.forEach(b => {
+                    const a = document.createElement('a');
+                    a.className = 'artifact-badge';
+                    a.href = '#';
+                    a.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> ${escapeHtml(b.title)}`;
+                    a.onclick = function(e) {
+                        e.preventDefault();
+                        const panel = document.getElementById('artifacts-panel');
+                        if (!panel.classList.contains('open')) { toggleArtifacts(); }
+                        else { loadArtifacts(); }
+                    };
+                    badgeRow.appendChild(a);
+                });
+                contentDiv.appendChild(badgeRow);
+                // Auto-open artifacts panel
+                const panel = document.getElementById('artifacts-panel');
+                if (!panel.classList.contains('open')) { toggleArtifacts(); }
+            }
+        }
+
         // Poll unread count every 60s
         fetchNotifications();
         setInterval(fetchNotifications, 60000);
@@ -3602,16 +3995,54 @@
                 body.innerHTML = '<p style="font-size:0.82rem;color:var(--text-secondary);text-align:center;padding:1rem 0">No artifacts yet.</p>';
                 return;
             }
-            body.innerHTML = artifacts.map(a => `
-                <div class="artifact-card" onclick="viewArtifact(${a.id})">
-                    <div class="artifact-card-title">${escapeHtml(a.title || 'Untitled')}</div>
-                    <div class="artifact-card-meta">
-                        <span class="artifact-type-chip">${escapeHtml(a.artifact_type || 'doc')}</span>
-                        v${a.version || 1} · ${a.created_at ? new Date(a.created_at).toLocaleDateString() : ''}
-                        <a href="/api/chat/artifacts/${a.id}/export" download style="margin-left:0.5rem;color:var(--accent-primary);font-size:0.72rem">↓ export</a>
-                    </div>
-                </div>
-            `).join('');
+            body.innerHTML = '';
+            artifacts.forEach(function(a) {
+                const isCode = !!a.content;
+                const card = document.createElement('div');
+                card.className = 'artifact-card-code';
+                card.id = 'artifact-card-' + a.id;
+
+                const header = document.createElement('div');
+                header.className = 'artifact-card-code-header';
+
+                const langSpan = document.createElement('div');
+                langSpan.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+                langSpan.innerHTML = `<span class="artifact-card-code-lang">${escapeHtml(a.artifact_type || 'code')}</span><span class="artifact-card-code-filename">${escapeHtml(a.title || 'Untitled')}</span>`;
+
+                const actions = document.createElement('div');
+                actions.className = 'artifact-card-code-actions';
+
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'artifact-action-btn';
+                copyBtn.textContent = 'Copy';
+                copyBtn.onclick = function() {
+                    navigator.clipboard.writeText(a.content || '').then(function() {
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(function() { copyBtn.textContent = 'Copy'; }, 1500);
+                    });
+                };
+                actions.appendChild(copyBtn);
+
+                const dlBtn = document.createElement('a');
+                dlBtn.className = 'artifact-action-btn';
+                dlBtn.style.textDecoration = 'none';
+                dlBtn.href = '/api/chat/artifacts/' + a.id + '/export';
+                dlBtn.download = '';
+                dlBtn.textContent = 'Download';
+                actions.appendChild(dlBtn);
+
+                header.appendChild(langSpan);
+                header.appendChild(actions);
+                card.appendChild(header);
+
+                if (a.content) {
+                    const pre = document.createElement('pre');
+                    pre.textContent = a.content;
+                    card.appendChild(pre);
+                }
+
+                body.appendChild(card);
+            });
         }
 
         function viewArtifact(id) {
@@ -3664,7 +4095,10 @@
     <div class="contact-widget">
         <span class="contact-button-label">Need help? Contact us</span>
         <button class="contact-button" onclick="openContactModal()" title="Contact Us">
-            💬
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+            </svg>
         </button>
     </div>
 
@@ -3673,7 +4107,12 @@
         <div class="contact-modal">
             <div class="contact-modal-header">
                 <div class="contact-modal-title">
-                    <div class="contact-modal-title-icon">💬</div>
+                    <div class="contact-modal-title-icon" style="display:flex;align-items:center;justify-content:center;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="4" width="20" height="16" rx="2"/>
+                            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                        </svg>
+                    </div>
                     <div>
                         <h3>Contact Us</h3>
                         <p>We'd love to hear from you</p>
