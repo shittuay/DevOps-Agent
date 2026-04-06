@@ -55,7 +55,7 @@ _sessions: Dict[str, Dict[str, Any]] = {}
 _sessions_lock = threading.Lock()
 _SESSION_TTL_SECONDS = 600
 
-MCP_PROTOCOL_VERSION = "2024-11-05"
+MCP_PROTOCOL_VERSION = "2025-03-26"
 SERVER_NAME = "DevOps Agent"
 SERVER_VERSION = "1.0.0"
 
@@ -414,30 +414,40 @@ def mcp_messages():
     return '', 202
 
 
-@mcp_bp.route('', methods=['POST', 'GET'])
-@mcp_bp.route('/', methods=['POST', 'GET'])
+@mcp_bp.route('', methods=['POST', 'GET', 'OPTIONS'])
+@mcp_bp.route('/', methods=['POST', 'GET', 'OPTIONS'])
 def mcp_streamable():
     """
     Streamable HTTP transport endpoint (MCP spec 2025-03-26).
 
     Claude Desktop and claude.ai connectors POST JSON-RPC here.
-    Responses are returned inline as JSON or as an SSE stream depending
-    on the Accept header.
     """
+    # CORS preflight
+    if request.method == 'OPTIONS':
+        return Response('', 204, headers=_cors_headers())
+
     key_record = _authenticate()
     if not key_record:
-        return jsonify({"error": "API key required. Add Authorization: Bearer <key> header."}), 401
+        resp = jsonify({"error": "API key required. Add Authorization: Bearer <key> header."})
+        resp.status_code = 401
+        for k, v in _cors_headers().items():
+            resp.headers[k] = v
+        return resp
 
     user_id = key_record.user_id if hasattr(key_record, 'user_id') else key_record.get('user_id')
+    session_id = request.headers.get('Mcp-Session-Id') or uuid.uuid4().hex
 
-    # GET — return a minimal SSE stream (some clients probe with GET first)
+    # GET — SSE stream for server-initiated messages
     if request.method == 'GET':
         def _ping():
             yield ": connected\n\n"
         return Response(_ping(), mimetype='text/event-stream',
-                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+                        headers={**_cors_headers(),
+                                 'Cache-Control': 'no-cache',
+                                 'X-Accel-Buffering': 'no',
+                                 'Mcp-Session-Id': session_id})
 
-    # POST — dispatch JSON-RPC and stream responses back
+    # POST — dispatch JSON-RPC
     try:
         rpc = request.get_json(force=True)
     except Exception:
@@ -448,7 +458,6 @@ def mcp_streamable():
 
     is_batch = isinstance(rpc, list)
     requests_list = rpc if is_batch else [rpc]
-
     wants_stream = 'text/event-stream' in request.headers.get('Accept', '')
 
     responses = []
@@ -462,14 +471,34 @@ def mcp_streamable():
             responses.append(resp)
 
     if not responses:
-        return '', 202
+        r = Response('', 202)
+        for k, v in _cors_headers().items():
+            r.headers[k] = v
+        r.headers['Mcp-Session-Id'] = session_id
+        return r
+
+    extra_headers = {**_cors_headers(), 'Mcp-Session-Id': session_id}
 
     if wants_stream:
         def generate():
             for r in responses:
                 yield f"event: message\ndata: {json.dumps(r)}\n\n"
         return Response(generate(), mimetype='text/event-stream',
-                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+                        headers={**extra_headers,
+                                 'Cache-Control': 'no-cache',
+                                 'X-Accel-Buffering': 'no'})
 
     result = responses[0] if not is_batch else responses
-    return jsonify(result)
+    response = jsonify(result)
+    for k, v in extra_headers.items():
+        response.headers[k] = v
+    return response
+
+
+def _cors_headers() -> dict:
+    return {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, Mcp-Session-Id',
+        'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+    }
