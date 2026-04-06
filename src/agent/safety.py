@@ -279,6 +279,7 @@ class SafetyValidator:
             'delete_ec2_keypair',
             'delete_ebs_snapshot',
             'delete_ebs_volume',
+            'cleanup_ebs_volume',
             'deregister_ami',
             # S3 destructive
             'delete_s3_object',
