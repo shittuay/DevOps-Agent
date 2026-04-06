@@ -256,6 +256,8 @@ class SafetyValidator:
             # GitHub destructive
             'github_delete_repo',
             'github_merge_pull_request',
+            # Generic write passthrough (always high-risk — could be anything)
+            'aws_api_write',
             # CloudWatch destructive
             'delete_cloudwatch_alarm',
             # CI/CD destructive
