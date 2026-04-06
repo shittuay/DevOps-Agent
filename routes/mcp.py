@@ -453,10 +453,14 @@ def mcp_streamable():
 
     key_record = _authenticate()
     if not key_record:
-        resp = jsonify({"error": "API key required. Add Authorization: Bearer <key> header."})
+        resp = jsonify({"error": "unauthorized"})
         resp.status_code = 401
         for k, v in _cors_headers().items():
             resp.headers[k] = v
+        resp.headers['WWW-Authenticate'] = (
+            'Bearer realm="DevOps Agent", '
+            'resource_metadata="https://devopsagent.io/.well-known/oauth-authorization-server"'
+        )
         return resp
 
     user_id = key_record.user_id if hasattr(key_record, 'user_id') else key_record.get('user_id')
@@ -610,14 +614,27 @@ def oauth_authorize():
 
 @mcp_bp.route('/oauth/token', methods=['POST', 'OPTIONS'])
 def oauth_token():
-    """OAuth 2.0 token endpoint."""
+    """OAuth 2.0 token endpoint — supports client_secret_post and client_secret_basic."""
     if request.method == 'OPTIONS':
         return Response('', 204, headers=_cors_headers())
 
-    grant_type    = request.form.get('grant_type') or (request.get_json(silent=True) or {}).get('grant_type')
-    code          = request.form.get('code')        or (request.get_json(silent=True) or {}).get('code')
-    client_id     = request.form.get('client_id')   or (request.get_json(silent=True) or {}).get('client_id')
-    client_secret = request.form.get('client_secret') or (request.get_json(silent=True) or {}).get('client_secret')
+    body = request.get_json(silent=True) or {}
+    grant_type = request.form.get('grant_type') or body.get('grant_type')
+    code       = request.form.get('code')        or body.get('code')
+
+    # Client credentials: Basic Auth takes priority, then form/JSON body
+    import base64
+    client_id, client_secret = None, None
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Basic '):
+        try:
+            decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
+            client_id, client_secret = decoded.split(':', 1)
+        except Exception:
+            pass
+    if not client_id:
+        client_id     = request.form.get('client_id')     or body.get('client_id')
+        client_secret = request.form.get('client_secret') or body.get('client_secret')
 
     if client_id != OAUTH_CLIENT_ID or client_secret != OAUTH_CLIENT_SECRET:
         resp = jsonify({'error': 'invalid_client'})
