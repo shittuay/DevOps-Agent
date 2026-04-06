@@ -3896,14 +3896,26 @@
             c: 'c', xml: 'xml', toml: 'toml', ini: 'ini'
         };
 
+        // Languages that indicate standalone, artifact-worthy content
+        const _artifactLangs = new Set([
+            'python','javascript','typescript','bash','shell','sh',
+            'yaml','yml','json','dockerfile','terraform','hcl',
+            'sql','html','css','go','java','ruby','rust','cpp',
+            'c','xml','toml','ini','nginx','ansible','makefile','gradle'
+        ]);
+
         function extractCodeBlocks(text) {
             const re = /```(\w+)?\n?([\s\S]*?)```/g;
             const blocks = [];
             let m;
             while ((m = re.exec(text)) !== null) {
-                const lang = (m[1] || 'code').toLowerCase();
+                const lang = (m[1] || '').toLowerCase();
                 const code = m[2].trim();
-                if (code.length > 10) {
+                const lineCount = code.split('\n').length;
+                // Only treat as artifact if:
+                // - recognised as a file-type language, AND
+                // - at least 8 lines OR 300 characters (filters out inline snippets)
+                if (_artifactLangs.has(lang) && (lineCount >= 8 || code.length >= 300)) {
                     blocks.push({ lang, code, ext: _langExtMap[lang] || lang });
                 }
             }
@@ -3956,9 +3968,9 @@
                     badgeRow.appendChild(a);
                 });
                 contentDiv.appendChild(badgeRow);
-                // Auto-open artifacts panel
+                // Reload panel if already open, but do NOT auto-open it
                 const panel = document.getElementById('artifacts-panel');
-                if (!panel.classList.contains('open')) { toggleArtifacts(); }
+                if (panel.classList.contains('open')) { loadArtifacts(); }
             }
         }
 
