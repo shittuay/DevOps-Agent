@@ -229,6 +229,10 @@ def sync_aws_resources(user_id: int) -> Dict:
         sns_count = sync_aws_sns_topics(user_id)
         result['synced'] += sns_count
 
+        # Sync CloudWatch alarms
+        cw_count = sync_aws_cloudwatch_alarms(user_id)
+        result['synced'] += cw_count
+
         # Sync SQS queues
         sqs_count = sync_aws_sqs_queues(user_id)
         result['synced'] += sqs_count
@@ -850,6 +854,60 @@ def sync_aws_sns_topics(user_id: int) -> int:
 
     except Exception as e:
         print(f"Error syncing SNS topics: {e}")
+        return 0
+
+
+def sync_aws_cloudwatch_alarms(user_id: int) -> int:
+    """Sync AWS CloudWatch alarms"""
+    try:
+        cw = _get_user_boto_client(user_id, 'cloudwatch')
+        paginator = cw.get_paginator('describe_alarms')
+
+        count = 0
+        seen_ids = set()
+        for page in paginator.paginate(AlarmTypes=['MetricAlarm']):
+            for alarm in page.get('MetricAlarms', []):
+                alarm_arn = alarm['AlarmArn']
+                seen_ids.add(alarm_arn)
+
+                resource = InfrastructureResource.query.filter_by(
+                    user_id=user_id,
+                    resource_id=alarm_arn
+                ).first()
+
+                if not resource:
+                    resource = InfrastructureResource(
+                        user_id=user_id,
+                        cloud_provider='aws',
+                        resource_type='cloudwatch_alarm',
+                        resource_id=alarm_arn
+                    )
+                    db.session.add(resource)
+
+                state = alarm.get('StateValue', 'UNKNOWN').lower()
+                status_map = {'ok': 'active', 'alarm': 'error', 'insufficient_data': 'pending'}
+
+                resource.resource_name = alarm['AlarmName']
+                resource.region = alarm_arn.split(':')[3]
+                resource.status = status_map.get(state, state)
+                resource.monthly_cost = 0.10  # $0.10/alarm/month
+                resource.resource_metadata = {
+                    'metric_name': alarm.get('MetricName', ''),
+                    'namespace': alarm.get('Namespace', ''),
+                    'threshold': alarm.get('Threshold'),
+                    'comparison_operator': alarm.get('ComparisonOperator', ''),
+                    'state': alarm.get('StateValue', ''),
+                    'alarm_actions': alarm.get('AlarmActions', []),
+                }
+                resource.last_synced = datetime.utcnow()
+                count += 1
+
+        _remove_stale_resources(user_id, 'cloudwatch_alarm', seen_ids)
+        db.session.commit()
+        return count
+
+    except Exception as e:
+        print(f"Error syncing CloudWatch alarms: {e}")
         return 0
 
 
