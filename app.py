@@ -324,8 +324,14 @@ def oauth_authorization_server_metadata():
     })
 
 @app.route('/.well-known/oauth-protected-resource')
+@app.route('/.well-known/oauth-protected-resource/mcp')
+@app.route('/.well-known/oauth-protected-resource/mcp/')
 def oauth_protected_resource_metadata():
-    """OAuth 2.0 Protected Resource Metadata (RFC 9728) — MCP spec requirement."""
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728) — MCP spec requirement.
+    RFC 9728 §3: metadata URL is built by inserting /.well-known/oauth-protected-resource
+    between the host and path, so resource https://devopsagent.io/mcp maps to
+    /.well-known/oauth-protected-resource/mcp — serve both paths.
+    """
     base = 'https://devopsagent.io'
     return jsonify({
         'resource':              f'{base}/mcp',
@@ -5424,4 +5430,4 @@ if __name__ == '__main__':
         print(f"  Warning: Scheduler failed to start: {e}")
 
     debug_mode = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False)
+    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False, threaded=True)
