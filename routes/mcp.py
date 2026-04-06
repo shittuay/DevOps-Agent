@@ -1,7 +1,7 @@
 """
 MCP (Model Context Protocol) Server
 
-Exposes the 258 DevOps Agent tools as an MCP-compliant remote server
+Exposes all DevOps Agent tools as an MCP-compliant remote server
 using the HTTP+SSE transport.
 
 Add to Claude Desktop (claude_desktop_config.json):
@@ -67,7 +67,7 @@ _tool_cache_lock = threading.Lock()
 
 
 def _get_all_tools():
-    """Load and cache all 258 tools from the four provider modules."""
+    """Load and cache all tools from every enabled module."""
     global _tool_cache, _tool_map
     if _tool_cache is not None:
         return _tool_cache, _tool_map
@@ -76,17 +76,30 @@ def _get_all_tools():
         if _tool_cache is not None:
             return _tool_cache, _tool_map
 
-        from src.tools.aws_tools import get_tools as aws_tools
-        from src.tools.kubernetes_tools import get_tools as k8s_tools
-        from src.tools.azure_tools import get_tools as azure_tools
-        from src.tools.gcp_tools import get_tools as gcp_tools
+        loaders = [
+            'src.tools.aws_tools',
+            'src.tools.kubernetes_tools',
+            'src.tools.azure_tools',
+            'src.tools.gcp_tools',
+            'src.tools.cicd_tools',
+            'src.tools.terraform_tools',
+            'src.tools.sonarqube_tools',
+            'src.tools.nexus_tools',
+            'src.tools.docker_tools',
+            'src.tools.git_tools',
+            'src.tools.monitoring_tools',
+            'src.tools.ansible_tools',
+            'src.tools.alerting_tools',
+        ]
 
         all_tools = []
-        for loader in (aws_tools, k8s_tools, azure_tools, gcp_tools):
+        for module_path in loaders:
             try:
-                all_tools.extend(loader())
+                import importlib
+                mod = importlib.import_module(module_path)
+                all_tools.extend(mod.get_tools())
             except Exception as e:
-                logger.warning(f"Failed to load tool set: {e}")
+                logger.warning(f"MCP: failed to load {module_path}: {e}")
 
         _tool_cache = all_tools
         _tool_map = {t['name']: t for t in all_tools}
