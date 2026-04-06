@@ -34,6 +34,26 @@ def get_current_user_id() -> Optional[int]:
     return getattr(_user_context, 'user_id', None)
 
 
+def _get_effective_region(region: Optional[str] = None) -> str:
+    """Return the actual AWS region that will be used for an operation.
+
+    When no explicit region is passed, reads the user's configured default
+    region from credentials so callers can report it accurately.
+    """
+    if region:
+        return region
+    user_id = get_current_user_id()
+    if user_id:
+        try:
+            from services.credential_service import get_user_aws_credentials
+            creds = get_user_aws_credentials(user_id)
+            if creds:
+                return creds.get('region', 'us-east-1')
+        except Exception:
+            pass
+    return 'us-east-1'
+
+
 def _get_boto_client(service: str, region: Optional[str] = None):
     """
     Get boto3 client for AWS service using per-user credentials ONLY.
@@ -8493,13 +8513,15 @@ def create_cloudwatch_alarm(
             params['AlarmDescription'] = description
 
         cloudwatch.put_metric_alarm(**params)
+        effective_region = _get_effective_region(region)
         return {
             'success': True,
             'alarm_name': alarm_name,
             'metric': f'{namespace}/{metric_name}',
             'threshold': threshold,
             'comparison_operator': comparison_operator,
-            'message': f'CloudWatch alarm "{alarm_name}" created on {namespace}/{metric_name} {comparison_operator} {threshold}'
+            'region': effective_region,
+            'message': f'CloudWatch alarm "{alarm_name}" created in {effective_region} on {namespace}/{metric_name} {comparison_operator} {threshold}'
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9035,7 +9057,7 @@ def list_sns_topics(region: Optional[str] = None) -> Dict[str, Any]:
             'success': True,
             'count': len(topics),
             'topics': topics,
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
 
     except ClientError as e:
@@ -9053,16 +9075,19 @@ def create_sns_topic(
 ) -> Dict[str, Any]:
     """Create an SNS topic."""
     try:
+        effective_region = _get_effective_region(region)
         sns = _get_boto_client('sns', region)
         params = {'Name': topic_name}
         if tags:
             params['Tags'] = [{'Key': k, 'Value': v} for k, v in tags.items()]
 
         response = sns.create_topic(**params)
+        topic_arn = response['TopicArn']
         return {
-            'success': True, 'topic_arn': response['TopicArn'], 'topic_name': topic_name,
-            'message': f'Successfully created SNS topic {topic_name}',
-            'region': region or 'default'
+            'success': True, 'topic_arn': topic_arn, 'topic_name': topic_name,
+            'message': f'Successfully created SNS topic {topic_name} in {effective_region}',
+            'region': effective_region,
+            'console_url': f'https://{effective_region}.console.aws.amazon.com/sns/v3/home?region={effective_region}#/topics'
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9089,7 +9114,7 @@ def publish_sns_message(
         return {
             'success': True, 'message_id': response['MessageId'],
             'message': f'Successfully published message to {topic_arn}',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9107,13 +9132,17 @@ def subscribe_sns_topic(
 ) -> Dict[str, Any]:
     """Subscribe to an SNS topic (email, SMS, Lambda, SQS, HTTP/S)."""
     try:
+        effective_region = _get_effective_region(region)
         sns = _get_boto_client('sns', region)
         response = sns.subscribe(TopicArn=topic_arn, Protocol=protocol, Endpoint=endpoint)
+        msg = f'Successfully subscribed {endpoint} ({protocol}) to topic in {effective_region}'
+        if protocol == 'email':
+            msg += '. A confirmation email has been sent — the subscriber must click the link to activate.'
         return {
             'success': True, 'subscription_arn': response['SubscriptionArn'],
             'protocol': protocol, 'endpoint': endpoint,
-            'message': f'Successfully subscribed {endpoint} ({protocol}) to topic',
-            'region': region or 'default'
+            'message': msg,
+            'region': effective_region
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -9131,7 +9160,7 @@ def delete_sns_topic(topic_arn: str, region: Optional[str] = None) -> Dict[str, 
         return {
             'success': True, 'topic_arn': topic_arn,
             'message': f'Successfully deleted SNS topic',
-            'region': region or 'default'
+            'region': _get_effective_region(region)
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
