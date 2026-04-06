@@ -1994,57 +1994,6 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-        /* Artifacts Panel */
-        .artifacts-panel {
-            position: fixed;
-            right: 0;
-            top: 0;
-            height: 100vh;
-            width: 380px;
-            background: var(--bg-secondary);
-            border-left: 1px solid var(--border-subtle);
-            transform: translateX(100%);
-            transition: transform 0.3s ease;
-            z-index: 1000;
-            display: flex;
-            flex-direction: column;
-        }
-        .artifacts-panel.open { transform: translateX(0); }
-        .artifacts-panel-header {
-            padding: 1rem 1.25rem;
-            border-bottom: 1px solid var(--border-subtle);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-weight: 600;
-            font-size: 0.95rem;
-        }
-        .artifacts-panel-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 0.75rem;
-        }
-        .artifact-card {
-            background: var(--bg-primary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 8px;
-            padding: 0.75rem;
-            margin-bottom: 0.5rem;
-            cursor: pointer;
-        }
-        .artifact-card:hover { border-color: var(--accent-primary); }
-        .artifact-card-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; }
-        .artifact-card-meta { font-size: 0.75rem; color: var(--text-secondary); }
-        .artifact-type-chip {
-            display: inline-block;
-            background: rgba(99,102,241,0.15);
-            color: #818cf8;
-            font-size: 0.7rem;
-            padding: 0.15rem 0.45rem;
-            border-radius: 4px;
-            margin-right: 0.35rem;
-        }
-
         /* ── Copy Button ─────────────────────────────────────────── */
         .message-actions {
             display: flex;
@@ -2149,79 +2098,6 @@
             font-family: 'IBM Plex Mono', monospace;
         }
 
-        /* ── Artifact badge in message ───────────────────────────── */
-        .artifact-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            background: rgba(99,102,241,0.12);
-            border: 1px solid rgba(99,102,241,0.3);
-            color: #818cf8;
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-family: 'IBM Plex Mono', monospace;
-            text-decoration: none;
-            transition: background 0.2s;
-            vertical-align: middle;
-        }
-        .artifact-badge:hover { background: rgba(99,102,241,0.22); }
-
-        /* ── Enhanced artifact card with code ───────────────────── */
-        .artifact-card-code {
-            background: var(--bg-primary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 8px;
-            margin-bottom: 0.75rem;
-            overflow: hidden;
-        }
-        .artifact-card-code-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0.5rem 0.75rem;
-            background: rgba(255,255,255,0.03);
-            border-bottom: 1px solid var(--border-subtle);
-        }
-        .artifact-card-code-lang {
-            font-size: 0.72rem;
-            font-family: 'IBM Plex Mono', monospace;
-            color: var(--accent-primary);
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        .artifact-card-code-actions {
-            display: flex;
-            gap: 4px;
-        }
-        .artifact-action-btn {
-            background: none;
-            border: 1px solid var(--border-subtle);
-            border-radius: 4px;
-            color: var(--text-tertiary);
-            cursor: pointer;
-            font-size: 11px;
-            padding: 2px 7px;
-            font-family: 'IBM Plex Mono', monospace;
-            transition: all 0.15s;
-        }
-        .artifact-action-btn:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
-        .artifact-card-code pre {
-            margin: 0;
-            padding: 0.6rem 0.75rem;
-            font-size: 0.72rem;
-            font-family: 'IBM Plex Mono', monospace;
-            color: var(--text-secondary);
-            overflow-x: auto;
-            white-space: pre-wrap;
-            max-height: 260px;
-            word-break: break-word;
-        }
-        .artifact-card-code-filename {
-            font-size: 0.72rem;
-            color: var(--text-tertiary);
-        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
@@ -2305,10 +2181,6 @@
                             <span id="notif-unread-badge" class="notif-badge" style="display:none;">0</span>
                         </button>
                     </div>
-                    <!-- Artifacts panel toggle -->
-                    <button onclick="toggleArtifacts()" title="Artifacts" class="header-button" style="padding:6px 8px;">
-                        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                    </button>
                     <div class="theme-toggle">
                         <button class="theme-toggle-btn active" data-theme="dark" title="Dark Mode">🌙</button>
                         <button class="theme-toggle-btn" data-theme="light" title="Light Mode">☀️</button>
@@ -2801,8 +2673,6 @@
                     if (voiceEnabled) {
                         speakText(rawText, ttsBtn);
                     }
-                    // Extract and save code-block artifacts
-                    extractAndSaveArtifacts(rawText, contentDiv);
                 }
             } catch (error) {
                 textDiv.innerHTML = formatMessage(`Error: ${error.message}`);
@@ -3886,181 +3756,9 @@
             pa.style.display = 'none';
         }
 
-        // ── Artifact Extraction ──────────────────────────────────────────
-        const _langExtMap = {
-            python: 'py', javascript: 'js', typescript: 'ts', bash: 'sh',
-            shell: 'sh', yaml: 'yaml', yml: 'yaml', json: 'json',
-            dockerfile: 'dockerfile', terraform: 'tf', hcl: 'tf',
-            sql: 'sql', html: 'html', css: 'css', go: 'go',
-            java: 'java', ruby: 'rb', rust: 'rs', cpp: 'cpp',
-            c: 'c', xml: 'xml', toml: 'toml', ini: 'ini'
-        };
-
-        // Languages that indicate standalone, artifact-worthy content
-        const _artifactLangs = new Set([
-            'python','javascript','typescript','bash','shell','sh',
-            'yaml','yml','json','dockerfile','terraform','hcl',
-            'sql','html','css','go','java','ruby','rust','cpp',
-            'c','xml','toml','ini','nginx','ansible','makefile','gradle'
-        ]);
-
-        function extractCodeBlocks(text) {
-            const re = /```(\w+)?\n?([\s\S]*?)```/g;
-            const blocks = [];
-            let m;
-            while ((m = re.exec(text)) !== null) {
-                const lang = (m[1] || '').toLowerCase();
-                const code = m[2].trim();
-                const lineCount = code.split('\n').length;
-                // Only treat as artifact if:
-                // - recognised as a file-type language, AND
-                // - at least 8 lines OR 300 characters (filters out inline snippets)
-                if (_artifactLangs.has(lang) && (lineCount >= 8 || code.length >= 300)) {
-                    blocks.push({ lang, code, ext: _langExtMap[lang] || lang });
-                }
-            }
-            return blocks;
-        }
-
-        async function extractAndSaveArtifacts(rawText, contentDiv) {
-            const blocks = extractCodeBlocks(rawText);
-            if (!blocks.length) return;
-
-            const activeItem = document.querySelector('.conversation-item.active');
-            const conversationId = activeItem ? activeItem.getAttribute('data-id') : null;
-
-            const badges = [];
-            for (let i = 0; i < blocks.length; i++) {
-                const b = blocks[i];
-                const title = `${b.lang.toUpperCase()} snippet` + (blocks.length > 1 ? ` ${i+1}` : '');
-                try {
-                    const resp = await fetch('/api/chat/artifacts', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            artifact_type: b.lang,
-                            title,
-                            content: b.code,
-                            conversation_id: conversationId
-                        })
-                    });
-                    if (resp.ok) {
-                        const saved = await resp.json();
-                        badges.push({ id: saved.id, title, lang: b.lang });
-                    }
-                } catch(e) { /* non-fatal */ }
-            }
-
-            if (badges.length) {
-                const badgeRow = document.createElement('div');
-                badgeRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;';
-                badges.forEach(b => {
-                    const a = document.createElement('a');
-                    a.className = 'artifact-badge';
-                    a.href = '#';
-                    a.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> ${escapeHtml(b.title)}`;
-                    a.onclick = function(e) {
-                        e.preventDefault();
-                        const panel = document.getElementById('artifacts-panel');
-                        if (!panel.classList.contains('open')) { toggleArtifacts(); }
-                        else { loadArtifacts(); }
-                    };
-                    badgeRow.appendChild(a);
-                });
-                contentDiv.appendChild(badgeRow);
-                // Reload panel if already open, but do NOT auto-open it
-                const panel = document.getElementById('artifacts-panel');
-                if (panel.classList.contains('open')) { loadArtifacts(); }
-            }
-        }
-
         // Poll unread count every 60s
         fetchNotifications();
         setInterval(fetchNotifications, 60000);
-
-        // ── Artifacts panel ─────────────────────────────────────────────────
-        function toggleArtifacts() {
-            const panel = document.getElementById('artifacts-panel');
-            if (!panel) return;
-            panel.classList.toggle('open');
-            if (panel.classList.contains('open')) {
-                loadArtifacts();
-            }
-        }
-
-        async function loadArtifacts() {
-            try {
-                const activeItem = document.querySelector('.conversation-item.active');
-                const conversationId = activeItem ? activeItem.getAttribute('data-id') : '';
-                const url = '/api/chat/artifacts' + (conversationId ? `?conversation_id=${conversationId}` : '');
-                const resp = await fetch(url);
-                const data = await resp.json();
-                renderArtifacts(data);
-            } catch(e) {
-                document.getElementById('artifacts-panel-body').innerHTML = '<p style="color:#ef4444;font-size:0.82rem;text-align:center">Failed to load artifacts</p>';
-            }
-        }
-
-        function renderArtifacts(data) {
-            const body = document.getElementById('artifacts-panel-body');
-            const artifacts = Array.isArray(data) ? data : [];
-            if (!artifacts.length) {
-                body.innerHTML = '<p style="font-size:0.82rem;color:var(--text-secondary);text-align:center;padding:1rem 0">No artifacts yet.</p>';
-                return;
-            }
-            body.innerHTML = '';
-            artifacts.forEach(function(a) {
-                const isCode = !!a.content;
-                const card = document.createElement('div');
-                card.className = 'artifact-card-code';
-                card.id = 'artifact-card-' + a.id;
-
-                const header = document.createElement('div');
-                header.className = 'artifact-card-code-header';
-
-                const langSpan = document.createElement('div');
-                langSpan.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
-                langSpan.innerHTML = `<span class="artifact-card-code-lang">${escapeHtml(a.artifact_type || 'code')}</span><span class="artifact-card-code-filename">${escapeHtml(a.title || 'Untitled')}</span>`;
-
-                const actions = document.createElement('div');
-                actions.className = 'artifact-card-code-actions';
-
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'artifact-action-btn';
-                copyBtn.textContent = 'Copy';
-                copyBtn.onclick = function() {
-                    navigator.clipboard.writeText(a.content || '').then(function() {
-                        copyBtn.textContent = 'Copied!';
-                        setTimeout(function() { copyBtn.textContent = 'Copy'; }, 1500);
-                    });
-                };
-                actions.appendChild(copyBtn);
-
-                const dlBtn = document.createElement('a');
-                dlBtn.className = 'artifact-action-btn';
-                dlBtn.style.textDecoration = 'none';
-                dlBtn.href = '/api/chat/artifacts/' + a.id + '/export';
-                dlBtn.download = '';
-                dlBtn.textContent = 'Download';
-                actions.appendChild(dlBtn);
-
-                header.appendChild(langSpan);
-                header.appendChild(actions);
-                card.appendChild(header);
-
-                if (a.content) {
-                    const pre = document.createElement('pre');
-                    pre.textContent = a.content;
-                    card.appendChild(pre);
-                }
-
-                body.appendChild(card);
-            });
-        }
-
-        function viewArtifact(id) {
-            window.open('/api/chat/artifacts/' + id, '_blank');
-        }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
@@ -4090,17 +3788,6 @@
         </div>
         <div class="notif-list" id="notifList">
             <div class="notif-empty">No notifications</div>
-        </div>
-    </div>
-
-    <!-- Artifacts Panel -->
-    <div class="artifacts-panel" id="artifacts-panel">
-        <div class="artifacts-panel-header">
-            <span>Artifacts</span>
-            <button onclick="toggleArtifacts()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:1.25rem;">×</button>
-        </div>
-        <div class="artifacts-panel-body" id="artifacts-panel-body">
-            <p style="font-size:0.82rem;color:var(--text-secondary);text-align:center;padding:1rem 0">No artifacts yet. Ask the agent to generate a runbook or report.</p>
         </div>
     </div>
 
