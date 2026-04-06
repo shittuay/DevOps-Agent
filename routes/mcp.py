@@ -458,7 +458,6 @@ def mcp_streamable():
 
     is_batch = isinstance(rpc, list)
     requests_list = rpc if is_batch else [rpc]
-    wants_stream = 'text/event-stream' in request.headers.get('Accept', '')
 
     responses = []
     for req in requests_list:
@@ -470,24 +469,15 @@ def mcp_streamable():
         if resp is not None:
             responses.append(resp)
 
-    if not responses:
-        r = Response('', 202)
-        for k, v in _cors_headers().items():
-            r.headers[k] = v
-        r.headers['Mcp-Session-Id'] = session_id
-        return r
-
     extra_headers = {**_cors_headers(), 'Mcp-Session-Id': session_id}
 
-    if wants_stream:
-        def generate():
-            for r in responses:
-                yield f"event: message\ndata: {json.dumps(r)}\n\n"
-        return Response(generate(), mimetype='text/event-stream',
-                        headers={**extra_headers,
-                                 'Cache-Control': 'no-cache',
-                                 'X-Accel-Buffering': 'no'})
+    if not responses:
+        r = Response('', 202)
+        for k, v in extra_headers.items():
+            r.headers[k] = v
+        return r
 
+    # Always return plain JSON — SSE only for server-push streams, not request/response
     result = responses[0] if not is_batch else responses
     response = jsonify(result)
     for k, v in extra_headers.items():
