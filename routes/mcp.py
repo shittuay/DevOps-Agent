@@ -33,16 +33,19 @@ Supported JSON-RPC methods:
   ping                    Keepalive
 """
 
+import hashlib
+import hmac
 import json
 import logging
 import os
 import queue
+import secrets
 import threading
 import time
 import uuid
 from typing import Any, Dict, Optional
 
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask import Blueprint, Response, jsonify, redirect, render_template_string, request, stream_with_context
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,19 @@ _SESSION_TTL_SECONDS = 600
 MCP_PROTOCOL_VERSION = "2025-03-26"
 SERVER_NAME = "DevOps Agent"
 SERVER_VERSION = "1.0.0"
+
+# ── OAuth 2.0 Authorization Server ───────────────────────────────────────────
+# A single built-in OAuth client for Claude.ai / Claude Desktop connectors.
+# Client ID and Secret are read from env vars (fall back to stable defaults).
+OAUTH_CLIENT_ID     = os.environ.get('MCP_OAUTH_CLIENT_ID',     'claude-connector')
+OAUTH_CLIENT_SECRET = os.environ.get('MCP_OAUTH_CLIENT_SECRET', 'devopsagent-mcp-secret-2026')
+
+# in-memory stores (restart clears them — users just re-auth)
+_oauth_codes:  Dict[str, Dict[str, Any]] = {}   # code  → {user_id, expires, redirect_uri}
+_oauth_tokens: Dict[str, int]            = {}   # token → user_id
+_oauth_lock = threading.Lock()
+_CODE_TTL  = 300   # 5 min
+_TOKEN_TTL = 86400 * 30  # 30 days (stored in memory; restart invalidates)
 
 
 # ── Tool registry (loaded once, cached) ─────────────────────────────────────
@@ -124,20 +140,29 @@ def _to_mcp_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
 
 def _authenticate() -> Optional[Dict[str, Any]]:
     """
-    Validate API key from Authorization header or api_key query param.
-    Returns the key record on success, None on failure.
+    Validate Bearer token — accepts both API keys and OAuth access tokens.
+    Returns an object with a .user_id attribute on success, None on failure.
     """
-    api_key = (
+    bearer = (
         request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
         or request.args.get('api_key', '')
     )
-    if not api_key:
+    if not bearer:
         return None
 
+    # 1. Check OAuth access tokens first (fast in-memory lookup)
+    with _oauth_lock:
+        uid = _oauth_tokens.get(bearer)
+    if uid is not None:
+        class _OAuthUser:
+            def __init__(self, user_id): self.user_id = user_id
+        return _OAuthUser(uid)
+
+    # 2. Fall back to API key lookup
     try:
         from services.api_gateway import APIGatewayService
         svc = APIGatewayService()
-        return svc.get_api_key_by_key(api_key)
+        return svc.get_api_key_by_key(bearer)
     except Exception:
         return None
 
@@ -492,3 +517,139 @@ def _cors_headers() -> dict:
         'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, Mcp-Session-Id',
         'Access-Control-Expose-Headers': 'Mcp-Session-Id',
     }
+
+
+# ── OAuth 2.0 endpoints ───────────────────────────────────────────────────────
+
+_AUTHORIZE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <title>Connect Claude to DevOps Agent</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:sans-serif;background:#0a0a0a;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+    .card{background:#1a1a1a;border:1px solid #333;border-radius:12px;padding:40px;max-width:420px;width:100%;text-align:center}
+    h2{color:#ff6b35;margin-bottom:8px}
+    p{color:#aaa;margin-bottom:24px;font-size:14px}
+    input{width:100%;padding:12px;background:#111;border:1px solid #444;border-radius:8px;color:#eee;font-size:15px;box-sizing:border-box;margin-bottom:12px}
+    button{width:100%;padding:13px;background:#ff6b35;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+    button:hover{background:#e55a25}
+    .err{color:#f87171;font-size:13px;margin-bottom:12px}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h2>DevOps Agent</h2>
+  <p>Sign in to connect Claude to your infrastructure tools.</p>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="POST">
+    <input type="hidden" name="client_id"    value="{{ client_id }}">
+    <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
+    <input type="hidden" name="state"        value="{{ state }}">
+    <input type="email"    name="email"    placeholder="Email"    required autofocus>
+    <input type="password" name="password" placeholder="Password" required>
+    <button type="submit">Authorize</button>
+  </form>
+</div>
+</body>
+</html>"""
+
+
+@mcp_bp.route('/oauth/authorize', methods=['GET', 'POST'])
+def oauth_authorize():
+    """OAuth 2.0 authorization endpoint."""
+    client_id    = request.values.get('client_id', '')
+    redirect_uri = request.values.get('redirect_uri', '')
+    state        = request.values.get('state', '')
+
+    if client_id != OAUTH_CLIENT_ID:
+        return jsonify({'error': 'invalid_client'}), 400
+
+    if request.method == 'GET':
+        return render_template_string(_AUTHORIZE_HTML,
+                                      client_id=client_id,
+                                      redirect_uri=redirect_uri,
+                                      state=state,
+                                      error=None)
+
+    # POST — validate credentials
+    email    = request.form.get('email', '').strip().lower()
+    password = request.form.get('password', '')
+
+    try:
+        from models import User
+        user = User.query.filter_by(email=email).first()
+        if not user or not user.check_password(password):
+            raise ValueError('Invalid email or password')
+    except ValueError as e:
+        return render_template_string(_AUTHORIZE_HTML,
+                                      client_id=client_id,
+                                      redirect_uri=redirect_uri,
+                                      state=state,
+                                      error=str(e))
+    except Exception as e:
+        logger.error(f"OAuth authorize error: {e}", exc_info=True)
+        return render_template_string(_AUTHORIZE_HTML,
+                                      client_id=client_id,
+                                      redirect_uri=redirect_uri,
+                                      state=state,
+                                      error='Server error, please try again')
+
+    # Issue auth code
+    code = secrets.token_urlsafe(32)
+    with _oauth_lock:
+        _oauth_codes[code] = {
+            'user_id':      user.id,
+            'redirect_uri': redirect_uri,
+            'expires':      time.time() + _CODE_TTL,
+        }
+
+    sep = '&' if '?' in redirect_uri else '?'
+    return redirect(f"{redirect_uri}{sep}code={code}&state={state}")
+
+
+@mcp_bp.route('/oauth/token', methods=['POST', 'OPTIONS'])
+def oauth_token():
+    """OAuth 2.0 token endpoint."""
+    if request.method == 'OPTIONS':
+        return Response('', 204, headers=_cors_headers())
+
+    grant_type    = request.form.get('grant_type') or (request.get_json(silent=True) or {}).get('grant_type')
+    code          = request.form.get('code')        or (request.get_json(silent=True) or {}).get('code')
+    client_id     = request.form.get('client_id')   or (request.get_json(silent=True) or {}).get('client_id')
+    client_secret = request.form.get('client_secret') or (request.get_json(silent=True) or {}).get('client_secret')
+
+    if client_id != OAUTH_CLIENT_ID or client_secret != OAUTH_CLIENT_SECRET:
+        resp = jsonify({'error': 'invalid_client'})
+        for k, v in _cors_headers().items():
+            resp.headers[k] = v
+        return resp, 401
+
+    if grant_type != 'authorization_code' or not code:
+        resp = jsonify({'error': 'invalid_request'})
+        for k, v in _cors_headers().items():
+            resp.headers[k] = v
+        return resp, 400
+
+    with _oauth_lock:
+        record = _oauth_codes.pop(code, None)
+
+    if not record or time.time() > record['expires']:
+        resp = jsonify({'error': 'invalid_grant'})
+        for k, v in _cors_headers().items():
+            resp.headers[k] = v
+        return resp, 400
+
+    access_token = secrets.token_urlsafe(48)
+    with _oauth_lock:
+        _oauth_tokens[access_token] = record['user_id']
+
+    resp = jsonify({
+        'access_token': access_token,
+        'token_type':   'Bearer',
+        'expires_in':   _TOKEN_TTL,
+        'scope':        'mcp',
+    })
+    for k, v in _cors_headers().items():
+        resp.headers[k] = v
+    return resp
