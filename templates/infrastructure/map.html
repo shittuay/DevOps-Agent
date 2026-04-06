@@ -248,7 +248,7 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
         <button class="tb-btn" onclick="fitView()">⊡ Fit</button>
         <button class="tb-btn" onclick="zoom(1.25)">＋</button>
         <button class="tb-btn" onclick="zoom(0.8)">－</button>
-        <button class="tb-btn primary" onclick="loadMap()">↻ Refresh</button>
+        <button class="tb-btn primary" id="refreshBtn" onclick="syncAndRefresh()">↻ Refresh</button>
     </div>
 </div>
 
@@ -603,6 +603,18 @@ async function loadMap(){
     }catch(e){
         document.getElementById('emptyState').classList.remove('hidden');
     }
+}
+
+async function syncAndRefresh(){
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Syncing...';
+    try {
+        await fetch('/api/dashboard/sync', { method: 'POST' });
+    } catch(e) { /* non-fatal — still reload cached data */ }
+    await loadMap();
+    btn.disabled = false;
+    btn.textContent = '↻ Refresh';
 }
 
 function esc(s){
