@@ -8531,6 +8531,65 @@ def create_cloudwatch_alarm(
         return {'success': False, 'error': str(e)}
 
 
+def delete_cloudwatch_alarm(
+    alarm_names: List[str],
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """Delete one or more CloudWatch alarms by name."""
+    try:
+        cloudwatch = _get_boto_client('cloudwatch', region)
+        cloudwatch.delete_alarms(AlarmNames=alarm_names)
+        return {
+            'success': True,
+            'deleted': alarm_names,
+            'region': _get_effective_region(region),
+            'message': f'Successfully deleted {len(alarm_names)} CloudWatch alarm(s): {", ".join(alarm_names)}'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error deleting CloudWatch alarm: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_cloudwatch_alarms(
+    state: Optional[str] = None,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """List CloudWatch alarms, optionally filtered by state (OK, ALARM, INSUFFICIENT_DATA)."""
+    try:
+        cloudwatch = _get_boto_client('cloudwatch', region)
+        params = {}
+        if state:
+            params['StateValue'] = state.upper()
+        response = cloudwatch.describe_alarms(**params)
+        alarms = []
+        for a in response.get('MetricAlarms', []):
+            alarms.append({
+                'alarm_name': a['AlarmName'],
+                'alarm_arn': a['AlarmArn'],
+                'state': a.get('StateValue'),
+                'metric': f"{a.get('Namespace')}/{a.get('MetricName')}",
+                'threshold': a.get('Threshold'),
+                'comparison_operator': a.get('ComparisonOperator'),
+                'alarm_actions': a.get('AlarmActions', []),
+                'state_reason': a.get('StateReason', ''),
+            })
+        return {
+            'success': True,
+            'count': len(alarms),
+            'alarms': alarms,
+            'region': _get_effective_region(region),
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing CloudWatch alarms: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def add_tags(
     resource_ids: List[str],
     tags: Dict[str, str],
@@ -16381,6 +16440,31 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['alarm_name', 'metric_name', 'namespace', 'threshold', 'comparison_operator']
             },
             'handler': create_cloudwatch_alarm
+        },
+        {
+            'name': 'list_cloudwatch_alarms',
+            'description': 'List CloudWatch alarms with their current state (OK, ALARM, INSUFFICIENT_DATA), metric, threshold, and linked SNS actions. Use before deleting to confirm alarm names.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'state': {'type': 'string', 'enum': ['OK', 'ALARM', 'INSUFFICIENT_DATA'], 'description': 'Filter by alarm state'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                }
+            },
+            'handler': list_cloudwatch_alarms
+        },
+        {
+            'name': 'delete_cloudwatch_alarm',
+            'description': 'Delete one or more CloudWatch alarms by name. Always call list_cloudwatch_alarms first to confirm the alarm names.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'alarm_names': {'type': 'array', 'items': {'type': 'string'}, 'description': 'List of alarm names to delete'},
+                    'region': {'type': 'string', 'description': 'AWS region'}
+                },
+                'required': ['alarm_names']
+            },
+            'handler': delete_cloudwatch_alarm
         },
         {
             'name': 'add_tags',
