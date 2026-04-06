@@ -1648,6 +1648,83 @@ def delete_disk_snapshot(snapshot_name: str, project_id: Optional[str] = None) -
         return {'success': False, 'error': str(e)}
 
 
+_GCP_READ_METHODS = ('list', 'get', 'aggregated_list', 'list_all', 'list_instances',
+                     'list_by_project', 'list_available', 'read', 'fetch', 'search')
+
+
+def _is_gcp_read(method: str) -> bool:
+    return any(method.lower().startswith(p) for p in _GCP_READ_METHODS)
+
+
+def gcp_api_read(
+    api_name: str,
+    api_version: str,
+    resource_path: str,
+    method: str,
+    params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY GCP read-only API operation via google-api-python-client when no dedicated tool exists.
+
+    Examples:
+      gcp_api_read('cloudfunctions','v2','projects.locations.functions','list',{'parent':'projects/my-proj/locations/-'})
+      gcp_api_read('dns','v1','managedZones','list',{'project':'my-proj'})
+      gcp_api_read('redis','v1','projects.locations.instances','list',{'parent':'projects/my-proj/locations/-'})
+    """
+    if not _is_gcp_read(method):
+        return {'success': False, 'error': f'"{method}" does not look like a read operation. Use gcp_api_write for create/update/delete.'}
+    try:
+        from googleapiclient import discovery as gcp_discovery
+        credentials, project_id = _get_user_gcp_credentials()
+        service = gcp_discovery.build(api_name, api_version, credentials=credentials)
+        # Navigate dot-separated resource path: "projects.locations.functions" → service.projects().locations().functions()
+        obj = service
+        for part in resource_path.split('.'):
+            obj = getattr(obj, part)()
+        all_params = {'project': project_id, **(params or {})}
+        result = obj.__getattribute__(method)(**all_params).execute()
+        return {'success': True, 'api': f'{api_name}/{api_version}', 'resource': resource_path,
+                'method': method, 'result': result}
+    except Exception as e:
+        logger.error(f"gcp_api_read error ({api_name}.{resource_path}.{method}): {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def gcp_api_write(
+    api_name: str,
+    api_version: str,
+    resource_path: str,
+    method: str,
+    params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY GCP write API operation via google-api-python-client when no dedicated tool exists.
+    Requires user confirmation. Always confirm operation and params before calling.
+
+    Examples:
+      gcp_api_write('compute','v1','instances','delete',{'project':'my-proj','zone':'us-central1-a','instance':'my-vm'})
+      gcp_api_write('dns','v1','resourceRecordSets','create',{'project':'my-proj','managedZone':'my-zone','body':{...}})
+      gcp_api_write('redis','v1','projects.locations.instances','patch',{'name':'projects/...','body':{...},'updateMask':'memorySizeGb'})
+    """
+    if _is_gcp_read(method):
+        return {'success': False, 'error': f'"{method}" looks like a read operation. Use gcp_api_read instead.'}
+    try:
+        from googleapiclient import discovery as gcp_discovery
+        credentials, project_id = _get_user_gcp_credentials()
+        service = gcp_discovery.build(api_name, api_version, credentials=credentials)
+        obj = service
+        for part in resource_path.split('.'):
+            obj = getattr(obj, part)()
+        all_params = {'project': project_id, **(params or {})}
+        result = obj.__getattribute__(method)(**all_params).execute()
+        return {'success': True, 'api': f'{api_name}/{api_version}', 'resource': resource_path,
+                'method': method, 'result': result,
+                'message': f'Successfully executed {api_name}.{resource_path}.{method}'}
+    except Exception as e:
+        logger.error(f"gcp_api_write error ({api_name}.{resource_path}.{method}): {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
 # ==================== TOOL REGISTRATION ====================
 
 
@@ -2232,5 +2309,49 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['snapshot_name']
             },
             'handler': delete_disk_snapshot
-        }
+        },
+        {
+            'name': 'gcp_api_read',
+            'description': (
+                'Call ANY GCP read-only API via google-api-python-client when no dedicated tool exists. '
+                'Use for list/get operations across any GCP service. '
+                'Examples: Cloud Functions v2 list, Cloud DNS managedZones list, '
+                'Memorystore Redis instances list, Cloud Armor security policies list, '
+                'Cloud Scheduler jobs list, Artifact Registry repositories list. '
+                'Never use for create/update/delete — use gcp_api_write for those.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'api_name': {'type': 'string', 'description': 'GCP API name e.g. compute, dns, redis, cloudfunctions, cloudscheduler, artifactregistry'},
+                    'api_version': {'type': 'string', 'description': 'API version e.g. v1, v2, v1beta1'},
+                    'resource_path': {'type': 'string', 'description': 'Dot-separated resource path e.g. instances, managedZones, projects.locations.functions'},
+                    'method': {'type': 'string', 'description': 'Method name e.g. list, get, aggregatedList'},
+                    'params': {'type': 'object', 'description': 'API parameters (project is auto-injected)'}
+                },
+                'required': ['api_name', 'api_version', 'resource_path', 'method']
+            },
+            'handler': gcp_api_read
+        },
+        {
+            'name': 'gcp_api_write',
+            'description': (
+                'Call ANY GCP write API via google-api-python-client when no dedicated tool exists. '
+                'Requires user confirmation. '
+                'Examples: delete a Cloud Scheduler job, create a DNS record, '
+                'patch a Redis instance memory size, enable a GCP service API.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'api_name': {'type': 'string', 'description': 'GCP API name e.g. compute, dns, redis, cloudfunctions'},
+                    'api_version': {'type': 'string', 'description': 'API version e.g. v1, v2'},
+                    'resource_path': {'type': 'string', 'description': 'Dot-separated resource path e.g. instances, managedZones'},
+                    'method': {'type': 'string', 'description': 'Method name e.g. delete, insert, patch, create'},
+                    'params': {'type': 'object', 'description': 'API parameters (project is auto-injected)'}
+                },
+                'required': ['api_name', 'api_version', 'resource_path', 'method']
+            },
+            'handler': gcp_api_write
+        },
     ]
