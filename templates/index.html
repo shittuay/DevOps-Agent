@@ -77,12 +77,12 @@
             background: var(--glass-bg);
             border: 1px solid var(--glass-border);
             border-radius: 50px;
-            padding: 4px;
+            padding: 3px;
         }
 
         .theme-toggle-btn {
-            width: 40px;
-            height: 40px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
             border: none;
             background: transparent;
@@ -92,7 +92,7 @@
             align-items: center;
             justify-content: center;
             transition: all 0.3s ease;
-            font-size: 18px;
+            font-size: 14px;
         }
 
         .theme-toggle-btn.active {
@@ -2164,6 +2164,11 @@
                     <a href="/infrastructure/map" class="header-button">Map</a>
                     <a href="/analysis" class="header-button">Analysis</a>
                     <a href="/curriculum" class="header-button">Learn</a>
+                    <div class="nav-sep"></div>
+                    <div class="theme-toggle">
+                        <button class="theme-toggle-btn active" data-theme="dark" title="Dark Mode">🌙</button>
+                        <button class="theme-toggle-btn" data-theme="light" title="Light Mode">☀️</button>
+                    </div>
                 </nav>
 
                 <!-- Right: status + utilities -->
@@ -2180,10 +2185,6 @@
                             <span>🔔</span>
                             <span id="notif-unread-badge" class="notif-badge" style="display:none;">0</span>
                         </button>
-                    </div>
-                    <div class="theme-toggle">
-                        <button class="theme-toggle-btn active" data-theme="dark" title="Dark Mode">🌙</button>
-                        <button class="theme-toggle-btn" data-theme="light" title="Light Mode">☀️</button>
                     </div>
                     <div class="menu-button" style="position: relative;">
                         <button class="profile-button" onclick="toggleMenu()" title="Profile Menu">
