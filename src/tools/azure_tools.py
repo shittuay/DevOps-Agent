@@ -1406,6 +1406,87 @@ def delete_public_ip(resource_group: str, public_ip_name: str) -> Dict[str, Any]
         return {'success': False, 'error': str(e)}
 
 
+_AZURE_READ_PREFIXES = ('list', 'get', 'check', 'validate', 'begin_list', 'begin_get')
+
+
+def _is_azure_read(operation: str) -> bool:
+    op = operation.lower().split('.')[-1]
+    return any(op.startswith(p) for p in _AZURE_READ_PREFIXES)
+
+
+def _azure_execute(client_type: str, operation_path: str, params: Optional[Dict[str, Any]]) -> Any:
+    """Navigate Azure SDK client hierarchy and call a method. Handles paged iterators."""
+    client = _get_azure_client(client_type)
+    if client is None:
+        raise Exception(f'Unknown Azure client type: "{client_type}". '
+                        'Valid values: compute, storage, network, resource, monitor, container, sql')
+    parts = operation_path.strip().split('.')
+    obj = client
+    for part in parts[:-1]:
+        obj = getattr(obj, part)
+    method = getattr(obj, parts[-1])
+    result = method(**(params or {}))
+    # Handle Azure paged iterators
+    if hasattr(result, '__iter__') and hasattr(result, 'by_page'):
+        items = [r.as_dict() if hasattr(r, 'as_dict') else str(r) for r in result]
+        return items
+    # Handle LRO pollers (begin_* methods)
+    if hasattr(result, 'result'):
+        final = result.result()
+        return final.as_dict() if hasattr(final, 'as_dict') else str(final)
+    if hasattr(result, 'as_dict'):
+        return result.as_dict()
+    return result
+
+
+def azure_api_read(
+    client_type: str,
+    operation_path: str,
+    params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY Azure read-only SDK operation (list/get/check) when no dedicated tool exists.
+
+    Examples:
+      azure_api_read('compute', 'virtual_machine_scale_sets.list', {'resource_group_name': 'my-rg'})
+      azure_api_read('network', 'application_gateways.list_all', {})
+      azure_api_read('monitor', 'alert_rules.list_by_resource_group', {'resource_group_name': 'my-rg'})
+    """
+    if not _is_azure_read(operation_path):
+        return {'success': False, 'error': f'"{operation_path}" does not look like a read operation. Use azure_api_write for create/update/delete.'}
+    try:
+        result = _azure_execute(client_type, operation_path, params)
+        return {'success': True, 'client_type': client_type, 'operation': operation_path, 'result': result}
+    except Exception as e:
+        logger.error(f"azure_api_read error ({client_type}.{operation_path}): {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def azure_api_write(
+    client_type: str,
+    operation_path: str,
+    params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Call ANY Azure write SDK operation (create/update/delete/begin_*) when no dedicated tool exists.
+    Requires user confirmation. Always confirm operation and params before calling.
+
+    Examples:
+      azure_api_write('compute', 'virtual_machines.begin_deallocate', {'resource_group_name': 'my-rg', 'vm_name': 'my-vm'})
+      azure_api_write('network', 'load_balancers.begin_delete', {'resource_group_name': 'my-rg', 'load_balancer_name': 'my-lb'})
+      azure_api_write('monitor', 'metric_alerts.create_or_update', {'resource_group_name': 'rg', 'rule_name': 'cpu-alert', 'parameters': {...}})
+    """
+    if _is_azure_read(operation_path):
+        return {'success': False, 'error': f'"{operation_path}" looks like a read operation. Use azure_api_read instead.'}
+    try:
+        result = _azure_execute(client_type, operation_path, params)
+        return {'success': True, 'client_type': client_type, 'operation': operation_path, 'result': result,
+                'message': f'Successfully executed {client_type}.{operation_path}'}
+    except Exception as e:
+        logger.error(f"azure_api_write error ({client_type}.{operation_path}): {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
 # ==================== TOOL REGISTRATION ====================
 
 
@@ -2115,5 +2196,45 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['resource_group', 'public_ip_name']
             },
             'handler': delete_public_ip
-        }
+        },
+        {
+            'name': 'azure_api_read',
+            'description': (
+                'Call ANY Azure read-only SDK operation (list/get/check) when no dedicated tool exists. '
+                'client_type: compute, storage, network, resource, monitor, container, sql. '
+                'operation_path: dot-separated SDK path e.g. "virtual_machine_scale_sets.list", '
+                '"application_gateways.list_all", "alert_rules.list_by_resource_group", '
+                '"managed_disks.list_by_resource_group", "availability_sets.list". '
+                'Never use for create/update/delete — use azure_api_write for those.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'client_type': {'type': 'string', 'enum': ['compute', 'storage', 'network', 'resource', 'monitor', 'container', 'sql'], 'description': 'Azure SDK client type'},
+                    'operation_path': {'type': 'string', 'description': 'Dot-separated SDK path e.g. virtual_machine_scale_sets.list'},
+                    'params': {'type': 'object', 'description': 'Method parameters e.g. {"resource_group_name": "my-rg"}'}
+                },
+                'required': ['client_type', 'operation_path']
+            },
+            'handler': azure_api_read
+        },
+        {
+            'name': 'azure_api_write',
+            'description': (
+                'Call ANY Azure write SDK operation (create_or_update/begin_delete/begin_create/update) when no dedicated tool exists. '
+                'Requires user confirmation. '
+                'Examples: "virtual_machines.begin_deallocate", "load_balancers.begin_delete", '
+                '"metric_alerts.create_or_update", "network_security_groups.begin_create_or_update".'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'client_type': {'type': 'string', 'enum': ['compute', 'storage', 'network', 'resource', 'monitor', 'container', 'sql'], 'description': 'Azure SDK client type'},
+                    'operation_path': {'type': 'string', 'description': 'Dot-separated SDK path e.g. virtual_machines.begin_deallocate'},
+                    'params': {'type': 'object', 'description': 'Method parameters'}
+                },
+                'required': ['client_type', 'operation_path']
+            },
+            'handler': azure_api_write
+        },
     ]
