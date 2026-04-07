@@ -4,19 +4,32 @@
   "version": "1.0.2",
   "description": "MCP server for DevOps Agent — manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, and more from any MCP-compatible AI client. 401 tools across 13 modules.",
   "keywords": [
-    "mcp", "mcp-server", "devops", "aws", "kubernetes", "azure",
-    "gcp", "terraform", "cloud", "infrastructure", "claude",
-    "anthropic", "automation", "model-context-protocol"
+    "mcp",
+    "mcp-server",
+    "devops",
+    "aws",
+    "kubernetes",
+    "azure",
+    "gcp",
+    "terraform",
+    "cloud",
+    "infrastructure",
+    "claude",
+    "anthropic",
+    "automation",
+    "model-context-protocol"
   ],
   "homepage": "https://devopsagent.io",
   "repository": {
     "type": "git",
-    "url": "https://github.com/shittuay/DevOps-Agent"
+    "url": "git+https://github.com/shittuay/DevOps-Agent.git"
   },
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
-    "devopsagent-mcp": "./bin/server.js"
+    "devopsagent-mcp": "bin/server.js"
   },
   "files": [
     "bin/",
