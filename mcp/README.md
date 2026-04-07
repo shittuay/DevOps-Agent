@@ -2,11 +2,28 @@
 
 Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more from any MCP-compatible AI client. **401 tools across 13 modules** — all accessible via a single connection.
 
-## Quickstart (Claude Desktop — recommended)
+## Prerequisites
 
-**Step 1:** Get your API key at [devopsagent.io/api-gateway/keys](https://devopsagent.io/api-gateway/keys)
+- **Node.js 18+** — required to run the stdio bridge via `npx`
+- An API key from [devopsagent.io](https://devopsagent.io) (see [Getting Your API Key](#getting-your-api-key))
+- No npm account needed — you're just a user of the published package
 
-**Step 2:** Add to your `claude_desktop_config.json`:
+## Getting Your API Key
+
+1. Log in at [devopsagent.io](https://devopsagent.io)
+2. Navigate to **Settings → API Keys**
+3. Click **Generate Key** — your key will be prefixed with `doa_live_`
+4. Copy it and use it as `DEVOPSAGENT_API_KEY` in the steps below
+
+## Installation via npm (Claude Desktop / Claude Code)
+
+**Step 1:** Get your API key (see above)
+
+**Step 2:** Find your Claude Desktop config file:
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+**Step 3:** Add this to the file (create it if it doesn't exist):
 
 ```json
 {
@@ -14,46 +31,94 @@ Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more 
     "devops-agent": {
       "command": "npx",
       "args": ["-y", "@devopsagent/mcp-server"],
-      "env": { "DEVOPSAGENT_API_KEY": "doa_live_your_key_here" }
-    }
-  }
-}
-```
-
-Restart Claude Desktop — all 401 tools appear automatically.
-
-> **Requires Node.js 18+.** The `npx` command downloads and runs the bridge automatically on first use.
-
-## Alternative: direct SSE (no Node.js required)
-
-If you prefer not to use Node.js, connect directly via SSE:
-
-```json
-{
-  "mcpServers": {
-    "devops-agent": {
-      "url": "https://devopsagent.io/mcp/sse",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
+      "env": {
+        "DEVOPSAGENT_API_KEY": "your_api_key_here"
       }
     }
   }
 }
 ```
 
-## Connect via Claude.ai (OAuth)
+**Step 4:** Fully quit and restart Claude Desktop.
 
-1. Go to **Claude.ai → Settings → Connectors → Add custom connector**
-2. Fill in:
+All 401 tools will appear automatically under the tools (hammer) icon in the chat input.
 
-| Field | Value |
-|-------|-------|
-| Name | `DevOps Agent` |
-| Remote MCP server URL | `https://devopsagent.io/mcp` |
-| OAuth Client ID | `claude-connector` |
-| OAuth Client Secret | `devopsagent-mcp-secret-2026` |
+> The `npx` command downloads and runs the bridge automatically on first use — nothing else to install.
 
-3. Click **Add** — sign in with your DevOps Agent account to authorize.
+## Installation via Remote URL (Claude.ai Connectors)
+
+No Node.js needed for this method — Claude.ai connects directly to the hosted server.
+
+1. Go to **Claude.ai → Settings → Connectors → Add Integration**
+2. Enter the Integration URL: `https://devopsagent.io/mcp/`
+3. Claude.ai will trigger OAuth automatically — log in with your devopsagent.io account to authorize
+4. All 401 tools become available immediately
+
+## Verifying the Connection
+
+Run this curl command to confirm your API key works before adding it to Claude Desktop:
+
+```bash
+curl -s https://devopsagent.io/mcp/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+Expected response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2025-03-26",
+    "serverInfo": { "name": "DevOps Agent", "version": "1.0.3" },
+    "capabilities": { "tools": { "listChanged": false } }
+  }
+}
+```
+
+If you get a `401` response, your API key is invalid or not yet created.
+
+You can also test the stdio bridge directly in your terminal:
+
+```bash
+DEVOPSAGENT_API_KEY=your_api_key_here npx -y @devopsagent/mcp-server@latest
+```
+
+It will hang waiting on stdin — that means it's working. Paste the line below and press Enter:
+
+```
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
+```
+
+You should see the JSON response above. Press `Ctrl+C` to exit.
+
+## Troubleshooting
+
+**"Couldn't reach MCP server" in Claude.ai**
+- Re-add the connector — go to Settings → Connectors, remove the existing entry, and add it again
+- Make sure the OAuth flow completed fully (you were redirected back to Claude.ai after logging in)
+- Try the curl verification command above to confirm the server is reachable
+
+**npx fails with `command not found` or exits silently**
+- Confirm Node.js 18+ is installed: `node --version`
+- Confirm `DEVOPSAGENT_API_KEY` is set — if missing, the bridge exits immediately with an error on stderr
+- Try with an explicit version: `npx -y @devopsagent/mcp-server@latest`
+- Clear the npx cache and retry: `npm cache clean --force`
+
+**Tools not appearing in Claude Desktop**
+- Fully quit Claude Desktop (check system tray / menu bar) and reopen — a window close is not enough
+- Check the config file path is correct for your OS (Windows vs macOS differ)
+- Validate your JSON is well-formed — a single missing comma breaks the whole config
+
+**401 Unauthorized errors**
+- The API key must be created at devopsagent.io/settings (keys prefixed `doa_live_` are valid)
+- Keys are per-user — make sure you're logged into the right account when generating
+
+**`tools_loaded` count higher than 401**
+- This is a known cosmetic issue caused by some tool modules loading twice on the server
+- All tools work correctly — only the count in `devopsagent_health` is inflated
 
 ## Tools
 
@@ -73,19 +138,19 @@ If you prefer not to use Node.js, connect directly via SSE:
 | Nexus | 12 | Repositories, components, assets |
 | Git | 6 | Status, branches, commits, diff, PRs |
 
-## Environment variables
+## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DEVOPSAGENT_API_KEY` | Yes | — | API key from devopsagent.io/api-gateway/keys |
-| `DEVOPSAGENT_MCP_URL` | No | `https://devopsagent.io/mcp/` | Override MCP endpoint (for self-hosted instances) |
+| `DEVOPSAGENT_API_KEY` | Yes | — | API key from devopsagent.io Settings → API Keys |
+| `DEVOPSAGENT_MCP_URL` | No | `https://devopsagent.io/mcp/` | Override endpoint (self-hosted instances only) |
 
-## Server details
+## Server Details
 
 | Property | Value |
 |----------|-------|
 | MCP Protocol | `2025-03-26` |
-| Transports | Streamable HTTP (`POST /mcp`) + HTTP+SSE (`GET /mcp/sse`) + stdio (via `npx`) |
+| Transports | Streamable HTTP (`POST /mcp/`) + HTTP+SSE (`GET /mcp/sse`) + stdio (via `npx`) |
 | Auth | OAuth 2.0 (Claude.ai) or API Key (Claude Desktop / npx) |
 | Registry | `io.github.shittuay/devops-agent` |
 | Health check | `GET https://devopsagent.io/mcp/health` |
@@ -93,6 +158,6 @@ If you prefer not to use Node.js, connect directly via SSE:
 ## Links
 
 - **Website:** [devopsagent.io](https://devopsagent.io)
-- **API Keys:** [devopsagent.io/api-gateway/keys](https://devopsagent.io/api-gateway/keys)
+- **API Keys:** [devopsagent.io/settings](https://devopsagent.io/settings)
 - **GitHub:** [github.com/shittuay/DevOps-Agent](https://github.com/shittuay/DevOps-Agent)
 - **npm:** [@devopsagent/mcp-server](https://www.npmjs.com/package/@devopsagent/mcp-server)
