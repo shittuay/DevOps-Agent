@@ -2,6 +2,11 @@
 
 All notable changes to `@devopsagent/mcp-server` are documented here.
 
+## [1.0.3] - 2026-04-07
+
+### Fixed
+- Add `mcp-server` bin entry so `npx @devopsagent/mcp-server` resolves correctly on all platforms (npx looks for a bin matching the unscoped package name)
+
 ## [1.0.2] - 2026-04-07
 
 ### Added

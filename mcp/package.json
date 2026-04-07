@@ -1,7 +1,7 @@
 {
   "name": "@devopsagent/mcp-server",
   "mcpName": "io.github.shittuay/devops-agent",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "MCP server for DevOps Agent — manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, and more from any MCP-compatible AI client. 401 tools across 13 modules.",
   "keywords": [
     "mcp",
@@ -29,6 +29,7 @@
     "node": ">=18"
   },
   "bin": {
+    "mcp-server": "bin/server.js",
     "devopsagent-mcp": "bin/server.js"
   },
   "files": [
