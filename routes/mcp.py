@@ -60,7 +60,7 @@ _SESSION_TTL_SECONDS = 600
 
 MCP_PROTOCOL_VERSION = "2025-03-26"
 SERVER_NAME = "DevOps Agent"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.0.2"
 
 # ── OAuth 2.0 Authorization Server ───────────────────────────────────────────
 # A single built-in OAuth client for Claude.ai / Claude Desktop connectors.
@@ -233,14 +233,34 @@ def _handle_initialize(req_id: Any, params: Dict, user_id: int) -> Dict:
 
 def _handle_tools_list(req_id: Any, params: Dict, user_id: int) -> Dict:
     tools, _ = _get_all_tools()
+    health_tool = {
+        "name": "devopsagent_health",
+        "description": "Returns server status, protocol version, and tool count. No cloud credentials required.",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    }
     return _ok(req_id, {
-        "tools": [_to_mcp_tool(t) for t in tools],
+        "tools": [health_tool] + [_to_mcp_tool(t) for t in tools],
     })
 
 
 def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
     tool_name = params.get("name", "")
     arguments = params.get("arguments") or {}
+
+    # Built-in tool — no cloud credentials needed
+    if tool_name == "devopsagent_health":
+        tools, _ = _get_all_tools()
+        return _ok(req_id, {
+            "content": [{"type": "text", "text": json.dumps({
+                "status": "ok",
+                "server": SERVER_NAME,
+                "version": SERVER_VERSION,
+                "protocol": MCP_PROTOCOL_VERSION,
+                "tools_loaded": len(tools),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }, indent=2)}],
+            "isError": False,
+        })
 
     _, tool_map = _get_all_tools()
 
@@ -276,7 +296,10 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
         return _err(req_id, -32602, f"Invalid tool arguments: {e}")
     except Exception as e:
         logger.error(f"MCP tool '{tool_name}' error for user {user_id}: {e}", exc_info=True)
-        return _err(req_id, -32603, f"Tool execution error: {e}")
+        return _ok(req_id, {
+            "content": [{"type": "text", "text": f"Tool execution error: {e}"}],
+            "isError": True,
+        })
 
     # Normalise result to MCP content array
     if isinstance(result, dict):
