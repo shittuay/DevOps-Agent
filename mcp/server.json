@@ -1,14 +1,26 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "io.github.shittuay/devops-agent",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "title": "DevOps Agent",
-  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 401 tools.",
+  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 643 tools.",
   "websiteUrl": "https://devopsagent.io",
   "repository": {
     "url": "https://github.com/shittuay/DevOps-Agent",
     "source": "github"
   },
+  "icons": {
+    "light": "https://devopsagent.io/static/icons/mcp-icon-light.png",
+    "dark": "https://devopsagent.io/static/icons/mcp-icon-dark.png"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@devopsagent/mcp-server",
+      "version": "1.0.4",
+      "transport": "stdio"
+    }
+  ],
   "remotes": [
     {
       "url": "https://devopsagent.io/mcp/",
