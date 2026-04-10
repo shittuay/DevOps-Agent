@@ -1,0 +1,108 @@
+# DevOps Agent - Runbook & Historical Fixes
+
+> Historical bug fixes, resolved issues, and gotchas.\n> See CLAUDE.md for active development guidance.
+
+This document archives fixed issues and their solutions for reference. Most issues here are already resolved in the codebase and documented in git history.
+
+## Resolved Issues / Gotchas
+
+| Issue | Solution |
+|-------|----------|
+| **"File has not been read yet" error** | After context compression, must re-read the file section before editing. This is a Claude Code limitation — always `Read` before `Edit`. |
+| **Unregistered functions** | Functions can exist in tool files but not be in `get_tools()`. Verify with the unregistered function finder command below. |
+| **K8s extra API clients** | `_get_k8s_client()` only returns `(CoreV1Api, AppsV1Api)`. For Ingress use `client.NetworkingV1Api()`, for Jobs use `client.BatchV1Api()` — create inline after calling the helper. |
+| **AWS thread-local credentials** | `_get_boto_client()` uses thread-local storage for per-user credentials. Never create boto3 clients directly or credentials won't be isolated. |
+| **Azure async operations** | Most Azure write operations use `begin_*()` returning a poller. Must call `.result()` to wait for completion or the operation may not finish. |
+| **GCP project resolution** | Always use `_resolve_project_id(project_id)`. Resolution order: explicit param > per-user credentials > `GOOGLE_CLOUD_PROJECT` env var. |
+| **Safety.py must be updated** | Every new delete tool MUST be added to `high_risk_tools` in `safety.py`. Forgetting this silently defaults to low risk with no confirmation. |
+| **Test fixtures flaky** | Existing test suite has pre-existing SQLite unique constraint failures in `conftest.py`. These are unrelated to tool changes. |
+| **IAM role deletion** | AWS `delete_iam_role` requires cleanup: detach managed policies, delete inline policies, remove from instance profiles — all before the role itself can be deleted. |
+| **Billing payment bypass (FIXED)** | Legacy endpoints `/api/subscription/upgrade` and `/api/credits/purchase` granted free credits without Stripe payment. Now return 403. All credit granting goes through Stripe webhook `handle_checkout_completed()`. |
+| **Stripe price IDs not loading in production** | `MANAGED_SECRET_KEYS` in `secrets_manager.py` was missing Stripe price IDs. Added all `STRIPE_PRICE_*` and `STRIPE_PUBLISHABLE_KEY` to the list. Must also be added to AWS Secrets Manager JSON. |
+| **Credit pack size mismatch** | Billing page showed packs of 50/200 but Stripe config has 100/250. Fixed billing.html to match Stripe: 100/$10, 250/$20, 500/$35, 1000/$60. |
+| **Subscription price mismatch (FIXED)** | `create_stripe_prices.py` had $49/$199/$799 while billing page showed $10/$30/$100. Aligned everything to $29/$99/$299. Business tier changed from unlimited to 10,000 credits. Old Stripe prices were inactive — must run script to create new active prices. |
+| **`resolve_model_for_tier('free')` no longer returns Groq** | Free tier now maps to `claude-sonnet-4-6` (Anthropic). All Groq fallback paths must use explicit `ModelConfig(provider='groq', model='llama-3.3-70b-versatile', ...)` or the `GROQ_FALLBACK_MODEL` constant in `chat_service.py`. Never call `resolve_model_for_tier('free')` when you need a Groq config. |
+| **Free-tier credit exhaustion returns 200, not 402** | When free-tier users run out of credits, endpoints return a 200 with `generate_upgrade_pitch()` and `trial_ended: true`. Only paid users get a 402. Frontend checks `trial_ended` in the SSE `done` event to show the upgrade CTA. |
+| **Injection patterns were log-only (FIXED)** | `input_sanitizer.py` originally logged injection patterns but never blocked them. Now `validate_message()` returns `(False, reason)` on any match — callers must check the return value and reject the message. `sanitize_input()` still just cleans chars; call `validate_message()` separately for policy enforcement. |
+| **Guardrail screen fails open** | `screen_message()` in `guardrails.py` catches all exceptions and returns `blocked=False`. This is intentional — an Anthropic outage should not take down the chat endpoint. Pattern-matching in `validate_message()` is always the first line of defense. |
+| **MonitoringRule.to_dict() missing fields** | `pending_since` and `firing_since` were not serialized. Always include them — templates and API clients rely on these to show time-in-state. |
+| **Alert history unbounded growth** | `ProactiveMonitoringService.alert_history` had no size cap. Capped at 500 entries (`_max_alert_history`). Trim on append. |
+| **Monitoring notification only fired on 'firing'** | `send_alert_notification()` in `app.py` only handled `event_type == 'firing'`. Changed to `in ('firing', 'resolved')` so resolution notifications are also sent. |
+| **Built-in playbook IDs mismatch (FIXED)** | `routes/incidents.py` protection list had `disk-full` and `pod-crash-loop` which don't match registered IDs (`disk-space-low`, `pod-crashloop`). Also `high-error-rate`/`latency-spike` were referenced but never registered. Corrected list: `high-cpu-usage`, `memory-pressure`, `disk-space-low`, `pod-crashloop`, `service-down`, `security-alert`. |
+| **Missing incident action handlers** | `ActionType.FAILOVER`, `ROLLBACK`, and `ROTATE_CREDENTIALS` were defined in the enum but had no registered handlers. Calling a playbook that uses them raised KeyError. Stub handlers added to `incident_response.py`. |
+| **root_cause_analyzer invalid model (FIXED)** | Used `claude-sonnet-4-20250514` which is not a valid model ID — analysis API calls were failing. Changed to `claude-sonnet-4-5-20250929`. |
+| **Analysis dashboard dict vs object access** | `get_all_analyses()` returns `list[dict]` but `templates/analysis/dashboard.html` used dot notation (`analysis.id`). Must use bracket notation (`analysis['id']`). |
+| **CostOptimization status='active' wrong (FIXED)** | Dashboard sync route queried `status='active'` but the model uses `status='pending'`. Cost savings notifications never fired. Changed to `'pending'`. |
+| **Azure/GCP resource.metadata vs resource_metadata (FIXED)** | `infrastructure_sync.py` used `resource.metadata` for Azure VMs, SQL, GCP compute, and GKE — but the column is `resource_metadata`. 5 occurrences replaced with `resource_metadata`. |
+| **RDS metadata missing db_instance_identifier** | `sync_aws_rds_instances()` stored `db_class` but not `db_instance_identifier`. `app.py` line 2873 expects this key for utilization lookup — was silently returning empty. |
+| **Analytics routes calling non-existent methods (FIXED)** | `routes/analytics.py` called 6 methods that didn't exist on `AnalyticsService`: `get_cost_analytics`, `forecast_costs`, `get_resource_utilization`, `get_alerts_summary`, `get_deployment_stats`, `get_incident_stats`. All added. Also `get_time_series()` was called with 3-4 args but only accepts 2. Routes fixed to use correct signatures. |
+| **Analytics period parsing crash** | `int(period.replace('d', ''))` crashes for `'24h'`. Changed to `int(period.rstrip('dh'))` with a guard. |
+| **DriftReport.drifted_resources is int not list** | `len(report.drifted_resources)` raised `TypeError`. It's already an int count — use directly without `len()`. |
+| **API Gateway decorator called wrong methods (FIXED)** | `api_key_required` called `validate_api_key()` (doesn't exist → use `get_api_key_by_key()`) and treated `check_rate_limit()` return as bool (it returns `tuple(bool, dict)` — must unpack). |
+| **API Gateway usage stats method name** | `service.get_usage_stats()` doesn't exist. Correct method is `get_api_usage_stats()`. |
+| **Compliance service/route API mismatch (FIXED)** | Routes called ~22 methods that don't exist on `ComplianceService` (e.g., `get_enabled_frameworks`, `get_framework_controls`, `get_violations`, etc.). Added adapter methods to the service class. Routes also called `enable_framework(framework_id)` and `run_compliance_check(framework_id)` with wrong signatures — fixed to pass `user_id` and `framework_name`. |
+| **Contact widget blocks send button on mobile** | Fixed: floating contact button (`position:fixed; bottom:24px; right:24px`) overlaps the send button on mobile. Hidden with `display:none` inside `@media (max-width: 768px)` in `templates/index.html`. |
+| **RateLimitExceeded shows as 500 (FIXED)** | `@app.errorhandler(Exception)` intercepted `RateLimitExceeded` before Flask handled it as 429, rendering the 500 template. Fixed by adding a dedicated `@app.errorhandler(RateLimitExceeded)` handler above the generic one. Returns JSON `{error: ...}` with 429 for API/chat routes, inline HTML for page routes. Import: `from flask_limiter.errors import RateLimitExceeded`. |
+| **`resolve_model_for_tier('free')` now returns Kimi** | Free and Starter tiers default to `kimi` provider. Use `resolve_model_with_preference(tier_name, preferred_provider)` to respect user overrides. The `provider` parameter on `process_message_isolated()` and `process_message_streaming()` routes to `_call_kimi_api()` when set to `'kimi'`. |
+| **Kimi tool format differs from Anthropic** | Anthropic uses `{name, description, input_schema}`. Kimi (OpenAI-compatible) uses `{type: "function", function: {name, description, parameters}}`. `_convert_tools_to_openai_format()` in `core.py` handles the conversion. |
+| **Kimi K2.5 rejects temperature != 1 (FIXED)** | K2.5 is a reasoning model that only accepts `temperature=1`. Passing `temperature=0.7` caused 400 errors. Fixed in `core.py`: skip temperature param when model contains `k2`. |
+| **Kimi reasoning_content missing in tool calls (FIXED)** | Kimi K2.5 streams `reasoning_content` (thinking tokens) that must be preserved in assistant messages during multi-turn tool-use conversations. If omitted, subsequent API calls fail with "thinking is enabled but reasoning_content is missing". Fixed by collecting `reasoning_content` from streaming deltas and including it in the assistant message dict. |
+| **AWS dual-mode auth (access keys + role ARN)** | `credential_service.py` supports both `auth_mode='access_key'` (direct keys) and `auth_mode='role_arn'` (STS AssumeRole with temp creds). Settings UI has toggle. Small teams use access keys; enterprise uses cross-account role delegation. |
+| **11 missing DB columns caused 500 error (FIXED)** | New model fields (`preferred_model_provider`, `learning_mode`, `sandbox_mode`, `learning_level`, `email_verified`, `email_verification_token`, `email_verification_sent_at`, `password_reset_token`, `password_reset_expires`, `guardrail_violations`, `guardrail_blocked_until`) weren't in the DB. Fixed by running `migrate_missing_columns.py`. |
+| **Env var name mismatch for Kimi (FIXED)** | `.env` had `kimi_API_KEY` but code reads `MOONSHOT_API_KEY`. Renamed in `.env`. |
+| **NGN payments simplified to Stripe (FIXED)** | Replaced Paystack (primary) + Flutterwave (fallback) with Stripe NGN currency support. Deleted `services/paystack_integration.py`, `services/flutterwave_integration.py`, `scripts/create_paystack_plans.py`, `scripts/create_flutterwave_plans.py`. Existing Stripe checkout routes now accept `currency` param. NGN Stripe Price IDs stored in `NGNPriceConfig.stripe_price_id_ngn`. Run `scripts/create_stripe_ngn_prices.py` to create NGN prices in Stripe. |
+| **Env file load order: `config/.env` wins (CRITICAL)** | App loads `config/.env` first, then `.env`, both with `override=False`. First-loaded value wins. Always update `config/.env` when changing env vars — `.env` is a fallback only. Missing `STRIPE_PRICE_BUSINESS` in `config/.env` caused checkout to fail even though `.env` had the value. |
+| **`base.html` template missing (FIXED)** | 27 blueprint templates (analytics, compliance, ai_infrastructure, etc.) extend `base.html` but it didn't exist. Created `templates/base.html` with full layout (header nav, fonts, CSS variables, responsive design). |
+| **Auto-migration at app startup (ADDED)** | `db.create_all()` only creates new tables, never adds columns to existing tables. Added auto-migration after `db.create_all()` that inspects all models, compares columns to DB, and runs `ALTER TABLE ADD COLUMN IF NOT EXISTS` for missing ones. Eliminates the need to run `migrate_missing_columns.py` manually. |
+| **Webhook user lookup by email only (FIXED)** | `handle_checkout_completed()` looked up users by `customer_email` only — if email didn't match, payment was silently lost. Now stores `user_id` in Stripe session metadata; webhook looks up by `user_id` first, falls back to email. |
+| **`stripe_customer_id` never saved (FIXED)** | `handle_checkout_completed()` never stored `stripe_customer_id` from the Stripe session onto `UserSubscription`. This broke ALL recurring billing webhooks (`invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.updated/deleted`) which look up by `stripe_customer_id`. Now saved on every checkout. |
+| **Recurring billing webhook lookup fallback (FIXED)** | `handle_invoice_payment_succeeded` and `handle_invoice_payment_failed` only looked up by `stripe_customer_id`. Added fallback to `stripe_subscription_id` lookup, and backfills `stripe_customer_id` when found. |
+| **Subscription metadata not on Stripe Subscription object (FIXED)** | Checkout session metadata (`tier_name`, `user_id`) was only on the session, not on the resulting Stripe Subscription. Added `subscription_data={'metadata': metadata}` to session creation so metadata propagates to the subscription object for future webhook events. |
+| **Billing success page was a no-op (FIXED)** | `/billing/success` retrieved the Stripe session but did nothing (`pass`). If webhook hadn't fired yet, user saw no subscription update. Now processes checkout inline as a safety net (with idempotency checks to avoid double-granting). |
+| **Missing analytics templates (FIXED)** | Routes referenced `analytics/costs.html`, `analytics/performance.html`, `analytics/resources.html` but templates didn't exist. Created all three. |
+| **AI Infrastructure route broken method calls (FIXED)** | `routes/ai_infrastructure.py` called non-existent methods on `AIInfrastructureService`. Fixed 6 calls: `get_templates()` → `get_user_templates(user_id)`, `get_recommendations()` → `get_recommendations(user_id)`, `get_deployments()` → `get_user_deployments(user_id)`, etc. Added `get_user_deployments()` and `get_user_deployment()` stubs to service. |
+| **Zombie server processes on port 5000** | Multiple stale `python app.py` processes can accumulate on port 5000. Browser may hit an old process without code fixes. Always kill all Python processes before restarting: `taskkill /F /IM python.exe` (Windows) or `pkill -f 'python app.py'` (Linux). |
+| **Prometheus URL hardcoded (FIXED)** | `proactive_monitoring.py` used hardcoded `http://localhost:9090`. Now reads `os.environ.get('PROMETHEUS_URL', 'http://localhost:9090')`. Add `PROMETHEUS_URL` to `.env` for non-local Prometheus. |
+| **Monitoring threshold validation missing (FIXED)** | `routes/monitoring.py` passed `data['threshold']` to `float()` without try/except. Non-numeric values caused 500. Now returns `{'error': 'Threshold must be a numeric value'}` with 400. |
+| **ANSIBLE_PLAYBOOK and CUSTOM handlers missing (FIXED)** | `ActionType.ANSIBLE_PLAYBOOK` and `ActionType.CUSTOM` had no registered handlers in `incident_response.py`. Playbooks using them silently failed and incidents never auto-resolved. Stub handlers added in `_register_default_handlers()`. |
+| **`_handle_block_ip` ignored AWS failures (FIXED)** | SG path in `_handle_block_ip` always returned `success: True` regardless of `authorize_security_group_ingress()` result. Now checks `result.get('success')` like all other handlers. |
+| **`_save_incident_to_db` missing user_id filter (FIXED)** | Queried `IncidentModel.query.filter_by(incident_key=...)` without `user_id`. Added `user_id=user_id` for proper isolation. |
+| **Azure/GCP test endpoints missing (FIXED)** | Settings page called `/api/azure/test` and `/api/gcp/test` but endpoints didn't exist in `app.py`. Added both — Azure tests via `SubscriptionClient.subscriptions.list()`, GCP via `cloudresourcemanager.projects().get()`. |
+| **GCP credentials never saved (FIXED)** | `settings.html` POST to `/api/gcp/config` sent field `service_account_key` but handler reads `credentials_json`. Credentials silently saved as empty. Fixed field name in `settings.html`. |
+| **Frontend↔backend field name mismatches** | Common pattern: frontend `fetch()` calls use different JSON keys or endpoint URLs than the backend expects. Always cross-check every `fetch()` URL and payload key in templates against actual route handlers in `app.py` and `routes/`. |
+| **`column tool_trace/page_context does not exist` on PostgreSQL** | New `ChatMessage` columns added to model but never migrated to DB. Fix: (1) auto-migration now runs at every startup — catches all missing columns. (2) `ChatMessage.query` uses explicit column selection (`role`, `content` only) so `SELECT` never hits missing columns. (3) assistant INSERT uses `no_autoflush` + try/except fallback that strips new fields if column missing. |
+| **`Another request is already streaming for this conversation.`** | `is_streaming=True` committed but error crashed before `finally` block reset it. Fix: (1) outer `except` handler now resets `is_streaming=False`. (2) guard stamps `updated_at=now()` when acquiring lock. (3) stale locks >90s auto-reset before the guard check. (4) `POST /api/reset-streaming` clears all stuck locks for current user. |
+| **Incidents 500 on load (UndefinedColumn correlation_group_key)** | `_ensure_user_loaded` did `IncidentModel.query` (`SELECT *`) which hit missing `correlation_group_key`. Wrapped in try/except — returns empty incidents list instead of crashing. Permanent fix: auto-migration adds the column on next restart. |
+| **Auto-migration documented but not implemented (FIXED)** | CLAUDE.md said "Added auto-migration after db.create_all()" but app.py only had `db.create_all()` with no column inspection. Now implemented: after `db.create_all()` at startup, inspector iterates all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for missing columns. |
+
+## Verification Commands
+
+```bash
+# Check tool counts per module
+python -c "from src.tools.aws_tools import get_tools; print(f'AWS: {len(get_tools())}')"
+python -c "from src.tools.kubernetes_tools import get_tools; print(f'K8s: {len(get_tools())}')"
+python -c "from src.tools.azure_tools import get_tools; print(f'Azure: {len(get_tools())}')"
+python -c "from src.tools.gcp_tools import get_tools; print(f'GCP: {len(get_tools())}')"
+
+# Find unregistered functions in a module (replace aws_tools with target module)
+python -c "
+import re
+content = open('src/tools/aws_tools.py').read()
+defined = set(m.group(1) for m in re.finditer(r'^def ([a-z]\w+)\(', content, re.M)
+              if not m.group(1).startswith('_') and m.group(1) != 'get_tools')
+from src.tools.aws_tools import get_tools
+registered = set(t['name'] for t in get_tools())
+print('Unregistered:', defined - registered)
+"
+
+# Verify all handlers are callable and schemas present
+python -c "
+from src.tools import aws_tools, kubernetes_tools, azure_tools, gcp_tools
+for name, mod in [('AWS', aws_tools), ('K8s', kubernetes_tools), ('Azure', azure_tools), ('GCP', gcp_tools)]:
+    tools = mod.get_tools()
+    for t in tools:
+        assert callable(t['handler']), f'{t[\"name\"]} handler not callable'
+        assert 'input_schema' in t, f'{t[\"name\"]} missing schema'
+    print(f'{name}: {len(tools)} tools OK')
+"
+```
