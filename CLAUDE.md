@@ -1,6 +1,6 @@
-   # DevOps Agent - Claude Context
+# DevOps Agent - Claude Context
 
-> This file provides persistent context for Claude Code sessions.
+> This file provides persistent context for Claude Code sessions.\n> See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical fixes.\n> See [CLAUDE_BILLING.md](CLAUDE_BILLING.md) for billing details.
 
 ## Project Overview
 
@@ -23,7 +23,7 @@ src/
   agent/
     core.py         # DevOpsAgent - main AI orchestration
     safety.py       # SafetyValidator - command/tool risk classification
-    
+
     conversation.py # ConversationManager - message handling
     guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
@@ -91,15 +91,15 @@ Compute (list, describe, start, stop, create, delete, snapshots), GCS (list buck
 
 ### CI/CD — Jenkins (11 tools)
 `trigger_jenkins_job`, `get_jenkins_job_status`, `get_jenkins_build_logs`, `list_jenkins_jobs`, `get_jenkins_queue`, `abort_jenkins_build`, `enable_jenkins_job`, `disable_jenkins_job`, `get_jenkins_job_config`, `list_jenkins_nodes`, `delete_jenkins_build`.
-Credentials: `JENKINS_URL`, `JENKINS_USERNAME`, `JENKINS_TOKEN` env vars (or per-call params).
+Credentials: `JENKINS_URL`, `JENKINS_USERNAME`, `JENKINS_TOKEN` env vars.
 
 ### CI/CD — GitHub Actions (10 tools)
 `trigger_github_workflow`, `get_github_workflow_runs`, `list_github_workflows`, `get_github_workflow_run`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `list_github_runners`, `list_github_secrets`, `list_github_environments`, `get_github_workflow_usage`.
-Credentials: `GITHUB_TOKEN` env var (or per-call param).
+Credentials: `GITHUB_TOKEN` env var.
 
 ### Terraform (16 tools)
 `terraform_init`, `terraform_plan`, `terraform_apply`, `terraform_destroy`, `terraform_show`, `terraform_output`, `terraform_validate`, `terraform_fmt`, `terraform_workspace_list`, `terraform_workspace_select`, `terraform_workspace_new`, `terraform_state_list`, `terraform_import`, `terraform_state_move`, `terraform_state_rm`, `terraform_refresh`.
-All tools take `working_dir` as the primary param. `var_file` and `variables` are optional on most.
+All tools take `working_dir` as the primary param.
 
 ### SonarQube (12 tools)
 `get_sonar_projects`, `get_sonar_project_quality`, `get_sonar_measures`, `get_sonar_issues`, `trigger_sonar_analysis`, `get_sonar_hotspots`, `create_sonar_project`, `delete_sonar_project`, `update_sonar_issue`, `list_sonar_quality_gates`, `assign_sonar_quality_gate`, `get_sonar_analysis_history`.
@@ -107,7 +107,7 @@ Credentials: `SONAR_TOKEN` env var + `base_url` per-call param.
 
 ### Nexus Repository Manager (12 tools)
 `nexus_get_system_status`, `nexus_list_repositories`, `nexus_get_repository`, `nexus_create_repository`, `nexus_delete_repository`, `nexus_search_components`, `nexus_get_component`, `nexus_delete_component`, `nexus_list_assets`, `nexus_delete_asset`, `nexus_list_users`, `nexus_run_cleanup_task`.
-Credentials: `NEXUS_USERNAME` / `NEXUS_PASSWORD` env vars + `base_url` per-call param. Uses Basic auth against Nexus REST API v1.
+Credentials: `NEXUS_USERNAME` / `NEXUS_PASSWORD` env vars + `base_url` per-call param.
 
 ### Docker (22 tools)
 `docker_list_containers`, `docker_get_container_details`, `docker_manage_container`, `docker_get_container_logs`, `docker_list_images`, `docker_pull_image`, `docker_remove_image`, `docker_list_volumes`, `docker_list_networks`, `docker_get_stats`, `docker_compose_up`, `docker_compose_down`, `docker_build_image`, `docker_create_container`, `docker_create_network`, `docker_remove_network`, `docker_create_volume`, `docker_remove_volume`, `docker_exec`, `docker_tag_image`, `docker_push_image`, `docker_system_prune`.
@@ -174,6 +174,10 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
 
 **Current medium-risk additions:**
 `disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`
+
+## Historical Fixes & Gotchas
+
+See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved issues.
 
 ## Adding a New Tool
 
@@ -273,242 +277,42 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 - Always use `_resolve_project_id()` — never hardcode project IDs.
 - GCP clients are imported inline per function.
 
-## Resolved Issues / Gotchas
-
-| Issue | Solution |
-|-------|----------|
-| **"File has not been read yet" error** | After context compression, must re-read the file section before editing. This is a Claude Code limitation — always `Read` before `Edit`. |
-| **Unregistered functions** | Functions can exist in tool files but not be in `get_tools()`. Verify with the unregistered function finder command below. |
-| **K8s extra API clients** | `_get_k8s_client()` only returns `(CoreV1Api, AppsV1Api)`. For Ingress use `client.NetworkingV1Api()`, for Jobs use `client.BatchV1Api()` — create inline after calling the helper. |
-| **AWS thread-local credentials** | `_get_boto_client()` uses thread-local storage for per-user credentials. Never create boto3 clients directly or credentials won't be isolated. |
-| **Azure async operations** | Most Azure write operations use `begin_*()` returning a poller. Must call `.result()` to wait for completion or the operation may not finish. |
-| **GCP project resolution** | Always use `_resolve_project_id(project_id)`. Resolution order: explicit param > per-user credentials > `GOOGLE_CLOUD_PROJECT` env var. |
-| **Safety.py must be updated** | Every new delete tool MUST be added to `high_risk_tools` in `safety.py`. Forgetting this silently defaults to low risk with no confirmation. |
-| **Test fixtures flaky** | Existing test suite has pre-existing SQLite unique constraint failures in `conftest.py`. These are unrelated to tool changes. |
-| **IAM role deletion** | AWS `delete_iam_role` requires cleanup: detach managed policies, delete inline policies, remove from instance profiles — all before the role itself can be deleted. |
-| **Billing payment bypass (FIXED)** | Legacy endpoints `/api/subscription/upgrade` and `/api/credits/purchase` granted free credits without Stripe payment. Now return 403. All credit granting goes through Stripe webhook `handle_checkout_completed()`. |
-| **Stripe price IDs not loading in production** | `MANAGED_SECRET_KEYS` in `secrets_manager.py` was missing Stripe price IDs. Added all `STRIPE_PRICE_*` and `STRIPE_PUBLISHABLE_KEY` to the list. Must also be added to AWS Secrets Manager JSON. |
-| **Credit pack size mismatch** | Billing page showed packs of 50/200 but Stripe config has 100/250. Fixed billing.html to match Stripe: 100/$10, 250/$20, 500/$35, 1000/$60. |
-| **Subscription price mismatch (FIXED)** | `create_stripe_prices.py` had $49/$199/$799 while billing page showed $10/$30/$100. Aligned everything to $29/$99/$299. Business tier changed from unlimited to 10,000 credits. Old Stripe prices were inactive — must run script to create new active prices. |
-| **`resolve_model_for_tier('free')` no longer returns Groq** | Free tier now maps to `claude-sonnet-4-6` (Anthropic). All Groq fallback paths must use explicit `ModelConfig(provider='groq', model='llama-3.3-70b-versatile', ...)` or the `GROQ_FALLBACK_MODEL` constant in `chat_service.py`. Never call `resolve_model_for_tier('free')` when you need a Groq config. |
-| **Free-tier credit exhaustion returns 200, not 402** | When free-tier users run out of credits, endpoints return a 200 with `generate_upgrade_pitch()` and `trial_ended: true`. Only paid users get a 402. Frontend checks `trial_ended` in the SSE `done` event to show the upgrade CTA. |
-| **Injection patterns were log-only (FIXED)** | `input_sanitizer.py` originally logged injection patterns but never blocked them. Now `validate_message()` returns `(False, reason)` on any match — callers must check the return value and reject the message. `sanitize_input()` still just cleans chars; call `validate_message()` separately for policy enforcement. |
-| **Guardrail screen fails open** | `screen_message()` in `guardrails.py` catches all exceptions and returns `blocked=False`. This is intentional — an Anthropic outage should not take down the chat endpoint. Pattern-matching in `validate_message()` is always the first line of defense. |
-| **MonitoringRule.to_dict() missing fields** | `pending_since` and `firing_since` were not serialized. Always include them — templates and API clients rely on these to show time-in-state. |
-| **Alert history unbounded growth** | `ProactiveMonitoringService.alert_history` had no size cap. Capped at 500 entries (`_max_alert_history`). Trim on append. |
-| **Monitoring notification only fired on 'firing'** | `send_alert_notification()` in `app.py` only handled `event_type == 'firing'`. Changed to `in ('firing', 'resolved')` so resolution notifications are also sent. |
-| **Built-in playbook IDs mismatch (FIXED)** | `routes/incidents.py` protection list had `disk-full` and `pod-crash-loop` which don't match registered IDs (`disk-space-low`, `pod-crashloop`). Also `high-error-rate`/`latency-spike` were referenced but never registered. Corrected list: `high-cpu-usage`, `memory-pressure`, `disk-space-low`, `pod-crashloop`, `service-down`, `security-alert`. |
-| **Missing incident action handlers** | `ActionType.FAILOVER`, `ROLLBACK`, and `ROTATE_CREDENTIALS` were defined in the enum but had no registered handlers. Calling a playbook that uses them raised KeyError. Stub handlers added to `incident_response.py`. |
-| **root_cause_analyzer invalid model (FIXED)** | Used `claude-sonnet-4-20250514` which is not a valid model ID — analysis API calls were failing. Changed to `claude-sonnet-4-5-20250929`. |
-| **Analysis dashboard dict vs object access** | `get_all_analyses()` returns `list[dict]` but `templates/analysis/dashboard.html` used dot notation (`analysis.id`). Must use bracket notation (`analysis['id']`). |
-| **CostOptimization status='active' wrong (FIXED)** | Dashboard sync route queried `status='active'` but the model uses `status='pending'`. Cost savings notifications never fired. Changed to `'pending'`. |
-| **Azure/GCP resource.metadata vs resource_metadata (FIXED)** | `infrastructure_sync.py` used `resource.metadata` for Azure VMs, SQL, GCP compute, and GKE — but the column is `resource_metadata`. 5 occurrences replaced with `resource_metadata`. |
-| **RDS metadata missing db_instance_identifier** | `sync_aws_rds_instances()` stored `db_class` but not `db_instance_identifier`. `app.py` line 2873 expects this key for utilization lookup — was silently returning empty. |
-| **Analytics routes calling non-existent methods (FIXED)** | `routes/analytics.py` called 6 methods that didn't exist on `AnalyticsService`: `get_cost_analytics`, `forecast_costs`, `get_resource_utilization`, `get_alerts_summary`, `get_deployment_stats`, `get_incident_stats`. All added. Also `get_time_series()` was called with 3-4 args but only accepts 2. Routes fixed to use correct signatures. |
-| **Analytics period parsing crash** | `int(period.replace('d', ''))` crashes for `'24h'`. Changed to `int(period.rstrip('dh'))` with a guard. |
-| **DriftReport.drifted_resources is int not list** | `len(report.drifted_resources)` raised `TypeError`. It's already an int count — use directly without `len()`. |
-| **API Gateway decorator called wrong methods (FIXED)** | `api_key_required` called `validate_api_key()` (doesn't exist → use `get_api_key_by_key()`) and treated `check_rate_limit()` return as bool (it returns `tuple(bool, dict)` — must unpack). |
-| **API Gateway usage stats method name** | `service.get_usage_stats()` doesn't exist. Correct method is `get_api_usage_stats()`. |
-| **Compliance service/route API mismatch (FIXED)** | Routes called ~22 methods that don't exist on `ComplianceService` (e.g., `get_enabled_frameworks`, `get_framework_controls`, `get_violations`, etc.). Added adapter methods to the service class. Routes also called `enable_framework(framework_id)` and `run_compliance_check(framework_id)` with wrong signatures — fixed to pass `user_id` and `framework_name`. |
-| **Contact widget blocks send button on mobile** | Fixed: floating contact button (`position:fixed; bottom:24px; right:24px`) overlaps the send button on mobile. Hidden with `display:none` inside `@media (max-width: 768px)` in `templates/index.html`. |
-| **RateLimitExceeded shows as 500 (FIXED)** | `@app.errorhandler(Exception)` intercepted `RateLimitExceeded` before Flask handled it as 429, rendering the 500 template. Fixed by adding a dedicated `@app.errorhandler(RateLimitExceeded)` handler above the generic one. Returns JSON `{error: ...}` with 429 for API/chat routes, inline HTML for page routes. Import: `from flask_limiter.errors import RateLimitExceeded`. |
-| **`resolve_model_for_tier('free')` now returns Kimi** | Free and Starter tiers default to `kimi` provider. Use `resolve_model_with_preference(tier_name, preferred_provider)` to respect user overrides. The `provider` parameter on `process_message_isolated()` and `process_message_streaming()` routes to `_call_kimi_api()` when set to `'kimi'`. |
-| **Kimi tool format differs from Anthropic** | Anthropic uses `{name, description, input_schema}`. Kimi (OpenAI-compatible) uses `{type: "function", function: {name, description, parameters}}`. `_convert_tools_to_openai_format()` in `core.py` handles the conversion. |
-| **Kimi K2.5 rejects temperature != 1 (FIXED)** | K2.5 is a reasoning model that only accepts `temperature=1`. Passing `temperature=0.7` caused 400 errors. Fixed in `core.py`: skip temperature param when model contains `k2`. |
-| **Kimi reasoning_content missing in tool calls (FIXED)** | Kimi K2.5 streams `reasoning_content` (thinking tokens) that must be preserved in assistant messages during multi-turn tool-use conversations. If omitted, subsequent API calls fail with "thinking is enabled but reasoning_content is missing". Fixed by collecting `reasoning_content` from streaming deltas and including it in the assistant message dict. |
-| **AWS dual-mode auth (access keys + role ARN)** | `credential_service.py` supports both `auth_mode='access_key'` (direct keys) and `auth_mode='role_arn'` (STS AssumeRole with temp creds). Settings UI has toggle. Small teams use access keys; enterprise uses cross-account role delegation. |
-| **11 missing DB columns caused 500 error (FIXED)** | New model fields (`preferred_model_provider`, `learning_mode`, `sandbox_mode`, `learning_level`, `email_verified`, `email_verification_token`, `email_verification_sent_at`, `password_reset_token`, `password_reset_expires`, `guardrail_violations`, `guardrail_blocked_until`) weren't in the DB. Fixed by running `migrate_missing_columns.py`. |
-| **Env var name mismatch for Kimi (FIXED)** | `.env` had `kimi_API_KEY` but code reads `MOONSHOT_API_KEY`. Renamed in `.env`. |
-| **NGN payments simplified to Stripe (FIXED)** | Replaced Paystack (primary) + Flutterwave (fallback) with Stripe NGN currency support. Deleted `services/paystack_integration.py`, `services/flutterwave_integration.py`, `scripts/create_paystack_plans.py`, `scripts/create_flutterwave_plans.py`. Existing Stripe checkout routes now accept `currency` param. NGN Stripe Price IDs stored in `NGNPriceConfig.stripe_price_id_ngn`. Run `scripts/create_stripe_ngn_prices.py` to create NGN prices in Stripe. |
-| **Env file load order: `config/.env` wins (CRITICAL)** | App loads `config/.env` first, then `.env`, both with `override=False`. First-loaded value wins. Always update `config/.env` when changing env vars — `.env` is a fallback only. Missing `STRIPE_PRICE_BUSINESS` in `config/.env` caused checkout to fail even though `.env` had the value. |
-| **`base.html` template missing (FIXED)** | 27 blueprint templates (analytics, compliance, ai_infrastructure, etc.) extend `base.html` but it didn't exist. Created `templates/base.html` with full layout (header nav, fonts, CSS variables, responsive design). |
-| **Auto-migration at app startup (ADDED)** | `db.create_all()` only creates new tables, never adds columns to existing tables. Added auto-migration after `db.create_all()` that inspects all models, compares columns to DB, and runs `ALTER TABLE ADD COLUMN` for missing ones. Eliminates the need to run `migrate_missing_columns.py` manually. |
-| **Webhook user lookup by email only (FIXED)** | `handle_checkout_completed()` looked up users by `customer_email` only — if email didn't match, payment was silently lost. Now stores `user_id` in Stripe session metadata; webhook looks up by `user_id` first, falls back to email. |
-| **`stripe_customer_id` never saved (FIXED)** | `handle_checkout_completed()` never stored `stripe_customer_id` from the Stripe session onto `UserSubscription`. This broke ALL recurring billing webhooks (`invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.updated/deleted`) which look up by `stripe_customer_id`. Now saved on every checkout. |
-| **Recurring billing webhook lookup fallback (FIXED)** | `handle_invoice_payment_succeeded` and `handle_invoice_payment_failed` only looked up by `stripe_customer_id`. Added fallback to `stripe_subscription_id` lookup, and backfills `stripe_customer_id` when found. |
-| **Subscription metadata not on Stripe Subscription object (FIXED)** | Checkout session metadata (`tier_name`, `user_id`) was only on the session, not on the resulting Stripe Subscription. Added `subscription_data={'metadata': metadata}` to session creation so metadata propagates to the subscription object for future webhook events. |
-| **Billing success page was a no-op (FIXED)** | `/billing/success` retrieved the Stripe session but did nothing (`pass`). If webhook hadn't fired yet, user saw no subscription update. Now processes checkout inline as a safety net (with idempotency checks to avoid double-granting). |
-| **Missing analytics templates (FIXED)** | Routes referenced `analytics/costs.html`, `analytics/performance.html`, `analytics/resources.html` but templates didn't exist. Created all three. |
-| **AI Infrastructure route broken method calls (FIXED)** | `routes/ai_infrastructure.py` called non-existent methods on `AIInfrastructureService`. Fixed 6 calls: `get_templates()` → `get_user_templates(user_id)`, `get_recommendations()` → `get_recommendations(user_id)`, `get_deployments()` → `get_user_deployments(user_id)`, etc. Added `get_user_deployments()` and `get_user_deployment()` stubs to service. |
-| **Zombie server processes on port 5000** | Multiple stale `python app.py` processes can accumulate on port 5000. Browser may hit an old process without code fixes. Always kill all Python processes before restarting: `taskkill /F /IM python.exe` (Windows) or `pkill -f 'python app.py'` (Linux). |
-| **Prometheus URL hardcoded (FIXED)** | `proactive_monitoring.py` used hardcoded `http://localhost:9090`. Now reads `os.environ.get('PROMETHEUS_URL', 'http://localhost:9090')`. Add `PROMETHEUS_URL` to `.env` for non-local Prometheus. |
-| **Monitoring threshold validation missing (FIXED)** | `routes/monitoring.py` passed `data['threshold']` to `float()` without try/except. Non-numeric values caused 500. Now returns `{'error': 'Threshold must be a numeric value'}` with 400. |
-| **ANSIBLE_PLAYBOOK and CUSTOM handlers missing (FIXED)** | `ActionType.ANSIBLE_PLAYBOOK` and `ActionType.CUSTOM` had no registered handlers in `incident_response.py`. Playbooks using them silently failed and incidents never auto-resolved. Stub handlers added in `_register_default_handlers()`. |
-| **`_handle_block_ip` ignored AWS failures (FIXED)** | SG path in `_handle_block_ip` always returned `success: True` regardless of `authorize_security_group_ingress()` result. Now checks `result.get('success')` like all other handlers. |
-| **`_save_incident_to_db` missing user_id filter (FIXED)** | Queried `IncidentModel.query.filter_by(incident_key=...)` without `user_id`. Added `user_id=user_id` for proper isolation. |
-| **Azure/GCP test endpoints missing (FIXED)** | Settings page called `/api/azure/test` and `/api/gcp/test` but endpoints didn't exist in `app.py`. Added both — Azure tests via `SubscriptionClient.subscriptions.list()`, GCP via `cloudresourcemanager.projects().get()`. |
-| **GCP credentials never saved (FIXED)** | `settings.html` POST to `/api/gcp/config` sent field `service_account_key` but handler reads `credentials_json`. Credentials silently saved as empty. Fixed field name in `settings.html`. |
-| **Frontend↔backend field name mismatches** | Common pattern: frontend `fetch()` calls use different JSON keys or endpoint URLs than the backend expects. Always cross-check every `fetch()` URL and payload key in templates against actual route handlers in `app.py` and `routes/`. |
-| **`column tool_trace/page_context does not exist` on PostgreSQL** | New `ChatMessage` columns added to model but never migrated to DB. Fix: (1) auto-migration now runs at every startup — catches all missing columns. (2) `ChatMessage.query` uses explicit column selection (`role`, `content` only) so `SELECT` never hits missing columns. (3) assistant INSERT uses `no_autoflush` + try/except fallback that strips new fields if column missing. |
-| **`Another request is already streaming for this conversation.`** | `is_streaming=True` committed but error crashed before `finally` block reset it. Fix: (1) outer `except` handler now resets `is_streaming=False`. (2) guard stamps `updated_at=now()` when acquiring lock. (3) stale locks >90s auto-reset before the guard check. (4) `POST /api/reset-streaming` clears all stuck locks for current user. |
-| **Incidents 500 on load (UndefinedColumn correlation_group_key)** | `_ensure_user_loaded` did `IncidentModel.query` (`SELECT *`) which hit missing `correlation_group_key`. Wrapped in try/except — returns empty incidents list instead of crashing. Permanent fix: auto-migration adds the column on next restart. |
-| **Auto-migration documented but not implemented (FIXED)** | CLAUDE.md said "Added auto-migration after db.create_all()" but app.py only had `db.create_all()` with no column inspection. Now implemented: after `db.create_all()` at startup, inspector iterates all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for missing columns. |
-
-## Verification Commands
-
-```bash
-# Check tool counts per module
-python -c "from src.tools.aws_tools import get_tools; print(f'AWS: {len(get_tools())}')"
-python -c "from src.tools.kubernetes_tools import get_tools; print(f'K8s: {len(get_tools())}')"
-python -c "from src.tools.azure_tools import get_tools; print(f'Azure: {len(get_tools())}')"
-python -c "from src.tools.gcp_tools import get_tools; print(f'GCP: {len(get_tools())}')"
-
-# Find unregistered functions in a module (replace aws_tools with target module)
-python -c "
-import re
-content = open('src/tools/aws_tools.py').read()
-defined = set(m.group(1) for m in re.finditer(r'^def ([a-z]\w+)\(', content, re.M)
-              if not m.group(1).startswith('_') and m.group(1) != 'get_tools')
-from src.tools.aws_tools import get_tools
-registered = set(t['name'] for t in get_tools())
-print('Unregistered:', defined - registered)
-"
-
-# Verify all handlers are callable and schemas present
-python -c "
-from src.tools import aws_tools, kubernetes_tools, azure_tools, gcp_tools
-for name, mod in [('AWS', aws_tools), ('K8s', kubernetes_tools), ('Azure', azure_tools), ('GCP', gcp_tools)]:
-    tools = mod.get_tools()
-    for t in tools:
-        assert callable(t['handler']), f'{t[\"name\"]} handler not callable'
-        assert 'input_schema' in t, f'{t[\"name\"]} missing schema'
-    print(f'{name}: {len(tools)} tools OK')
-"
-```
-
 ## Free Trial System
 
-Free-tier users get **20 credits/month** with the **full agent experience** — Kimi K2.5 with real tool execution (users can switch to Claude via the model toggle). This replaces the old Groq/Llama chat-only experience that had no tool support.
+Free-tier users get **20 credits/month** with full agent experience — Kimi K2.5 with real tool execution.
 
-### Model Tier Mapping (`services/model_router.py`)
+### Model Tier Mapping
 
-| Tier | Default Provider | Model | Tools | Max Tokens |
+| Tier | Provider | Model | Tools | Max Tokens |
 |------|----------|-------|-------|------------|
 | free | Kimi | `kimi-k2.5` | Yes | 4096 |
 | starter ($29/mo) | Kimi | `kimi-k2.5` | Yes | 4096 |
 | professional ($99/mo) | Anthropic | `claude-sonnet-4-6` | Yes | 8192 |
 | business ($299/mo) | Anthropic | `claude-opus-4-6` | Yes | 8192 |
 
-**Users can override their tier default** via a toggle in the chat toolbar (`/api/model/switch`). The override is stored in `UserPreferences.preferred_model_provider` (null = tier default, `'anthropic'` = force Claude, `'kimi'` = force Kimi). Use `resolve_model_with_preference(tier_name, preferred_provider)` instead of `resolve_model_for_tier()` when you need to respect user preference.
+Users can override tier default via chat toolbar toggle (`/api/model/switch`).
 
-### Kimi K2.5 Integration
-- **Provider:** Moonshot AI, OpenAI-compatible API at `https://api.moonshot.ai/v1`
-- **Model ID:** `kimi-k2.5` (262K context, ~$0.60/M input, ~$3.00/M output)
-- **Auth:** Bearer token via `MOONSHOT_API_KEY` env var
-- **Tool support:** Yes — all 258 tools work via OpenAI function-calling format
-- **Implementation:** `KimiProvider` in `services/model_failover.py`, `_call_kimi_api()` and `_call_kimi_api_streaming()` in `src/agent/core.py`
-- **Tool format conversion:** `_convert_tools_to_openai_format()` converts Anthropic `{name, description, input_schema}` to OpenAI `{type: "function", function: {name, description, parameters}}`
-- **Fallback:** If Kimi fails, auto-falls back to Groq (same as Anthropic failure path)
-- **Reasoning model constraints:**
-  - K2.5 only accepts `temperature=1` — skip temperature param when model contains `k2`
-  - Streams `reasoning_content` (thinking tokens) alongside `content` — must collect from deltas
-  - `reasoning_content` MUST be preserved in assistant messages during multi-turn tool-use conversations or subsequent API calls fail with "reasoning_content is missing"
+### Key Implementation Points
 
-### Trial Context (`src/agent/core.py`)
-- `trial_context` string is built in `app.py` / `api/v1/conversations.py` for free-tier users
-- Threaded through `process_message_isolated()` → `_call_claude_api()` / `_call_kimi_api()` → `_build_system_prompt()`
-- Appended to the system prompt so the agent knows the user is on trial
-- When credits <= 5, the agent is instructed to naturally mention upgrading (without derailing the answer)
-
-### Credit Exhaustion — Upgrade Pitch
-- **Free-tier users** with 0 credits get a **200 response** with `generate_upgrade_pitch()` from `services/chat_service.py` (not a 402 error)
-- `/api/chat`: returns `{response: "...", trial_ended: true, credits_remaining: 0}`
-- `/api/chat/stream`: returns SSE with pitch as chunk + `{type: "done", trial_ended: true}`
-- **Paid users** still get a normal `402` with `insufficient_credits` error
-- Frontend (`index.html`) handles `trial_ended: true` by showing a styled "Upgrade to Starter" CTA button and disabling the input
-
-### Groq Fallback (Anthropic/Kimi outage only)
-- `process_free_tier_chat()` and `stream_free_tier_chat()` in `chat_service.py` use Groq/Llama as a **fallback** when both Anthropic and Kimi are down
-- These functions use hardcoded `GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'` (NOT `resolve_model_for_tier('free')`, which now returns Kimi)
-- All Groq fallback paths in `app.py` and `api/v1/conversations.py` use explicit `ModelConfig(provider='groq', ...)` instead of resolving the free tier
-- `FREE_TIER_SYSTEM_PROMPT` is now labeled as a "fallback model" prompt — only used during Groq failover
+- **Kimi K2.5**: OpenAI-compatible API at `https://api.moonshot.ai/v1`. Requires `MOONSHOT_API_KEY`.
+- **Tool format**: `_convert_tools_to_openai_format()` converts Anthropic format to OpenAI function-calling format.
+- **Credit exhaustion**: Free users get 200 response with `trial_ended: true`, not 402.
+- **Groq fallback**: Used when both Anthropic and Kimi are down. See `GROQ_FALLBACK_MODEL` in `chat_service.py`.
 
 ### Learning Mode & Sandbox
 
-Users can enable **Learning Mode** and/or **Sandbox Mode** in Settings > Preferences:
+Users enable in Settings > Preferences:
+- **Learning Mode** (`UserPreferences.learning_mode`): AI explains DevOps concepts, tracks proficiency
+- **Sandbox Mode** (`UserPreferences.sandbox_mode`): Simulated tool results from `services/learning_sandbox.py`
+- **Learning Level** (`UserPreferences.learning_level`): `beginner`, `intermediate`, `advanced`
 
-- **Learning Mode** (`UserPreferences.learning_mode`): AI explains DevOps concepts inline, tracks proficiency per topic via `LearningSession` model. API: `/api/learning/session-summary`, `/api/learning/history`, `/api/learning/proficiency`
-- **Sandbox Mode** (`UserPreferences.sandbox_mode`): Tools return simulated results from `services/learning_sandbox.py` instead of calling real cloud APIs. Safe for experimentation. Covers AWS, K8s, Azure, GCP with realistic mock data.
-- **Learning Level** (`UserPreferences.learning_level`): `beginner`, `intermediate`, `advanced` — controls explanation depth
-- Settings UI shows proficiency radar and learning history when learning mode is enabled
+## Billing & Payments
 
-### Cost
-- ~$0.05/message with Sonnet 4.6 × 20 credits = **~$1.00/user/month**
-- Worth it to convert a $29/mo Starter subscriber
-
-## Billing & Payment Flow
-
-### Architecture
-- **Frontend:** `templates/billing.html` — subscription tiers + credit pack purchase buttons, dual USD/NGN currency toggle
-- **Stripe:** `stripe_integration.py` — `StripePaymentService` handles session creation for both USD and NGN
-- **Currency detection:** `services/currency_detection.py` — IP geolocation + Accept-Language + user preference
-- **Webhooks:** `/api/stripe/webhook` in `app.py`
-- **Models:** `UserSubscription`, `CreditPurchase`, `SubscriptionTier`, `StripeWebhookEvent`, `PaymentWebhookEvent`, `NGNPriceConfig` in `models.py`
-
-### Payment Flow (Stripe — handles both USD and NGN)
-1. User clicks upgrade/purchase (currency toggle selects USD or NGN)
-2. JS calls `/api/subscription/create-checkout` or `/api/credits/create-checkout` with `{currency: 'USD'|'NGN'}`
-3. Backend creates Stripe Checkout session with `user_id` in metadata — for NGN, uses `NGNPriceConfig.stripe_price_id_ngn` and passes `currency='ngn'`
-4. For subscriptions, `subscription_data={'metadata': ...}` ensures metadata propagates to the Stripe Subscription object
-5. User redirected to Stripe's hosted payment page (shows amount in selected currency)
-6. After payment, Stripe sends `checkout.session.completed` webhook
-7. `handle_checkout_completed()` finds user by `metadata.user_id` (primary) or `customer_email` (fallback)
-8. Saves `stripe_customer_id` and `stripe_subscription_id` on `UserSubscription` — required for all future recurring billing webhooks
-9. Grants subscription tier + full monthly credits (or adds credit pack credits)
-10. User redirected to `/billing/success` — processes checkout inline as safety net if webhook hasn't fired yet
-11. Billing page shows success toast and updated subscription data
-
-### Webhook Event Handlers
-| Event | Handler | Lookup |
-|-------|---------|--------|
-| `checkout.session.completed` | `handle_checkout_completed()` | `metadata.user_id` → `customer_email` |
-| `invoice.payment_succeeded` | `handle_invoice_payment_succeeded()` | `stripe_customer_id` → `stripe_subscription_id` |
-| `invoice.payment_failed` | `handle_invoice_payment_failed()` | `stripe_customer_id` → `stripe_subscription_id` |
-| `customer.subscription.updated` | `handle_customer_subscription_updated()` | `stripe_subscription_id` |
-| `customer.subscription.deleted` | `handle_subscription_deleted()` | `stripe_subscription_id` |
-
-### NGN Prices (purchasing power adjusted, NOT FX-converted)
-| Product | USD | NGN |
-|---------|-----|-----|
-| Starter | $29/mo | NGN 15,000/mo |
-| Professional | $99/mo | NGN 45,000/mo |
-| Business | $299/mo | NGN 120,000/mo |
-| 100 credits | $10 | NGN 5,000 |
-| 250 credits | $20 | NGN 9,000 |
-| 500 credits | $35 | NGN 15,000 |
-| 1000 credits | $60 | NGN 25,000 |
-
-NGN prices stored in `NGNPriceConfig` table (seeded by `scripts/seed_ngn_prices.py`).
-Each row has a `stripe_price_id_ngn` column for the corresponding Stripe Price ID in NGN currency.
-
-### CRITICAL: Never grant credits without webhook verification
-- `/api/subscription/upgrade` — DISABLED (returns 403). Was a legacy endpoint that granted free subscriptions.
-- `/api/credits/purchase` — DISABLED (returns 403). Was a legacy endpoint that granted free credits.
-- Credits/subscriptions MUST only be granted via webhook handlers after Stripe verification.
-- All webhooks use `PaymentWebhookEvent` for idempotency (format: `{gateway}:{event_id}`).
-
-### Stripe Environment Variables
-- `STRIPE_SECRET_KEY` — Stripe API secret key
-- `STRIPE_PUBLISHABLE_KEY` — Stripe publishable key (passed to billing template)
-- `STRIPE_WEBHOOK_SECRET` — Webhook signature verification secret
-- `STRIPE_PRICE_STARTER` — Stripe Price ID for Starter tier ($29/mo USD)
-- `STRIPE_PRICE_PROFESSIONAL` — Stripe Price ID for Professional tier ($99/mo USD)
-- `STRIPE_PRICE_BUSINESS` — Stripe Price ID for Business tier ($299/mo USD)
-- `STRIPE_PRICE_PACK_100` — Price ID for 100-credit pack ($10 USD)
-- `STRIPE_PRICE_PACK_250` — Price ID for 250-credit pack ($20 USD)
-- `STRIPE_PRICE_PACK_500` — Price ID for 500-credit pack ($35 USD)
-- `STRIPE_PRICE_PACK_1000` — Price ID for 1000-credit pack ($60 USD)
-
-NGN Stripe Price IDs are stored in `NGNPriceConfig.stripe_price_id_ngn` (database, not env vars).
-
-All payment env vars must be in AWS Secrets Manager (`devops-agent/production` JSON) for production.
-They are listed in `services/secrets_manager.py` `MANAGED_SECRET_KEYS`.
-
-### Setup Scripts for NGN Payments
-```bash
-python scripts/seed_ngn_prices.py              # Seed NGNPriceConfig table (idempotent)
-python scripts/create_stripe_ngn_prices.py     # Create Stripe Price objects for NGN products, store IDs in DB
-```
+See [CLAUDE_BILLING.md](CLAUDE_BILLING.md) for complete billing documentation including:
+- Payment flow and webhook handlers
+- NGN pricing table
+- Stripe environment variables
+- Setup scripts
 
 ## Environment Variables
 
