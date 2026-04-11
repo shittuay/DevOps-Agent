@@ -1,5 +1,5 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.shittuay/devops-agent",
   "version": "1.0.4",
   "title": "DevOps Agent",
@@ -9,22 +9,30 @@
     "url": "https://github.com/shittuay/DevOps-Agent",
     "source": "github"
   },
-  "icons": {
-    "light": "https://devopsagent.io/static/icons/mcp-icon-light.png",
-    "dark": "https://devopsagent.io/static/icons/mcp-icon-dark.png"
-  },
+  "icons": [
+    {
+      "src": "https://devopsagent.io/static/icons/mcp-icon-light.png",
+      "mimeType": "image/png",
+      "theme": "light"
+    },
+    {
+      "src": "https://devopsagent.io/static/icons/mcp-icon-dark.png",
+      "mimeType": "image/png",
+      "theme": "dark"
+    }
+  ],
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@devopsagent/mcp-server",
       "version": "1.0.4",
-      "transport": "stdio"
+      "transport": { "type": "stdio" }
     }
   ],
   "remotes": [
     {
       "url": "https://devopsagent.io/mcp/",
-      "type": "http"
+      "type": "streamable-http"
     },
     {
       "url": "https://devopsagent.io/mcp/sse",
