@@ -3,7 +3,7 @@
   "name": "io.github.shittuay/devops-agent",
   "version": "1.0.4",
   "title": "DevOps Agent",
-  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 643 tools.",
+  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 685 tools.",
   "websiteUrl": "https://devopsagent.io",
   "repository": {
     "url": "https://github.com/shittuay/DevOps-Agent",
