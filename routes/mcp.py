@@ -60,7 +60,7 @@ _SESSION_TTL_SECONDS = 600
 
 MCP_PROTOCOL_VERSION = "2025-03-26"
 SERVER_NAME = "DevOps Agent"
-SERVER_VERSION = "1.0.3"
+SERVER_VERSION = "1.0.4"
 
 # ── OAuth 2.0 Authorization Server ───────────────────────────────────────────
 # A single built-in OAuth client for Claude.ai / Claude Desktop connectors.
@@ -123,8 +123,44 @@ def _get_all_tools():
         return _tool_cache, _tool_map
 
 
+def _get_tool_annotations(tool_name: str) -> Dict[str, Any]:
+    """Return MCP safety annotations for a tool based on its risk classification."""
+    from src.agent.safety import SafetyValidator
+
+    name = tool_name.lower()
+
+    # Read-only tools: list, get, describe, show, search, check, validate, health
+    _READ_ONLY_PREFIXES = (
+        'list_', 'get_', 'describe_', 'show_', 'search_', 'check_',
+        'validate_', 'view_', 'fetch_', 'query_', 'count_',
+    )
+    _READ_ONLY_SUBSTRINGS = ('_list', '_status', '_info', '_health', '_logs', '_history', '_usage')
+
+    is_read_only = (
+        any(name.startswith(p) for p in _READ_ONLY_PREFIXES)
+        or any(s in name for s in _READ_ONLY_SUBSTRINGS)
+    )
+
+    is_destructive = (
+        tool_name in SafetyValidator.validate_tool_call.__code__.co_consts
+        or SafetyValidator._matches_high_risk_pattern(tool_name)
+    )
+
+    # Use the actual sets from safety.py for accurate classification
+    sv = SafetyValidator()
+    result = sv.validate_tool_call(tool_name, {})
+    is_destructive = result.risk_level in ('high', 'critical')
+    is_medium = result.risk_level == 'medium'
+
+    if is_read_only and not is_destructive and not is_medium:
+        return {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True}
+    if is_destructive:
+        return {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}
+    return {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True}
+
+
 def _to_mcp_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert an internal tool definition to MCP tool format."""
+    """Convert an internal tool definition to MCP tool format with safety annotations."""
     return {
         "name": tool["name"],
         "description": tool.get("description", ""),
@@ -133,6 +169,7 @@ def _to_mcp_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
             "properties": {},
             "required": []
         }),
+        "annotations": _get_tool_annotations(tool["name"]),
     }
 
 
@@ -237,6 +274,7 @@ def _handle_tools_list(req_id: Any, params: Dict, user_id: int) -> Dict:
         "name": "devopsagent_health",
         "description": "Returns server status, protocol version, and tool count. No cloud credentials required.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     }
     return _ok(req_id, {
         "tools": [health_tool] + [_to_mcp_tool(t) for t in tools],
@@ -249,14 +287,14 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
 
     # Built-in tool — no cloud credentials needed
     if tool_name == "devopsagent_health":
-        tools, _ = _get_all_tools()
+        tools, tool_map = _get_all_tools()
         return _ok(req_id, {
             "content": [{"type": "text", "text": json.dumps({
                 "status": "ok",
                 "server": SERVER_NAME,
                 "version": SERVER_VERSION,
                 "protocol": MCP_PROTOCOL_VERSION,
-                "tools_loaded": len(tools),
+                "tools_loaded": len(tool_map),
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             }, indent=2)}],
             "isError": False,
