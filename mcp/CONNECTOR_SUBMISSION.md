@@ -27,11 +27,7 @@ https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxM
 
 ## Test Account for Reviewers
 
-Account created on production (2026-04-11):
-- **Email:** ***REDACTED***
-- **Password:** ***REDACTED***
-- **API Key:** ***REDACTED***
-- **Subscription:** Starter tier, 100 credits
+Credentials shared privately with the review team (never commit secrets to git).
 - **OAuth URL:** https://devopsagent.io/mcp/oauth/authorize
 
 ## 3 Working Usage Examples
