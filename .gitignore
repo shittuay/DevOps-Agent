@@ -62,6 +62,13 @@ verify_*.py
 settings_html.txt
 DevOpsAgent_Analysis_Report.docx
 
+# Video / promo assets (large binaries)
+video/
+
+# MCP publisher binary and tokens
+mcp-publisher.exe
+mcp/.mcpregistry_*
+
 # Coverage
 .coverage
 htmlcov/
