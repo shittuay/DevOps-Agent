@@ -2,6 +2,13 @@
 
 All notable changes to `@devopsagent/mcp-server` are documented here.
 
+## [1.0.4] - 2026-04-07
+
+### Changed
+- Corrected tool count to 685 across all docs (README, package.json, server.json)
+- `devopsagent_health` now reports accurate `tools_loaded` using deduplicated map count
+- Updated per-module counts: AWS 334, Kubernetes 76, Azure 38, GCP 42, CI/CD 35, Terraform 25
+
 ## [1.0.3] - 2026-04-07
 
 ### Fixed

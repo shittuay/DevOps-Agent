@@ -1,6 +1,6 @@
 # DevOps Agent MCP Server
 
-Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more from any MCP-compatible AI client. **401 tools across 13 modules** — all accessible via a single connection.
+Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more from any MCP-compatible AI client. **685 tools across 17 modules** — all accessible via a single connection.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more 
 
 **Step 4:** Fully quit and restart Claude Desktop.
 
-All 401 tools will appear automatically under the tools (hammer) icon in the chat input.
+All 685 tools will appear automatically under the tools (hammer) icon in the chat input.
 
 > The `npx` command downloads and runs the bridge automatically on first use — nothing else to install.
 
@@ -52,7 +52,7 @@ No Node.js needed for this method — Claude.ai connects directly to the hosted 
 1. Go to **Claude.ai → Settings → Connectors → Add Integration**
 2. Enter the Integration URL: `https://devopsagent.io/mcp/`
 3. Claude.ai will trigger OAuth automatically — log in with your devopsagent.io account to authorize
-4. All 401 tools become available immediately
+4. All 685 tools become available immediately
 
 ## Verifying the Connection
 
@@ -116,21 +116,21 @@ You should see the JSON response above. Press `Ctrl+C` to exit.
 - The API key must be created at devopsagent.io/settings (keys prefixed `doa_live_` are valid)
 - Keys are per-user — make sure you're logged into the right account when generating
 
-**`tools_loaded` count higher than 401**
-- This is a known cosmetic issue caused by some tool modules loading twice on the server
-- All tools work correctly — only the count in `devopsagent_health` is inflated
+**`tools_loaded` shows an unexpected number**
+- The server exposes 685 tools across 17 modules — this is the correct count
+- If you see a different number, the server may be mid-deploy; retry after a minute
 
 ## Tools
 
 | Module | Count | What you can do |
 |--------|-------|-----------------|
-| AWS | 155 | EC2, S3, RDS, Lambda, ECS, EKS, IAM, VPC, CloudWatch, DynamoDB, and more |
-| Kubernetes | 28 | Pods, Deployments, Services, Namespaces, Ingress, Jobs, Nodes |
-| Azure | 36 | VMs, Storage, SQL, NSGs, Container Instances, VNets, Public IPs |
-| GCP | 40 | Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, BigQuery, Functions |
-| CI/CD | 21 | Jenkins (11) + GitHub Actions (10) |
+| AWS | 334 | EC2, S3, RDS, Lambda, ECS, EKS, IAM, VPC, CloudWatch, DynamoDB, and more |
+| Kubernetes | 76 | Pods, Deployments, Services, Namespaces, Ingress, Jobs, Nodes |
+| Azure | 38 | VMs, Storage, SQL, NSGs, Container Instances, VNets, Public IPs |
+| GCP | 42 | Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, BigQuery, Functions |
+| CI/CD | 35 | Jenkins + GitHub Actions |
 | Docker | 22 | Containers, images, volumes, networks, compose, build, push |
-| Terraform | 16 | init, plan, apply, destroy, state, workspaces, import |
+| Terraform | 25 | init, plan, apply, destroy, state, workspaces, import |
 | Ansible | 13 | Playbooks, ad-hoc, inventory, vault, galaxy |
 | Monitoring | 12 | Prometheus, Datadog, Grafana |
 | Alerting | 16 | PagerDuty + OpsGenie |
