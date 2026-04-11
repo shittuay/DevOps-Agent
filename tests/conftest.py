@@ -21,7 +21,6 @@ def app():
     """Create application for testing with a shared in-memory SQLite database."""
     from app import app as flask_app
     from models import db
-    from sqlalchemy import event
     from sqlalchemy.pool import StaticPool
 
     flask_app.config.update({
@@ -30,37 +29,46 @@ def app():
         'SECRET_KEY': 'test-secret-key',
         'ANTHROPIC_API_KEY': 'test-api-key',
         'RATELIMIT_ENABLED': False,
-        # StaticPool: all connections share one in-memory DB so test-client
-        # requests see data committed by test fixtures.
         'SQLALCHEMY_ENGINE_OPTIONS': {
             'connect_args': {'check_same_thread': False},
             'poolclass': StaticPool,
         },
     })
 
-    # Disable rate limiter for tests
     from app import limiter
     limiter.enabled = False
 
-    with flask_app.app_context():
-        db.create_all()
-        yield flask_app
-        db.session.remove()
-        db.drop_all()
+    ctx = flask_app.app_context()
+    ctx.push()
+    db.create_all()
+
+    yield flask_app
+
+    db.session.remove()
+    db.drop_all()
+    ctx.pop()
 
 
 @pytest.fixture(scope='function')
 def client(app):
-    """Create test client."""
-    return app.test_client()
+    """Create test client with clean auth state."""
+    from flask import g
+    # Flask-Login caches the user on g._login_user (persistent app context).
+    # Clear it so a new client starts unauthenticated.
+    g.pop('_login_user', None)
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess.clear()
+    return c
 
 
 @pytest.fixture(scope='function')
 def db_session(app):
-    """Yield the current db session; rollback after each test."""
+    """Yield the current db session; rollback uncommitted changes after each test."""
     from models import db
     yield db.session
     db.session.rollback()
+    db.session.expire_all()
 
 
 @pytest.fixture
@@ -98,10 +106,11 @@ def test_user(app, db_session):
 @pytest.fixture
 def authenticated_client(client, test_user):
     """Create authenticated test client by logging in via the actual login route."""
-    client.post('/login', data={
+    response = client.post('/login', data={
         'email': 'test@example.com',
         'password': 'TestPassword123!'
     })
+    assert response.status_code == 302, f"Login failed with status {response.status_code}"
     return client
 
 
