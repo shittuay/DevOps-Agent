@@ -1688,13 +1688,22 @@ def create_iam_access_key(username: str) -> Dict[str, Any]:
         iam = _get_boto_client('iam')
         response = iam.create_access_key(UserName=username)
         key = response['AccessKey']
+        # Include account ID so user can verify they're looking at the right AWS account
+        account_id = key.get('UserName', username)
+        try:
+            sts = _get_boto_client('sts')
+            identity = sts.get_caller_identity()
+            account_id = identity['Account']
+        except Exception:
+            account_id = 'unknown'
         return {
             'success': True, 'username': username,
             'access_key_id': key['AccessKeyId'],
             'secret_access_key': key['SecretAccessKey'],
             'status': key['Status'],
+            'aws_account_id': account_id,
             'warning': 'Save the SecretAccessKey now — it cannot be retrieved again.',
-            'message': f'Access key {key["AccessKeyId"]} created for "{username}"'
+            'message': f'Access key {key["AccessKeyId"]} created for "{username}" in AWS account {account_id}'
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -1717,9 +1726,16 @@ def list_iam_access_keys(username: str) -> Dict[str, Any]:
             }
             for k in response.get('AccessKeyMetadata', [])
         ]
+        account_id = 'unknown'
+        try:
+            sts = _get_boto_client('sts')
+            account_id = sts.get_caller_identity()['Account']
+        except Exception:
+            pass
         return {
             'success': True, 'username': username,
-            'access_keys': keys, 'count': len(keys)
+            'access_keys': keys, 'count': len(keys),
+            'aws_account_id': account_id
         }
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
