@@ -6,7 +6,7 @@ https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxM
 ## Server Details
 
 - **Server Name:** DevOps Agent
-- **Description:** Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more from Claude. 643 tools across 13 modules including monitoring, security scanning, and alerting.
+- **Description:** Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more from Claude. 685 tools across 17 modules including monitoring, security scanning, and alerting.
 - **Integration URL:** `https://devopsagent.io/mcp/`
 - **SSE Endpoint:** `https://devopsagent.io/mcp/sse`
 - **Health Check:** `https://devopsagent.io/mcp/health`
@@ -27,14 +27,11 @@ https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxM
 
 ## Test Account for Reviewers
 
-Create on production server before submitting:
-```bash
-python create_review_account.py
-```
-
-Credentials (update after running the script):
+Account created on production (2026-04-11):
 - **Email:** ***REDACTED***
 - **Password:** ***REDACTED***
+- **API Key:** ***REDACTED***
+- **Subscription:** Starter tier, 100 credits
 - **OAuth URL:** https://devopsagent.io/mcp/oauth/authorize
 
 ## 3 Working Usage Examples
@@ -56,7 +53,7 @@ Credentials (update after running the script):
 
 ## Safety Annotations
 
-All 643 tools have MCP safety annotations:
+All 685 tools have MCP safety annotations:
 - **230 tools** marked `readOnlyHint: true` (list, get, describe operations)
 - **114 tools** marked `destructiveHint: true` (delete, terminate operations)
 - **299 tools** marked as mutating (create, update, medium-risk operations)
