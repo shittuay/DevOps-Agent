@@ -1,325 +1,385 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign Up - DevOps Agent</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-primary);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 24px;
-            position: relative;
-        }
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px),
-                              linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
-            background-size: 50px 50px;
-            opacity: 0.3;
-            pointer-events: none;
-            animation: gridMove 20s linear infinite;
-        }
-        @keyframes gridMove {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(50px, 50px); }
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
-                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
-            pointer-events: none;
-        }
-        .signup-container {
-            background: var(--glass-bg);
-            backdrop-filter: blur(40px);
-            border: 1px solid var(--border-subtle);
-            border-radius: 20px;
-            padding: 48px;
-            width: 100%;
-            max-width: 480px;
-            position: relative;
-            z-index: 1;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-            animation: slideInUp 0.8s ease-out;
-        }
-        @keyframes slideInUp {
-            from { opacity: 0; transform: translateY(40px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .logo {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-        .logo-icon {
-            width: 64px;
-            height: 64px;
-            background: var(--gradient-primary);
-            border-radius: 16px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'IBM Plex Mono', monospace;
-            font-weight: 700;
-            font-size: 32px;
-            color: white;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
-            position: relative;
-            overflow: hidden;
-        }
-        .logo-icon::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.2), transparent);
-            animation: shimmer 3s infinite;
-        }
-        @keyframes shimmer {
-            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-        }
-        h1 {
-            font-family: 'Syne', sans-serif;
-            font-size: 32px;
-            font-weight: 800;
-            color: var(--text-primary);
-            margin-bottom: 8px;
-            letter-spacing: -1px;
-        }
-        .subtitle {
-            color: var(--text-secondary);
-            font-size: 15px;
-            margin-bottom: 32px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            color: var(--text-primary);
-            font-weight: 600;
-            margin-bottom: 8px;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-family: 'IBM Plex Mono', monospace;
-        }
-        input {
-            width: 100%;
-            padding: 14px 16px;
-            background: var(--bg-secondary);
-            border: 2px solid var(--border-subtle);
-            border-radius: 10px;
-            font-size: 15px;
-            color: var(--text-primary);
-            transition: all 0.3s ease;
-            font-family: 'Outfit', sans-serif;
-        }
-        input::placeholder { color: var(--text-tertiary); }
-        input:focus {
-            outline: none;
-            border-color: var(--accent-primary);
-            background: var(--bg-elevated);
-            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.1);
-        }
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-        }
-        .btn-primary {
-            width: 100%;
-            padding: 16px;
-            background: var(--gradient-primary);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            margin-top: 8px;
-            box-shadow: 0 4px 16px rgba(255, 107, 53, 0.4);
-            position: relative;
-            overflow: hidden;
-        }
-        .btn-primary::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 32px rgba(255, 107, 53, 0.6);
-        }
-        .btn-primary:hover::before {
-            width: 400px;
-            height: 400px;
-        }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-        .alert {
-            padding: 14px 16px;
-            border-radius: 10px;
-            margin-bottom: 24px;
-            font-size: 14px;
-            animation: slideDown 0.3s ease;
-        }
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .alert-error {
-            background: rgba(239, 68, 68, 0.15);
-            color: #fca5a5;
-            border: 1px solid rgba(239, 68, 68, 0.3);
-        }
-        .login-link {
-            text-align: center;
-            margin-top: 28px;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-        .login-link a {
-            color: var(--accent-primary);
-            text-decoration: none;
-            font-weight: 700;
-            transition: color 0.2s;
-        }
-        .login-link a:hover {
-            color: var(--accent-electric);
-            text-decoration: underline;
-        }
-        .spinner {
-            display: inline-block;
-            width: 14px; height: 14px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-top-color: white;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .password-requirements {
-            font-size: 12px;
-            color: var(--text-tertiary);
-            margin-top: 6px;
-            font-family: 'IBM Plex Mono', monospace;
-        }
-        @media (max-width: 768px) {
-            .signup-container { padding: 36px 28px; }
-            h1 { font-size: 28px; }
-        }
-        @media (max-width: 480px) {
-            .signup-container { padding: 28px 24px; }
-            h1 { font-size: 24px; }
-            .form-row { grid-template-columns: 1fr; gap: 20px; }
-            input { font-size: 16px; }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up - DevOps Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Epilogue:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #07090F;
+      --bg2:       #0C0F1A;
+      --bg3:       #111520;
+      --border:    #1A2035;
+      --border2:   #243050;
+      --orange:    #FF4D1C;
+      --orange2:   #FF7A45;
+      --cyan:      #00CFFF;
+      --green:     #00FF9D;
+      --text:      #E2EAF8;
+      --text2:     #6B7A99;
+      --text3:     #3D4F72;
+      --mono:      'DM Mono', monospace;
+      --display:   'Bebas Neue', sans-serif;
+      --body:      'Epilogue', sans-serif;
+    }
+
+    body {
+      font-family: var(--body);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(26,32,53,.5) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(26,32,53,.5) 1px, transparent 1px);
+      background-size: 50px 50px;
+      opacity: 0.3;
+      pointer-events: none;
+      animation: gridMove 20s linear infinite;
+    }
+
+    @keyframes gridMove {
+      0%   { transform: translate(0, 0); }
+      100% { transform: translate(50px, 50px); }
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(at 0% 0%, rgba(255,77,28,.12) 0%, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(0,207,255,.08) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .signup-container {
+      background: rgba(12,15,26,.8);
+      backdrop-filter: blur(40px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px;
+      width: 100%;
+      max-width: 480px;
+      position: relative;
+      z-index: 1;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      animation: slideUp .7s ease-out;
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .logo-icon {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, var(--orange), var(--orange2));
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 22px;
+      color: #fff;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 32px rgba(255,77,28,.35);
+    }
+
+    .logo h1 {
+      font-family: var(--display);
+      font-size: 36px;
+      letter-spacing: 2px;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      color: var(--text2);
+      font-size: 15px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      margin-bottom: 8px;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      font-family: var(--mono);
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: var(--body);
+      font-size: 15px;
+      transition: all .25s ease;
+      outline: none;
+    }
+
+    .form-group input:focus {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 3px rgba(255,77,28,.15);
+    }
+
+    .form-group input::placeholder {
+      color: var(--text3);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, var(--orange), var(--orange2));
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-family: var(--body);
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .25s ease;
+      margin-top: 8px;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(255,77,28,.35);
+    }
+
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+
+    .alert {
+      padding: 14px 18px;
+      border-radius: 10px;
+      font-size: 14px;
+      margin-bottom: 20px;
+      border: 1px solid;
+    }
+
+    .alert-error {
+      background: rgba(239,68,68,.12);
+      color: #fca5a5;
+      border-color: rgba(239,68,68,.25);
+    }
+
+    .login-link {
+      text-align: center;
+      margin-top: 28px;
+      font-size: 14px;
+      color: var(--text2);
+    }
+
+    .login-link a {
+      color: var(--orange);
+      text-decoration: none;
+      font-weight: 700;
+      transition: color .2s;
+    }
+
+    .login-link a:hover { color: var(--orange2); }
+
+    .terms-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .terms-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin-top: 2px;
+      accent-color: var(--orange);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .terms-row label {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text2);
+      text-transform: none;
+      letter-spacing: 0;
+      font-family: var(--body);
+    }
+
+    .terms-row label a {
+      color: var(--orange);
+      text-decoration: none;
+    }
+
+    .terms-row label a:hover { text-decoration: underline; }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #strength-bar {
+      height: 4px;
+      border-radius: 2px;
+      margin-top: 6px;
+      background: var(--border);
+      overflow: hidden;
+    }
+
+    #strength-fill {
+      height: 100%;
+      width: 0;
+      transition: width .3s, background .3s;
+      border-radius: 2px;
+    }
+
+    #strength-label {
+      font-size: 12px;
+      margin-top: 4px;
+      color: var(--text3);
+      font-family: var(--mono);
+    }
+
+    @media (max-width: 480px) {
+      .signup-container { padding: 28px 24px; }
+      .logo h1 { font-size: 28px; }
+      .form-row { grid-template-columns: 1fr; gap: 20px; }
+    }
+  </style>
 </head>
 <body>
-    <div class="signup-container">
-        <div class="logo">
-            <div class="logo-icon">>_</div>
-            <h1>Create Account</h1>
-            <p class="subtitle">Start automating your DevOps workflows</p>
-        </div>
-        {% if error %}
-        <div class="alert alert-error">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/signup" id="signupForm">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            {% if tier_intent %}<input type="hidden" name="tier_intent" value="{{ tier_intent }}">{% endif %}
-            <div class="form-group">
-                <label for="email">Email</label>
-                <input type="email" id="email" name="email" placeholder="your@email.com" required autofocus />
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" placeholder="username" required />
-                </div>
-                <div class="form-group">
-                    <label for="full_name">Full Name</label>
-                    <input type="text" id="full_name" name="full_name" placeholder="John Doe" required />
-                </div>
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" placeholder="Create a strong password" required />
-                <div id="strength-bar" style="height:4px;border-radius:2px;margin-top:6px;background:var(--border-subtle);overflow:hidden;"><div id="strength-fill" style="height:100%;width:0;transition:width 0.3s,background 0.3s;border-radius:2px;"></div></div>
-                <p id="strength-label" style="font-size:12px;margin-top:4px;color:var(--text-tertiary);">Minimum 8 characters</p>
-            </div>
-            <div class="form-group">
-                <label for="confirm_password">Confirm Password</label>
-                <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm your password" required />
-            </div>
-            <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:8px;">
-                <input type="checkbox" id="terms" name="terms" required style="width:auto;margin:0;" />
-                <label for="terms" style="margin:0;font-size:13px;font-weight:400;">
-                    I agree to the <a href="/usage-policy" target="_blank" style="color:var(--accent-primary);">Terms of Service</a> and <a href="/privacy-policy" target="_blank" style="color:var(--accent-primary);">Privacy Policy</a>
-                </label>
-            </div>
-            <button type="submit" class="btn-primary" id="submitBtn">Create Account →</button>
-        </form>
-        <div class="login-link">
-            Already have an account? <a href="/login">Sign in</a>
-        </div>
+  <div class="signup-container">
+    <div class="logo">
+      <div class="logo-icon">&gt;_</div>
+      <h1>CREATE ACCOUNT</h1>
+      <p class="subtitle">Start automating your DevOps workflows</p>
     </div>
-    <script>
-        document.getElementById('password').addEventListener('input', function() {
-            const val = this.value;
-            const fill = document.getElementById('strength-fill');
-            const label = document.getElementById('strength-label');
-            let score = 0;
-            if (val.length >= 8) score++;
-            if (val.length >= 12) score++;
-            if (/[A-Z]/.test(val)) score++;
-            if (/[0-9]/.test(val)) score++;
-            if (/[^A-Za-z0-9]/.test(val)) score++;
-            const levels = [
-                { w: '20%', color: '#ef4444', text: 'Very weak' },
-                { w: '40%', color: '#f97316', text: 'Weak' },
-                { w: '60%', color: '#eab308', text: 'Fair' },
-                { w: '80%', color: '#22c55e', text: 'Strong' },
-                { w: '100%', color: '#16a34a', text: 'Very strong' },
-            ];
-            const lvl = val.length === 0 ? null : levels[Math.min(score, 4)];
-            fill.style.width = lvl ? lvl.w : '0';
-            fill.style.background = lvl ? lvl.color : '';
-            label.textContent = lvl ? lvl.text : 'Minimum 8 characters';
-            label.style.color = lvl ? lvl.color : '';
-        });
 
-        document.getElementById('signupForm').addEventListener('submit', function(e) {
-            const btn = document.getElementById('submitBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Creating account...';
-        });
-    </script>
-    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/signup" id="signupForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if tier_intent %}<input type="hidden" name="tier_intent" value="{{ tier_intent }}">{% endif %}
+
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="your@email.com" required autofocus />
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" placeholder="username" required />
+        </div>
+        <div class="form-group">
+          <label for="full_name">Full Name</label>
+          <input type="text" id="full_name" name="full_name" placeholder="John Doe" required />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="Create a strong password" required />
+        <div id="strength-bar"><div id="strength-fill"></div></div>
+        <p id="strength-label">Minimum 8 characters</p>
+      </div>
+
+      <div class="form-group">
+        <label for="confirm_password">Confirm Password</label>
+        <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm your password" required />
+      </div>
+
+      <div class="terms-row">
+        <input type="checkbox" id="terms" name="terms" required />
+        <label for="terms">
+          I agree to the <a href="/usage-policy" target="_blank">Terms of Service</a> and <a href="/privacy-policy" target="_blank">Privacy Policy</a>
+        </label>
+      </div>
+
+      <button type="submit" class="btn-primary" id="submitBtn">Create Account</button>
+    </form>
+
+    <div class="login-link">
+      Already have an account? <a href="/login">Sign in</a>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('password').addEventListener('input', function() {
+      var val = this.value;
+      var fill = document.getElementById('strength-fill');
+      var label = document.getElementById('strength-label');
+      var score = 0;
+      if (val.length >= 8) score++;
+      if (val.length >= 12) score++;
+      if (/[A-Z]/.test(val)) score++;
+      if (/[0-9]/.test(val)) score++;
+      if (/[^A-Za-z0-9]/.test(val)) score++;
+      var levels = [
+        { w: '20%', color: '#ef4444', text: 'Very weak' },
+        { w: '40%', color: '#f97316', text: 'Weak' },
+        { w: '60%', color: '#eab308', text: 'Fair' },
+        { w: '80%', color: '#22c55e', text: 'Strong' },
+        { w: '100%', color: '#16a34a', text: 'Very strong' }
+      ];
+      var lvl = val.length === 0 ? null : levels[Math.min(score, 4)];
+      fill.style.width = lvl ? lvl.w : '0';
+      fill.style.background = lvl ? lvl.color : '';
+      label.textContent = lvl ? lvl.text : 'Minimum 8 characters';
+      label.style.color = lvl ? lvl.color : '';
+    });
+
+    document.getElementById('signupForm').addEventListener('submit', function() {
+      var btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Creating account...';
+    });
+  </script>
 </body>
 </html>
