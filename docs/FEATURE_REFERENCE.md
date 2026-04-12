@@ -439,7 +439,7 @@ Complete reference of all features and capabilities.
 | Kubernetes | 15+ |
 | Docker | 10+ |
 | Terraform | 10+ |
-| Git | 8+ |
+| Git | 47 |
 | CI/CD | 8+ |
 | Monitoring | 15+ |
 | Azure | 20+ |
