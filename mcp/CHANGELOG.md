@@ -2,10 +2,17 @@
 
 All notable changes to `@devopsagent/mcp-server` are documented here.
 
+## [1.0.6] - 2026-04-12
+
+### Changed
+- Updated tool count to 727 (Git tools expanded 6 → 47, GitHub tools 18 → 19)
+- Security: removed leaked review credentials from git history, rotated all secrets
+- Review credentials now stored in AWS Secrets Manager (never in repo)
+
 ## [1.0.4] - 2026-04-07
 
 ### Changed
-- Corrected tool count to 727 across all docs (README, package.json, server.json)
+- Corrected tool count to 685 across all docs (README, package.json, server.json)
 - `devopsagent_health` now reports accurate `tools_loaded` using deduplicated map count
 - Updated per-module counts: AWS 334, Kubernetes 76, Azure 38, GCP 42, CI/CD 35, Terraform 25
 
