@@ -36,7 +36,7 @@ src/
     sonarqube_tools.py   # 12 SonarQube tools (projects, quality gates, issues, analysis)
     nexus_tools.py       # 12 Nexus tools (repositories, components, assets, users, cleanup)
     docker_tools.py      # 22 Docker tools (containers, images, volumes, networks, compose, prune)
-    git_tools.py         # 6 Git operations
+    git_tools.py         # 47 Git operations (clone, branch, commit, push, pull, merge, rebase, tags, stash, search, etc.)
     monitoring_tools.py  # 12 Prometheus + Datadog + Grafana tools
     pentest_tools.py     # 12 Security audit/scan tools (require pentest_config.enabled=True)
     ansible_tools.py     # 13 Ansible tools (playbooks, adhoc, inventory, vault, galaxy)
@@ -75,7 +75,7 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (685 total)
+## Tool Inventory (726 total)
 
 ### AWS (334 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
@@ -114,7 +114,8 @@ Credentials: `NEXUS_USERNAME` / `NEXUS_PASSWORD` env vars + `base_url` per-call 
 Requires Docker daemon running locally (uses `docker.from_env()`).
 
 ### Other modules
-- **Git (6)**: repository status, branches, commit history, diff, PRs
+- **Git (47)**: repository setup (clone, init, remotes), inspection (show, blame, log, file-at-commit), branching (create, switch, delete, merge, rename), staging & committing (add, commit, reset, amend), remote ops (fetch, pull, push, force-push, cherry-pick), tags (list, create, delete, push), stashing (save, list, apply, drop), search (grep, commit search, shortlog), maintenance (clean, revert, rebase, reflog, count-objects, diff-stat)
+- **GitHub (19)**: repos (list, get, create, delete), issues (list, create, close), PRs (create, merge, close), branches (list, create), releases (list, create), workflows (list, runs, trigger), collaborators (list, invite)
 - **Monitoring (12)**: Prometheus, Datadog, Grafana
 - **Pentest (12)**: nmap, nikto, sqlmap, ZAP, cloud security audits — require `pentest_config.enabled=True`
 - **Ansible (13)**: playbook run, ad-hoc, inventory, vault, galaxy
@@ -170,10 +171,10 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
 - Auto-detection fallback: prefixes `delete_`, `terminate_`, `destroy_`, `remove_`, `drop_`, `purge_` are auto-classified as high risk even without explicit listing. Explicit sets take priority over auto-detection.
 
 **Current high-risk additions (beyond auto-detection):**
-`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`
 
 ## Historical Fixes & Gotchas
 
@@ -192,7 +193,7 @@ See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **685** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **726** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:

@@ -917,6 +917,128 @@ def generate_failure_scenario(scenario_type: str = None) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Git mock generators
+# ---------------------------------------------------------------------------
+
+def _mock_git(tool_name: str, tool_input: Dict) -> Dict[str, Any]:
+    """Sandbox mocks for git tools."""
+    tn = tool_name.lower()
+    repo_path = tool_input.get('repo_path', '/mock/repo')
+
+    if 'clone' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'repo_path': tool_input.get('dest_path', '/mock/cloned-repo'),
+            'message': f'[Sandbox] Cloned {tool_input.get("url", "https://github.com/example/repo.git")}'
+        }
+    if 'stash_list' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'stashes': [
+                {'index': 0, 'description': 'stash@{0}: WIP on main: abc1234 Fix login'},
+                {'index': 1, 'description': 'stash@{1}: On feature: def5678 Add tests'},
+            ],
+            'count': 2
+        }
+    if 'list_tags' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'tags': [
+                {'name': 'v1.2.0', 'commit': 'abc1234', 'date': _recent_time(1440)},
+                {'name': 'v1.1.0', 'commit': 'def5678', 'date': _recent_time(10080)},
+                {'name': 'v1.0.0', 'commit': 'ghi9012', 'date': _recent_time(20160)},
+            ],
+            'count': 3
+        }
+    if 'list_remotes' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'remotes': [{'name': 'origin', 'urls': ['https://github.com/example/repo.git']}],
+            'count': 1
+        }
+    if 'blame' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'file_path': tool_input.get('file_path', 'main.py'),
+            'blame': 'abc1234 (Dev User 2026-04-01 10:00:00 +0000 1) import os\ndef5678 (Dev User 2026-04-02 11:00:00 +0000 2) import sys',
+            'lines': 2
+        }
+    if 'reflog' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'entries': [
+                'abc1234 HEAD@{0}: commit: Fix login bug',
+                'def5678 HEAD@{1}: checkout: moving from feature to main',
+                'ghi9012 HEAD@{2}: commit: Add user model',
+            ],
+            'count': 3
+        }
+    if 'shortlog' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'authors': [
+                {'commits': 42, 'name': 'Dev User', 'email': 'dev@example.com'},
+                {'commits': 15, 'name': 'Other Dev', 'email': 'other@example.com'},
+            ],
+            'count': 2
+        }
+    if 'log_file' in tn or 'search_commits' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'commits': [
+                {'sha': 'abc1234', 'author': 'Dev User', 'date': _recent_time(60), 'message': 'Fix login bug'},
+                {'sha': 'def5678', 'author': 'Dev User', 'date': _recent_time(1440), 'message': 'Add user model'},
+            ],
+            'count': 2
+        }
+    if 'grep' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'pattern': tool_input.get('pattern', ''),
+            'results': 'app.py:10:# matching line\nutils.py:25:# another match',
+            'lines': 2
+        }
+    if 'count_objects' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'stats': {'count': 1250, 'size': '4.80 MiB', 'in-pack': 1200, 'packs': 3, 'size-pack': '3.20 MiB'}
+        }
+    if 'show_file' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'content': '# Simulated file content at commit\nimport os\n',
+            'lines': 2
+        }
+    if 'show_commit' in tn:
+        sha = tool_input.get('commit_sha', 'abc1234')
+        return {
+            'success': True, 'simulated': True,
+            'commit': {
+                'sha': sha, 'author': 'Dev User', 'date': _recent_time(60),
+                'message': 'Fix critical bug', 'files_changed': ['app.py', 'utils.py'],
+                'stats': {'insertions': 15, 'deletions': 3, 'files': 2}
+            }
+        }
+    if 'diff_stat' in tn or 'diff' in tn:
+        return {
+            'success': True, 'simulated': True,
+            'stat': ' app.py | 10 +++++-----\n utils.py | 3 ++-\n 2 files changed, 8 insertions(+), 5 deletions(-)',
+            'lines': 3
+        }
+    # Write operations: commit, push, pull, merge, rebase, cherry_pick, etc.
+    for keyword in ('commit', 'push', 'pull', 'merge', 'rebase', 'cherry_pick', 'revert',
+                     'amend', 'fetch', 'reset', 'clean', 'switch', 'create', 'delete',
+                     'rename', 'add_files', 'add_remote', 'init', 'stash', 'tag'):
+        if keyword in tn:
+            return {
+                'success': True, 'simulated': True,
+                'message': f'[Sandbox] {tool_name} completed successfully'
+            }
+
+    return {'success': True, 'simulated': True, 'message': f'[Sandbox] {tool_name} completed'}
+
+
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -1930,7 +2052,10 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
     is_terraform = any(k in tn for k in ('terraform',))
     is_sonarqube = any(k in tn for k in ('sonar',))
     is_nexus = any(k in tn for k in ('nexus',))
+    is_git = tn.startswith('git_') and not any(k in tn for k in ('docker', 'ansible', 'terraform', 'github'))
 
+    if is_git:
+        return _mock_git(tn, tool_input)
     if is_jenkins:
         return _mock_jenkins(tn, tool_input)
     if is_github_actions:

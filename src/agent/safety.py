@@ -275,6 +275,10 @@ class SafetyValidator:
             'nexus_delete_repository',
             'nexus_delete_component',
             'nexus_delete_asset',
+            # Git high-risk
+            'git_reset_to_commit',
+            'git_clean_working_directory',
+            'git_force_push_branch',
             # EC2 new destructive
             'delete_ec2_keypair',
             'delete_ebs_snapshot',
@@ -356,6 +360,22 @@ class SafetyValidator:
             'create_firewall_rule',
             'resize_gke_cluster',
             'create_pubsub_subscription',
+            # Git medium risk
+            'git_clone_repository',
+            'git_switch_branch',
+            'git_merge_branch',
+            'git_rename_branch',
+            'git_reset_files',
+            'git_amend_commit',
+            'git_pull',
+            'git_push',
+            'git_cherry_pick',
+            'git_push_tag',
+            'git_stash_drop',
+            'git_revert_commit',
+            'git_rebase_branch',
+            # GitHub PR medium risk
+            'github_close_pull_request',
             # Docker medium risk
             'docker_exec',
             'docker_push_image',
