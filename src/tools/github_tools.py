@@ -236,6 +236,22 @@ def github_merge_pull_request(repo_full_name: str, pr_number: int,
         return {'success': False, 'error': str(e)}
 
 
+def github_close_pull_request(repo_full_name: str, pr_number: int, comment: Optional[str] = None,
+                               github_token: Optional[str] = None) -> Dict[str, Any]:
+    """Close a pull request without merging, optionally with a comment."""
+    try:
+        g = _get_github_client(github_token)
+        repo = g.get_repo(repo_full_name)
+        pr = repo.get_pull(pr_number)
+        if comment:
+            pr.create_issue_comment(comment)
+        pr.edit(state='closed')
+        return {'success': True, 'message': f'PR #{pr_number} closed'}
+    except Exception as e:
+        logger.error(f"Error closing PR: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
 # ============================================
 # Branches & Releases
 # ============================================
@@ -589,6 +605,21 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['repo_full_name', 'pr_number']
             },
             'handler': github_merge_pull_request
+        },
+        {
+            'name': 'github_close_pull_request',
+            'description': 'Close a pull request without merging, optionally with a comment',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'repo_full_name': {'type': 'string', 'description': 'Full repo name (owner/repo)'},
+                    'pr_number': {'type': 'integer', 'description': 'Pull request number'},
+                    'comment': {'type': 'string', 'description': 'Optional closing comment'},
+                    'github_token': {'type': 'string', 'description': 'GitHub token'},
+                },
+                'required': ['repo_full_name', 'pr_number']
+            },
+            'handler': github_close_pull_request
         },
         {
             'name': 'github_list_branches',
