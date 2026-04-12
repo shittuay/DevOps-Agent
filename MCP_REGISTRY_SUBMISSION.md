@@ -100,8 +100,8 @@ Returns:
 | SonarQube | 12 | Code quality, projects, issues, quality gates |
 | Nexus | 12 | Repositories, components, cleanup tasks |
 | Docker | 22 | Containers, images, volumes, networks, compose |
-| Git | 6 | Repository operations, branches, commits, PRs |
-| GitHub | 18 | Repositories, pull requests, issues, actions |
+| Git | 47 | Repository setup, branching, staging, committing, remote ops, tags, stashing, search, maintenance |
+| GitHub | 19 | Repositories, pull requests, issues, actions, releases, collaborators |
 | Monitoring | 12 | Prometheus, Datadog, Grafana |
 | Ansible | 13 | Playbooks, ad-hoc commands, inventory, vault |
 | Alerting | 16 | PagerDuty + OpsGenie incidents/alerts |
