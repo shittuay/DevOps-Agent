@@ -10,7 +10,7 @@ Create `servers/devops-agent.json` in the `github.com/anthropics/mcp` repository
 {
   "name": "devops-agent",
   "display_name": "DevOps Agent",
-  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 726 tools across 17 modules including monitoring, security scanning, and alerting.",
+  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 727 tools across 17 modules including monitoring, security scanning, and alerting.",
   "server_json_url": "https://devopsagent.io/mcp/server.json",
   "website_url": "https://devopsagent.io",
   "categories": [
@@ -37,7 +37,7 @@ Key details:
 - **Name**: `io.github.shittuay/devops-agent` (reverse-DNS format)
 - **Version**: 1.0.4
 - **Title**: DevOps Agent
-- **Description**: Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 726 tools.
+- **Description**: Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 727 tools.
 - **Website**: https://devopsagent.io
 - **Repository**: https://github.com/shittuay/DevOps-Agent
 
@@ -87,7 +87,7 @@ Returns:
 - **SSE (Legacy)**: https://devopsagent.io/mcp/sse
 - **Health Check**: https://devopsagent.io/mcp/health
 
-## Tools Overview (726 total across 17 modules)
+## Tools Overview (727 total across 17 modules)
 
 | Module | Tool Count | Key Capabilities |
 |--------|------------|------------------|
@@ -167,10 +167,10 @@ curl -H "Authorization: Bearer TEST_TOKEN" \
 ```markdown
 ## DevOps Agent MCP Server
 
-DevOps Agent is a comprehensive infrastructure management platform that exposes 726 tools across 17 modules as an MCP-compliant remote server.
+DevOps Agent is a comprehensive infrastructure management platform that exposes 727 tools across 17 modules as an MCP-compliant remote server.
 
 ### What's included
-- **726 tools** across AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform, SonarQube, Nexus, monitoring, and alerting
+- **727 tools** across AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform, SonarQube, Nexus, monitoring, and alerting
 - **OAuth 2.0 + PKCE** authentication with RFC 8414/9728 compliant discovery endpoints
 - **Streamable HTTP** and **SSE** transports
 - **npm package** `@devopsagent/mcp-server` for stdio bridge support
