@@ -136,7 +136,8 @@ You should see the JSON response above. Press `Ctrl+C` to exit.
 | Alerting | 16 | PagerDuty + OpsGenie |
 | SonarQube | 12 | Projects, quality gates, issues, analysis |
 | Nexus | 12 | Repositories, components, assets |
-| Git | 6 | Status, branches, commits, diff, PRs |
+| Git | 47 | Clone, branch, commit, push, pull, merge, rebase, tags, stash, search |
+| GitHub | 19 | Repos, issues, PRs, branches, releases, workflows, collaborators |
 
 ## Environment Variables
 
