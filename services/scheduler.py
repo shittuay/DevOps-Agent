@@ -112,6 +112,7 @@ def _scheduler_loop(app, db):
         'infra_sync':        timedelta(hours=1),
         'cost_check':        timedelta(hours=6),
         'security_scan':     timedelta(hours=12),
+        'drip_email':        timedelta(hours=1),
         'weekly_digest':     timedelta(hours=168),   # 7 days
         'db_backup':         timedelta(hours=24),
     }
@@ -149,6 +150,8 @@ def _run_task(task_name: str, app, db):
         _run_cost_anomaly_check(db)
     elif task_name == 'security_scan':
         _run_security_scan(db)
+    elif task_name == 'drip_email':
+        _run_drip_emails(db)
     elif task_name == 'weekly_digest':
         _run_weekly_digest(db)
     elif task_name == 'db_backup':
@@ -319,6 +322,15 @@ def _run_security_scan(db):
                 logger.warning(f"User {user.id}: {critical} critical security findings open")
         except Exception as e:
             logger.debug(f"Security scan skipped for user {user.id}: {e}")
+
+
+def _run_drip_emails(db):
+    """Send pending onboarding drip emails."""
+    from services.drip_email_service import process_drip_emails
+    try:
+        process_drip_emails(db)
+    except Exception as e:
+        logger.error(f"Drip email processing failed: {e}", exc_info=True)
 
 
 def _run_weekly_digest(db):

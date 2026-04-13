@@ -5,6 +5,7 @@ Provides public API access, API key management, rate limiting, and webhooks out.
 Uses database persistence for all data.
 """
 
+import ipaddress
 import logging
 from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime, timedelta, date
@@ -13,11 +14,32 @@ import secrets
 import hashlib
 import hmac
 import json
+import socket
+from urllib.parse import urlparse
 from functools import wraps
 
 from flask import request, jsonify, g
 
 logger = logging.getLogger(__name__)
+
+
+def _is_safe_webhook_url(url: str) -> bool:
+    """Block webhook URLs targeting internal/private networks (SSRF protection)."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        resolved = socket.getaddrinfo(hostname, None)
+        for _, _, _, _, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 class APIKeyScope(Enum):
@@ -325,6 +347,12 @@ class APIGatewayService:
             }
 
             try:
+                if not _is_safe_webhook_url(webhook.url):
+                    delivery.status = 'failed'
+                    delivery.response_body = 'Webhook URL targets a private/internal network (blocked by SSRF protection)'
+                    db.session.commit()
+                    logger.warning(f"Blocked SSRF attempt to {webhook.url}")
+                    return delivery
                 start_time = datetime.utcnow()
                 response = http_requests.post(
                     webhook.url,

@@ -28,6 +28,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
 });
 
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = String(str);
+    return d.innerHTML;
+}
+
 function renderRecommendations(recs) {
     const container = document.getElementById('recommendationsList');
     if (recs.length === 0) {
@@ -36,10 +42,10 @@ function renderRecommendations(recs) {
     }
     container.innerHTML = recs.map(r => `
         <div class="recommendation-card">
-            <h4>${r.title} ${r.potential_savings ? `<span class="savings-badge">Save $${r.potential_savings}/mo</span>` : ''}</h4>
-            <p>${r.description}</p>
-            <p><strong>Priority:</strong> ${r.priority || 'Medium'}</p>
-            <button class="btn btn-primary" onclick="applyRecommendation('${r.id}')">Apply</button>
+            <h4>${escHtml(r.title)} ${r.potential_savings ? `<span class="savings-badge">Save $${escHtml(r.potential_savings)}/mo</span>` : ''}</h4>
+            <p>${escHtml(r.description)}</p>
+            <p><strong>Priority:</strong> ${escHtml(r.priority || 'Medium')}</p>
+            <button class="btn btn-primary" onclick="applyRecommendation('${escHtml(r.id)}')">Apply</button>
         </div>
     `).join('');
 }

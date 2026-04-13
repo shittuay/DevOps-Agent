@@ -31,6 +31,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
 });
 
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = String(str);
+    return d.innerHTML;
+}
+
 function renderTemplates(templates) {
     const grid = document.getElementById('templatesGrid');
     if (templates.length === 0) {
@@ -39,11 +45,11 @@ function renderTemplates(templates) {
     }
     grid.innerHTML = templates.map(t => `
         <div class="template-card">
-            <h4>${t.name}</h4>
-            <p>${t.description || 'No description'}</p>
-            <div><strong>Provider:</strong> ${t.cloud_provider}</div>
-            <div><strong>Est. Cost:</strong> $${t.estimated_cost || 0}/mo</div>
-            <button class="btn btn-primary mt-3" onclick="useTemplate('${t.id}')">Use Template</button>
+            <h4>${escHtml(t.name)}</h4>
+            <p>${escHtml(t.description || 'No description')}</p>
+            <div><strong>Provider:</strong> ${escHtml(t.cloud_provider)}</div>
+            <div><strong>Est. Cost:</strong> $${escHtml(t.estimated_cost || 0)}/mo</div>
+            <button class="btn btn-primary mt-3" onclick="useTemplate('${escHtml(t.id)}')">Use Template</button>
         </div>
     `).join('');
 }
