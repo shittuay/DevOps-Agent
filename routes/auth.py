@@ -15,10 +15,25 @@ from flask_login import current_user, login_required, login_user, logout_user
 
 from email_validator import EmailNotValidError, validate_email
 
+from urllib.parse import urlparse
+
 from extensions import limiter, security_logger
 from models import db, SubscriptionTier, User, UserSubscription
 
 auth_bp = Blueprint('auth', __name__)
+
+
+def _is_safe_redirect(target: str) -> bool:
+    """Reject absolute URLs and protocol-relative URLs to prevent open redirects."""
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(target)
+    if test_url.scheme and test_url.scheme not in ('http', 'https'):
+        return False
+    if test_url.netloc and test_url.netloc != ref_url.netloc:
+        return False
+    if target.startswith('//'):
+        return False
+    return True
 
 
 def _check_csrf():
@@ -110,8 +125,10 @@ def login():
 
             security_logger.info(f"Successful login: {user.email} from {ip_address}")
 
-            next_page = request.args.get('next')
-            return redirect(next_page if next_page else url_for('chat'))
+            next_page = request.args.get('next', '')
+            if next_page and _is_safe_redirect(next_page):
+                return redirect(next_page)
+            return redirect(url_for('chat'))
         else:
             user.record_failed_login()
             attempts_remaining = max(0, 5 - user.failed_login_attempts)
@@ -226,6 +243,11 @@ def signup():
                 email_service.send_verification_email(user, token=verification_token)
                 if user.email:
                     email_service.send_welcome_email(user)
+                    # Record Day 0 drip log
+                    from models import DripEmailLog
+                    drip_log = DripEmailLog(user_id=user.id, drip_key='day_0_welcome', success=True)
+                    db.session.add(drip_log)
+                    db.session.commit()
             except Exception as email_err:
                 current_app.logger.warning(f"Failed to send verification email to {email}: {email_err}")
 

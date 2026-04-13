@@ -158,6 +158,9 @@ Talisman(app,
         'font-src': ["'self'", "data:", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
         'connect-src': ["'self'", "https://api.stripe.com"],
         'frame-src': ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+        'base-uri': "'self'",
+        'form-action': "'self'",
+        'object-src': "'none'",
     },
 )
 
@@ -488,10 +491,14 @@ def handle_exception(e):
     if request.path.startswith('/api/') or request.path.startswith('/chat'):
         return jsonify({'error': 'An internal error occurred. Please try again.'}), 500
 
-    # For page requests, render error template with details in dev mode
-    import traceback as _tb2
-    error_detail = f"{type(e).__name__}: {str(e)}"
-    error_traceback = _tb2.format_exc()
+    # For page requests, render error template — only show details in dev mode
+    if os.environ.get('FLASK_ENV') == 'development':
+        import traceback as _tb2
+        error_detail = f"{type(e).__name__}: {str(e)}"
+        error_traceback = _tb2.format_exc()
+    else:
+        error_detail = 'An unexpected error occurred.'
+        error_traceback = ''
     return render_template('500.html', error_detail=error_detail, error_traceback=error_traceback), 500
 
 
@@ -1728,6 +1735,21 @@ def status_unsubscribe(token):
         flash_msg=msg,
         flash_type='success' if ok else 'error',
     )
+
+
+@app.route('/email/unsubscribe')
+def email_unsubscribe():
+    """Unsubscribe a user from onboarding drip emails (unauthenticated, HMAC-verified)."""
+    from services.drip_email_service import verify_unsubscribe_token
+    user_id = request.args.get('user_id', type=int)
+    token = request.args.get('token', '')
+    if not user_id or not token or not verify_unsubscribe_token(user_id, token):
+        return '<html><body style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Invalid link</h2><p style="color:#94a3b8">This unsubscribe link is invalid or expired.</p></div></body></html>', 400
+    user = User.query.get(user_id)
+    if user:
+        user.email_opt_out = True
+        db.session.commit()
+    return '<html><body style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Unsubscribed</h2><p style="color:#94a3b8">You will no longer receive onboarding emails from DevOps Agent.</p></div></body></html>'
 
 
 @app.route('/api/status/subscribe', methods=['POST'])

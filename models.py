@@ -73,6 +73,9 @@ class User(UserMixin, db.Model):
     onboarding_completed = db.Column(db.Boolean, default=False)
     onboarding_step = db.Column(db.Integer, default=0)
 
+    # Email preferences
+    email_opt_out = db.Column(db.Boolean, default=False)
+
     # API Key Management
     api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade='all, delete-orphan')
 
@@ -2904,3 +2907,21 @@ class UserSkillActivation(db.Model):
 
     def __repr__(self):
         return f'<UserSkillActivation user={self.user_id} skill={self.skill_id} active={self.is_active}>'
+
+
+class DripEmailLog(db.Model):
+    """Tracks which drip emails have been sent to each user."""
+    __tablename__ = 'drip_email_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    drip_key = db.Column(db.String(50), nullable=False)
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+    success = db.Column(db.Boolean, default=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'drip_key', name='uq_user_drip_key'),
+    )
+
+    def __repr__(self):
+        return f'<DripEmailLog user={self.user_id} key={self.drip_key}>'
