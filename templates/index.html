@@ -2618,6 +2618,14 @@
                                     const iconEl = chip.querySelector('.chip-icon');
                                     if (iconEl) iconEl.textContent = evt.success === false ? '✗' : '✓';
                                 }
+                            } else if (evt.type === 'crisis') {
+                                // ===== CRISIS RESPONSE =====
+                                // Show crisis banner and prevent further processing
+                                showCrisisBanner(evt.resources);
+                                isProcessing = false;
+                                updateSendButton(false);
+                                input.focus();
+                                return;
                             } else if (evt.type === 'chunk') {
                                 rawText += evt.content;
                                 textDiv.innerHTML = formatMessage(rawText);
@@ -2777,6 +2785,115 @@
             const button = document.getElementById('sendButton');
             button.disabled = disabled;
             button.textContent = disabled ? 'Sending...' : 'Send';
+        }
+
+        // ===== CRISIS RESPONSE HANDLER =====
+        function showCrisisBanner(resources) {
+            const container = document.getElementById('chatContainer');
+            if (!container) return;
+
+            // Remove the empty response message if it exists
+            const messages = container.querySelectorAll('.message.bot');
+            if (messages.length > 0) {
+                const lastMsg = messages[messages.length - 1];
+                if (lastMsg && lastMsg.textContent.trim() === '') {
+                    lastMsg.remove();
+                }
+            }
+
+            // Create crisis banner message
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot crisis-response';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = 'D';
+            avatar.style.backgroundColor = '#d32f2f';
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            const bannerDiv = document.createElement('div');
+            bannerDiv.className = 'crisis-banner';
+            bannerDiv.style.cssText = `
+                background: #d32f2f;
+                padding: 20px;
+                border-radius: 8px;
+                color: white;
+                margin: 10px 0;
+            `;
+
+            const title = document.createElement('h3');
+            title.style.cssText = 'color: white; margin: 0 0 10px 0; font-size: 18px;';
+            title.textContent = '🆘 We\'re Concerned for Your Safety';
+
+            const message = document.createElement('p');
+            message.style.cssText = 'color: #fff; margin: 0 0 15px 0; line-height: 1.5;';
+            message.textContent = `You deserve immediate support from trained professionals. ${resources.name} is available 24/7.`;
+
+            bannerDiv.appendChild(title);
+            bannerDiv.appendChild(message);
+
+            // Build resource buttons
+            const buttonsDiv = document.createElement('div');
+            buttonsDiv.style.cssText = 'display: flex; flex-direction: column; gap: 10px;';
+
+            const name = resources.name;
+            const phone = resources.phone;
+            const sms = resources.sms;
+            const url = resources.url;
+            const urlChat = resources.url_chat;
+
+            if (phone) {
+                const phoneBtn = document.createElement('a');
+                phoneBtn.href = `tel:${phone.replace(/[+\s\-()]/g, '')}`;
+                phoneBtn.style.cssText = 'background: white; color: #d32f2f; padding: 12px; border-radius: 4px; text-align: center; font-weight: bold; text-decoration: none; display: block;';
+                phoneBtn.textContent = `📞 Call ${phone}`;
+                buttonsDiv.appendChild(phoneBtn);
+            }
+
+            if (urlChat) {
+                const chatBtn = document.createElement('a');
+                chatBtn.href = urlChat;
+                chatBtn.target = '_blank';
+                chatBtn.style.cssText = 'background: white; color: #d32f2f; padding: 12px; border-radius: 4px; text-align: center; font-weight: bold; text-decoration: none; display: block;';
+                chatBtn.textContent = '💬 Chat Online';
+                buttonsDiv.appendChild(chatBtn);
+            }
+
+            if (sms) {
+                const smsDiv = document.createElement('div');
+                smsDiv.style.cssText = 'background: white; color: #d32f2f; padding: 12px; border-radius: 4px; text-align: center; font-weight: bold;';
+                smsDiv.textContent = `📱 ${sms}`;
+                buttonsDiv.appendChild(smsDiv);
+            }
+
+            const webBtn = document.createElement('a');
+            webBtn.href = url;
+            webBtn.target = '_blank';
+            webBtn.style.cssText = 'background: white; color: #d32f2f; padding: 12px; border-radius: 4px; text-align: center; font-weight: bold; text-decoration: none; display: block;';
+            webBtn.textContent = '🌐 Visit Website';
+            buttonsDiv.appendChild(webBtn);
+
+            const footer = document.createElement('p');
+            footer.style.cssText = 'color: #fff; margin: 15px 0 0 0; font-size: 12px; opacity: 0.9;';
+            footer.textContent = 'We care about your wellbeing. If you\'re in immediate danger, please call emergency services (911 in US, 999 in UK, etc.).';
+
+            bannerDiv.appendChild(buttonsDiv);
+            bannerDiv.appendChild(footer);
+
+            contentDiv.appendChild(bannerDiv);
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(contentDiv);
+            container.appendChild(messageDiv);
+
+            // Disable chat input
+            const input = document.getElementById('messageInput');
+            const sendBtn = document.getElementById('sendButton');
+            if (input) { input.disabled = true; input.placeholder = 'Please reach out to crisis support'; }
+            if (sendBtn) sendBtn.disabled = true;
+
+            scrollToBottom();
         }
 
         async function clearChat() {
