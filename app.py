@@ -2588,6 +2588,36 @@ def run_db_migration():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/admin/add-credits', methods=['POST'])
+@login_required
+def admin_add_credits():
+    """One-time admin endpoint: add credits to any user by email. Owner-only."""
+    OWNER_EMAIL = 'yabiolashittu@gmail.com'
+    if current_user.email != OWNER_EMAIL:
+        return jsonify({'error': 'Forbidden'}), 403
+    data = request.get_json() or {}
+    target_email = data.get('email', '').strip()
+    amount = int(data.get('amount', 0))
+    if not target_email or amount <= 0:
+        return jsonify({'error': 'email and amount required'}), 400
+    target = User.query.filter_by(email=target_email).first()
+    if not target:
+        return jsonify({'error': f'User not found: {target_email}'}), 404
+    sub = UserSubscription.query.filter_by(user_id=target.id).first()
+    if not sub:
+        return jsonify({'error': f'No subscription for {target_email}'}), 404
+    old = sub.credits_remaining
+    sub.credits_remaining = old + amount
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'email': target_email,
+        'credits_before': old,
+        'credits_after': sub.credits_remaining,
+        'tier': sub.tier.name if sub.tier else 'unknown'
+    })
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
