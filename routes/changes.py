@@ -623,7 +623,7 @@ def _execute_change(change: InfrastructureChange) -> dict:
                 result['errors'] = errors
             return result
 
-        elif action == 'delete_security_group':
+        elif action in ('delete', 'delete_security_group'):
             try:
                 ec2.delete_security_group(GroupId=change.resource_id)
                 return {'action': 'delete_security_group', 'group_id': change.resource_id, 'status': 'deleted'}
