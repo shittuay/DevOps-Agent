@@ -437,8 +437,10 @@ def _capture_rollback_data(change: InfrastructureChange) -> dict:
         if change.cloud_provider != 'aws' or not change.resource_id:
             return {'note': 'Rollback data not available for this resource'}
 
+        region = (change.change_details or {}).get('region')
+
         if change.resource_type == 'ec2':
-            ec2 = get_user_boto_client(change.user_id, 'ec2')
+            ec2 = get_user_boto_client(change.user_id, 'ec2', region)
             response = ec2.describe_instances(InstanceIds=[change.resource_id])
             reservations = response.get('Reservations', [])
             if reservations and reservations[0].get('Instances'):
@@ -452,7 +454,7 @@ def _capture_rollback_data(change: InfrastructureChange) -> dict:
                 }
 
         elif change.resource_type == 'rds':
-            rds = get_user_boto_client(change.user_id, 'rds')
+            rds = get_user_boto_client(change.user_id, 'rds', region)
             response = rds.describe_db_instances(DBInstanceIdentifier=change.resource_id)
             instances = response.get('DBInstances', [])
             if instances:
@@ -466,7 +468,7 @@ def _capture_rollback_data(change: InfrastructureChange) -> dict:
                 }
 
         elif change.resource_type == 'security_group':
-            ec2 = get_user_boto_client(change.user_id, 'ec2')
+            ec2 = get_user_boto_client(change.user_id, 'ec2', region)
             response = ec2.describe_security_groups(GroupIds=[change.resource_id])
             groups = response.get('SecurityGroups', [])
             if groups:
@@ -497,9 +499,10 @@ def _execute_change(change: InfrastructureChange) -> dict:
 
     action = change.action_type
     resource_type = change.resource_type
+    region = (change.change_details or {}).get('region')
 
     if resource_type == 'ec2':
-        ec2 = get_user_boto_client(change.user_id, 'ec2')
+        ec2 = get_user_boto_client(change.user_id, 'ec2', region)
 
         if action == 'stop':
             response = ec2.stop_instances(InstanceIds=[change.resource_id])
@@ -518,7 +521,6 @@ def _execute_change(change: InfrastructureChange) -> dict:
             if not new_type:
                 raise ValueError('new_instance_type required in change_details')
 
-            # Must be stopped first
             ec2.stop_instances(InstanceIds=[change.resource_id])
             waiter = ec2.get_waiter('instance_stopped')
             waiter.wait(InstanceIds=[change.resource_id])
@@ -531,7 +533,7 @@ def _execute_change(change: InfrastructureChange) -> dict:
             return {'action': 'resize', 'new_instance_type': new_type}
 
     elif resource_type == 'rds':
-        rds = get_user_boto_client(change.user_id, 'rds')
+        rds = get_user_boto_client(change.user_id, 'rds', region)
 
         if action == 'stop':
             rds.stop_db_instance(DBInstanceIdentifier=change.resource_id)
@@ -554,14 +556,13 @@ def _execute_change(change: InfrastructureChange) -> dict:
             return {'action': 'resize', 'new_instance_class': new_class}
 
     elif resource_type == 's3':
-        s3 = get_user_boto_client(change.user_id, 's3')
+        s3 = get_user_boto_client(change.user_id, 's3', region)
         bucket = change.resource_id if change.resource_id and change.resource_id != 'N/A' else change.resource_name
 
         if not bucket:
             raise ValueError('Bucket name required (set resource_id or resource_name)')
 
         if action == 'delete':
-            # Empty bucket first (required before deletion)
             paginator = s3.get_paginator('list_object_versions')
             objects_deleted = 0
             for page in paginator.paginate(Bucket=bucket):
@@ -574,7 +575,6 @@ def _execute_change(change: InfrastructureChange) -> dict:
                     s3.delete_objects(Bucket=bucket, Delete={'Objects': delete_batch})
                     objects_deleted += len(delete_batch)
 
-            # Also delete unversioned objects
             paginator2 = s3.get_paginator('list_objects_v2')
             for page in paginator2.paginate(Bucket=bucket):
                 delete_batch = [{'Key': o['Key']} for o in page.get('Contents', [])]
@@ -586,10 +586,9 @@ def _execute_change(change: InfrastructureChange) -> dict:
             return {'action': 'delete', 'bucket': bucket, 'objects_deleted': objects_deleted}
 
     elif resource_type == 'security_group':
-        ec2 = get_user_boto_client(change.user_id, 'ec2')
+        ec2 = get_user_boto_client(change.user_id, 'ec2', region)
 
         if action == 'modify_security_group':
-            # change_details should contain rules_to_revoke list
             rules_to_revoke = (change.change_details or {}).get('rules_to_revoke', [])
             if not rules_to_revoke:
                 return {'action': 'modify_security_group', 'status': 'no_rules', 'message': 'No rules to revoke'}
@@ -599,15 +598,12 @@ def _execute_change(change: InfrastructureChange) -> dict:
 
             for rule in rules_to_revoke:
                 try:
-                    # Build revoke params from rule dict
                     revoke_params = {
                         'GroupId': change.resource_id,
                         'IpProtocol': rule.get('protocol', 'tcp'),
                         'FromPort': rule.get('from_port', 0),
                         'ToPort': rule.get('to_port', 0),
                     }
-
-                    # Handle CIDR or source security group
                     if rule.get('cidr'):
                         revoke_params['CidrIp'] = rule['cidr']
                     elif rule.get('source_sg_id'):
@@ -632,7 +628,6 @@ def _execute_change(change: InfrastructureChange) -> dict:
                 ec2.delete_security_group(GroupId=change.resource_id)
                 return {'action': 'delete_security_group', 'group_id': change.resource_id, 'status': 'deleted'}
             except Exception as e:
-                # Common error: SG still in use by ENIs or other SGs
                 if 'InvalidGroup.InUse' in str(e):
                     return {'action': 'delete_security_group', 'status': 'failed', 'error': 'Security group is still in use by network interfaces or other security groups'}
                 return {'action': 'delete_security_group', 'status': 'failed', 'error': str(e)}
@@ -649,9 +644,10 @@ def _execute_rollback(change: InfrastructureChange) -> dict:
         raise ValueError('No valid rollback data')
 
     resource_type = rollback.get('resource_type')
+    region = (change.change_details or {}).get('region')
 
     if resource_type == 'ec2':
-        ec2 = get_user_boto_client(change.user_id, 'ec2')
+        ec2 = get_user_boto_client(change.user_id, 'ec2', region)
         previous_state = rollback.get('previous_state')
 
         if change.action_type == 'stop' and previous_state == 'running':
@@ -674,7 +670,7 @@ def _execute_rollback(change: InfrastructureChange) -> dict:
             return {'action': 'rollback_resize', 'restored_type': rollback['instance_type']}
 
     elif resource_type == 'security_group':
-        ec2 = get_user_boto_client(change.user_id, 'ec2')
+        ec2 = get_user_boto_client(change.user_id, 'ec2', region)
         group_id = rollback['group_id']
 
         # Check if SG was deleted
