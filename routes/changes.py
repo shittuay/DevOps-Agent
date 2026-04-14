@@ -474,8 +474,12 @@ def _capture_rollback_data(change: InfrastructureChange) -> dict:
                 return {
                     'resource_type': 'security_group',
                     'group_id': change.resource_id,
+                    'group_name': sg.get('GroupName'),
+                    'group_description': sg.get('GroupDescription'),
+                    'vpc_id': sg.get('VpcId'),
                     'ingress_rules': sg.get('IpPermissions', []),
-                    'egress_rules': sg.get('IpPermissionsEgress', [])
+                    'egress_rules': sg.get('IpPermissionsEgress', []),
+                    'tags': sg.get('Tags', [])
                 }
 
     except Exception as e:
@@ -623,6 +627,16 @@ def _execute_change(change: InfrastructureChange) -> dict:
                 result['errors'] = errors
             return result
 
+        elif action == 'delete_security_group':
+            try:
+                ec2.delete_security_group(GroupId=change.resource_id)
+                return {'action': 'delete_security_group', 'group_id': change.resource_id, 'status': 'deleted'}
+            except Exception as e:
+                # Common error: SG still in use by ENIs or other SGs
+                if 'InvalidGroup.InUse' in str(e):
+                    return {'action': 'delete_security_group', 'status': 'failed', 'error': 'Security group is still in use by network interfaces or other security groups'}
+                return {'action': 'delete_security_group', 'status': 'failed', 'error': str(e)}
+
     return {'status': 'no_action', 'reason': f'Unsupported: {action} on {resource_type}'}
 
 
@@ -663,16 +677,72 @@ def _execute_rollback(change: InfrastructureChange) -> dict:
         ec2 = get_user_boto_client(change.user_id, 'ec2')
         group_id = rollback['group_id']
 
-        # Restore original ingress rules
-        current = ec2.describe_security_groups(GroupIds=[group_id])
-        if current['SecurityGroups']:
-            current_ingress = current['SecurityGroups'][0].get('IpPermissions', [])
-            if current_ingress:
-                ec2.revoke_security_group_ingress(GroupId=group_id, IpPermissions=current_ingress)
-            original_ingress = rollback.get('ingress_rules', [])
-            if original_ingress:
-                ec2.authorize_security_group_ingress(GroupId=group_id, IpPermissions=original_ingress)
+        # Check if SG was deleted
+        if change.action_type == 'delete_security_group':
+            try:
+                # Try to describe it - if it fails, it was deleted
+                ec2.describe_security_groups(GroupIds=[group_id])
+                # If we get here, SG still exists (delete failed or didn't execute)
+                return {'action': 'rollback_delete_security_group', 'status': 'noop', 'reason': 'SG still exists'}
+            except:
+                # SG was deleted, need to recreate it
+                vpc_id = rollback.get('vpc_id')
+                group_name = rollback.get('group_name')
+                group_description = rollback.get('group_description')
 
-        return {'action': 'rollback_security_group', 'group_id': group_id}
+                if not all([vpc_id, group_name, group_description]):
+                    return {'action': 'rollback_delete_security_group', 'status': 'failed', 'reason': 'Missing SG metadata for recreation'}
+
+                try:
+                    # Recreate the SG
+                    response = ec2.create_security_group(
+                        GroupName=group_name,
+                        Description=group_description,
+                        VpcId=vpc_id
+                    )
+                    new_group_id = response['GroupId']
+
+                    # Restore ingress rules
+                    ingress_rules = rollback.get('ingress_rules', [])
+                    if ingress_rules:
+                        ec2.authorize_security_group_ingress(GroupId=new_group_id, IpPermissions=ingress_rules)
+
+                    # Restore egress rules (if not default)
+                    egress_rules = rollback.get('egress_rules', [])
+                    if egress_rules:
+                        # Remove default egress rule first
+                        ec2.revoke_security_group_egress(
+                            GroupId=new_group_id,
+                            IpPermissions=[{
+                                'IpProtocol': '-1',
+                                'CidrIp': '0.0.0.0/0'
+                            }]
+                        )
+                        # Add back original rules
+                        ec2.authorize_security_group_egress(GroupId=new_group_id, IpPermissions=egress_rules)
+
+                    # Restore tags
+                    tags = rollback.get('tags', [])
+                    if tags:
+                        tag_dict = {t['Key']: t['Value'] for t in tags}
+                        ec2.create_tags(Resources=[new_group_id], Tags=[{'Key': k, 'Value': v} for k, v in tag_dict.items()])
+
+                    return {'action': 'rollback_delete_security_group', 'status': 'recreated', 'group_id': new_group_id}
+                except Exception as e:
+                    return {'action': 'rollback_delete_security_group', 'status': 'failed', 'error': str(e)}
+        else:
+            # Rollback for modify_security_group (restore rules)
+            try:
+                current = ec2.describe_security_groups(GroupIds=[group_id])
+                if current['SecurityGroups']:
+                    current_ingress = current['SecurityGroups'][0].get('IpPermissions', [])
+                    if current_ingress:
+                        ec2.revoke_security_group_ingress(GroupId=group_id, IpPermissions=current_ingress)
+                    original_ingress = rollback.get('ingress_rules', [])
+                    if original_ingress:
+                        ec2.authorize_security_group_ingress(GroupId=group_id, IpPermissions=original_ingress)
+                return {'action': 'rollback_security_group', 'group_id': group_id}
+            except Exception as e:
+                return {'action': 'rollback_security_group', 'status': 'failed', 'error': str(e)}
 
     raise ValueError(f'Rollback not supported for resource type: {resource_type}')

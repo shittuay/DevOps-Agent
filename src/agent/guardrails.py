@@ -5,21 +5,99 @@ Uses Claude Haiku as a lightweight harmlessness screen before the main agent
 processes the message. This is the first layer of a multi-layer defense:
 
   1. Input sanitization (services/input_sanitizer.py) — strip dangerous chars, block injection syntax
-  2. This module — semantic screen via Haiku for jailbreaks / out-of-scope attacks
-  3. Safety validator (src/agent/safety.py) — risk classification of tool calls
-  4. Output sanitization (services/secret_detector.py) — redact secrets from responses
+  2. Crisis detection — real-time detection of self-harm language + audit logging
+  3. Haiku semantic screen — jailbreaks / out-of-scope attacks
+  4. Safety validator (src/agent/safety.py) — risk classification of tool calls
+  5. Output sanitization (services/secret_detector.py) — redact secrets from responses
 
 Fails open: if the screen call errors, the message is allowed through.
+Crisis detection fails closed: if we detect crisis language, block the message immediately.
 """
 
 import json
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, List, Tuple
 
 import anthropic
 
 logger = logging.getLogger(__name__)
+
+# ===========================
+# CRISIS DETECTION KEYWORDS
+# ===========================
+# These are matched case-insensitively. Organized by severity level.
+
+CRISIS_KEYWORDS_HIGH = {
+    'suicide', 'kill myself', 'end my life', 'end it all',
+    'take my life', 'off myself', 'end it',
+    'suicidio', 'quiero suicidarme', 'matarme', 'terminar mi vida',
+    'me tuer', 'finir ma vie',
+}
+
+CRISIS_KEYWORDS_MEDIUM = {
+    'self-harm', 'self harm', 'cut myself', 'cutting myself', 'hurt myself',
+    'injure myself', 'automutilation', 'automutilación', 'harm myself',
+    'automutilation', 'me faire du mal',
+}
+
+CRISIS_KEYWORDS_ATTEMPT = {
+    'overdose', 'slit my wrists', 'hang myself', 'jump off', 'jump from',
+    'gun to my', 'noose', 'pills', 'poison myself', 'stab myself',
+    'surdose', 'pendre', 'poison',
+}
+
+CRISIS_KEYWORDS_INTENT = {
+    'won\'t survive', 'won\'t make it', 'better off dead', 'no point living',
+    'not worth living', 'why am i alive', 'no reason to live',
+    'no point in continuing', 'going to kill myself',
+}
+
+# Combine all crisis keywords for fast detection
+ALL_CRISIS_KEYWORDS = (CRISIS_KEYWORDS_HIGH | CRISIS_KEYWORDS_MEDIUM |
+                       CRISIS_KEYWORDS_ATTEMPT | CRISIS_KEYWORDS_INTENT)
+
+
+def detect_crisis_language(message: str) -> Tuple[bool, str, Dict[str, int]]:
+    """
+    Fast keyword-based crisis detection. Prioritizes speed over perfect accuracy.
+
+    Returns:
+        (is_crisis: bool, severity: str, matched_keywords: dict)
+        - is_crisis: True if crisis language detected
+        - severity: 'high', 'medium', 'low' (based on keyword categories)
+        - matched_keywords: dict of {keyword: count} for logging
+    """
+    msg_lower = message.lower()
+    matched_keywords: Dict[str, int] = {}
+
+    # Check for high-severity keywords first
+    for kw in CRISIS_KEYWORDS_HIGH:
+        if kw in msg_lower:
+            matched_keywords[kw] = msg_lower.count(kw)
+
+    if matched_keywords:
+        return True, 'high', matched_keywords
+
+    # Check for medium-severity keywords
+    for kw in CRISIS_KEYWORDS_MEDIUM:
+        if kw in msg_lower:
+            matched_keywords[kw] = msg_lower.count(kw)
+
+    if matched_keywords:
+        return True, 'medium', matched_keywords
+
+    # Check for attempt/intent keywords
+    for kw in CRISIS_KEYWORDS_ATTEMPT | CRISIS_KEYWORDS_INTENT:
+        if kw in msg_lower:
+            matched_keywords[kw] = msg_lower.count(kw)
+
+    if matched_keywords:
+        return True, 'low', matched_keywords
+
+    return False, 'none', {}
 
 SCREEN_SYSTEM_PROMPT = """You are a content safety classifier for a DevOps infrastructure management platform.
 
@@ -119,6 +197,9 @@ class GuardrailResult:
     blocked: bool
     reason: str
     category: str
+    is_crisis: bool = False
+    crisis_severity: str = 'none'
+    crisis_keywords: Dict[str, int] = None  # {keyword: count}
 
 
 def _check_encoded_injection(message: str) -> bool:
@@ -169,11 +250,12 @@ def _check_encoded_injection(message: str) -> bool:
 
 def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
     """
-    Pre-screen a user message using Claude Haiku.
+    Pre-screen a user message for safety and crisis language.
 
-    Runs two checks in sequence:
-    1. Fast local check for common encoded injection attempts
-    2. Semantic classification via Claude Haiku
+    Runs three checks in sequence:
+    1. Crisis language detection (fast, local, fails closed)
+    2. Encoded injection attacks (fast, local, fails closed)
+    3. Semantic classification via Claude Haiku (AI-powered, fails open)
 
     Args:
         message: The user message to classify (only first 3000 chars are sent to Haiku)
@@ -182,19 +264,39 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
     Returns:
         GuardrailResult — blocked=True means the message should be rejected.
         On any error in the Haiku call, returns blocked=False (fail open).
+        If is_crisis=True, the frontend should show a crisis banner instead of error.
     """
-    # Fast pre-check for encoded attacks before hitting the API
+    # ===== FIRST: CRISIS DETECTION (FAIL CLOSED) =====
+    is_crisis, crisis_severity, crisis_keywords = detect_crisis_language(message)
+    if is_crisis:
+        logger.warning(
+            f"Crisis language detected. severity={crisis_severity} keywords={list(crisis_keywords.keys())}"
+        )
+        return GuardrailResult(
+            blocked=True,
+            reason="Crisis support initiated",
+            category="crisis_detected",
+            is_crisis=True,
+            crisis_severity=crisis_severity,
+            crisis_keywords=crisis_keywords
+        )
+
+    # ===== SECOND: ENCODED INJECTION DETECTION (FAIL CLOSED) =====
     if _check_encoded_injection(message):
         return GuardrailResult(
             blocked=True,
             reason="Encoded injection attempt detected",
-            category="encoded_attack"
+            category="encoded_attack",
+            is_crisis=False
         )
 
+    # ===== THIRD: SEMANTIC SCREENING VIA HAIKU (FAIL OPEN) =====
     key = api_key or os.environ.get('ANTHROPIC_API_KEY')
     if not key:
         logger.debug("Guardrail screen skipped — no API key available")
-        return GuardrailResult(blocked=False, reason="Screen unavailable", category="safe")
+        return GuardrailResult(
+            blocked=False, reason="Screen unavailable", category="safe", is_crisis=False
+        )
 
     try:
         client = anthropic.Anthropic(api_key=key)
@@ -225,12 +327,18 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
                         f"Guardrail blocked message. category={category} reason={reason!r}"
                     )
 
-                return GuardrailResult(blocked=is_harmful, reason=reason, category=category)
+                return GuardrailResult(
+                    blocked=is_harmful, reason=reason, category=category, is_crisis=False
+                )
 
         # Unexpected response shape — fail open
         logger.warning("Guardrail screen returned unexpected response shape")
-        return GuardrailResult(blocked=False, reason="Unexpected screen response", category="safe")
+        return GuardrailResult(
+            blocked=False, reason="Unexpected screen response", category="safe", is_crisis=False
+        )
 
     except Exception as e:
         logger.error(f"Guardrail screen error: {e}")
-        return GuardrailResult(blocked=False, reason="Screen error", category="safe")
+        return GuardrailResult(
+            blocked=False, reason="Screen error", category="safe", is_crisis=False
+        )
