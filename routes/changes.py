@@ -627,12 +627,66 @@ def _execute_change(change: InfrastructureChange) -> dict:
             return result
 
         elif action in ('delete', 'delete_security_group'):
+            group_id = change.resource_id
+            references_removed = []
+
+            # Find all SGs that reference this one in their rules and remove those references
+            all_sgs = ec2.describe_security_groups()['SecurityGroups']
+            for sg in all_sgs:
+                if sg['GroupId'] == group_id:
+                    continue
+
+                # Check ingress rules for references to this SG
+                ingress_to_revoke = [
+                    rule for rule in sg.get('IpPermissions', [])
+                    if any(
+                        pair.get('GroupId') == group_id
+                        for pair in rule.get('UserIdGroupPairs', [])
+                    )
+                ]
+                if ingress_to_revoke:
+                    try:
+                        ec2.revoke_security_group_ingress(
+                            GroupId=sg['GroupId'],
+                            IpPermissions=ingress_to_revoke
+                        )
+                        references_removed.append(f"ingress ref removed from {sg['GroupId']} ({sg.get('GroupName', '')})")
+                    except Exception as revoke_err:
+                        logger.warning(f"Could not remove ingress ref from {sg['GroupId']}: {revoke_err}")
+
+                # Check egress rules for references to this SG
+                egress_to_revoke = [
+                    rule for rule in sg.get('IpPermissionsEgress', [])
+                    if any(
+                        pair.get('GroupId') == group_id
+                        for pair in rule.get('UserIdGroupPairs', [])
+                    )
+                ]
+                if egress_to_revoke:
+                    try:
+                        ec2.revoke_security_group_egress(
+                            GroupId=sg['GroupId'],
+                            IpPermissions=egress_to_revoke
+                        )
+                        references_removed.append(f"egress ref removed from {sg['GroupId']} ({sg.get('GroupName', '')})")
+                    except Exception as revoke_err:
+                        logger.warning(f"Could not remove egress ref from {sg['GroupId']}: {revoke_err}")
+
+            # Now delete the security group
             try:
-                ec2.delete_security_group(GroupId=change.resource_id)
-                return {'action': 'delete_security_group', 'group_id': change.resource_id, 'status': 'deleted'}
+                ec2.delete_security_group(GroupId=group_id)
+                return {
+                    'action': 'delete_security_group',
+                    'group_id': group_id,
+                    'status': 'deleted',
+                    'references_removed': references_removed
+                }
             except Exception as e:
                 if 'InvalidGroup.InUse' in str(e):
-                    raise Exception('Security group is still in use by network interfaces or other security groups. Detach it first then retry.')
+                    raise Exception(
+                        f'Security group {group_id} is still in use by network interfaces '
+                        f'(ENIs or EC2 instances). Terminate or reassign those resources first.'
+                    )
                 raise
 
     return {'status': 'no_action', 'reason': f'Unsupported: {action} on {resource_type}'}
