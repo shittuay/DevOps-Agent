@@ -312,7 +312,7 @@ def execute_change(change_id):
         change.execution_result = result
 
         # Remove deleted/terminated resources from the sync list immediately
-        if change.action_type in ('delete', 'terminate') and change.resource_id:
+        if change.action_type in ('delete', 'terminate', 'delete_security_group') and change.resource_id:
             _purge_resource_from_sync(change)
 
         db.session.commit()
@@ -618,6 +618,9 @@ def _execute_change(change: InfrastructureChange) -> dict:
                 except Exception as e:
                     errors.append(f"Failed to revoke rule {rule}: {str(e)}")
 
+            if revoked_count == 0 and errors:
+                raise Exception(f'All rule revocations failed: {errors[0]}')
+
             result = {'action': 'modify_security_group', 'rules_revoked': revoked_count}
             if errors:
                 result['errors'] = errors
@@ -629,8 +632,8 @@ def _execute_change(change: InfrastructureChange) -> dict:
                 return {'action': 'delete_security_group', 'group_id': change.resource_id, 'status': 'deleted'}
             except Exception as e:
                 if 'InvalidGroup.InUse' in str(e):
-                    return {'action': 'delete_security_group', 'status': 'failed', 'error': 'Security group is still in use by network interfaces or other security groups'}
-                return {'action': 'delete_security_group', 'status': 'failed', 'error': str(e)}
+                    raise Exception('Security group is still in use by network interfaces or other security groups. Detach it first then retry.')
+                raise
 
     return {'status': 'no_action', 'reason': f'Unsupported: {action} on {resource_type}'}
 
