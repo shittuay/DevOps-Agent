@@ -37,7 +37,7 @@ _HALLUCINATED_TOOL_PATTERNS = [
 ]
 
 
-def _check_hallucination(text: str, tools_called_this_turn: bool) -> bool:
+def _check_hallucination(text: str, tools_called_this_turn: bool, sandbox_mode: bool = False) -> bool:
     """
     Detect if the model likely hallucinated tool results.
 
@@ -46,7 +46,14 @@ def _check_hallucination(text: str, tools_called_this_turn: bool) -> bool:
 
     Weak signal: patterns found but tools WERE called (could be the model
     summarising real results) — do NOT flag.
+
+    Sandbox mode: if True, fabricated resources are expected (learning/demo context)
+    — do NOT flag. Only flag hallucinations in live mode.
     """
+    # In sandbox mode, fabricated resources are expected (demos, learning)
+    if sandbox_mode:
+        return False
+    # If tools were called, the model is summarising real results
     if tools_called_this_turn:
         return False
     return any(p.search(text) for p in _HALLUCINATED_TOOL_PATTERNS)
@@ -888,7 +895,7 @@ User Preferences and Context:
 
                 # No tool calls — return text, but check for hallucinated tool output
                 text = msg.content or ""
-                if text and _check_hallucination(text, tools_called_this_turn):
+                if text and _check_hallucination(text, tools_called_this_turn, getattr(self, '_sandbox_mode', False)):
                     self.logger.warning("Detected possible hallucinated tool output in Kimi response")
                     text += _HALLUCINATION_WARNING
                 return text
@@ -1058,7 +1065,7 @@ User Preferences and Context:
                     continue
 
                 # No tool calls — done, but check for hallucinated tool output
-                if collected_content and _check_hallucination(collected_content, tools_called_this_turn):
+                if collected_content and _check_hallucination(collected_content, tools_called_this_turn, getattr(self, '_sandbox_mode', False)):
                     self.logger.warning("Detected possible hallucinated tool output in Kimi streaming response")
                     yield _HALLUCINATION_WARNING
                 return
