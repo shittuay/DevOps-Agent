@@ -924,8 +924,6 @@ User Preferences and Context:
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
-                    if iteration == 1 and _should_require_tool_use(messages):
-                        params['tool_choice'] = 'required'
 
                 response = client.chat.completions.create(**params)
                 choice = response.choices[0]
@@ -1049,8 +1047,6 @@ User Preferences and Context:
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
-                    if iteration == 0 and _should_require_tool_use(messages):
-                        params['tool_choice'] = 'required'
 
                 # Collect streamed response — buffer content, check hallucination before yielding
                 collected_content = ""
