@@ -125,11 +125,16 @@ class DevOpsAgent:
 
     def _audit_chat_deletion(self, tool_name: str, tool_input: dict, result: dict) -> None:
         """
-        Auto-create an executed InfrastructureChange record when a delete/terminate
+        Auto-create an executed InfrastructureChange record when a delete/terminate/resize
         tool is called directly from chat (not via the change request UI).
-        This ensures every destructive action has an audit trail.
+        This ensures every destructive or significant infrastructure action has an audit trail.
         """
-        if not tool_name.startswith(self._DESTRUCTIVE_PREFIXES):
+        # Check if this is a destructive or high-impact operation
+        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES)
+        is_resize = 'resize_ec2_instance' in tool_name
+        is_sg_modify = 'modify_security_group' in tool_name
+
+        if not (is_destructive or is_resize or is_sg_modify):
             return
         if not result.get('success'):
             return
@@ -154,12 +159,22 @@ class DevOpsAgent:
             )
             resource_name = tool_input.get('resource_name') or resource_id
 
-            # Derive resource_type from tool name (e.g. delete_ec2_instance → ec2)
-            slug = tool_name
-            for prefix in self._DESTRUCTIVE_PREFIXES:
-                slug = slug.replace(prefix, '', 1)
-            # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
-            resource_type = slug.split('_')[0]
+            # Determine action_type and resource_type
+            if is_destructive:
+                action_type = 'delete'
+                slug = tool_name
+                for prefix in self._DESTRUCTIVE_PREFIXES:
+                    slug = slug.replace(prefix, '', 1)
+                # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
+                resource_type = slug.split('_')[0]
+            elif is_resize:
+                action_type = 'resize'
+                resource_type = 'ec2'
+            elif is_sg_modify:
+                action_type = 'modify_security_group'
+                resource_type = 'security_group'
+            else:
+                return
 
             cloud_provider = 'aws'
             for p in ('azure', 'gcp', 'k8s', 'kubernetes'):
@@ -167,16 +182,23 @@ class DevOpsAgent:
                     cloud_provider = p
                     break
 
+            # Build change_details with action-specific info
+            change_details = {'risk_level': 'high' if is_destructive else 'medium', 'source': 'chat', 'tool': tool_name}
+            if is_resize:
+                change_details['new_instance_type'] = tool_input.get('new_instance_type')
+            elif is_sg_modify:
+                change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
+
             change = InfrastructureChange(
                 user_id=user_id,
-                action_type='delete',
+                action_type=action_type,
                 resource_type=resource_type,
                 resource_id=resource_id,
                 resource_name=resource_name,
                 cloud_provider=cloud_provider,
                 title=f'[Chat] {tool_name.replace("_", " ").title()}',
                 description='Executed directly via chat confirmation',
-                change_details={'risk_level': 'high', 'source': 'chat', 'tool': tool_name},
+                change_details=change_details,
                 status='executed',
                 approver_id=user_id,
                 approval_comment='Confirmed by user in chat',

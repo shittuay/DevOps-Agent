@@ -2053,6 +2053,7 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
     is_sonarqube = any(k in tn for k in ('sonar',))
     is_nexus = any(k in tn for k in ('nexus',))
     is_git = tn.startswith('git_') and not any(k in tn for k in ('docker', 'ansible', 'terraform', 'github'))
+    is_resize_ec2 = 'resize_ec2' in tn
 
     if is_git:
         return _mock_git(tn, tool_input)
@@ -2068,6 +2069,35 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
         return _mock_docker(tn, tool_input)
     if is_terraform:
         return _mock_terraform(tn, tool_input)
+    if is_resize_ec2:
+        instance_id = tool_input.get('instance_id', 'i-simulated123456')
+        new_type = tool_input.get('new_instance_type', 't3.small')
+        return {
+            'success': True,
+            'simulated': True,
+            'instance_id': instance_id,
+            'new_instance_type': new_type,
+            'message': f'[Sandbox] Successfully resized instance {instance_id} to {new_type}'
+        }
+    if 'describe_security_group' in tn:
+        group_id = tool_input.get('group_id', 'sg-simulated12345')
+        return {
+            'success': True,
+            'simulated': True,
+            'group_id': group_id,
+            'group_name': 'simulated-sg',
+            'description': 'Simulated security group for learning',
+            'vpc_id': 'vpc-simulated123',
+            'ingress_rules': [
+                {'protocol': 'tcp', 'from_port': 22, 'to_port': 22, 'cidr': '0.0.0.0/0', 'description': 'SSH from anywhere'},
+                {'protocol': 'tcp', 'from_port': 80, 'to_port': 80, 'cidr': '0.0.0.0/0', 'description': 'HTTP from anywhere'}
+            ],
+            'ingress_rules_count': 2,
+            'egress_rules': [
+                {'protocol': '-1', 'from_port': None, 'to_port': None, 'cidr': '0.0.0.0/0', 'description': 'All outbound'}
+            ],
+            'egress_rules_count': 1
+        }
     if is_sonarqube:
         return _mock_sonarqube(tn, tool_input)
     if is_nexus:

@@ -279,12 +279,13 @@ class SafetyValidator:
             'git_reset_to_commit',
             'git_clean_working_directory',
             'git_force_push_branch',
-            # EC2 new destructive
+            # EC2 new destructive and high-impact modifications
             'delete_ec2_keypair',
             'delete_ebs_snapshot',
             'delete_ebs_volume',
             'cleanup_ebs_volume',
             'deregister_ami',
+            'resize_ec2_instance',  # Stops/starts instance and changes type — high risk
             # S3 destructive
             'delete_s3_object',
             'delete_s3_objects_batch',
@@ -533,6 +534,25 @@ class SafetyValidator:
         # Check for specific dangerous patterns in input (escalate to critical on production)
         input_str = str(tool_input).lower()
         targets_production = 'production' in input_str or 'prod' in input_str
+
+        # Special case: manage_ec2_instance is action-aware
+        if tool_name == 'manage_ec2_instance':
+            action = tool_input.get('action', '').lower()
+            if action == 'terminate':
+                return ValidationResult(
+                    is_safe=True,
+                    reason=f"High-risk operation: terminating EC2 instance" + (" on production" if targets_production else ""),
+                    requires_confirmation=True,
+                    risk_level='critical' if targets_production else 'high'
+                )
+            elif action in ('stop', 'reboot'):
+                return ValidationResult(
+                    is_safe=True,
+                    reason=f"Medium-risk operation: {action} EC2 instance",
+                    requires_confirmation=True,
+                    risk_level='medium'
+                )
+            # action='start' falls through to low risk
 
         # Priority: explicit sets override auto-detection.
         # A tool in medium_risk_tools stays medium even if its name matches a high-risk pattern.
