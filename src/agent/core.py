@@ -235,6 +235,8 @@ class DevOpsAgent:
 
             # Build change_details with action-specific info
             change_details = {'risk_level': 'high' if is_destructive else 'medium', 'source': 'chat', 'tool': tool_name}
+            if tool_input.get('region'):
+                change_details['region'] = tool_input['region']
             if is_resize:
                 change_details['new_instance_type'] = tool_input.get('new_instance_type')
             elif is_sg_modify:

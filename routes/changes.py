@@ -110,7 +110,18 @@ def create_change_request():
 
     action_type = data['action_type']
     resource_type = data['resource_type']
+    resource_id = data.get('resource_id')
     change_details = data.get('change_details', {})
+
+    # Auto-populate region from the synced resource record if not explicitly provided
+    if not change_details.get('region') and resource_id:
+        from models import InfrastructureResource
+        res = InfrastructureResource.query.filter_by(
+            user_id=current_user.id,
+            resource_id=resource_id
+        ).first()
+        if res and res.region:
+            change_details['region'] = res.region
 
     risk_level = classify_risk(action_type, resource_type, change_details)
     change_details['risk_level'] = risk_level
@@ -119,7 +130,7 @@ def create_change_request():
         user_id=current_user.id,
         action_type=action_type,
         resource_type=resource_type,
-        resource_id=data.get('resource_id'),
+        resource_id=resource_id,
         resource_name=data.get('resource_name'),
         cloud_provider=data.get('cloud_provider', 'aws'),
         title=data['title'],
