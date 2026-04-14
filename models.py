@@ -2925,3 +2925,61 @@ class DripEmailLog(db.Model):
 
     def __repr__(self):
         return f'<DripEmailLog user={self.user_id} key={self.drip_key}>'
+
+
+class CrisisIncident(db.Model):
+    """Crisis detection audit trail — logs when crisis language is detected.
+
+    Used for liability protection and incident tracking. Every time crisis language
+    is detected, an entry is logged showing:
+    - When the detection occurred
+    - What crisis keywords triggered it
+    - What resources were offered
+    - User's country-based locale
+
+    This demonstrates duty of care and platform responsibility.
+    """
+    __tablename__ = 'crisis_incidents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    conversation_id = db.Column(db.String(50), nullable=True)
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    # What triggered the detection
+    message_snippet = db.Column(db.String(500), nullable=True)  # First 500 chars of user message
+
+    # Classification and response
+    severity = db.Column(db.String(20), default='medium')  # low, medium, high
+    crisis_keywords = db.Column(db.JSON, default=dict)  # Keywords that matched: {"suicide": 1, "kill": 2}
+
+    # Action taken
+    action = db.Column(db.String(50), default='banner_shown')  # banner_shown, escalated, etc.
+    resources_provided = db.Column(db.JSON)  # Crisis resource dict provided to user
+
+    # User context
+    user_country = db.Column(db.String(2), nullable=True)  # ISO 3166-1 alpha-2 code
+    user_ip = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(500), nullable=True)
+
+    # Privacy-respecting note: we store that action occurred but NOT the full message
+    resolved = db.Column(db.Boolean, default=False)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    support_notes = db.Column(db.Text, nullable=True)
+
+    user = db.relationship('User', backref=db.backref('crisis_incidents', lazy='dynamic'))
+
+    def to_dict(self):
+        """Convert to dictionary for logging/auditing."""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'detected_at': self.detected_at.isoformat() if self.detected_at else None,
+            'severity': self.severity,
+            'crisis_keywords': self.crisis_keywords,
+            'action': self.action,
+            'resolved': self.resolved,
+        }
+
+    def __repr__(self):
+        return f'<CrisisIncident user={self.user_id} severity={self.severity} at={self.detected_at}>'

@@ -99,7 +99,8 @@ from src.tools import (
 from models import (
     db, User, ChatMessage, Conversation, UserPreferences, CommandTemplate,
     ResponseFeedback, SubscriptionTier, UserSubscription, CreditPurchase, UsageLog,
-    LearningSession, PaymentWebhookEvent, NGNPriceConfig, ConversionEvent, AppNotification
+    LearningSession, PaymentWebhookEvent, NGNPriceConfig, ConversionEvent, AppNotification,
+    CrisisIncident
 )
 
 
@@ -2626,6 +2627,40 @@ def api_chat():
         # Haiku harmlessness screen
         guardrail_result = screen_message(message)
         if guardrail_result.blocked:
+            # CRISIS DETECTION — separate from policy violations
+            if guardrail_result.is_crisis:
+                from services.crisis_resources import get_crisis_resources, get_user_country_from_request
+                from models import CrisisIncident
+
+                country_code = get_user_country_from_request(request)
+                resources = get_crisis_resources(country_code)
+
+                # Log the crisis incident for audit trail + support team
+                crisis_incident = CrisisIncident(
+                    user_id=current_user.id,
+                    conversation_id=data.get('conversation_id'),
+                    message_snippet=message[:500],
+                    severity=guardrail_result.crisis_severity,
+                    crisis_keywords=guardrail_result.crisis_keywords or {},
+                    action='banner_shown',
+                    resources_provided=resources,
+                    user_country=country_code,
+                    user_ip=request.remote_addr,
+                    user_agent=request.headers.get('User-Agent', '')[:500],
+                )
+                db.session.add(crisis_incident)
+                db.session.commit()
+                logger.warning(f"Crisis incident logged. user_id={current_user.id} severity={guardrail_result.crisis_severity}")
+
+                # Return crisis response (not error) — frontend shows banner instead of error
+                return jsonify({
+                    'crisis_response': True,
+                    'message': 'If you\'re in crisis, please reach out for help.',
+                    'resources': resources,
+                    'incident_id': crisis_incident.id,
+                }), 200
+
+            # Regular policy violation
             current_user.record_guardrail_violation()
             db.session.commit()
             return jsonify({
@@ -3042,6 +3077,44 @@ def api_chat_stream():
         # Haiku harmlessness screen
         guardrail_result = screen_message(message)
         if guardrail_result.blocked:
+            # CRISIS DETECTION — separate from policy violations
+            if guardrail_result.is_crisis:
+                from services.crisis_resources import get_crisis_resources, get_user_country_from_request
+                from models import CrisisIncident
+                import json as _json_crisis
+
+                country_code = get_user_country_from_request(request)
+                resources = get_crisis_resources(country_code)
+
+                # Log the crisis incident for audit trail + support team
+                crisis_incident = CrisisIncident(
+                    user_id=current_user.id,
+                    conversation_id=data.get('conversation_id'),
+                    message_snippet=message[:500],
+                    severity=guardrail_result.crisis_severity,
+                    crisis_keywords=guardrail_result.crisis_keywords or {},
+                    action='banner_shown',
+                    resources_provided=resources,
+                    user_country=country_code,
+                    user_ip=request.remote_addr,
+                    user_agent=request.headers.get('User-Agent', '')[:500],
+                )
+                db.session.add(crisis_incident)
+                db.session.commit()
+                logger.warning(f"Crisis incident logged. user_id={current_user.id} severity={guardrail_result.crisis_severity}")
+
+                # Return crisis response as SSE stream
+                def generate_crisis_response():
+                    yield f"data: {_json_crisis.dumps({'type': 'crisis', 'resources': resources, 'incident_id': crisis_incident.id})}\n\n"
+                    yield f"data: {_json_crisis.dumps({'type': 'done'})}\n\n"
+
+                return app.response_class(
+                    generate_crisis_response(),
+                    mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'}
+                )
+
+            # Regular policy violation
             current_user.record_guardrail_violation()
             db.session.commit()
             return jsonify({
@@ -5282,6 +5355,227 @@ def init_database():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# ===== ADMIN CRISIS MANAGEMENT APIs =====
+
+@app.route('/api/admin/crisis-incidents', methods=['GET'])
+@login_required
+def admin_list_crisis_incidents():
+    """
+    List crisis incidents with filtering.
+
+    Query params:
+    - user_id: Filter by user
+    - date_from: ISO date (e.g., 2026-01-01)
+    - date_to: ISO date
+    - severity: 'high', 'medium', 'low'
+    - resolved: 'true' or 'false'
+
+    Requires admin role (add in future).
+    """
+    try:
+        # Check admin role (TODO: implement role check)
+        if current_user.role != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        query = CrisisIncident.query
+
+        # Filter by user_id if provided
+        user_id = request.args.get('user_id', type=int)
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+
+        # Filter by severity
+        severity = request.args.get('severity')
+        if severity:
+            query = query.filter_by(severity=severity)
+
+        # Filter by resolved status
+        resolved = request.args.get('resolved')
+        if resolved is not None:
+            query = query.filter_by(resolved=resolved.lower() == 'true')
+
+        # Filter by date range
+        date_from = request.args.get('date_from')
+        if date_from:
+            try:
+                from_dt = datetime.fromisoformat(date_from)
+                query = query.filter(CrisisIncident.detected_at >= from_dt)
+            except ValueError:
+                return jsonify({'error': 'Invalid date_from format'}), 400
+
+        date_to = request.args.get('date_to')
+        if date_to:
+            try:
+                to_dt = datetime.fromisoformat(date_to)
+                query = query.filter(CrisisIncident.detected_at <= to_dt)
+            except ValueError:
+                return jsonify({'error': 'Invalid date_to format'}), 400
+
+        # Pagination
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+
+        # Sort by detected_at descending (newest first)
+        incidents_paginated = query.order_by(CrisisIncident.detected_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+
+        return jsonify({
+            'incidents': [
+                {
+                    'id': inc.id,
+                    'user_id': inc.user_id,
+                    'user_email': inc.user.email if inc.user else None,
+                    'detected_at': inc.detected_at.isoformat() if inc.detected_at else None,
+                    'severity': inc.severity,
+                    'crisis_keywords': inc.crisis_keywords,
+                    'action': inc.action,
+                    'user_country': inc.user_country,
+                    'resolved': inc.resolved,
+                    'support_notes': inc.support_notes,
+                }
+                for inc in incidents_paginated.items
+            ],
+            'total': incidents_paginated.total,
+            'pages': incidents_paginated.pages,
+            'current_page': page,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error listing crisis incidents: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/crisis-incidents/<int:incident_id>', methods=['GET'])
+@login_required
+def admin_get_crisis_incident(incident_id):
+    """Get a single crisis incident with full details."""
+    try:
+        if current_user.role != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        incident = CrisisIncident.query.get(incident_id)
+        if not incident:
+            return jsonify({'error': 'Incident not found'}), 404
+
+        return jsonify({
+            'id': incident.id,
+            'user_id': incident.user_id,
+            'user_email': incident.user.email if incident.user else None,
+            'conversation_id': incident.conversation_id,
+            'detected_at': incident.detected_at.isoformat() if incident.detected_at else None,
+            'message_snippet': incident.message_snippet,
+            'severity': incident.severity,
+            'crisis_keywords': incident.crisis_keywords,
+            'action': incident.action,
+            'resources_provided': incident.resources_provided,
+            'user_country': incident.user_country,
+            'user_ip': incident.user_ip,
+            'user_agent': incident.user_agent,
+            'resolved': incident.resolved,
+            'resolved_at': incident.resolved_at.isoformat() if incident.resolved_at else None,
+            'support_notes': incident.support_notes,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting crisis incident: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/crisis-incidents/<int:incident_id>', methods=['PUT'])
+@login_required
+def admin_update_crisis_incident(incident_id):
+    """Update a crisis incident (mark as resolved, add support notes)."""
+    try:
+        if current_user.role != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        incident = CrisisIncident.query.get(incident_id)
+        if not incident:
+            return jsonify({'error': 'Incident not found'}), 404
+
+        data = request.get_json() or {}
+
+        # Update resolved status
+        if 'resolved' in data:
+            incident.resolved = bool(data['resolved'])
+            if incident.resolved and not incident.resolved_at:
+                incident.resolved_at = datetime.utcnow()
+
+        # Update support notes
+        if 'support_notes' in data:
+            incident.support_notes = data['support_notes']
+
+        db.session.commit()
+        logger.info(f"Crisis incident {incident_id} updated by {current_user.email}")
+
+        return jsonify({
+            'success': True,
+            'incident': {
+                'id': incident.id,
+                'resolved': incident.resolved,
+                'resolved_at': incident.resolved_at.isoformat() if incident.resolved_at else None,
+                'support_notes': incident.support_notes,
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating crisis incident: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/crisis-statistics', methods=['GET'])
+@login_required
+def admin_crisis_statistics():
+    """Get statistics on crisis detections."""
+    try:
+        if current_user.role != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        # Total incidents
+        total_incidents = CrisisIncident.query.count()
+
+        # By severity
+        severity_counts = db.session.query(
+            CrisisIncident.severity,
+            db.func.count(CrisisIncident.id)
+        ).group_by(CrisisIncident.severity).all()
+
+        # By country (top 10)
+        country_counts = db.session.query(
+            CrisisIncident.user_country,
+            db.func.count(CrisisIncident.id)
+        ).group_by(CrisisIncident.user_country).order_by(
+            db.func.count(CrisisIncident.id).desc()
+        ).limit(10).all()
+
+        # Unresolved incidents
+        unresolved_count = CrisisIncident.query.filter_by(resolved=False).count()
+
+        # Last 7 days trend
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        last_7_days_count = CrisisIncident.query.filter(
+            CrisisIncident.detected_at >= seven_days_ago
+        ).count()
+
+        return jsonify({
+            'total_incidents': total_incidents,
+            'unresolved_count': unresolved_count,
+            'last_7_days': last_7_days_count,
+            'by_severity': {
+                severity: count for severity, count in severity_counts
+            },
+            'top_countries': {
+                country or 'unknown': count for country, count in country_counts
+            },
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting crisis statistics: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
