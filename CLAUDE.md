@@ -75,9 +75,9 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (726 total)
+## Tool Inventory (728 total)
 
-### AWS (334 tools)
+### AWS (336 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
 
 ### Kubernetes (76 tools)
@@ -171,10 +171,17 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
 - Auto-detection fallback: prefixes `delete_`, `terminate_`, `destroy_`, `remove_`, `drop_`, `purge_` are auto-classified as high risk even without explicit listing. Explicit sets take priority over auto-detection.
 
 **Current high-risk additions (beyond auto-detection):**
-`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `resize_ec2_instance`
 
 **Current medium-risk additions:**
 `disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`
+
+**Action-aware risk classification:**
+- `manage_ec2_instance` — risk level depends on the `action` parameter:
+  - `action='terminate'` → HIGH RISK (requires confirmation; escalates to CRITICAL on production instances)
+  - `action in ('stop', 'reboot')` → MEDIUM RISK (requires confirmation)
+  - `action='start'` → LOW RISK (no confirmation required)
+  - This is implemented in `validate_tool_call()` with special-case logic that inspects the action param before returning the classification result
 
 ## Historical Fixes & Gotchas
 

@@ -267,6 +267,196 @@ def manage_ec2_instance(
         }
 
 
+def resize_ec2_instance(
+    instance_id: str,
+    new_instance_type: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Resize an EC2 instance by changing its type.
+
+    Workflow: stop instance → wait for stopped state → modify instance type → start instance.
+
+    Args:
+        instance_id: EC2 instance ID
+        new_instance_type: Target instance type (e.g., 't3.small', 't3.medium')
+        region: AWS region
+
+    Returns:
+        Dictionary with resize result
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+
+        # Step 1: Stop the instance
+        logger.info(f"Stopping instance {instance_id} for resize to {new_instance_type}")
+        ec2.stop_instances(InstanceIds=[instance_id])
+
+        # Step 2: Wait for instance to be stopped
+        waiter = ec2.get_waiter('instance_stopped')
+        waiter.wait(InstanceIds=[instance_id])
+        logger.info(f"Instance {instance_id} stopped successfully")
+
+        # Step 3: Modify instance type
+        logger.info(f"Modifying instance {instance_id} type to {new_instance_type}")
+        ec2.modify_instance_attribute(
+            InstanceId=instance_id,
+            InstanceType={'Value': new_instance_type}
+        )
+
+        # Step 4: Start the instance
+        logger.info(f"Starting instance {instance_id}")
+        ec2.start_instances(InstanceIds=[instance_id])
+
+        return {
+            'success': True,
+            'instance_id': instance_id,
+            'new_instance_type': new_instance_type,
+            'message': f"Successfully resized instance {instance_id} to {new_instance_type}",
+            'region': _get_effective_region(region)
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error during resize: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'error_code': e.response['Error']['Code'],
+            'instance_id': instance_id
+        }
+    except Exception as e:
+        logger.error(f"Error resizing EC2 instance: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': str(e),
+            'instance_id': instance_id
+        }
+
+
+def describe_security_group(
+    group_id: str,
+    region: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Describe a security group with full rule details.
+
+    Args:
+        group_id: Security group ID
+        region: AWS region
+
+    Returns:
+        Dictionary with security group details including ingress and egress rules
+    """
+    try:
+        ec2 = _get_boto_client('ec2', region)
+
+        response = ec2.describe_security_groups(GroupIds=[group_id])
+        if not response['SecurityGroups']:
+            return {'success': False, 'error': f"Security group {group_id} not found"}
+
+        sg = response['SecurityGroups'][0]
+
+        # Format ingress rules
+        ingress_rules = []
+        for rule in sg.get('IpPermissions', []):
+            protocol = rule.get('IpProtocol', '-1')
+            from_port = rule.get('FromPort')
+            to_port = rule.get('ToPort')
+
+            # Handle CIDR blocks
+            for cidr_info in rule.get('IpRanges', []):
+                ingress_rules.append({
+                    'protocol': protocol,
+                    'from_port': from_port,
+                    'to_port': to_port,
+                    'cidr': cidr_info.get('CidrIp'),
+                    'description': cidr_info.get('Description', '')
+                })
+
+            # Handle IPv6 CIDR blocks
+            for cidr_info in rule.get('Ipv6Ranges', []):
+                ingress_rules.append({
+                    'protocol': protocol,
+                    'from_port': from_port,
+                    'to_port': to_port,
+                    'cidr': cidr_info.get('CidrIpv6'),
+                    'description': cidr_info.get('Description', '')
+                })
+
+            # Handle source security groups
+            for sg_info in rule.get('UserIdGroupPairs', []):
+                ingress_rules.append({
+                    'protocol': protocol,
+                    'from_port': from_port,
+                    'to_port': to_port,
+                    'source_sg_id': sg_info.get('GroupId'),
+                    'source_sg_owner_id': sg_info.get('UserId'),
+                    'description': sg_info.get('Description', '')
+                })
+
+        # Format egress rules
+        egress_rules = []
+        for rule in sg.get('IpPermissionsEgress', []):
+            protocol = rule.get('IpProtocol', '-1')
+            from_port = rule.get('FromPort')
+            to_port = rule.get('ToPort')
+
+            for cidr_info in rule.get('IpRanges', []):
+                egress_rules.append({
+                    'protocol': protocol,
+                    'from_port': from_port,
+                    'to_port': to_port,
+                    'cidr': cidr_info.get('CidrIp'),
+                    'description': cidr_info.get('Description', '')
+                })
+
+            for cidr_info in rule.get('Ipv6Ranges', []):
+                egress_rules.append({
+                    'protocol': protocol,
+                    'from_port': from_port,
+                    'to_port': to_port,
+                    'cidr': cidr_info.get('CidrIpv6'),
+                    'description': cidr_info.get('Description', '')
+                })
+
+            for sg_info in rule.get('UserIdGroupPairs', []):
+                egress_rules.append({
+                    'protocol': protocol,
+                    'from_port': from_port,
+                    'to_port': to_port,
+                    'source_sg_id': sg_info.get('GroupId'),
+                    'source_sg_owner_id': sg_info.get('UserId'),
+                    'description': sg_info.get('Description', '')
+                })
+
+        return {
+            'success': True,
+            'group_id': sg.get('GroupId'),
+            'group_name': sg.get('GroupName'),
+            'description': sg.get('GroupDescription', ''),
+            'vpc_id': sg.get('VpcId'),
+            'ingress_rules': ingress_rules,
+            'ingress_rules_count': len(ingress_rules),
+            'egress_rules': egress_rules,
+            'egress_rules_count': len(egress_rules),
+            'region': _get_effective_region(region)
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error describing security group: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'error_code': e.response['Error']['Code']
+        }
+    except Exception as e:
+        logger.error(f"Error describing security group: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
 def list_s3_buckets(region: Optional[str] = None) -> Dict[str, Any]:
     """
     List all S3 buckets.
@@ -18307,6 +18497,48 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['service_code']
             },
             'handler': list_service_quotas
+        },
+        {
+            'name': 'resize_ec2_instance',
+            'description': 'Resize an EC2 instance by changing its type. Stops the instance, modifies type, then restarts it.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'instance_id': {
+                        'type': 'string',
+                        'description': 'EC2 instance ID (e.g., i-0123456789abcdef0)'
+                    },
+                    'new_instance_type': {
+                        'type': 'string',
+                        'description': 'Target instance type (e.g., t3.small, t3.medium, m5.large)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['instance_id', 'new_instance_type']
+            },
+            'handler': resize_ec2_instance
+        },
+        {
+            'name': 'describe_security_group',
+            'description': 'Get full details of a security group including all ingress and egress rules.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'group_id': {
+                        'type': 'string',
+                        'description': 'Security group ID (e.g., sg-0123456789abcdef0)'
+                    },
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                },
+                'required': ['group_id']
+            },
+            'handler': describe_security_group
         },
         {
             'name': 'aws_api_read',

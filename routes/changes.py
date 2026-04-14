@@ -581,6 +581,48 @@ def _execute_change(change: InfrastructureChange) -> dict:
             s3.delete_bucket(Bucket=bucket)
             return {'action': 'delete', 'bucket': bucket, 'objects_deleted': objects_deleted}
 
+    elif resource_type == 'security_group':
+        ec2 = get_user_boto_client(change.user_id, 'ec2')
+
+        if action == 'modify_security_group':
+            # change_details should contain rules_to_revoke list
+            rules_to_revoke = (change.change_details or {}).get('rules_to_revoke', [])
+            if not rules_to_revoke:
+                return {'action': 'modify_security_group', 'status': 'no_rules', 'message': 'No rules to revoke'}
+
+            revoked_count = 0
+            errors = []
+
+            for rule in rules_to_revoke:
+                try:
+                    # Build revoke params from rule dict
+                    revoke_params = {
+                        'GroupId': change.resource_id,
+                        'IpProtocol': rule.get('protocol', 'tcp'),
+                        'FromPort': rule.get('from_port', 0),
+                        'ToPort': rule.get('to_port', 0),
+                    }
+
+                    # Handle CIDR or source security group
+                    if rule.get('cidr'):
+                        revoke_params['CidrIp'] = rule['cidr']
+                    elif rule.get('source_sg_id'):
+                        revoke_params['SourceSecurityGroupId'] = rule['source_sg_id']
+                    else:
+                        errors.append(f"Rule missing cidr or source_sg_id: {rule}")
+                        continue
+
+                    ec2.revoke_security_group_ingress(**revoke_params)
+                    revoked_count += 1
+
+                except Exception as e:
+                    errors.append(f"Failed to revoke rule {rule}: {str(e)}")
+
+            result = {'action': 'modify_security_group', 'rules_revoked': revoked_count}
+            if errors:
+                result['errors'] = errors
+            return result
+
     return {'status': 'no_action', 'reason': f'Unsupported: {action} on {resource_type}'}
 
 

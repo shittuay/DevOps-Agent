@@ -280,23 +280,6 @@ def api_optimize():
     return jsonify({'suggestions': suggestions})
 
 
-@ai_infrastructure_bp.route('/api/chat', methods=['POST'])
-@login_required
-def api_chat():
-    """Chat-based infrastructure assistant"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'message' not in data:
-        return jsonify({'error': 'Message is required'}), 400
-
-    conversation_id = data.get('conversation_id')
-    response = service.chat(data['message'], conversation_id)
-
-    return jsonify(response)
-
-
 @ai_infrastructure_bp.route('/api/explain', methods=['POST'])
 @login_required
 def api_explain():
