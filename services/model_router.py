@@ -22,6 +22,8 @@ class ModelConfig:
     display_name: str   # Human-readable name for UI
     supports_tools: bool
     max_tokens: int = 4096
+    max_tools: int = 10          # max tools passed per API call (lower = less hallucination for Kimi)
+    trust_tool_results: bool = True  # False for Kimi tiers — validates IDs before feeding back
 
 
 # Kimi model config constant
@@ -31,6 +33,8 @@ KIMI_MODEL_CONFIG = ModelConfig(
     display_name='Kimi K2.5',
     supports_tools=True,
     max_tokens=4096,
+    max_tools=8,
+    trust_tool_results=False,
 )
 
 # Claude model configs for user overrides
@@ -41,6 +45,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Sonnet 4.6 (Trial)',
         supports_tools=True,
         max_tokens=4096,
+        max_tools=6,
+        trust_tool_results=False,
     ),
     'starter': ModelConfig(
         provider='anthropic',
@@ -48,6 +54,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Haiku 4.5',
         supports_tools=True,
         max_tokens=4096,
+        max_tools=8,
+        trust_tool_results=False,
     ),
     'professional': ModelConfig(
         provider='anthropic',
@@ -55,6 +63,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
+        max_tools=15,
+        trust_tool_results=True,
     ),
     'business': ModelConfig(
         provider='anthropic',
@@ -62,6 +72,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
+        max_tools=20,
+        trust_tool_results=True,
     ),
 }
 
@@ -74,6 +86,8 @@ DEFAULT_TIER_MODELS = {
         display_name='Kimi K2.5 (Trial)',
         supports_tools=True,
         max_tokens=4096,
+        max_tools=6,
+        trust_tool_results=False,
     ),
     'starter': ModelConfig(
         provider='kimi',
@@ -81,6 +95,8 @@ DEFAULT_TIER_MODELS = {
         display_name='Kimi K2.5',
         supports_tools=True,
         max_tokens=4096,
+        max_tools=8,
+        trust_tool_results=False,
     ),
     'professional': ModelConfig(
         provider='anthropic',
@@ -88,6 +104,8 @@ DEFAULT_TIER_MODELS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
+        max_tools=15,
+        trust_tool_results=True,
     ),
     'business': ModelConfig(
         provider='anthropic',
@@ -95,6 +113,8 @@ DEFAULT_TIER_MODELS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
+        max_tools=20,
+        trust_tool_results=True,
     ),
 }
 
@@ -167,12 +187,15 @@ def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[s
 
     if preferred_provider == 'kimi':
         kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+        tier_defaults = DEFAULT_TIER_MODELS.get(tier_name, DEFAULT_TIER_MODELS['free'])
         return ModelConfig(
             provider='kimi',
             model=kimi_model,
             display_name='Kimi K2.5',
             supports_tools=True,
-            max_tokens=DEFAULT_TIER_MODELS.get(tier_name, DEFAULT_TIER_MODELS['free']).max_tokens,
+            max_tokens=tier_defaults.max_tokens,
+            max_tools=tier_defaults.max_tools,
+            trust_tool_results=tier_defaults.trust_tool_results,
         )
 
     if preferred_provider == 'anthropic':

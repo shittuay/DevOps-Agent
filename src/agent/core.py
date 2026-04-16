@@ -94,6 +94,49 @@ _HALLUCINATION_REPLACEMENT = (
     "Let me try again."
 )
 
+# ---------------------------------------------------------------------------
+# Tool result ID validator — used when trust_tool_results=False (Kimi tiers)
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate a VALID (real) AWS/cloud resource ID
+_VALID_RESOURCE_ID_RE = re.compile(
+    r'\b(?:i|vpc|subnet|sg|ami|vol|snap|eni|igw|rtb|acl|nat|pcx|eipalloc)'
+    r'-[0-9a-f]{8,17}\b'
+    r'|arn:aws:[a-z0-9\-]+:[a-z0-9\-]*:\d{12}:'
+    r'|/subscriptions/[0-9a-f\-]{36}/'
+    r'|projects/[a-z][a-z0-9\-]+/'
+)
+
+# Sequential or all-zero IDs are a strong hallucination signal
+_SUSPICIOUS_ID_RE = re.compile(
+    r'\b(?:i|vpc|subnet|sg|ami|vol|snap)-(?:0{8,17}|0*1{1,17}|[0-9]{8,17})\b'
+)
+
+
+def _validate_tool_result_ids(result_str: str) -> str:
+    """
+    Validate that resource IDs in a tool result string look legitimate.
+
+    Called when trust_tool_results=False (Kimi/free tiers) to catch cases where
+    Kimi itself returns a fabricated-looking tool result rather than a real API
+    response.
+
+    Returns the original result_str if it looks clean, or a sanitized warning
+    string if suspicious sequential/all-zero IDs are detected.
+    """
+    if _SUSPICIOUS_ID_RE.search(result_str):
+        return json.dumps({
+            "success": False,
+            "error": (
+                "Tool result validation failed: resource IDs appear to be fabricated "
+                "(sequential or all-zero pattern detected). "
+                "Please retry or check your cloud credentials."
+            ),
+            "_validation": "suspicious_ids_rejected",
+        })
+    return result_str
+
+
 # Detects user messages that are infra data queries — requires real tool use on iteration 1
 _TOOL_SIGNAL_RE = re.compile(
     r'\b(?:list|show|get|describe|check|scan|find|fetch|how many|count|status)\b'
@@ -393,7 +436,9 @@ class DevOpsAgent:
         model_override: Optional[str] = None,
         trial_context: Optional[str] = None,
         sandbox_mode: bool = False,
-        provider: Optional[str] = None
+        provider: Optional[str] = None,
+        tools_override: Optional[List[Dict[str, Any]]] = None,
+        trust_tool_results: bool = True,
     ) -> str:
         """
         Process a user message with isolated conversation context (thread-safe).
@@ -407,6 +452,8 @@ class DevOpsAgent:
             user_preferences_context: Optional context string with user preferences
             user_id: Optional user ID for per-user cloud credentials
             provider: Optional provider name ('anthropic', 'kimi'). Defaults to 'anthropic'.
+            tools_override: If provided, use this filtered tool list instead of self.tool_definitions.
+            trust_tool_results: If False (Kimi tiers), validate tool result IDs before feeding back.
 
         Returns:
             Agent's response text
@@ -426,6 +473,8 @@ class DevOpsAgent:
             self.pending_download = None
             self._sandbox_mode = sandbox_mode
             self._current_user_id = user_id
+            self._tools_override = tools_override
+            self._trust_tool_results = trust_tool_results
 
             # Load conversation history
             for msg in conversation_history:
@@ -458,6 +507,8 @@ class DevOpsAgent:
             # Clear cloud user context
             self._clear_cloud_user_context()
             self._sandbox_mode = False
+            self._tools_override = None
+            self._trust_tool_results = True
 
             # Restore original conversation state for backwards compatibility
             # Note: pending_download is kept from this request if it was set
@@ -474,7 +525,9 @@ class DevOpsAgent:
         model_override: Optional[str] = None,
         trial_context: Optional[str] = None,
         sandbox_mode: bool = False,
-        provider: Optional[str] = None
+        provider: Optional[str] = None,
+        tools_override: Optional[List[Dict[str, Any]]] = None,
+        trust_tool_results: bool = True,
     ):
         """
         Process a user message and yield text chunks as they stream in.
@@ -494,6 +547,8 @@ class DevOpsAgent:
             self.conversation = ConversationManager()
             self.pending_download = None
             self._sandbox_mode = sandbox_mode
+            self._tools_override = tools_override
+            self._trust_tool_results = trust_tool_results
 
             for msg in conversation_history:
                 if msg['role'] == 'user':
@@ -516,11 +571,12 @@ class DevOpsAgent:
             for iteration in range(max_iterations):
                 try:
                     system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
+                    effective_tools = getattr(self, '_tools_override', None) or self.tool_definitions
                     api_params = {
                         'model': model_override or self.config.claude_model,
                         'max_tokens': self.config.claude_max_tokens,
                         'temperature': self.config.claude_temperature,
-                        'tools': self.tool_definitions if self.tool_definitions else None,
+                        'tools': effective_tools if effective_tools else None,
                         'messages': self.conversation.get_messages_for_api()
                     }
                     if system_prompt:
@@ -569,6 +625,8 @@ class DevOpsAgent:
         finally:
             self._clear_cloud_user_context()
             self._sandbox_mode = False
+            self._tools_override = None
+            self._trust_tool_results = True
             if self.pending_download is None:
                 self.pending_download = original_pending_download
             self.conversation = original_conversation
@@ -757,11 +815,12 @@ User Preferences and Context:
                 system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
                 # Call Claude API with streaming to prevent timeouts
+                effective_tools = getattr(self, '_tools_override', None) or self.tool_definitions
                 api_params = {
                     'model': model_override or self.config.claude_model,
                     'max_tokens': self.config.claude_max_tokens,
                     'temperature': self.config.claude_temperature,
-                    'tools': self.tool_definitions if self.tool_definitions else None,
+                    'tools': effective_tools if effective_tools else None,
                     'messages': self.conversation.get_messages_for_api()
                 }
 
@@ -848,6 +907,23 @@ User Preferences and Context:
 
     _cached_oai_tools: List[Dict[str, Any]] = None
 
+    @staticmethod
+    def _convert_tool_list_to_openai_format(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert a specific list of tool definitions to OpenAI format (no cache)."""
+        if not tools:
+            return []
+        return [
+            {
+                'type': 'function',
+                'function': {
+                    'name': t['name'],
+                    'description': t['description'],
+                    'parameters': t['input_schema'],
+                },
+            }
+            for t in tools
+        ]
+
     def _convert_tools_to_openai_format(self) -> List[Dict[str, Any]]:
         """Convert Anthropic tool definitions to OpenAI function-calling format (cached)."""
         if self._cached_oai_tools is not None:
@@ -891,7 +967,12 @@ User Preferences and Context:
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.5')
-        oai_tools = self._convert_tools_to_openai_format()
+        _override = getattr(self, '_tools_override', None)
+        oai_tools = (
+            self._convert_tool_list_to_openai_format(_override)
+            if _override is not None
+            else self._convert_tools_to_openai_format()
+        )
 
         system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
@@ -968,6 +1049,8 @@ User Preferences and Context:
                             result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
 
                         result_str = json.dumps(result, indent=2, default=_json_default)
+                        if not getattr(self, '_trust_tool_results', True):
+                            result_str = _validate_tool_result_ids(result_str)
                         sanitized_result = self.safety_validator.sanitize_output(result_str)
 
                         messages.append({
@@ -1019,7 +1102,12 @@ User Preferences and Context:
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.5')
-        oai_tools = self._convert_tools_to_openai_format()
+        _override = getattr(self, '_tools_override', None)
+        oai_tools = (
+            self._convert_tool_list_to_openai_format(_override)
+            if _override is not None
+            else self._convert_tools_to_openai_format()
+        )
 
         system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
@@ -1138,6 +1226,8 @@ User Preferences and Context:
                             result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
 
                         result_str = json.dumps(result, indent=2, default=_json_default)
+                        if not getattr(self, '_trust_tool_results', True):
+                            result_str = _validate_tool_result_ids(result_str)
                         sanitized_result = self.safety_validator.sanitize_output(result_str)
 
                         messages.append({

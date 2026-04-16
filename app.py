@@ -2872,6 +2872,27 @@ def api_chat():
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
+        # Scope tools to task type and enforce per-tier max_tools cap; inject mode prompt
+        from services.devopsagent_prompts import (
+            DevOpsAgentSessionFactory, detect_task_type,
+            SANDBOX_SYSTEM_PROMPT, REAL_AGENT_SYSTEM_PROMPT,
+        )
+        _factory = DevOpsAgentSessionFactory()
+        _task_type = detect_task_type(message)
+        _filtered_tools = _factory.scope_tools(
+            agent.tool_definitions, _task_type, model_config.max_tools
+        )
+        if sandbox_active:
+            _session = _factory.create_sandbox_session()
+            preferences_context = (preferences_context or '') + '\n\n' + SANDBOX_SYSTEM_PROMPT
+        else:
+            _session = _factory.create_real_agent_session(None)
+            preferences_context = (preferences_context or '') + '\n\n' + REAL_AGENT_SYSTEM_PROMPT.format(
+                cloud_provider='configured providers',
+                user_tier=tier_name,
+                session_id=_session.session_id,
+            )
+
         # Process message — route based on provider
         try:
             if model_config.provider == 'kimi':
@@ -2883,7 +2904,9 @@ def api_chat():
                     model_override=model_config.model,
                     trial_context=trial_context,
                     sandbox_mode=sandbox_active,
-                    provider='kimi'
+                    provider='kimi',
+                    tools_override=_filtered_tools,
+                    trust_tool_results=model_config.trust_tool_results,
                 )
             elif model_config.provider == 'anthropic':
                 response = agent.process_message_isolated(
@@ -2893,7 +2916,9 @@ def api_chat():
                     user_id=current_user.id,
                     model_override=model_config.model,
                     trial_context=trial_context,
-                    sandbox_mode=sandbox_active
+                    sandbox_mode=sandbox_active,
+                    tools_override=_filtered_tools,
+                    trust_tool_results=model_config.trust_tool_results,
                 )
             else:
                 response = _process_free_tier_chat(message, conversation_history, preferences_context)
@@ -3361,6 +3386,27 @@ def api_chat_stream():
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
+        # Scope tools to task type and enforce per-tier max_tools cap; inject mode prompt
+        from services.devopsagent_prompts import (
+            DevOpsAgentSessionFactory as _SessionFactory, detect_task_type as _detect_task,
+            SANDBOX_SYSTEM_PROMPT as _SANDBOX_PROMPT, REAL_AGENT_SYSTEM_PROMPT as _REAL_PROMPT,
+        )
+        _sfactory = _SessionFactory()
+        _stask_type = _detect_task(message)
+        _sfiltered_tools = _sfactory.scope_tools(
+            agent.tool_definitions, _stask_type, model_config.max_tools
+        )
+        if sandbox_active:
+            _ssession = _sfactory.create_sandbox_session()
+            preferences_context = (preferences_context or '') + '\n\n' + _SANDBOX_PROMPT
+        else:
+            _ssession = _sfactory.create_real_agent_session(None)
+            preferences_context = (preferences_context or '') + '\n\n' + _REAL_PROMPT.format(
+                cloud_provider='configured providers',
+                user_tier=tier_name,
+                session_id=_ssession.session_id,
+            )
+
         # Capture variables for the generator closure
         uid = current_user.id
         cid = conversation_id
@@ -3371,6 +3417,8 @@ def api_chat_stream():
         mc = model_config
         tc = trial_context
         sb = sandbox_active
+        _stream_filtered_tools = _sfiltered_tools
+        _stream_trust = model_config.trust_tool_results
 
         db.session.commit()
 
@@ -3415,7 +3463,9 @@ def api_chat_stream():
                             model_override=mc.model,
                             trial_context=tc,
                             sandbox_mode=sb,
-                            provider=_provider_arg
+                            provider=_provider_arg,
+                            tools_override=_stream_filtered_tools,
+                            trust_tool_results=_stream_trust,
                         )
                         # Collect initial chunks to detect agent-swallowed errors
                         # The agent catches Anthropic exceptions and yields error text
