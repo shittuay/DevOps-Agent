@@ -610,6 +610,69 @@ def get_eks_clusters(region: Optional[str] = None) -> Dict[str, Any]:
         }
 
 
+def list_eks_clusters(region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    List all EKS clusters with their node group details.
+
+    Args:
+        region: AWS region
+
+    Returns:
+        Dictionary with cluster and node group information
+    """
+    try:
+        eks = _get_boto_client('eks', region)
+        paginator = eks.get_paginator('list_clusters')
+
+        cluster_names = []
+        for page in paginator.paginate():
+            cluster_names.extend(page.get('clusters', []))
+
+        clusters_detail = []
+        for name in cluster_names:
+            desc = eks.describe_cluster(name=name)['cluster']
+
+            ng_names = eks.list_nodegroups(clusterName=name).get('nodegroups', [])
+            node_groups = []
+            for ng_name in ng_names:
+                ng = eks.describe_nodegroup(clusterName=name, nodegroupName=ng_name)['nodegroup']
+                node_groups.append({
+                    'name': ng_name,
+                    'status': ng.get('status', ''),
+                    'instance_types': ng.get('instanceTypes', []),
+                    'desired': ng.get('scalingConfig', {}).get('desiredSize', 0),
+                    'min': ng.get('scalingConfig', {}).get('minSize', 0),
+                    'max': ng.get('scalingConfig', {}).get('maxSize', 0),
+                    'ami_type': ng.get('amiType', ''),
+                })
+
+            clusters_detail.append({
+                'name': name,
+                'status': desc.get('status', ''),
+                'k8s_version': desc.get('version', ''),
+                'endpoint': desc.get('endpoint', 'N/A'),
+                'role_arn': desc.get('roleArn', ''),
+                'vpc_id': desc.get('resourcesVpcConfig', {}).get('vpcId', ''),
+                'logging': desc.get('logging', {}).get('clusterLogging', []),
+                'node_groups': node_groups,
+                'tags': desc.get('tags', {}),
+            })
+
+        return {
+            'success': True,
+            'count': len(clusters_detail),
+            'clusters': clusters_detail,
+            'region': _get_effective_region(region)
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error listing EKS clusters: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def create_eks_cluster(
     cluster_name: str,
     role_arn: str,
@@ -6979,21 +7042,24 @@ def list_lambda_functions(region: Optional[str] = None) -> Dict[str, Any]:
     """
     try:
         lambda_client = _get_boto_client('lambda', region)
-        response = lambda_client.list_functions()
+        paginator = lambda_client.get_paginator('list_functions')
 
         functions = []
-        for func in response.get('Functions', []):
-            functions.append({
-                'function_name': func['FunctionName'],
-                'function_arn': func['FunctionArn'],
-                'runtime': func.get('Runtime', 'N/A'),
-                'handler': func.get('Handler', 'N/A'),
-                'code_size': func.get('CodeSize', 0),
-                'memory_size': func.get('MemorySize', 128),
-                'timeout': func.get('Timeout', 3),
-                'last_modified': func.get('LastModified', 'N/A'),
-                'description': func.get('Description', 'N/A')
-            })
+        for page in paginator.paginate():
+            for func in page.get('Functions', []):
+                functions.append({
+                    'function_name': func['FunctionName'],
+                    'function_arn': func['FunctionArn'],
+                    'runtime': func.get('Runtime', 'N/A'),
+                    'handler': func.get('Handler', 'N/A'),
+                    'code_size': func.get('CodeSize', 0),
+                    'memory_size': func.get('MemorySize', 128),
+                    'timeout': func.get('Timeout', 3),
+                    'last_modified': func.get('LastModified', 'N/A'),
+                    'state': func.get('State', 'Active'),
+                    'package_type': func.get('PackageType', 'Zip'),
+                    'description': func.get('Description', 'N/A')
+                })
 
         return {
             'success': True,
@@ -7026,23 +7092,27 @@ def list_rds_instances(region: Optional[str] = None) -> Dict[str, Any]:
     """
     try:
         rds = _get_boto_client('rds', region)
-        response = rds.describe_db_instances()
+        paginator = rds.get_paginator('describe_db_instances')
 
         instances = []
-        for db in response.get('DBInstances', []):
-            instances.append({
-                'db_instance_identifier': db['DBInstanceIdentifier'],
-                'engine': db.get('Engine'),
-                'engine_version': db.get('EngineVersion'),
-                'db_instance_class': db.get('DBInstanceClass'),
-                'status': db.get('DBInstanceStatus'),
-                'endpoint': db.get('Endpoint', {}).get('Address', 'N/A'),
-                'port': db.get('Endpoint', {}).get('Port', 'N/A'),
-                'allocated_storage': db.get('AllocatedStorage', 0),
-                'multi_az': db.get('MultiAZ', False),
-                'publicly_accessible': db.get('PubliclyAccessible', False),
-                'created_date': db.get('InstanceCreateTime').isoformat() if db.get('InstanceCreateTime') else 'N/A'
-            })
+        for page in paginator.paginate():
+            for db in page.get('DBInstances', []):
+                instances.append({
+                    'db_instance_identifier': db['DBInstanceIdentifier'],
+                    'engine': db.get('Engine'),
+                    'engine_version': db.get('EngineVersion'),
+                    'db_instance_class': db.get('DBInstanceClass'),
+                    'status': db.get('DBInstanceStatus'),
+                    'endpoint': db.get('Endpoint', {}).get('Address', 'N/A'),
+                    'port': db.get('Endpoint', {}).get('Port', 'N/A'),
+                    'allocated_storage': db.get('AllocatedStorage', 0),
+                    'storage_type': db.get('StorageType', ''),
+                    'multi_az': db.get('MultiAZ', False),
+                    'publicly_accessible': db.get('PubliclyAccessible', False),
+                    'deletion_protection': db.get('DeletionProtection', False),
+                    'vpc_id': db.get('DBSubnetGroup', {}).get('VpcId', 'N/A'),
+                    'created_date': db.get('InstanceCreateTime').isoformat() if db.get('InstanceCreateTime') else 'N/A'
+                })
 
         return {
             'success': True,
@@ -8767,25 +8837,35 @@ def list_cloudwatch_alarms(
     """List CloudWatch alarms, optionally filtered by state (OK, ALARM, INSUFFICIENT_DATA)."""
     try:
         cloudwatch = _get_boto_client('cloudwatch', region)
-        params = {}
+        paginator_kwargs = {}
         if state:
-            params['StateValue'] = state.upper()
-        response = cloudwatch.describe_alarms(**params)
+            paginator_kwargs['StateValue'] = state.upper()
+        paginator = cloudwatch.get_paginator('describe_alarms')
         alarms = []
-        for a in response.get('MetricAlarms', []):
-            alarms.append({
-                'alarm_name': a['AlarmName'],
-                'alarm_arn': a['AlarmArn'],
-                'state': a.get('StateValue'),
-                'metric': f"{a.get('Namespace')}/{a.get('MetricName')}",
-                'threshold': a.get('Threshold'),
-                'comparison_operator': a.get('ComparisonOperator'),
-                'alarm_actions': a.get('AlarmActions', []),
-                'state_reason': a.get('StateReason', ''),
-            })
+        for page in paginator.paginate(**paginator_kwargs):
+            for a in page.get('MetricAlarms', []):
+                alarms.append({
+                    'alarm_name': a['AlarmName'],
+                    'alarm_arn': a['AlarmArn'],
+                    'state': a.get('StateValue'),
+                    'state_reason': a.get('StateReason', ''),
+                    'metric': f"{a.get('Namespace')}/{a.get('MetricName')}",
+                    'threshold': a.get('Threshold'),
+                    'comparison_operator': a.get('ComparisonOperator'),
+                    'period_sec': a.get('Period', 60),
+                    'evaluation_periods': a.get('EvaluationPeriods', 1),
+                    'actions_enabled': a.get('ActionsEnabled', False),
+                    'alarm_actions': a.get('AlarmActions', []),
+                    'ok_actions': a.get('OKActions', []),
+                    'last_updated': str(a.get('StateUpdatedTimestamp', '')),
+                })
+        counts = {'ALARM': 0, 'OK': 0, 'INSUFFICIENT_DATA': 0}
+        for a in alarms:
+            counts[a['state']] = counts.get(a['state'], 0) + 1
         return {
             'success': True,
             'count': len(alarms),
+            'counts_by_state': counts,
             'alarms': alarms,
             'region': _get_effective_region(region),
         }
@@ -13937,6 +14017,20 @@ def get_tools() -> List[Dict[str, Any]]:
                 }
             },
             'handler': get_eks_clusters
+        },
+        {
+            'name': 'list_eks_clusters',
+            'description': 'List all EKS Kubernetes clusters with their node group details including instance types, scaling config, and AMI type.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'region': {
+                        'type': 'string',
+                        'description': 'AWS region'
+                    }
+                }
+            },
+            'handler': list_eks_clusters
         },
         {
             'name': 'get_cloudwatch_logs',
