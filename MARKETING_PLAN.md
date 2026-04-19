@@ -17,7 +17,7 @@
 | Tests | ✅ | 204 passed, 0 failed |
 | CI/CD | ✅ | Auto-deploy on push to main |
 | Status page | ✅ | status.devopsagent.io |
-| Tool count | ⚠️ | Production MCP reports 684, should be 727 — needs service restart |
+| Tool count | ⚠️ | Production MCP reports 684, should be 730 — needs service restart |
 | Stripe billing | ✅ | NGN + USD pricing, 4 tiers |
 | Security | ✅ | Credentials rotated, Secrets Manager, no leaks |
 
@@ -34,7 +34,7 @@
 **Key differentiators:**
 1. **727 real tools** — not just a ChatGPT wrapper that generates commands. The agent executes operations directly via APIs.
 2. **Multi-cloud from day one** — AWS, Azure, GCP, Kubernetes all in one agent.
-3. **Safety-first** — every destructive operation requires confirmation. Risk classification on all 727 tools.
+3. **Safety-first** — every destructive operation requires confirmation. Risk classification on all 730 tools.
 4. **MCP-native** — works inside Claude Desktop, Claude.ai, and any MCP-compatible client.
 5. **Free tier with real tools** — 20 credits/month with full agent experience, not a crippled demo.
 
@@ -110,7 +110,7 @@ Thread structure (10–12 tweets):
 6. Safety system — how destructive ops require confirmation
 7. MCP integration — works inside Claude Desktop
 8. Free tier — 20 credits/month, no credit card
-9. Architecture (Flask, 727 tools, multi-model)
+9. Architecture (Flask, 730 tools, multi-model)
 10. What's next (roadmap tease)
 11. Link to try it
 12. Ask for feedback
@@ -290,7 +290,7 @@ Post on YouTube, embed in docs, share on social. Short-form clips (30s) for X, L
 - [ ] **Launch thread** — X/Twitter, pre-written
 - [ ] **HackerNews post** — pre-written
 - [ ] **Drip email sequence** — 5 emails, loaded in Brevo
-- [ ] **Production server restarted** — 727 tools live
+- [ ] **Production server restarted** — 730 tools live
 
 ---
 

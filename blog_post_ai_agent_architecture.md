@@ -50,7 +50,7 @@ The agent isn't a single model. It's a **three-layer stack** with safety as the 
 The DevOpsAgent class is the conductor. It:
 
 - Takes a user message
-- Decides which tools to call (from a registry of 728 tools across AWS, K8s, Azure, GCP, Terraform, Docker, Git, etc.)
+- Decides which tools to call (from a registry of 730 tools across AWS, K8s, Azure, GCP, Terraform, Docker, Git, etc.)
 - Streams the response back to the user
 - Logs every decision
 
@@ -102,7 +102,7 @@ This action-aware classification is the difference between a helpful tool and a 
 
 **Current classification** (as of April 2026):
 
-- **728 total tools** registered
+- **730 total tools** registered
 - **42 tools** explicitly classified as HIGH risk (delete/terminate operations)
 - **36 tools** explicitly classified as MEDIUM risk (updates/IAM/scale)
 - **650 tools** default to LOW risk (reads/creates)
@@ -130,7 +130,7 @@ The agent (Claude Sonnet or Claude Opus, depending on tier) reads:
 
 - Your message
 - Your infrastructure context (what you have deployed, learned from prior syncs)
-- The full tool registry (728 tools with descriptions + input schemas)
+- The full tool registry (730 tools with descriptions + input schemas)
 - Active skills (domain expertise injected based on message keywords)
 
 It decides: which tools are relevant? In what order?
@@ -314,7 +314,7 @@ This matters because:
 
 ### Scale
 
-- **728 tools** across 17 cloud/DevOps platforms
+- **730 tools** across 17 cloud/DevOps platforms
 - **248 tests** covering auth, billing, tools, safety, user isolation
 - **100% tool coverage** — every tool has input schema validation
 - **3-layer guardrails** — input sanitizer, Haiku pre-screen, system prompt hardening
@@ -361,7 +361,7 @@ But we also support:
 - **Kimi K2.5** (free tier) — excellent cost, good enough for DevOps tasks
 - **Groq LLaMA** (fallback) — if Anthropic API is down
 
-### Why 728 Tools?
+### Why 730 Tools?
 
 "Why not just use the 20 most common tools?"
 

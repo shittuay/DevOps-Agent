@@ -1,7 +1,7 @@
 {
   "name": "devops-agent",
   "display_name": "DevOps Agent",
-  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 727 tools across 17 modules including monitoring, security scanning, and alerting.",
+  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 730 tools across 17 modules including monitoring, security scanning, and alerting.",
   "server_json_url": "https://devopsagent.io/mcp/server.json",
   "website_url": "https://devopsagent.io",
   "categories": [
