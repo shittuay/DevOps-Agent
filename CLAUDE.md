@@ -75,7 +75,7 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (728 total)
+## Tool Inventory (730 total)
 
 ### AWS (336 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
@@ -200,7 +200,7 @@ See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **726** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **730** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:

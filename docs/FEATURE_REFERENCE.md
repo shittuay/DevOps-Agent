@@ -435,17 +435,24 @@ Complete reference of all features and capabilities.
 
 | Category | Tools |
 |----------|-------|
-| AWS | 25+ |
-| Kubernetes | 15+ |
-| Docker | 10+ |
-| Terraform | 10+ |
+| AWS | 337 |
+| Kubernetes | 76 |
 | Git | 47 |
-| CI/CD | 8+ |
-| Monitoring | 15+ |
-| Azure | 20+ |
-| GCP | 20+ |
-| Security | 10+ |
-| **Total** | **173+** |
+| GCP | 42 |
+| Azure | 38 |
+| CI/CD | 35 |
+| Terraform | 25 |
+| GitHub | 19 |
+| Docker | 22 |
+| Alerting | 16 |
+| Ansible | 13 |
+| Monitoring | 12 |
+| SonarQube | 12 |
+| Nexus | 12 |
+| Pentest | 12 |
+| DevOps Operations | 10 |
+| Command | 2 |
+| **Total** | **730** |
 
 ---
 
