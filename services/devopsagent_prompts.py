@@ -161,46 +161,37 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "list_cloud_functions", "get_cloud_logs",
     ],
 
-    # ---- Compute / create / mutate — covers ALL three cloud providers ----
+    # ---- AWS Compute / create / mutate (AWS-only) ----
+    # For Azure use azure_compute, for GCP use gcp_compute.
+    # detect_task_type routes azure/gcp keywords to their dedicated groups,
+    # so this group only needs to cover generic "create/launch/deploy" on AWS.
     "aws_compute": [
-        # AWS compute management
+        # EC2 lifecycle
         "manage_ec2", "create_ec2", "terminate_ec2", "start_ec2", "stop_ec2",
-        "reboot_ec2", "resize_ec2", "create_security_group", "delete_security_group",
+        "reboot_ec2", "resize_ec2",
+        # Networking
+        "create_security_group", "delete_security_group", "modify_security_group",
         "create_vpc", "delete_vpc", "create_subnet", "delete_subnet",
-        "create_s3", "delete_s3", "upload_s3", "create_rds", "delete_rds",
+        # Storage
+        "create_s3", "delete_s3", "upload_s3", "list_s3",
+        # Database
+        "create_rds", "delete_rds",
+        # Compute
         "create_lambda", "delete_lambda", "invoke_lambda",
-        "create_ecs", "delete_ecs", "create_eks", "delete_eks",
+        "create_ecs", "delete_ecs",
+        "create_eks", "delete_eks",
+        # IAM
         "create_iam", "delete_iam", "attach_iam", "detach_iam",
+        # CloudFormation
         "create_cloudformation", "delete_cloudformation", "update_cloudformation",
+        # Keypairs / helpers
         "create_keypair", "create_ec2_keypair",
-        # AWS helpers needed to build create params
-        "list_ec2", "list_vpcs", "list_subnets", "list_security_groups",
-        "describe_vpc", "list_iam", "list_s3",
-        # --- Azure create/delete/manage ---
-        "virtual_machine", "manage_vm", "get_vm",
-        "resource_group",
-        "storage_account", "storage_key", "regenerate_storage",
-        "sql_server", "sql_database", "sql_firewall",
-        "network_security_group", "nsg_rule", "virtual_network", "public_ip",
-        "container_instance", "managed_disk",
-        "azure_api_",
-        # --- GCP create/delete/manage ---
-        "compute_instance", "manage_compute",
-        "gke_cluster",
-        "storage_bucket",
-        "cloud_sql",
-        "cloud_run",
-        "pubsub",
-        "gcp_secret", "secret_version", "list_secrets", "get_secret",
-        "bigquery",
-        "cloud_function",
-        "firewall_rule",
-        "disk_snapshot",
-        "gcp_api_",
-        # Monitoring/metrics and logging
-        "azure_metrics", "get_azure_metrics",
-        "gcp_metrics", "get_gcp_metrics",
-        "cloud_log", "list_cloud_logs",
+        # AWS read helpers needed to build create params (list VPCs, subnets, SGs, etc.)
+        "list_ec2", "get_ec2", "list_vpcs", "list_subnets", "list_security_groups",
+        "describe_vpc", "list_iam", "list_route53", "list_load_balancer",
+        "list_target_group", "list_ecr", "list_cloudformation",
+        # Cost / optimization
+        "get_cost", "list_cost", "get_billing",
     ],
 
     # ---- Kubernetes ----
@@ -334,6 +325,7 @@ _TASK_KEYWORDS: List[tuple] = [
     ("helm",            "kubernetes"),
     ("argocd",          "kubernetes"),
     ("k8s",             "kubernetes"),
+    ("kubernetes",      "kubernetes"),
     ("gke",             "kubernetes"),
     ("aks",             "kubernetes"),
     ("eks",             "kubernetes"),
@@ -363,7 +355,6 @@ _TASK_KEYWORDS: List[tuple] = [
     # "list my ec2 instances" → aws_scan (not aws_compute)
     ("scan",            "aws_scan"),
     ("inventory",       "aws_scan"),
-    ("security group",  "aws_scan"),
     ("describe",        "aws_scan"),
     ("show me",         "aws_scan"),
     ("what is",         "aws_scan"),
