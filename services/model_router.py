@@ -33,7 +33,7 @@ KIMI_MODEL_CONFIG = ModelConfig(
     display_name='Kimi K2.5',
     supports_tools=True,
     max_tokens=4096,
-    max_tools=8,
+    max_tools=30,
     trust_tool_results=False,
 )
 
@@ -45,8 +45,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Sonnet 4.6 (Trial)',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=6,
-        trust_tool_results=False,
+        max_tools=30,
+        trust_tool_results=True,
     ),
     'starter': ModelConfig(
         provider='anthropic',
@@ -54,8 +54,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Haiku 4.5',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=8,
-        trust_tool_results=False,
+        max_tools=40,
+        trust_tool_results=True,
     ),
     'professional': ModelConfig(
         provider='anthropic',
@@ -63,7 +63,7 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
-        max_tools=15,
+        max_tools=60,
         trust_tool_results=True,
     ),
     'business': ModelConfig(
@@ -72,7 +72,7 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
-        max_tools=20,
+        max_tools=1000,
         trust_tool_results=True,
     ),
 }
@@ -86,7 +86,7 @@ DEFAULT_TIER_MODELS = {
         display_name='Kimi K2.5 (Trial)',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=6,
+        max_tools=25,
         trust_tool_results=False,
     ),
     'starter': ModelConfig(
@@ -95,7 +95,7 @@ DEFAULT_TIER_MODELS = {
         display_name='Kimi K2.5',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=8,
+        max_tools=30,
         trust_tool_results=False,
     ),
     'professional': ModelConfig(
@@ -104,7 +104,7 @@ DEFAULT_TIER_MODELS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
-        max_tools=15,
+        max_tools=60,
         trust_tool_results=True,
     ),
     'business': ModelConfig(
@@ -113,7 +113,7 @@ DEFAULT_TIER_MODELS = {
         display_name='Claude Sonnet 4.6',
         supports_tools=True,
         max_tokens=8192,
-        max_tools=20,
+        max_tools=1000,
         trust_tool_results=True,
     ),
 }

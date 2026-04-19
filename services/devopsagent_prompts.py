@@ -92,20 +92,54 @@ GROUNDING RULES — these override everything else:
 3. If a tool returns an empty list → respond "No resources found." Do not invent resources.
 4. If a tool returns an error → report the exact error message and ask the user how to proceed.
    Never guess what the result would have been.
-5. Before executing any operation that creates, modifies, deletes, or mutates infrastructure,
-   state what you are about to do and ask the user for explicit confirmation.
+5. Before executing DELETE, TERMINATE, or DESTROY operations, state what you are about to
+   do and ask the user for explicit confirmation.
    Example: "I am about to terminate instance i-0abc123. Confirm? (yes/no)"
+   CREATE and READ operations do NOT require confirmation — execute them immediately.
 6. Do NOT prefix responses with [SANDBOX SIMULATION]. This is a live session.
 7. If you are uncertain which tool to call, ask the user — do not guess and execute blindly.
 """
 
 
 # ---------------------------------------------------------------------------
+# Generic API fallback tools — always included regardless of task type.
+# These are the escape hatch: any cloud API operation not covered by a
+# dedicated tool can be reached via these generic tools.
+# ---------------------------------------------------------------------------
+
+_GENERIC_API_TOOLS = [
+    # AWS
+    "aws_api_read",
+    "aws_api_write",
+    # Azure
+    "azure_api_read",
+    "azure_api_write",
+    # GCP
+    "gcp_api_read",
+    "gcp_api_write",
+    # Kubernetes
+    "k8s_api_read",
+    "k8s_api_write",
+    # Infrastructure sync / cost
+    "sync_infrastructure",
+    "get_infrastructure_summary",
+    "get_cost_summary",
+]
+
+
+# ---------------------------------------------------------------------------
 # Tool group definitions — substrings matched against tool['name']
+#
+# Rules:
+#  - Include AWS, Azure, AND GCP substrings for every task group.
+#  - Generic API tools (_GENERIC_API_TOOLS) are appended by scope_tools()
+#    automatically — no need to repeat them here.
 # ---------------------------------------------------------------------------
 
 TOOL_GROUPS: Dict[str, List[str]] = {
+    # ---- Discovery / read-only ----
     "aws_scan": [
+        # AWS list/describe
         "list_ec2", "describe_ec2", "list_security_groups", "describe_security_groups",
         "list_vpcs", "describe_vpc", "list_subnets", "list_s3", "list_iam",
         "list_rds", "describe_rds", "list_lambda", "list_ecs", "list_eks",
@@ -114,8 +148,22 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "list_target_group", "list_ecr", "list_secrets", "get_ec2", "get_rds",
         "get_s3", "get_iam", "get_lambda", "describe_instance",
         "get_cost", "list_cost", "get_billing",
+        # Azure list/get
+        "list_virtual_machines", "get_virtual_machine", "list_resource_groups",
+        "list_storage_accounts", "list_sql_servers", "list_sql_databases",
+        "list_network_security_groups", "list_container_instances",
+        "list_managed_disks", "list_virtual_networks", "list_public_ips",
+        # GCP list/get/describe
+        "list_compute_instances", "describe_compute_instance",
+        "list_storage_buckets", "list_cloud_sql", "list_gke_clusters",
+        "describe_gke_cluster", "list_cloud_run", "list_pubsub_topics",
+        "list_gcp_secrets", "list_bigquery_datasets", "list_firewall_rules",
+        "list_cloud_functions", "get_cloud_logs",
     ],
+
+    # ---- Compute / create / mutate — covers ALL three cloud providers ----
     "aws_compute": [
+        # AWS compute management
         "manage_ec2", "create_ec2", "terminate_ec2", "start_ec2", "stop_ec2",
         "reboot_ec2", "resize_ec2", "create_security_group", "delete_security_group",
         "create_vpc", "delete_vpc", "create_subnet", "delete_subnet",
@@ -124,28 +172,68 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "create_ecs", "delete_ecs", "create_eks", "delete_eks",
         "create_iam", "delete_iam", "attach_iam", "detach_iam",
         "create_cloudformation", "delete_cloudformation", "update_cloudformation",
+        "create_keypair", "create_ec2_keypair",
+        # AWS helpers needed to build create params
+        "list_ec2", "list_vpcs", "list_subnets", "list_security_groups",
+        "describe_vpc", "list_iam", "list_s3",
+        # --- Azure create/delete/manage ---
+        "virtual_machine", "manage_vm", "get_vm",
+        "resource_group",
+        "storage_account", "storage_key", "regenerate_storage",
+        "sql_server", "sql_database", "sql_firewall",
+        "network_security_group", "nsg_rule", "virtual_network", "public_ip",
+        "container_instance", "managed_disk",
+        "azure_api_",
+        # --- GCP create/delete/manage ---
+        "compute_instance", "manage_compute",
+        "gke_cluster",
+        "storage_bucket",
+        "cloud_sql",
+        "cloud_run",
+        "pubsub",
+        "gcp_secret", "secret_version", "list_secrets", "get_secret",
+        "bigquery",
+        "cloud_function",
+        "firewall_rule",
+        "disk_snapshot",
+        "gcp_api_",
+        # Monitoring/metrics and logging
+        "azure_metrics", "get_azure_metrics",
+        "gcp_metrics", "get_gcp_metrics",
+        "cloud_log", "list_cloud_logs",
     ],
+
+    # ---- Kubernetes ----
     "kubernetes": [
         "list_pods", "get_pod", "describe_pod", "delete_pod", "exec_pod",
         "get_pod_logs", "list_deployments", "get_deployment", "describe_deployment",
         "create_deployment", "update_deployment", "delete_deployment",
+        "update_deployment_image",
         "list_services", "create_service", "delete_service",
-        "list_namespaces", "create_namespace", "delete_namespace",
+        "list_namespaces", "get_namespace", "create_namespace", "delete_namespace",
         "list_nodes", "cordon_node", "uncordon_node",
         "create_configmap", "delete_configmap",
         "create_secret", "delete_secret",
         "create_ingress", "delete_ingress",
         "create_job", "delete_job",
         "k8s_", "kubernetes_",
+        # EKS / GKE / AKS discovery
+        "list_eks", "describe_eks", "list_gke", "describe_gke",
     ],
+
+    # ---- Terraform ----
     "terraform": [
         "terraform_init", "terraform_plan", "terraform_apply", "terraform_destroy",
         "terraform_show", "terraform_output", "terraform_validate", "terraform_fmt",
         "terraform_workspace", "terraform_state", "terraform_import", "terraform_refresh",
     ],
+
+    # ---- Git / GitHub ----
     "git": [
         "git_", "github_",
     ],
+
+    # ---- CI/CD ----
     "cicd": [
         "trigger_jenkins", "get_jenkins", "list_jenkins", "abort_jenkins",
         "enable_jenkins", "disable_jenkins", "delete_jenkins",
@@ -154,6 +242,58 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "list_gitlab", "trigger_gitlab", "get_gitlab",
         "docker_build", "docker_push", "docker_compose",
     ],
+
+    # ---- Azure-specific (direct keyword match) ----
+    "azure_compute": [
+        # VM operations — name patterns: create_virtual_machine, manage_vm, get_vm_details
+        "virtual_machine", "manage_vm", "get_vm", "start_vm", "stop_vm",
+        # Resource groups
+        "resource_group",
+        # Storage
+        "storage_account", "storage_key", "regenerate_storage",
+        # SQL
+        "sql_server", "sql_database", "sql_firewall",
+        # NSG / networking
+        "network_security_group", "nsg_rule", "virtual_network", "public_ip",
+        # Containers and disks
+        "container_instance", "managed_disk",
+        # Metrics
+        "azure_metrics",
+        # Generic Azure API
+        "azure_api_",
+    ],
+
+    # ---- GCP-specific (direct keyword match) ----
+    "gcp_compute": [
+        # Compute instances — compute_instance, manage_compute_instance
+        "compute_instance", "manage_compute",
+        # GKE
+        "gke_cluster", "gke",
+        # Storage
+        "storage_bucket",
+        # Cloud SQL
+        "cloud_sql",
+        # Cloud Run
+        "cloud_run", "cloud_run_service",
+        # Pub/Sub
+        "pubsub",
+        # Secrets
+        "gcp_secret", "secret_version", "list_secrets", "get_secret",
+        # BigQuery
+        "bigquery",
+        # Cloud Functions
+        "cloud_function",
+        # Logging
+        "cloud_log",
+        # Firewall
+        "firewall_rule",
+        # Snapshots
+        "disk_snapshot",
+        # Metrics
+        "gcp_metric",
+        # Generic GCP API
+        "gcp_api_",
+    ],
 }
 
 
@@ -161,15 +301,27 @@ TOOL_GROUPS: Dict[str, List[str]] = {
 # Task type detection
 # ---------------------------------------------------------------------------
 
-_TASK_KEYWORDS: List[tuple[str, str]] = [
-    # (keyword, task_type)  — checked in order; first match wins
-    ("scan",            "aws_scan"),
-    ("inventory",       "aws_scan"),
-    ("security group",  "aws_scan"),
-    ("describe",        "aws_scan"),
-    ("show me",         "aws_scan"),
-    ("what is",         "aws_scan"),
-    ("how many",        "aws_scan"),
+_TASK_KEYWORDS: List[tuple] = [
+    # Azure-specific — check BEFORE generic create/list to get provider-specific group
+    ("azure",           "azure_compute"),
+    ("arm template",    "azure_compute"),
+    ("resource group",  "azure_compute"),
+    ("app service",     "azure_compute"),
+    ("azure function",  "azure_compute"),
+    ("blob storage",    "azure_compute"),
+    ("azure sql",       "azure_compute"),
+    # GCP-specific — check BEFORE generic create/list
+    ("gcp",             "gcp_compute"),
+    ("google cloud",    "gcp_compute"),
+    ("gcloud",          "gcp_compute"),
+    ("cloud run",       "gcp_compute"),
+    ("bigquery",        "gcp_compute"),
+    ("pub/sub",         "gcp_compute"),
+    ("pubsub",          "gcp_compute"),
+    ("cloud function",  "gcp_compute"),
+    ("cloud sql",       "gcp_compute"),
+    ("compute engine",  "gcp_compute"),
+    # Kubernetes — check BEFORE generic compute
     ("crashloop",       "kubernetes"),
     ("crashbackoff",    "kubernetes"),
     ("kubectl",         "kubernetes"),
@@ -179,12 +331,20 @@ _TASK_KEYWORDS: List[tuple[str, str]] = [
     ("deployment",      "kubernetes"),
     ("cluster",         "kubernetes"),
     ("node ",           "kubernetes"),
+    ("helm",            "kubernetes"),
+    ("argocd",          "kubernetes"),
+    ("k8s",             "kubernetes"),
+    ("gke",             "kubernetes"),
+    ("aks",             "kubernetes"),
+    ("eks",             "kubernetes"),
+    # Terraform
     ("terraform",       "terraform"),
     (" plan",           "terraform"),
     ("tf apply",        "terraform"),
     ("tf plan",         "terraform"),
     ("state file",      "terraform"),
     ("workspace",       "terraform"),
+    # CI/CD
     ("pipeline",        "cicd"),
     ("jenkins",         "cicd"),
     ("github action",   "cicd"),
@@ -192,25 +352,38 @@ _TASK_KEYWORDS: List[tuple[str, str]] = [
     (" ci ",            "cicd"),
     (" cd ",            "cicd"),
     ("build job",       "cicd"),
+    # Git
     ("git ",            "git"),
     ("commit",          "git"),
     ("pull request",    "git"),
     ("merge",           "git"),
     ("branch",          "git"),
     ("push",            "git"),
-    ("deploy",          "aws_compute"),
-    ("create",          "aws_compute"),
-    ("launch",          "aws_compute"),
-    ("terminate",       "aws_compute"),
-    ("provision",       "aws_compute"),
-    ("start",           "aws_compute"),
-    ("stop",            "aws_compute"),
-    ("scale",           "aws_compute"),
+    # Scan / read-only — checked BEFORE generic compute action keywords so that
+    # "list my ec2 instances" → aws_scan (not aws_compute)
+    ("scan",            "aws_scan"),
+    ("inventory",       "aws_scan"),
+    ("security group",  "aws_scan"),
+    ("describe",        "aws_scan"),
+    ("show me",         "aws_scan"),
+    ("what is",         "aws_scan"),
+    ("how many",        "aws_scan"),
     ("list",            "aws_scan"),
     ("show",            "aws_scan"),
     ("get",             "aws_scan"),
     ("cost",            "aws_scan"),
     ("billing",         "aws_scan"),
+    # AWS compute / create — after scan keywords, after provider-specific checks
+    ("deploy",          "aws_compute"),
+    ("create",          "aws_compute"),
+    ("launch",          "aws_compute"),
+    ("terminate",       "aws_compute"),
+    ("provision",       "aws_compute"),
+    ("spin up",         "aws_compute"),
+    ("spin-up",         "aws_compute"),
+    ("start",           "aws_compute"),
+    ("stop",            "aws_compute"),
+    ("scale",           "aws_compute"),
 ]
 
 
@@ -218,8 +391,11 @@ def detect_task_type(user_message: str) -> str:
     """
     Inspect the user's message and return the best matching TOOL_GROUPS key.
 
-    Returns one of: "aws_scan", "aws_compute", "kubernetes", "terraform", "git", "cicd".
+    Returns one of: "aws_scan", "aws_compute", "azure_compute", "gcp_compute",
+                    "kubernetes", "terraform", "git", "cicd".
     Defaults to "aws_scan" if no keyword matches.
+    Note: TOOL_GROUPS["aws_compute"] includes Azure and GCP create tools, so
+    create operations on any provider work via the aws_compute group.
     """
     lower = user_message.lower()
     for keyword, task_type in _TASK_KEYWORDS:
@@ -272,35 +448,53 @@ class DevOpsAgentSessionFactory:
         max_tools: int,
     ) -> List[Dict[str, Any]]:
         """
-        Filter all_tools down to those relevant to task_type, then cap at max_tools.
+        Filter all_tools to those relevant to task_type, always include generic
+        API fallback tools, then cap at max_tools.
 
         Steps:
         1. Look up the substring list for task_type in TOOL_GROUPS.
         2. Keep tools whose 'name' contains any listed substring.
-        3. Truncate to max_tools if needed.
-        4. If nothing matched, fall back to the first max_tools tools from all_tools.
+        3. Always append generic API fallback tools (aws_api_read/write,
+           azure_api_read/write, gcp_api_read/write, k8s_api_read/write) —
+           these are the escape hatch for any operation without a dedicated tool.
+        4. Cap at max_tools, ensuring generic API tools are always kept.
+        5. If max_tools >= total tools, no truncation needed.
         """
         substrings = TOOL_GROUPS.get(task_type, [])
-        filtered: List[Dict[str, Any]] = []
+        matched: List[Dict[str, Any]] = []
+        generic_api: List[Dict[str, Any]] = []
 
-        if substrings:
-            for tool in all_tools:
-                name = tool.get("name", "")
-                if any(s in name for s in substrings):
-                    filtered.append(tool)
+        for tool in all_tools:
+            name = tool.get("name", "")
+            # Always collect generic API tools separately
+            if any(name == g or name.startswith(g) for g in _GENERIC_API_TOOLS):
+                generic_api.append(tool)
+            elif substrings and any(s in name for s in substrings):
+                matched.append(tool)
 
-        if not filtered:
+        if not matched:
+            # No substring match — use all non-generic tools as the candidate pool
             logger.debug(
-                "scope_tools: no tools matched task_type=%s, falling back to first %d tools",
-                task_type, max_tools,
+                "scope_tools: no tools matched task_type=%s, using full pool",
+                task_type,
             )
-            filtered = list(all_tools)
+            matched = [t for t in all_tools if t not in generic_api]
 
-        if len(filtered) > max_tools:
+        # Build final list: task-matched tools first, then generic API tools
+        # Cap task-matched tools so there's always room for generic API tools
+        generic_count = len(generic_api)
+        task_budget = max(0, max_tools - generic_count)
+
+        if len(matched) > task_budget:
             logger.debug(
-                "scope_tools: trimming %d matched tools to max_tools=%d for task_type=%s",
-                len(filtered), max_tools, task_type,
+                "scope_tools: trimming %d matched tools to %d (budget after generics) for task_type=%s",
+                len(matched), task_budget, task_type,
             )
-            filtered = filtered[:max_tools]
+            matched = matched[:task_budget]
 
-        return filtered
+        result = matched + generic_api
+        logger.debug(
+            "scope_tools: returning %d tools (%d task-specific + %d generic API) for task_type=%s",
+            len(result), len(matched), len(generic_api), task_type,
+        )
+        return result
