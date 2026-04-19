@@ -285,22 +285,26 @@ class TestScopeTools:
     def _make_tools(self, names):
         return [{'name': n, 'description': '', 'input_schema': {}} for n in names]
 
-    def test_filters_to_matching_group(self):
+    def test_task_specific_tools_appear_first(self):
         f = self._factory()
         tools = self._make_tools([
             'list_ec2_instances', 'list_pods', 'terraform_plan', 'git_commit'
         ])
         result = f.scope_tools(tools, 'kubernetes', max_tools=10)
         names = [t['name'] for t in result]
+        # All tools returned — no filtering
         assert 'list_pods' in names
-        assert 'list_ec2_instances' not in names
-        assert 'terraform_plan' not in names
+        assert 'list_ec2_instances' in names
+        assert 'terraform_plan' in names
+        # kubernetes task tool appears before non-kubernetes tools
+        assert names.index('list_pods') < names.index('list_ec2_instances')
 
-    def test_enforces_max_tools_cap(self):
+    def test_all_tools_returned_regardless_of_max_tools(self):
         f = self._factory()
         tools = self._make_tools([f'list_ec2_{i}' for i in range(20)])
         result = f.scope_tools(tools, 'aws_scan', max_tools=5)
-        assert len(result) == 5
+        # max_tools is ignored — all 20 tools returned
+        assert len(result) == 20
 
     def test_fallback_to_all_tools_when_no_match(self):
         f = self._factory()
@@ -309,11 +313,12 @@ class TestScopeTools:
         result = f.scope_tools(tools, 'kubernetes', max_tools=10)
         assert len(result) == 3  # all returned since nothing matched
 
-    def test_fallback_also_respects_max_tools(self):
+    def test_fallback_returns_all_tools_no_cap(self):
         f = self._factory()
         tools = self._make_tools([f'unrelated_tool_{i}' for i in range(15)])
         result = f.scope_tools(tools, 'kubernetes', max_tools=5)
-        assert len(result) == 5
+        # max_tools is ignored even in fallback — all 15 tools returned
+        assert len(result) == 15
 
     def test_empty_tool_list_returns_empty(self):
         f = self._factory()
@@ -328,7 +333,7 @@ class TestScopeTools:
         for t in result:
             assert 'name' in t
 
-    def test_terraform_group_matches_terraform_tools(self):
+    def test_terraform_group_tools_appear_first(self):
         f = self._factory()
         tools = self._make_tools([
             'terraform_plan', 'terraform_apply', 'terraform_init',
@@ -336,11 +341,14 @@ class TestScopeTools:
         ])
         result = f.scope_tools(tools, 'terraform', max_tools=10)
         names = [t['name'] for t in result]
+        # All tools present
         assert 'terraform_plan' in names
         assert 'terraform_apply' in names
-        assert 'list_pods' not in names
+        assert 'list_pods' in names
+        # terraform tools appear before non-terraform tools
+        assert names.index('terraform_plan') < names.index('list_pods')
 
-    def test_git_group_matches_git_and_github_tools(self):
+    def test_git_group_tools_appear_first(self):
         f = self._factory()
         tools = self._make_tools([
             'git_commit', 'git_push', 'github_create_pr',
@@ -348,9 +356,12 @@ class TestScopeTools:
         ])
         result = f.scope_tools(tools, 'git', max_tools=10)
         names = [t['name'] for t in result]
+        # All tools present
         assert 'git_commit' in names
         assert 'github_create_pr' in names
-        assert 'list_ec2_instances' not in names
+        assert 'list_ec2_instances' in names
+        # git tools appear before non-git tools
+        assert names.index('git_commit') < names.index('list_ec2_instances')
 
 
 class TestSessionFactory:
@@ -671,10 +682,10 @@ class TestAppWiringSmoke:
 
     # ---- tools_override is non-None and is a subset ----
 
-    def test_scope_tools_returns_non_empty_list_for_aws_message(self):
+    def test_scope_tools_returns_all_tools_with_aws_first(self):
         """
         Route logic: scope_tools(agent.tool_definitions, detect_task_type(msg), max_tools)
-        must return a non-empty list when the agent has at least one matching tool.
+        must return ALL tools, with task-matching tools ordered first.
         """
         from services.devopsagent_prompts import DevOpsAgentSessionFactory, detect_task_type
 
@@ -689,22 +700,24 @@ class TestAppWiringSmoke:
 
         assert result is not None
         assert isinstance(result, list)
-        assert len(result) > 0
-        # ec2 tool should be in aws_scan group
+        # All tools are returned — no cap, no filtering
+        assert len(result) == 3
         names = [t['name'] for t in result]
         assert 'list_ec2_instances' in names
-        # k8s and terraform should NOT be included for this message
-        assert 'list_pods' not in names
-        assert 'terraform_plan' not in names
+        assert 'list_pods' in names
+        assert 'terraform_plan' in names
+        # ec2 (aws_scan match) appears before non-matching tools
+        assert names.index('list_ec2_instances') < names.index('list_pods')
 
-    def test_scope_tools_respects_max_tools_cap(self):
-        """The max_tools cap must be enforced — simulates free-tier cap of 6."""
+    def test_scope_tools_ignores_max_tools_cap(self):
+        """max_tools is no longer enforced — all tools returned regardless."""
         from services.devopsagent_prompts import DevOpsAgentSessionFactory
         # 20 tools that all match 'aws_scan' group
         tools = [{'name': f'list_ec2_{i}', 'description': '', 'input_schema': {}} for i in range(20)]
         factory = DevOpsAgentSessionFactory()
         result = factory.scope_tools(tools, 'aws_scan', max_tools=6)
-        assert len(result) == 6
+        # max_tools=6 is ignored — all 20 tools returned
+        assert len(result) == 20
 
     # ---- system prompt injection ----
 
