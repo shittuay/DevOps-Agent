@@ -2,6 +2,13 @@
 
 All notable changes to `@devopsagent/mcp-server` are documented here.
 
+## [1.0.7] - 2026-04-19
+
+### Changed
+- Updated tool count to 730 across all docs (github_tools 19, devops_operations_tools 10, command_tools 2 now counted)
+- Removed tool cap — all 730 tools passed to model on every request (no per-tier filtering)
+- Tool ordering: task-relevant tools surfaced first, remainder appended
+
 ## [1.0.6] - 2026-04-12
 
 ### Changed

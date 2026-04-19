@@ -6,7 +6,7 @@ https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxM
 ## Server Details
 
 - **Server Name:** DevOps Agent
-- **Description:** Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more from Claude. 727 tools across 17 modules including monitoring, security scanning, and alerting.
+- **Description:** Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more from Claude. 730 tools across 17 modules including monitoring, security scanning, and alerting.
 - **Integration URL:** `https://devopsagent.io/mcp/`
 - **SSE Endpoint:** `https://devopsagent.io/mcp/sse`
 - **Health Check:** `https://devopsagent.io/mcp/health`
@@ -49,7 +49,7 @@ Credentials shared privately with the review team (never commit secrets to git).
 
 ## Safety Annotations
 
-All 727 tools have MCP safety annotations:
+All 730 tools have MCP safety annotations:
 - **230 tools** marked `readOnlyHint: true` (list, get, describe operations)
 - **114 tools** marked `destructiveHint: true` (delete, terminate operations)
 - **299 tools** marked as mutating (create, update, medium-risk operations)
