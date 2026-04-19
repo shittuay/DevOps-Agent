@@ -53,6 +53,31 @@ _STRONG_HALLUCINATION_PATTERNS = [
 ]
 
 
+_RESOURCE_ID_IN_HISTORY_RE = re.compile(
+    r'\b(?:i|vpc|subnet|sg|ami|vol|snap|eni|igw|rtb|acl|nat|pcx|eipalloc)-[0-9a-f]{8,17}\b'
+    r'|arn:aws:[a-z0-9\-]+:[a-z0-9\-]*:\d{12}:'
+    r'|/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'
+    r'|projects/[a-z][a-z0-9\-]+/(?:zones|regions)/[a-z0-9\-]+/',
+    re.IGNORECASE,
+)
+
+
+def _history_has_real_resource_data(messages: list) -> bool:
+    """
+    Return True if a prior assistant message already contains real resource IDs.
+
+    When this is true the agent is referencing data it legitimately fetched in
+    an earlier turn, so weak hallucination patterns should not fire on the
+    current response.
+    """
+    for m in messages:
+        if m.get('role') == 'assistant':
+            content = m.get('content', '') or ''
+            if isinstance(content, str) and _RESOURCE_ID_IN_HISTORY_RE.search(content):
+                return True
+    return False
+
+
 def _check_hallucination(text: str, tools_called_this_turn: bool, sandbox_mode: bool = False) -> bool:
     """
     Detect if the model likely hallucinated tool results.
@@ -1092,11 +1117,9 @@ User Preferences and Context:
 
                 # No tool calls — return text, but check for hallucinated tool output
                 text = msg.content or ""
-                # If real tool results exist anywhere in conversation history the agent
-                # is legitimately referencing previously-fetched data, not fabricating.
-                tools_in_context = tools_called_this_turn or any(
-                    m.get('role') == 'tool' for m in messages
-                )
+                # Skip weak patterns when real resource IDs already exist in prior
+                # assistant messages — the agent is referencing legitimately-fetched data.
+                tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
                 if text and _check_hallucination(text, tools_in_context, getattr(self, '_sandbox_mode', False)):
                     self.logger.warning("Detected hallucinated tool output in Kimi response — replacing")
                     return _HALLUCINATION_REPLACEMENT
@@ -1274,11 +1297,9 @@ User Preferences and Context:
 
                 # No tool calls — check for hallucination before yielding buffered content
                 if collected_content:
-                    # If real tool results exist anywhere in conversation history the agent
-                    # is legitimately referencing previously-fetched data, not fabricating.
-                    tools_in_context = tools_called_this_turn or any(
-                        m.get('role') == 'tool' for m in messages
-                    )
+                    # Skip weak patterns when real resource IDs already exist in prior
+                    # assistant messages — the agent is referencing legitimately-fetched data.
+                    tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
                     if _check_hallucination(collected_content, tools_in_context, getattr(self, '_sandbox_mode', False)):
                         self.logger.warning("Detected hallucinated tool output in Kimi streaming response — replacing")
                         yield _HALLUCINATION_REPLACEMENT
