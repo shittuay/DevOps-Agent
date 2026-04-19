@@ -1092,7 +1092,12 @@ User Preferences and Context:
 
                 # No tool calls — return text, but check for hallucinated tool output
                 text = msg.content or ""
-                if text and _check_hallucination(text, tools_called_this_turn, getattr(self, '_sandbox_mode', False)):
+                # If real tool results exist anywhere in conversation history the agent
+                # is legitimately referencing previously-fetched data, not fabricating.
+                tools_in_context = tools_called_this_turn or any(
+                    m.get('role') == 'tool' for m in messages
+                )
+                if text and _check_hallucination(text, tools_in_context, getattr(self, '_sandbox_mode', False)):
                     self.logger.warning("Detected hallucinated tool output in Kimi response — replacing")
                     return _HALLUCINATION_REPLACEMENT
                 return text
@@ -1269,7 +1274,12 @@ User Preferences and Context:
 
                 # No tool calls — check for hallucination before yielding buffered content
                 if collected_content:
-                    if _check_hallucination(collected_content, tools_called_this_turn, getattr(self, '_sandbox_mode', False)):
+                    # If real tool results exist anywhere in conversation history the agent
+                    # is legitimately referencing previously-fetched data, not fabricating.
+                    tools_in_context = tools_called_this_turn or any(
+                        m.get('role') == 'tool' for m in messages
+                    )
+                    if _check_hallucination(collected_content, tools_in_context, getattr(self, '_sandbox_mode', False)):
                         self.logger.warning("Detected hallucinated tool output in Kimi streaming response — replacing")
                         yield _HALLUCINATION_REPLACEMENT
                     else:
