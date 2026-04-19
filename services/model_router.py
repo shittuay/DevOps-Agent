@@ -33,7 +33,7 @@ KIMI_MODEL_CONFIG = ModelConfig(
     display_name='Kimi K2.5',
     supports_tools=True,
     max_tokens=4096,
-    max_tools=30,
+    max_tools=100,
     trust_tool_results=False,
 )
 
@@ -45,7 +45,7 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Sonnet 4.6 (Trial)',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=30,
+        max_tools=100,
         trust_tool_results=True,
     ),
     'starter': ModelConfig(
@@ -54,7 +54,7 @@ CLAUDE_OVERRIDE_CONFIGS = {
         display_name='Claude Haiku 4.5',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=40,
+        max_tools=100,
         trust_tool_results=True,
     ),
     'professional': ModelConfig(
@@ -86,7 +86,7 @@ DEFAULT_TIER_MODELS = {
         display_name='Kimi K2.5 (Trial)',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=25,
+        max_tools=100,
         trust_tool_results=False,
     ),
     'starter': ModelConfig(
@@ -95,7 +95,7 @@ DEFAULT_TIER_MODELS = {
         display_name='Kimi K2.5',
         supports_tools=True,
         max_tokens=4096,
-        max_tools=30,
+        max_tools=100,
         trust_tool_results=False,
     ),
     'professional': ModelConfig(
