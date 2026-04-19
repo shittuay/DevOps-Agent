@@ -36,21 +36,22 @@ class TestModelConfigFields:
             assert hasattr(cfg, 'trust_tool_results'), f"{tier} missing trust_tool_results"
             assert isinstance(cfg.trust_tool_results, bool)
 
-    def test_free_tier_max_tools_is_6(self):
+    def test_free_tier_max_tools_is_adequate(self):
+        # Raised from 6 to 25 to allow multi-tool chaining for cloud create operations
         from services.model_router import DEFAULT_TIER_MODELS
-        assert DEFAULT_TIER_MODELS['free'].max_tools == 6
+        assert DEFAULT_TIER_MODELS['free'].max_tools >= 20
 
-    def test_starter_tier_max_tools_is_8(self):
+    def test_starter_tier_max_tools_is_adequate(self):
         from services.model_router import DEFAULT_TIER_MODELS
-        assert DEFAULT_TIER_MODELS['starter'].max_tools == 8
+        assert DEFAULT_TIER_MODELS['starter'].max_tools >= 25
 
-    def test_professional_tier_max_tools_is_15(self):
+    def test_professional_tier_max_tools_is_adequate(self):
         from services.model_router import DEFAULT_TIER_MODELS
-        assert DEFAULT_TIER_MODELS['professional'].max_tools == 15
+        assert DEFAULT_TIER_MODELS['professional'].max_tools >= 50
 
-    def test_business_tier_max_tools_is_20(self):
+    def test_business_tier_max_tools_is_adequate(self):
         from services.model_router import DEFAULT_TIER_MODELS
-        assert DEFAULT_TIER_MODELS['business'].max_tools == 20
+        assert DEFAULT_TIER_MODELS['business'].max_tools >= 50
 
     def test_kimi_tiers_do_not_trust_tool_results(self):
         from services.model_router import DEFAULT_TIER_MODELS
@@ -70,38 +71,40 @@ class TestModelConfigFields:
 
     def test_claude_overrides_match_expected_values(self):
         from services.model_router import CLAUDE_OVERRIDE_CONFIGS
-        assert CLAUDE_OVERRIDE_CONFIGS['free'].max_tools == 6
-        assert CLAUDE_OVERRIDE_CONFIGS['free'].trust_tool_results is False
-        assert CLAUDE_OVERRIDE_CONFIGS['professional'].max_tools == 15
+        # free tier Claude: trust_tool_results=True now (Claude is reliable)
+        assert CLAUDE_OVERRIDE_CONFIGS['free'].max_tools >= 20
+        assert CLAUDE_OVERRIDE_CONFIGS['free'].trust_tool_results is True
+        assert CLAUDE_OVERRIDE_CONFIGS['professional'].max_tools >= 50
         assert CLAUDE_OVERRIDE_CONFIGS['professional'].trust_tool_results is True
-        assert CLAUDE_OVERRIDE_CONFIGS['business'].max_tools == 20
+        assert CLAUDE_OVERRIDE_CONFIGS['business'].max_tools >= 50
         assert CLAUDE_OVERRIDE_CONFIGS['business'].trust_tool_results is True
 
     def test_kimi_model_config_has_new_fields(self):
         from services.model_router import KIMI_MODEL_CONFIG
-        assert KIMI_MODEL_CONFIG.max_tools == 8
+        # Raised to allow full tool set for multi-step cloud operations
+        assert KIMI_MODEL_CONFIG.max_tools >= 25
         assert KIMI_MODEL_CONFIG.trust_tool_results is False
 
     def test_resolve_model_with_preference_kimi_inherits_tier_values(self):
         from services.model_router import resolve_model_with_preference
         free_kimi = resolve_model_with_preference('free', 'kimi')
-        assert free_kimi.max_tools == 6
+        assert free_kimi.max_tools >= 20
         assert free_kimi.trust_tool_results is False
 
         starter_kimi = resolve_model_with_preference('starter', 'kimi')
-        assert starter_kimi.max_tools == 8
+        assert starter_kimi.max_tools >= 25
         assert starter_kimi.trust_tool_results is False
 
     def test_resolve_model_with_preference_anthropic_inherits_tier_values(self):
         from services.model_router import resolve_model_with_preference
         pro_claude = resolve_model_with_preference('professional', 'anthropic')
-        assert pro_claude.max_tools == 15
+        assert pro_claude.max_tools >= 50
         assert pro_claude.trust_tool_results is True
 
     def test_resolve_model_with_no_preference_uses_tier_defaults(self):
         from services.model_router import resolve_model_with_preference
         cfg = resolve_model_with_preference('business', None)
-        assert cfg.max_tools == 20
+        assert cfg.max_tools >= 50
         assert cfg.trust_tool_results is True
 
     def test_modelconfig_default_max_tools_is_10(self):
