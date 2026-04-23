@@ -78,3 +78,6 @@ htmlcov/
 uploads/
 instance/
 .gstack/
+
+# ElasticBeanstalk app version bundles (large binaries, never needed in git)
+.elasticbeanstalk/app_versions/
