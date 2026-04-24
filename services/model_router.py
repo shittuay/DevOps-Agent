@@ -2,7 +2,7 @@
 Tiered AI Model Router
 
 Maps subscription tiers to AI providers and models.
-Free and Starter users default to Kimi K2.5 (cheaper, with tools).
+Free and Starter users default to Kimi K2.6 (cheaper, with tools).
 Professional and Business users default to Claude (premium).
 Users can override their tier default via preferred_model_provider.
 """
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelConfig:
     provider: str       # 'anthropic', 'kimi', or 'groq'
-    model: str          # e.g. 'kimi-k2.5', 'claude-sonnet-4-6'
+    model: str          # e.g. 'kimi-k2.6', 'claude-sonnet-4-6'
     display_name: str   # Human-readable name for UI
     supports_tools: bool
     max_tokens: int = 4096
@@ -29,8 +29,8 @@ class ModelConfig:
 # Kimi model config constant
 KIMI_MODEL_CONFIG = ModelConfig(
     provider='kimi',
-    model='kimi-k2.5',
-    display_name='Kimi K2.5',
+    model='kimi-k2.6',
+    display_name='Kimi K2.6',
     supports_tools=True,
     max_tokens=4096,
     max_tools=100,
@@ -82,8 +82,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
 DEFAULT_TIER_MODELS = {
     'free': ModelConfig(
         provider='kimi',
-        model='kimi-k2.5',
-        display_name='Kimi K2.5 (Trial)',
+        model='kimi-k2.6',
+        display_name='Kimi K2.6 (Trial)',
         supports_tools=True,
         max_tokens=4096,
         max_tools=100,
@@ -91,8 +91,8 @@ DEFAULT_TIER_MODELS = {
     ),
     'starter': ModelConfig(
         provider='kimi',
-        model='kimi-k2.5',
-        display_name='Kimi K2.5',
+        model='kimi-k2.6',
+        display_name='Kimi K2.6',
         supports_tools=True,
         max_tokens=4096,
         max_tools=100,
@@ -186,12 +186,12 @@ def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[s
     tier_name = (tier_name or 'free').lower()
 
     if preferred_provider == 'kimi':
-        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.6')
         tier_defaults = DEFAULT_TIER_MODELS.get(tier_name, DEFAULT_TIER_MODELS['free'])
         return ModelConfig(
             provider='kimi',
             model=kimi_model,
-            display_name='Kimi K2.5',
+            display_name='Kimi K2.6',
             supports_tools=True,
             max_tokens=tier_defaults.max_tokens,
             max_tools=tier_defaults.max_tools,

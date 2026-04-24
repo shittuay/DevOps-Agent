@@ -1017,7 +1017,7 @@ User Preferences and Context:
             return "❌ Kimi API key not configured. Set MOONSHOT_API_KEY in config/.env"
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.6')
         _override = getattr(self, '_tools_override', None)
         oai_tools = (
             self._convert_tool_list_to_openai_format(_override)
@@ -1155,7 +1155,7 @@ User Preferences and Context:
             return
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.5')
+        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.6')
         _override = getattr(self, '_tools_override', None)
         oai_tools = (
             self._convert_tool_list_to_openai_format(_override)
