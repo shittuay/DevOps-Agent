@@ -13,43 +13,31 @@ from .conversation import ConversationManager
 from .safety import SafetyValidator
 
 
-# Patterns that indicate the model hallucinated tool execution instead of using function calling
-_HALLUCINATED_TOOL_PATTERNS = [
-    # AWS credentials
-    re.compile(r'AKIA[A-Z0-9]{12,20}'),
-    re.compile(r'(?:Secret\s*Access\s*Key|SecretAccessKey)\s*[:=]\s*\S{30,}', re.IGNORECASE),
-    # AWS resource IDs (ec2, vpc, subnet, sg, ami, vol, snap, eni, igw, rtb, acl, nat, elb, rds, etc.)
-    re.compile(r'\b(?:i|vpc|subnet|sg|ami|vol|snap|eni|igw|rtb|acl|nat|pcx|eipalloc|arn)-[0-9a-f]{8,17}\b'),
-    # ARNs
-    re.compile(r'arn:aws:[a-z0-9\-]+:[a-z0-9\-]*:\d{12}:'),
-    # API keys
-    re.compile(r'(?:sk-|sk_live_|sk_test_)[a-zA-Z0-9]{20,}'),
-    # Kubernetes fake pod/deployment names with random suffixes
-    re.compile(r'\b[a-z]+-[a-z]+-[a-f0-9]{8,10}-[a-z0-9]{5}\b'),
-    # Azure resource IDs
-    re.compile(r'/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'),
-    # GCP self-links
-    re.compile(r'projects/[a-z][a-z0-9\-]+/(?:zones|regions)/[a-z0-9\-]+/(?:instances|disks)/'),
-    # Fake JSON tool output blocks (model writing {"success": true} in text)
-    re.compile(r'\{\s*"success"\s*:\s*true\s*,', re.IGNORECASE),
-    # IP addresses in resource-listing context (4+ IPs suggest fake infra listing)
-    re.compile(r'(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}.*?){4,}'),
-    # Model writing fake tool execution markers in plain text (Kimi hallucination pattern)
-    re.compile(r'_\s*\[Executing tool[^\]]*\]\s*_', re.IGNORECASE),
-    re.compile(r'\[Executing tool[^\]]*\]', re.IGNORECASE),
-    # Model pretending to call a tool by writing "Let me check/fetch/query..." + fake result below
-    re.compile(r'\[Tool(?:\s+\w+)+\s+(?:executed|called|complete|returned)\]', re.IGNORECASE),
-    # Fake status outputs like "[Status: OK]" or "[Result: ...]"
-    re.compile(r'\[\s*(?:Status|Result|Output|Response)\s*:\s*[^\]]{5,}\]', re.IGNORECASE),
-]
-
-
-# Strong hallucination signals — always flag regardless of tools_called_this_turn
+# Strong hallucination signals — always replace response, regardless of tools_called_this_turn
 # These are explicit fabrication markers that should NEVER appear in real responses
 _STRONG_HALLUCINATION_PATTERNS = [
     re.compile(r'_\s*\[Executing tool[^\]]*\]\s*_', re.IGNORECASE),
     re.compile(r'\[Executing tool[^\]]*\]', re.IGNORECASE),
     re.compile(r'\[Tool(?:\s+\w+)+\s+(?:executed|called|complete|returned)\]', re.IGNORECASE),
+]
+
+# Weak hallucination signals — only checked when no tools were called this turn
+# and no real resource IDs exist in conversation history.
+# A weak hit appends a warning rather than silencing the response.
+_HALLUCINATED_TOOL_PATTERNS = [
+    # AWS credentials leaked into response text
+    re.compile(r'AKIA[A-Z0-9]{12,20}'),
+    re.compile(r'(?:Secret\s*Access\s*Key|SecretAccessKey)\s*[:=]\s*\S{30,}', re.IGNORECASE),
+    # AWS resource IDs without any prior tool call context
+    re.compile(r'\b(?:i|vpc|subnet|sg|ami|vol|snap|eni|igw|rtb|acl|nat|pcx|eipalloc)-[0-9a-f]{8,17}\b'),
+    # ARNs
+    re.compile(r'arn:aws:[a-z0-9\-]+:[a-z0-9\-]*:\d{12}:'),
+    # API keys
+    re.compile(r'(?:sk-|sk_live_|sk_test_)[a-zA-Z0-9]{20,}'),
+    # Azure resource IDs
+    re.compile(r'/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'),
+    # GCP self-links
+    re.compile(r'projects/[a-z][a-z0-9\-]+/(?:zones|regions)/[a-z0-9\-]+/(?:instances|disks)/'),
 ]
 
 
@@ -78,32 +66,28 @@ def _history_has_real_resource_data(messages: list) -> bool:
     return False
 
 
-def _check_hallucination(text: str, tools_called_this_turn: bool, sandbox_mode: bool = False) -> bool:
+def _check_hallucination(text: str, tools_called_this_turn: bool, sandbox_mode: bool = False) -> str:
     """
     Detect if the model likely hallucinated tool results.
 
-    Strong signal: model wrote fake [Executing tool...] markers in plain text.
-    These are always hallucinations regardless of whether tools were called.
+    Returns:
+        'strong' — explicit fabrication marker ([Executing tool...]) → replace response
+        'weak'   — resource IDs present without tool context → append warning
+        ''       — no hallucination detected
 
-    Weak signal: model produced resource IDs / structured output WITHOUT
-    making any tool calls this turn.
-
-    If tools WERE called, regular patterns are skipped (could be real results).
-
-    Sandbox mode: if True, fabricated resources are expected (learning/demo context)
-    — do NOT flag. Only flag hallucinations in live mode.
+    Sandbox mode: fabricated resources are expected (demos, learning) — never flag.
     """
-    # In sandbox mode, fabricated resources are expected (demos, learning)
     if sandbox_mode:
-        return False
-    # Always check strong patterns — writing [Executing tool...] in plain text
-    # is NEVER legitimate, even when real tools were also called
+        return ''
+    # Strong: fake [Executing tool...] markers — never legitimate
     if any(p.search(text) for p in _STRONG_HALLUCINATION_PATTERNS):
-        return True
-    # If tools were called, the model is summarising real results — skip weak patterns
+        return 'strong'
+    # If tools were called or real IDs exist in history, skip weak patterns
     if tools_called_this_turn:
-        return False
-    return any(p.search(text) for p in _HALLUCINATED_TOOL_PATTERNS)
+        return ''
+    if any(p.search(text) for p in _HALLUCINATED_TOOL_PATTERNS):
+        return 'weak'
+    return ''
 
 
 _HALLUCINATION_WARNING = (
@@ -1120,9 +1104,13 @@ User Preferences and Context:
                 # Skip weak patterns when real resource IDs already exist in prior
                 # assistant messages — the agent is referencing legitimately-fetched data.
                 tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
-                if text and _check_hallucination(text, tools_in_context, getattr(self, '_sandbox_mode', False)):
-                    self.logger.warning("Detected hallucinated tool output in Kimi response — replacing")
+                severity = _check_hallucination(text, tools_in_context, getattr(self, '_sandbox_mode', False))
+                if severity == 'strong':
+                    self.logger.warning("Detected strong hallucination in Kimi response — replacing")
                     return _HALLUCINATION_REPLACEMENT
+                if severity == 'weak':
+                    self.logger.warning("Detected weak hallucination signal in Kimi response — appending warning")
+                    return text + _HALLUCINATION_WARNING
                 return text
 
             except Exception as e:
