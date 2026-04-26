@@ -1288,9 +1288,13 @@ User Preferences and Context:
                     # Skip weak patterns when real resource IDs already exist in prior
                     # assistant messages — the agent is referencing legitimately-fetched data.
                     tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
-                    if _check_hallucination(collected_content, tools_in_context, getattr(self, '_sandbox_mode', False)):
-                        self.logger.warning("Detected hallucinated tool output in Kimi streaming response — replacing")
+                    severity = _check_hallucination(collected_content, tools_in_context, getattr(self, '_sandbox_mode', False))
+                    if severity == 'strong':
+                        self.logger.warning("Detected strong hallucination in Kimi streaming response — replacing")
                         yield _HALLUCINATION_REPLACEMENT
+                    elif severity == 'weak':
+                        self.logger.warning("Detected weak hallucination signal in Kimi streaming response — appending warning")
+                        yield collected_content + _HALLUCINATION_WARNING
                     else:
                         yield collected_content
                 return
