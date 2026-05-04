@@ -320,10 +320,11 @@ def oauth_authorization_server_metadata():
         'issuer':                                base,
         'authorization_endpoint':                f'{base}/mcp/oauth/authorize',
         'token_endpoint':                        f'{base}/mcp/oauth/token',
+        'registration_endpoint':                 f'{base}/mcp/oauth/register',
         'response_types_supported':              ['code'],
         'grant_types_supported':                 ['authorization_code'],
         'code_challenge_methods_supported':      ['S256'],
-        'token_endpoint_auth_methods_supported': ['client_secret_post', 'client_secret_basic'],
+        'token_endpoint_auth_methods_supported': ['client_secret_post', 'client_secret_basic', 'none'],
         'scopes_supported':                      ['mcp'],
     })
 
