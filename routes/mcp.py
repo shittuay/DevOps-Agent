@@ -69,8 +69,9 @@ OAUTH_CLIENT_ID     = os.environ.get('MCP_OAUTH_CLIENT_ID',     'claude-connecto
 OAUTH_CLIENT_SECRET = os.environ.get('MCP_OAUTH_CLIENT_SECRET', 'devopsagent-mcp-secret-2026')
 
 # in-memory stores (restart clears them — users just re-auth)
-_oauth_codes:  Dict[str, Dict[str, Any]] = {}   # code  → {user_id, expires, redirect_uri}
-_oauth_tokens: Dict[str, int]            = {}   # token → user_id
+_oauth_codes:   Dict[str, Dict[str, Any]] = {}   # code  → {user_id, expires, redirect_uri}
+_oauth_tokens:  Dict[str, int]            = {}   # token → user_id
+_registered_clients: Dict[str, Dict[str, Any]] = {}  # client_id → registration metadata
 _oauth_lock = threading.Lock()
 _CODE_TTL  = 300   # 5 min
 _TOKEN_TTL = 86400 * 30  # 30 days (stored in memory; restart invalidates)
@@ -628,8 +629,11 @@ def oauth_authorize():
     state          = request.values.get('state', '')
     code_challenge = request.values.get('code_challenge', '')
 
-    if client_id != OAUTH_CLIENT_ID:
-        return jsonify({'error': 'invalid_client'}), 400
+    # Accept the built-in client OR any dynamically registered client OR any public PKCE client.
+    # We do not reject unknown client_ids here because claude.ai and other public OAuth clients
+    # generate their own client_id and authenticate via PKCE rather than a pre-shared secret.
+    if not client_id:
+        return jsonify({'error': 'invalid_request', 'error_description': 'client_id required'}), 400
 
     if request.method == 'GET':
         return render_template_string(_AUTHORIZE_HTML,
@@ -700,8 +704,14 @@ def oauth_token():
         client_id     = request.form.get('client_id')     or body.get('client_id')
         client_secret = request.form.get('client_secret') or body.get('client_secret')
 
-    if client_id != OAUTH_CLIENT_ID or client_secret != OAUTH_CLIENT_SECRET:
-        resp = jsonify({'error': 'invalid_client'})
+    # Accept the built-in confidential client (client_secret required) OR any public
+    # client using PKCE (code_verifier present, no secret needed).  Claude.ai and
+    # Claude Desktop are public OAuth clients — they never send a client_secret.
+    is_known_confidential = (client_id == OAUTH_CLIENT_ID and client_secret == OAUTH_CLIENT_SECRET)
+    is_public_pkce = bool(code_verifier)  # PKCE verifier will be checked against stored challenge
+    if not is_known_confidential and not is_public_pkce:
+        resp = jsonify({'error': 'invalid_client',
+                        'error_description': 'Provide client_secret or use PKCE (code_verifier)'})
         for k, v in _cors_headers().items():
             resp.headers[k] = v
         return resp, 401
@@ -721,9 +731,16 @@ def oauth_token():
             resp.headers[k] = v
         return resp, 400
 
-    # Verify PKCE if challenge was stored
+    # Verify PKCE when a challenge was stored with the auth code.
+    # For public clients code_verifier is mandatory; for confidential clients it's optional.
     stored_challenge = record.get('code_challenge', '')
-    if stored_challenge and code_verifier:
+    if stored_challenge:
+        if not code_verifier:
+            resp = jsonify({'error': 'invalid_grant',
+                            'error_description': 'code_verifier required (PKCE)'})
+            for k, v in _cors_headers().items():
+                resp.headers[k] = v
+            return resp, 400
         import base64
         digest = hashlib.sha256(code_verifier.encode()).digest()
         computed = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
@@ -743,6 +760,40 @@ def oauth_token():
         'expires_in':   _TOKEN_TTL,
         'scope':        'mcp',
     })
+    for k, v in _cors_headers().items():
+        resp.headers[k] = v
+    return resp
+
+
+@mcp_bp.route('/oauth/register', methods=['POST', 'OPTIONS'])
+def oauth_register():
+    """
+    Dynamic Client Registration (RFC 7591).
+
+    Claude.ai and Claude Desktop call this before the authorization redirect so
+    they can use their own generated client_id.  We accept any registration and
+    return a client_id they can use in subsequent OAuth requests.
+    """
+    if request.method == 'OPTIONS':
+        return Response('', 204, headers=_cors_headers())
+
+    body = request.get_json(silent=True) or {}
+    client_id = secrets.token_urlsafe(16)
+    with _oauth_lock:
+        _registered_clients[client_id] = {
+            'redirect_uris': body.get('redirect_uris', []),
+            'client_name':   body.get('client_name', 'MCP Client'),
+            'registered_at': time.time(),
+        }
+    logger.info(f"MCP: registered OAuth client {client_id!r} ({body.get('client_name', '?')})")
+
+    resp = jsonify({
+        'client_id':            client_id,
+        'client_id_issued_at':  int(time.time()),
+        'token_endpoint_auth_method': 'none',   # public client — PKCE only
+        'redirect_uris':        body.get('redirect_uris', []),
+    })
+    resp.status_code = 201
     for k, v in _cors_headers().items():
         resp.headers[k] = v
     return resp
