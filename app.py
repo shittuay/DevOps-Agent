@@ -160,7 +160,7 @@ Talisman(app,
         'connect-src': ["'self'", "https://api.stripe.com"],
         'frame-src': ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
         'base-uri': "'self'",
-        'form-action': "'self'",
+        'form-action': ["'self'", "https://claude.ai"],
         'object-src': "'none'",
     },
 )
