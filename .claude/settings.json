@@ -66,6 +66,8 @@
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
-    "aws-serverless@claude-plugins-official": true
+    "aws-serverless@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "mcp-server-dev@claude-plugins-official": true
   }
 }
