@@ -439,53 +439,40 @@ class DevOpsAgentSessionFactory:
         max_tools: int,
     ) -> List[Dict[str, Any]]:
         """
-        Filter all_tools to those relevant to task_type, always include generic
-        API fallback tools, then cap at max_tools.
+        Reorder all_tools so task-relevant tools appear first; return all tools.
+
+        max_tools is intentionally ignored — all tools are always returned so the
+        agent never silently loses access to a tool it might need.  The reordering
+        ensures task-relevant tools appear near the top of the list, which is
+        sufficient to reduce hallucination without hiding functionality.
 
         Steps:
         1. Look up the substring list for task_type in TOOL_GROUPS.
-        2. Keep tools whose 'name' contains any listed substring.
-        3. Always append generic API fallback tools (aws_api_read/write,
-           azure_api_read/write, gcp_api_read/write, k8s_api_read/write) —
-           these are the escape hatch for any operation without a dedicated tool.
-        4. Cap at max_tools, ensuring generic API tools are always kept.
-        5. If max_tools >= total tools, no truncation needed.
+        2. Split tools into matched (name contains a substring) and rest.
+        3. Return matched + rest — preserving insertion order within each group.
+        4. If nothing matched, return all tools in original order.
         """
         substrings = TOOL_GROUPS.get(task_type, [])
         matched: List[Dict[str, Any]] = []
-        generic_api: List[Dict[str, Any]] = []
+        rest: List[Dict[str, Any]] = []
 
         for tool in all_tools:
             name = tool.get("name", "")
-            # Always collect generic API tools separately
-            if any(name == g or name.startswith(g) for g in _GENERIC_API_TOOLS):
-                generic_api.append(tool)
-            elif substrings and any(s in name for s in substrings):
+            if substrings and any(s in name for s in substrings):
                 matched.append(tool)
+            else:
+                rest.append(tool)
 
         if not matched:
-            # No substring match — use all non-generic tools as the candidate pool
             logger.debug(
-                "scope_tools: no tools matched task_type=%s, using full pool",
+                "scope_tools: no tools matched task_type=%s, returning full pool",
                 task_type,
             )
-            matched = [t for t in all_tools if t not in generic_api]
+            return list(all_tools)
 
-        # Build final list: task-matched tools first, then generic API tools
-        # Cap task-matched tools so there's always room for generic API tools
-        generic_count = len(generic_api)
-        task_budget = max(0, max_tools - generic_count)
-
-        if len(matched) > task_budget:
-            logger.debug(
-                "scope_tools: trimming %d matched tools to %d (budget after generics) for task_type=%s",
-                len(matched), task_budget, task_type,
-            )
-            matched = matched[:task_budget]
-
-        result = matched + generic_api
+        result = matched + rest
         logger.debug(
-            "scope_tools: returning %d tools (%d task-specific + %d generic API) for task_type=%s",
-            len(result), len(matched), len(generic_api), task_type,
+            "scope_tools: returning %d tools (%d task-specific first) for task_type=%s",
+            len(result), len(matched), task_type,
         )
         return result
