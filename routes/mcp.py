@@ -393,7 +393,22 @@ def mcp_sse():
     """
     key_record = _authenticate()
     if not key_record:
-        return jsonify({"error": "API key required. Add Authorization: Bearer <key> header."}), 401
+        resp = jsonify({
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "code": -32000,
+                "message": "Unauthorized: provide a valid Bearer token",
+            },
+        })
+        resp.status_code = 401
+        resp.headers['WWW-Authenticate'] = (
+            'Bearer realm="DevOps Agent", '
+            'resource_metadata="https://devopsagent.io/.well-known/oauth-protected-resource"'
+        )
+        for k, v in _cors_headers().items():
+            resp.headers[k] = v
+        return resp
 
     _cleanup_sessions()
     sid = _create_session()
@@ -462,7 +477,7 @@ def mcp_messages():
         # Also accept auth-less direct POST (for clients that don't use SSE)
         key_record = _authenticate()
         if not key_record:
-            return jsonify({"error": "Unknown session. Reconnect to /mcp/sse first."}), 400
+            return jsonify(_err(None, -32000, "Unauthorized: provide a valid Bearer token")), 401
         user_id = key_record.user_id if hasattr(key_record, 'user_id') else key_record.get('user_id')
     else:
         user_id = session.get('user_id')
