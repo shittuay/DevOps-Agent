@@ -645,9 +645,11 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
   <p>Sign in to connect Claude to your infrastructure tools.</p>
   {% if error %}<div class="err">{{ error }}</div>{% endif %}
   <form method="POST">
-    <input type="hidden" name="client_id"    value="{{ client_id }}">
-    <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
-    <input type="hidden" name="state"        value="{{ state }}">
+    <input type="hidden" name="client_id"             value="{{ client_id }}">
+    <input type="hidden" name="redirect_uri"          value="{{ redirect_uri }}">
+    <input type="hidden" name="state"                 value="{{ state }}">
+    <input type="hidden" name="code_challenge"        value="{{ code_challenge }}">
+    <input type="hidden" name="code_challenge_method" value="{{ code_challenge_method }}">
     <input type="email"    name="email"    placeholder="Email"    required autofocus>
     <input type="password" name="password" placeholder="Password" required>
     <button type="submit">Authorize</button>
@@ -660,10 +662,11 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 @mcp_bp.route('/oauth/authorize', methods=['GET', 'POST'])
 def oauth_authorize():
     """OAuth 2.0 authorization endpoint."""
-    client_id      = request.values.get('client_id', '')
-    redirect_uri   = request.values.get('redirect_uri', '')
-    state          = request.values.get('state', '')
-    code_challenge = request.values.get('code_challenge', '')
+    client_id              = request.values.get('client_id', '')
+    redirect_uri           = request.values.get('redirect_uri', '')
+    state                  = request.values.get('state', '')
+    code_challenge         = request.values.get('code_challenge', '')
+    code_challenge_method  = request.values.get('code_challenge_method', 'S256')
 
     # Accept the built-in client OR any dynamically registered client OR any public PKCE client.
     # We do not reject unknown client_ids here because claude.ai and other public OAuth clients
@@ -676,6 +679,8 @@ def oauth_authorize():
                                       client_id=client_id,
                                       redirect_uri=redirect_uri,
                                       state=state,
+                                      code_challenge=code_challenge,
+                                      code_challenge_method=code_challenge_method,
                                       error=None)
 
     # POST — validate credentials
@@ -692,6 +697,8 @@ def oauth_authorize():
                                       client_id=client_id,
                                       redirect_uri=redirect_uri,
                                       state=state,
+                                      code_challenge=code_challenge,
+                                      code_challenge_method=code_challenge_method,
                                       error=str(e))
     except Exception as e:
         logger.error(f"OAuth authorize error: {e}", exc_info=True)
@@ -699,6 +706,8 @@ def oauth_authorize():
                                       client_id=client_id,
                                       redirect_uri=redirect_uri,
                                       state=state,
+                                      code_challenge=code_challenge,
+                                      code_challenge_method=code_challenge_method,
                                       error='Server error, please try again')
 
     # Issue auth code
