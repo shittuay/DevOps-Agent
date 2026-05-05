@@ -515,7 +515,28 @@ def mcp_streamable():
 
     key_record = _authenticate()
     if not key_record:
-        resp = jsonify({"error": "unauthorized"})
+        # Extract the request id from the body so we can return a well-formed
+        # JSON-RPC 2.0 error.  Claude Desktop validates every response with Zod;
+        # a bare {"error":"..."} body (not JSON-RPC) causes a parse-union failure.
+        req_id = None
+        if request.method == 'POST':
+            try:
+                body = request.get_json(force=True, silent=True)
+                if isinstance(body, dict):
+                    req_id = body.get('id')
+                elif isinstance(body, list) and body:
+                    req_id = body[0].get('id') if isinstance(body[0], dict) else None
+            except Exception:
+                pass
+
+        resp = jsonify({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {
+                "code": -32000,
+                "message": "Unauthorized: provide a valid Bearer token",
+            },
+        })
         resp.status_code = 401
         for k, v in _cors_headers().items():
             resp.headers[k] = v

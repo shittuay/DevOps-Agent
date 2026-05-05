@@ -90,6 +90,24 @@ export function registerAwsCommands(program) {
       printTable(clusters, ['name', 'status', 'kubernetes_version', 'region'], opts.output);
     });
 
+  ec2.command('start <instance-id>')
+    .description('Start an EC2 instance')
+    .option('-r, --region <region>', 'AWS region')
+    .action(async (instanceId, opts) => {
+      const spinner = ora(`Starting ${instanceId}...`).start();
+      const result = await runTool('manage_ec2_instance', { instance_id: instanceId, action: 'start', region: opts.region }, spinner);
+      console.log(result.message || JSON.stringify(result, null, 2));
+    });
+
+  ec2.command('stop <instance-id>')
+    .description('Stop an EC2 instance')
+    .option('-r, --region <region>', 'AWS region')
+    .action(async (instanceId, opts) => {
+      const spinner = ora(`Stopping ${instanceId}...`).start();
+      const result = await runTool('manage_ec2_instance', { instance_id: instanceId, action: 'stop', region: opts.region }, spinner);
+      console.log(result.message || JSON.stringify(result, null, 2));
+    });
+
   // --- Lambda ---
   const lambda = aws.command('lambda').description('Lambda function operations');
 
@@ -102,5 +120,46 @@ export function registerAwsCommands(program) {
       const result = await runTool('list_lambda_functions', { region: opts.region }, spinner);
       const functions = result.functions || [];
       printTable(functions, ['function_name', 'runtime', 'memory_size', 'last_modified'], opts.output);
+    });
+
+  // --- IAM ---
+  const iam = aws.command('iam').description('IAM user and role operations');
+
+  iam.command('users')
+    .description('List IAM users')
+    .option('-o, --output <format>', 'Output format: table or json', 'table')
+    .action(async (opts) => {
+      const spinner = ora('Fetching IAM users...').start();
+      const result = await runTool('list_iam_users', {}, spinner);
+      const users = result.users || [];
+      printTable(users, ['user_name', 'user_id', 'create_date', 'password_last_used'], opts.output);
+    });
+
+  iam.command('roles')
+    .description('List IAM roles')
+    .option('-o, --output <format>', 'Output format: table or json', 'table')
+    .action(async (opts) => {
+      const spinner = ora('Fetching IAM roles...').start();
+      const result = await runTool('list_iam_roles', {}, spinner);
+      const roles = result.roles || [];
+      printTable(roles, ['role_name', 'role_id', 'create_date', 'description'], opts.output);
+    });
+
+  // --- CloudWatch ---
+  const cw = aws.command('cloudwatch').alias('cw').description('CloudWatch alarms and metrics');
+
+  cw.command('alarms')
+    .description('List CloudWatch alarms')
+    .option('-r, --region <region>', 'AWS region')
+    .option('-s, --state <state>', 'Filter by state: OK, ALARM, INSUFFICIENT_DATA')
+    .option('-o, --output <format>', 'Output format: table or json', 'table')
+    .action(async (opts) => {
+      const spinner = ora('Fetching CloudWatch alarms...').start();
+      const params = {};
+      if (opts.region) params.region = opts.region;
+      if (opts.state) params.state_value = opts.state;
+      const result = await runTool('list_cloudwatch_alarms', params, spinner);
+      const alarms = result.alarms || [];
+      printTable(alarms, ['alarm_name', 'state_value', 'metric_name', 'namespace', 'updated_timestamp'], opts.output);
     });
 }

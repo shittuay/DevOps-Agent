@@ -38,3 +38,34 @@ export function printCredits(credits) {
   if (credits === undefined || credits === null) return;
   dim(`Credits remaining: ${credits}`);
 }
+
+export function printTable(rows, columns, format = 'table') {
+  if (!rows || rows.length === 0) {
+    dim('(no results)');
+    return;
+  }
+
+  if (format === 'json') {
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+
+  // Calculate column widths
+  const widths = columns.map(col => col.length);
+  for (const row of rows) {
+    columns.forEach((col, i) => {
+      const val = String(row[col] ?? '');
+      if (val.length > widths[i]) widths[i] = val.length;
+    });
+  }
+
+  const header = columns.map((col, i) => col.padEnd(widths[i])).join('  ');
+  const divider = widths.map(w => '-'.repeat(w)).join('  ');
+
+  console.log(chalk.bold(header));
+  console.log(chalk.dim(divider));
+  for (const row of rows) {
+    const line = columns.map((col, i) => String(row[col] ?? '').padEnd(widths[i])).join('  ');
+    console.log(line);
+  }
+}

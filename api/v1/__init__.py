@@ -12,7 +12,7 @@ from functools import wraps
 api_v1_bp = Blueprint('api_v1', __name__, url_prefix='/v1')
 
 # Import route modules
-from api.v1 import auth, resources, conversations, users, api_keys, health
+from api.v1 import auth, resources, conversations, users, api_keys, health, tools
 
 
 # ==========================================

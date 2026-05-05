@@ -106,4 +106,13 @@ export async function* streamChat(message, conversationId) {
   yield* parseSSEStream(res);
 }
 
+export async function executeTool(toolName, params = {}) {
+  const res = await fetch(`${baseUrl()}/api/v1/tools/execute`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ tool: toolName, params }),
+  });
+  return handleResponse(res);
+}
+
 export { APIError };
