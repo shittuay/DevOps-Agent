@@ -24,6 +24,8 @@ _STRONG_HALLUCINATION_PATTERNS = [
 # Weak hallucination signals — only checked when no tools were called this turn
 # and no real resource IDs exist in conversation history.
 # A weak hit appends a warning rather than silencing the response.
+_IP_OCTET = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+
 _HALLUCINATED_TOOL_PATTERNS = [
     # AWS credentials leaked into response text
     re.compile(r'AKIA[A-Z0-9]{12,20}'),
@@ -38,6 +40,15 @@ _HALLUCINATED_TOOL_PATTERNS = [
     re.compile(r'/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'),
     # GCP self-links
     re.compile(r'projects/[a-z][a-z0-9\-]+/(?:zones|regions)/[a-z0-9\-]+/(?:instances|disks)/'),
+    # Kubernetes pod names with replicaset + pod hash suffixes
+    re.compile(r'\b[a-z][a-z0-9\-]+-[a-z0-9]{7,10}-[a-z0-9]{5}\b'),
+    # Fake JSON tool output blocks — {"success": true, ...} without a preceding real tool call
+    re.compile(r'\{"success"\s*:\s*true\s*,', re.IGNORECASE),
+    # 4+ IP addresses in a single response suggests a fabricated infrastructure listing
+    re.compile(
+        _IP_OCTET + r'.+?' + _IP_OCTET + r'.+?' + _IP_OCTET + r'.+?' + _IP_OCTET,
+        re.DOTALL,
+    ),
 ]
 
 
@@ -66,9 +77,9 @@ def _history_has_real_resource_data(messages: list) -> bool:
     return False
 
 
-def _check_hallucination(text: str, tools_called_this_turn: bool, sandbox_mode: bool = False) -> str:
+def _hallucination_severity(text: str, tools_called_this_turn: bool, sandbox_mode: bool = False) -> str:
     """
-    Detect if the model likely hallucinated tool results.
+    Return severity string for internal use by the agent response pipeline.
 
     Returns:
         'strong' — explicit fabrication marker ([Executing tool...]) → replace response
@@ -79,15 +90,23 @@ def _check_hallucination(text: str, tools_called_this_turn: bool, sandbox_mode: 
     """
     if sandbox_mode:
         return ''
-    # Strong: fake [Executing tool...] markers — never legitimate
     if any(p.search(text) for p in _STRONG_HALLUCINATION_PATTERNS):
         return 'strong'
-    # If tools were called or real IDs exist in history, skip weak patterns
     if tools_called_this_turn:
         return ''
     if any(p.search(text) for p in _HALLUCINATED_TOOL_PATTERNS):
         return 'weak'
     return ''
+
+
+def _check_hallucination(text: str, tools_called_this_turn: bool, sandbox_mode: bool = False) -> bool:
+    """
+    Return True if the response likely contains hallucinated tool output.
+
+    Sandbox mode always returns False (fabricated resources are expected in demos).
+    If tools were actually called this turn, returns False (real data expected).
+    """
+    return bool(_hallucination_severity(text, tools_called_this_turn, sandbox_mode))
 
 
 _HALLUCINATION_WARNING = (
@@ -1104,7 +1123,7 @@ User Preferences and Context:
                 # Skip weak patterns when real resource IDs already exist in prior
                 # assistant messages — the agent is referencing legitimately-fetched data.
                 tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
-                severity = _check_hallucination(text, tools_in_context, getattr(self, '_sandbox_mode', False))
+                severity = _hallucination_severity(text, tools_in_context, getattr(self, '_sandbox_mode', False))
                 if severity == 'strong':
                     self.logger.warning("Detected strong hallucination in Kimi response — replacing")
                     return _HALLUCINATION_REPLACEMENT
