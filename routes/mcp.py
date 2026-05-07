@@ -181,27 +181,40 @@ def _authenticate() -> Optional[Dict[str, Any]]:
     Validate Bearer token — accepts both API keys and OAuth access tokens.
     Returns an object with a .user_id attribute on success, None on failure.
     """
+    raw_auth = request.headers.get('Authorization', '')
     bearer = (
-        request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+        raw_auth.removeprefix('Bearer ').strip()
         or request.args.get('api_key', '')
     )
+    logger.info(f"MCP auth: method={request.method} path={request.path} "
+                f"has_auth_header={bool(raw_auth)} bearer_len={len(bearer)} "
+                f"oauth_tokens_count={len(_oauth_tokens)}")
     if not bearer:
+        logger.warning("MCP auth: no bearer token in request")
         return None
 
     # 1. Check OAuth access tokens first (fast in-memory lookup)
     with _oauth_lock:
         uid = _oauth_tokens.get(bearer)
     if uid is not None:
+        logger.info(f"MCP auth: OAuth token accepted for user_id={uid}")
         class _OAuthUser:
             def __init__(self, user_id): self.user_id = user_id
         return _OAuthUser(uid)
 
+    logger.warning(f"MCP auth: OAuth token not found in memory, trying API key lookup")
     # 2. Fall back to API key lookup
     try:
         from services.api_gateway import APIGatewayService
         svc = APIGatewayService()
-        return svc.get_api_key_by_key(bearer)
-    except Exception:
+        result = svc.get_api_key_by_key(bearer)
+        if result:
+            logger.info(f"MCP auth: API key accepted")
+        else:
+            logger.warning(f"MCP auth: API key not found either — rejecting")
+        return result
+    except Exception as e:
+        logger.error(f"MCP auth: API key lookup error: {e}")
         return None
 
 
@@ -798,6 +811,8 @@ def oauth_token():
     access_token = secrets.token_urlsafe(48)
     with _oauth_lock:
         _oauth_tokens[access_token] = record['user_id']
+    logger.info(f"MCP OAuth: token issued for user_id={record['user_id']} "
+                f"token_prefix={access_token[:8]}... total_tokens={len(_oauth_tokens)}")
 
     resp = jsonify({
         'access_token': access_token,
