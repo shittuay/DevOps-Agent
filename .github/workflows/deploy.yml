@@ -5,6 +5,13 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Prerequisites (one-time setup):
+#   1. Add GitHub secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, EC2_INSTANCE_ID
+#   2. EC2 instance must have an IAM role with AmazonSSMManagedInstanceCore policy
+#   3. SSM Agent must be running on EC2 (pre-installed on Ubuntu 20.04+ AWS AMIs)
+#      Check: sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent
+#      Start:  sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -12,325 +19,83 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Deploy to Server
-      uses: appleboy/ssh-action@v1.0.0
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
       with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        port: 22
-        command_timeout: 10m
-        script: |
-          set -e
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
 
-          echo "=== DevOps Agent Deployment ==="
+    - name: Deploy via AWS SSM
+      env:
+        INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+      run: |
+        # Write the deploy script to a temp file
+        cat > /tmp/deploy.sh << 'SCRIPT'
+        #!/bin/bash
+        set -e
+        APP=/home/ubuntu/app
+        CODE=$APP/DevOps-Agent
+        VENV=$APP/venv
 
-          APP_DIR="/home/ubuntu/app"
-          CODE_DIR="$APP_DIR/DevOps-Agent"
-          VENV_DIR="$APP_DIR/venv"
+        echo "=== Pulling latest code ==="
+        cd "$CODE"
+        git fetch origin main
+        git reset --hard origin/main
+        echo "Deployed: $(git rev-parse --short HEAD)"
 
-          mkdir -p "$APP_DIR"
+        echo "=== Installing dependencies ==="
+        source "$VENV/bin/activate"
+        pip install -r requirements.txt -q
 
-          # ============================================
-          # STEP 1: Stop old processes and clean up PM2
-          # ============================================
-          echo "[1/7] Stopping old processes..."
+        echo "=== Restarting service ==="
+        sudo systemctl restart devops-agent
+        sleep 4
+        sudo systemctl is-active devops-agent
 
-          # Disable PM2 systemd startup service (prevents PM2 from resurrecting old processes)
-          sudo systemctl stop pm2-ubuntu 2>/dev/null || true
-          sudo systemctl disable pm2-ubuntu 2>/dev/null || true
-          sudo systemctl stop pm2-root 2>/dev/null || true
-          sudo systemctl disable pm2-root 2>/dev/null || true
+        echo "=== Health check ==="
+        curl -sf http://localhost:5000/health && echo "HEALTH: OK" || { echo "HEALTH: FAIL"; exit 1; }
+        echo "=== Deploy complete ==="
+        SCRIPT
 
-          # Stop our systemd service if it exists from a previous deploy
-          sudo systemctl stop devops-agent 2>/dev/null || true
+        # Encode script as JSON string (handles newlines, quotes, etc.)
+        CMD=$(jq -Rs . /tmp/deploy.sh)
 
-          # Clean up PM2 completely
-          rm -f /home/ubuntu/.pm2/dump.pm2 2>/dev/null || true
-          pm2 stop all 2>/dev/null || true
-          pm2 delete all 2>/dev/null || true
-          pm2 kill 2>/dev/null || true
+        # Send command to EC2 via SSM (no inbound port required)
+        COMMAND_ID=$(aws ssm send-command \
+          --instance-id "$INSTANCE_ID" \
+          --document-name "AWS-RunShellScript" \
+          --timeout-seconds 300 \
+          --parameters "{\"commands\":[$CMD]}" \
+          --output text --query "Command.CommandId")
 
-          # Kill anything still on port 5000
-          sudo fuser -k 5000/tcp 2>/dev/null || true
-          sleep 2
+        echo "SSM Command ID: $COMMAND_ID"
 
-          # Verify port is free
-          if sudo fuser 5000/tcp 2>/dev/null; then
-            echo "WARNING: Port 5000 still in use!"
-            sudo fuser -v 5000/tcp || true
-          else
-            echo "Port 5000 is free."
-          fi
-
-          # ============================================
-          # STEP 2: Clone fresh code
-          # ============================================
-          echo "[2/7] Cloning latest code..."
-          cd "$APP_DIR"
-          rm -rf DevOps-Agent
-          git clone https://github.com/shittuay/DevOps-Agent.git
-          cd DevOps-Agent
-          echo "Cloned commit: $(git rev-parse --short HEAD)"
-
-          # ============================================
-          # STEP 3: Set up Python virtual environment
-          # ============================================
-          echo "[3/7] Setting up Python environment..."
-          python3 -m venv "$VENV_DIR" 2>/dev/null || true
-          source "$VENV_DIR/bin/activate"
-          pip install --upgrade pip setuptools -q
-          pip install -r requirements.txt -q
-
-          # ============================================
-          # STEP 4: Configure environment
-          # ============================================
-          echo "[4/7] Configuring environment..."
-          mkdir -p logs instance config "$APP_DIR/data"
-
-          # .env fallback (in case AWS Secrets Manager fails)
-          printf '%s\n' \
-            'FLASK_ENV=production' \
-            'USE_AWS_SECRETS=true' \
-            'AWS_DEFAULT_REGION=us-east-1' \
-            'BASE_URL=https://devopsagent.io' \
-            'PORT=5000' \
-            'HOST=0.0.0.0' \
-            'LOG_LEVEL=INFO' \
-            > config/.env
-
-          # ============================================
-          # STEP 5: Initialize PostgreSQL database
-          # ============================================
-          echo "[5/7] Initializing database..."
-
-          # Ensure PostgreSQL is installed and running
-          if ! command -v psql &> /dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql postgresql-contrib
-          fi
-          sudo systemctl start postgresql
-          sudo systemctl enable postgresql
-
-          # Create database user and database if they don't exist
-          # Password is managed via AWS Secrets Manager (DATABASE_URL), not hardcoded
-          sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='devopsagent'" | grep -q 1 || \
-            sudo -u postgres psql -c "CREATE USER devopsagent WITH PASSWORD '${{ secrets.DB_PASSWORD }}';"
-          sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='devops_agent'" | grep -q 1 || \
-            sudo -u postgres psql -c "CREATE DATABASE devops_agent OWNER devopsagent;"
-          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devops_agent TO devopsagent;"
-
-          # Run database migrations via Alembic
-          echo "Running database migrations..."
-          sudo -u postgres psql -d devops_agent -c "GRANT ALL ON SCHEMA public TO devopsagent; GRANT ALL ON SCHEMA public TO public;"
-
-          # Detect whether this is a fresh DB or an existing one not yet under Alembic control.
-          # Fresh DB (no tables): run upgrade head → Alembic creates all tables.
-          # Existing DB (tables present, no alembic_version): stamp head first so Alembic
-          #   knows the schema is already current, then upgrade applies future migrations only.
-          # Existing DB (alembic_version present): upgrade head applies any pending migrations.
-          USERS_TABLE_EXISTS=$(sudo -u postgres psql -d devops_agent -tc \
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users';" \
-            | tr -d '[:space:]')
-
-          ALEMBIC="$VENV_DIR/bin/alembic"
-
-          if [ "$USERS_TABLE_EXISTS" = "0" ]; then
-            echo "Fresh database detected — running full migration to create all tables..."
-            FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-              $ALEMBIC upgrade head || echo "WARNING: Alembic migration failed — app will auto-migrate on startup"
-          else
-            ALEMBIC_EXISTS=$(sudo -u postgres psql -d devops_agent -tc \
-              "SELECT to_regclass('public.alembic_version');" | tr -d '[:space:]')
-            if [ -z "$ALEMBIC_EXISTS" ]; then
-              echo "Existing database not yet under Alembic control — stamping at head..."
-              FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-                $ALEMBIC stamp head || echo "WARNING: Alembic stamp failed — skipping"
-            fi
-            echo "Applying any pending migrations..."
-            FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-              $ALEMBIC upgrade head || echo "WARNING: Alembic upgrade failed — app will auto-migrate on startup"
-          fi
-          echo "Database migrations step complete."
-
-          # ============================================
-          # STEP 5b: Create Stripe prices and update AWS Secrets Manager (one-time)
-          # ============================================
-          echo "[5b] Creating Stripe prices..."
-          FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-            python -c "import os,sys; sys.path.insert(0,'.'); from services.secrets_manager import init_secrets; init_secrets()" 2>/dev/null || true
-          FLASK_ENV=production USE_AWS_SECRETS=true AWS_DEFAULT_REGION=us-east-1 \
-            python scripts/create_stripe_prices.py || echo "Stripe price creation failed (may already exist)"
-
-          # ============================================
-          # STEP 6: Create and start systemd service
-          # ============================================
-          echo "[6/7] Setting up systemd service..."
-          sudo tee /etc/systemd/system/devops-agent.service > /dev/null << SVCEOF
-          [Unit]
-          Description=DevOps Agent Flask Application
-          After=network.target
-
-          [Service]
-          Type=simple
-          User=ubuntu
-          WorkingDirectory=$CODE_DIR
-          Environment=FLASK_ENV=production
-          Environment=USE_AWS_SECRETS=true
-          Environment=AWS_DEFAULT_REGION=us-east-1
-          Environment=BASE_URL=https://devopsagent.io
-          Environment=PORT=5000
-          Environment=HOST=0.0.0.0
-          ExecStart=$VENV_DIR/bin/python app.py
-          Restart=on-failure
-          RestartSec=5
-          StandardOutput=append:$CODE_DIR/logs/app.log
-          StandardError=append:$CODE_DIR/logs/app-error.log
-
-          [Install]
-          WantedBy=multi-user.target
-          SVCEOF
-
-          # Strip leading whitespace from YAML heredoc indentation
-          sudo sed -i 's/^[[:space:]]*//' /etc/systemd/system/devops-agent.service
-
-          sudo systemctl daemon-reload
-          sudo systemctl enable devops-agent
-          sudo systemctl restart devops-agent
-
-          # ============================================
-          # STEP 7: Configure nginx reverse proxy
-          # ============================================
-          echo "[7/8] Configuring nginx..."
-
-          # Install nginx if not present
-          if ! command -v nginx &> /dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y nginx
-          fi
-
-          # Debug: show existing nginx site configs and SSL certs
-          echo "=== Existing site configs ==="
-          ls -la /etc/nginx/sites-enabled/ 2>/dev/null || true
-          ls -la /etc/nginx/conf.d/ 2>/dev/null || true
-          echo "=== SSL cert search ==="
-          sudo find /etc/letsencrypt/live/ -name "*.pem" 2>/dev/null || echo "No letsencrypt certs"
-          sudo find /etc/ssl/ -name "*.pem" -newer /etc/ssl/openssl.cnf 2>/dev/null | head -10 || true
-          echo "=== Listening ports ==="
-          sudo ss -tlnp | grep -E ':80|:443|:5000' || true
-
-          # Find SSL certs - check multiple possible paths
-          SSL_CERT=""
-          SSL_KEY=""
-          for DOMAIN in devopsagent.io www.devopsagent.io; do
-            if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
-              SSL_CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
-              SSL_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
-              echo "Found SSL certs for $DOMAIN"
-              break
-            fi
-          done
-
-          # Also check if certs are in a different letsencrypt directory name
-          if [ -z "$SSL_CERT" ]; then
-            CERT_DIR=$(sudo find /etc/letsencrypt/live/ -name "fullchain.pem" 2>/dev/null | head -1)
-            if [ -n "$CERT_DIR" ]; then
-              SSL_CERT="$CERT_DIR"
-              SSL_KEY="$(dirname "$CERT_DIR")/privkey.pem"
-              echo "Found SSL certs at $SSL_CERT"
-            fi
-          fi
-
-          # Create nginx config
-          if [ -n "$SSL_CERT" ]; then
-            echo "Using HTTPS config with SSL cert: $SSL_CERT"
-            sudo tee /etc/nginx/sites-available/devops-agent > /dev/null << NGEOF
-          server {
-              listen 80;
-              server_name devopsagent.io www.devopsagent.io;
-              return 301 https://\$host\$request_uri;
-          }
-
-          server {
-              listen 443 ssl;
-              server_name devopsagent.io www.devopsagent.io;
-
-              ssl_certificate $SSL_CERT;
-              ssl_certificate_key $SSL_KEY;
-              ssl_protocols TLSv1.2 TLSv1.3;
-
-              location / {
-                  proxy_pass http://127.0.0.1:5000;
-                  proxy_set_header Host \$host;
-                  proxy_set_header X-Real-IP \$remote_addr;
-                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto \$scheme;
-                  proxy_read_timeout 300s;
-                  proxy_connect_timeout 75s;
-              }
-          }
-          NGEOF
-          else
-            echo "No SSL certs found - using HTTP-only config on port 80"
-            sudo tee /etc/nginx/sites-available/devops-agent > /dev/null << 'NGEOF'
-          server {
-              listen 80;
-              server_name devopsagent.io www.devopsagent.io _;
-
-              location / {
-                  proxy_pass http://127.0.0.1:5000;
-                  proxy_set_header Host $host;
-                  proxy_set_header X-Real-IP $remote_addr;
-                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto $scheme;
-                  proxy_read_timeout 300s;
-                  proxy_connect_timeout 75s;
-              }
-          }
-          NGEOF
-          fi
-
-          # Strip leading whitespace from YAML heredoc
-          sudo sed -i 's/^[[:space:]]*//' /etc/nginx/sites-available/devops-agent
-
-          # Enable the site
-          sudo ln -sf /etc/nginx/sites-available/devops-agent /etc/nginx/sites-enabled/devops-agent
-          sudo rm -f /etc/nginx/sites-enabled/default
-
-          # Test and reload nginx
-          echo "=== Final nginx config ==="
-          cat /etc/nginx/sites-available/devops-agent
-          echo "=== Testing nginx ==="
-          sudo nginx -t
-          sudo systemctl reload nginx
-          echo "=== Nginx status ==="
-          sudo systemctl status nginx --no-pager -l || true
-
-          # ============================================
-          # STEP 8: Verify deployment
-          # ============================================
-          echo "[8/8] Verifying deployment..."
+        # Poll for completion (up to 5 minutes)
+        for i in $(seq 1 60); do
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --query "Status" --output text 2>/dev/null || echo "Pending")
+          echo "[$i/60] $STATUS"
+          case "$STATUS" in
+            Success) break ;;
+            Failed|Cancelled|TimedOut)
+              echo "=== Error output ==="
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$INSTANCE_ID" \
+                --query "StandardErrorContent" --output text
+              exit 1 ;;
+          esac
           sleep 5
+        done
 
-          echo "=== Service Status ==="
-          sudo systemctl status devops-agent --no-pager -l || true
+        # Print full output
+        echo "=== Deploy output ==="
+        aws ssm get-command-invocation \
+          --command-id "$COMMAND_ID" \
+          --instance-id "$INSTANCE_ID" \
+          --query "StandardOutputContent" --output text
 
-          echo ""
-          echo "=== Health Check (direct) ==="
-          curl -s http://localhost:5000/health || echo "Direct health check failed!"
-
-          echo ""
-          echo "=== Health Check (via nginx) ==="
-          curl -s http://localhost/health || echo "Nginx health check failed!"
-
-          echo ""
-          echo "=== Recent Logs ==="
-          tail -20 "$CODE_DIR/logs/app.log" 2>/dev/null || true
-          tail -10 "$CODE_DIR/logs/app-error.log" 2>/dev/null || true
-
-          echo ""
-          echo "=== Deployment Complete ==="
-          echo "App: https://devopsagent.io"
+        [ "$STATUS" = "Success" ] || { echo "Timed out waiting for deploy"; exit 1; }
