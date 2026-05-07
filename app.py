@@ -324,7 +324,7 @@ def _mcp_base_url() -> str:
 def oauth_authorization_server_metadata():
     """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
     base = _mcp_base_url()
-    return jsonify({
+    resp = jsonify({
         'issuer':                                base,
         'authorization_endpoint':                f'{base}/mcp/oauth/authorize',
         'token_endpoint':                        f'{base}/mcp/oauth/token',
@@ -335,6 +335,8 @@ def oauth_authorization_server_metadata():
         'token_endpoint_auth_methods_supported': ['client_secret_post', 'client_secret_basic', 'none'],
         'scopes_supported':                      ['mcp'],
     })
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
 
 @app.route('/.well-known/oauth-protected-resource')
 @app.route('/.well-known/oauth-protected-resource/mcp')
@@ -342,12 +344,14 @@ def oauth_authorization_server_metadata():
 def oauth_protected_resource_metadata():
     """OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
     base = _mcp_base_url()
-    return jsonify({
+    resp = jsonify({
         'resource':                 f'{base}/mcp',
         'authorization_servers':    [base],
         'bearer_methods_supported': ['header', 'query'],
         'scopes_supported':         ['mcp'],
     })
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
 
 # Register REST API v1 blueprint (CLI + programmatic access)
 from api import api_bp
