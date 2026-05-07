@@ -39,20 +39,17 @@ jobs:
         VENV=$APP/venv
 
         echo "=== Pulling latest code ==="
-        git config --global --add safe.directory "$CODE"
-        cd "$CODE"
-        git fetch origin main
-        git reset --hard origin/main
-        echo "Deployed: $(git rev-parse --short HEAD)"
+        sudo -u ubuntu git -C "$CODE" fetch origin main
+        sudo -u ubuntu git -C "$CODE" reset --hard origin/main
+        echo "Deployed: $(sudo -u ubuntu git -C $CODE rev-parse --short HEAD)"
 
         echo "=== Installing dependencies ==="
-        source "$VENV/bin/activate"
-        pip install -r requirements.txt -q
+        sudo -u ubuntu "$VENV/bin/pip" install -r "$CODE/requirements.txt" -q
 
         echo "=== Restarting service ==="
-        sudo systemctl restart devops-agent
+        systemctl restart devops-agent
         sleep 4
-        sudo systemctl is-active devops-agent
+        systemctl is-active devops-agent
 
         echo "=== Health check ==="
         curl -sf http://localhost:5000/health && echo "HEALTH: OK" || { echo "HEALTH: FAIL"; exit 1; }
