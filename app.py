@@ -324,10 +324,9 @@ def _mcp_base_url() -> str:
 def oauth_authorization_server_metadata():
     """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
     base = _mcp_base_url()
-    auth_base = 'https://devopsagent.io'  # auth UI always on main domain
     return jsonify({
         'issuer':                                base,
-        'authorization_endpoint':                f'{auth_base}/mcp/oauth/authorize',
+        'authorization_endpoint':                f'{base}/mcp/oauth/authorize',
         'token_endpoint':                        f'{base}/mcp/oauth/token',
         'registration_endpoint':                 f'{base}/mcp/oauth/register',
         'response_types_supported':              ['code'],
