@@ -70,11 +70,63 @@ OAUTH_CLIENT_SECRET = os.environ.get('MCP_OAUTH_CLIENT_SECRET', 'devopsagent-mcp
 
 # in-memory stores (restart clears them — users just re-auth)
 _oauth_codes:   Dict[str, Dict[str, Any]] = {}   # code  → {user_id, expires, redirect_uri}
-_oauth_tokens:  Dict[str, int]            = {}   # token → user_id
+_oauth_tokens:  Dict[str, int]            = {}   # token → user_id  (L1 cache; DB is source of truth)
 _registered_clients: Dict[str, Dict[str, Any]] = {}  # client_id → registration metadata
 _oauth_lock = threading.Lock()
-_CODE_TTL  = 300   # 5 min
-_TOKEN_TTL = 86400 * 30  # 30 days (stored in memory; restart invalidates)
+_CODE_TTL  = 300          # 5 min
+_TOKEN_TTL = 86400 * 30   # 30 days
+
+
+# ── DB-backed token helpers ───────────────────────────────────────────────────
+
+def _store_token_db(token: str, user_id: int) -> None:
+    """Persist an OAuth token to the database and warm the in-memory cache."""
+    from datetime import datetime, timedelta
+    try:
+        from models import MCPOAuthToken, db
+        from flask import current_app
+        with current_app.app_context():
+            row = MCPOAuthToken(
+                token=token,
+                user_id=user_id,
+                expires_at=datetime.utcnow() + timedelta(seconds=_TOKEN_TTL),
+            )
+            db.session.add(row)
+            # Prune tokens that expired more than a day ago (keep the table tidy)
+            cutoff = datetime.utcnow() - timedelta(days=1)
+            MCPOAuthToken.query.filter(MCPOAuthToken.expires_at < cutoff).delete()
+            db.session.commit()
+    except Exception as e:
+        logger.warning(f"MCP: failed to persist token to DB (falling back to memory-only): {e}")
+    # Always update in-memory cache
+    with _oauth_lock:
+        _oauth_tokens[token] = user_id
+
+
+def _lookup_token_db(token: str) -> Optional[int]:
+    """Look up a token: L1 = in-memory cache, L2 = database."""
+    # L1: in-memory cache
+    with _oauth_lock:
+        uid = _oauth_tokens.get(token)
+    if uid is not None:
+        return uid
+
+    # L2: database (handles server restarts)
+    try:
+        from datetime import datetime
+        from models import MCPOAuthToken
+        from flask import current_app
+        with current_app.app_context():
+            row = MCPOAuthToken.query.filter_by(token=token).first()
+            if row and not row.is_expired():
+                # Warm the cache for subsequent requests
+                with _oauth_lock:
+                    _oauth_tokens[row.token] = row.user_id
+                return row.user_id
+    except Exception as e:
+        logger.warning(f"MCP: DB token lookup failed: {e}")
+
+    return None
 
 
 # ── Tool registry (loaded once, cached) ─────────────────────────────────────
@@ -193,16 +245,15 @@ def _authenticate() -> Optional[Dict[str, Any]]:
         logger.warning("MCP auth: no bearer token in request")
         return None
 
-    # 1. Check OAuth access tokens first (fast in-memory lookup)
-    with _oauth_lock:
-        uid = _oauth_tokens.get(bearer)
+    # 1. Check OAuth access tokens (L1 memory cache → L2 database)
+    uid = _lookup_token_db(bearer)
     if uid is not None:
         logger.info(f"MCP auth: OAuth token accepted for user_id={uid}")
         class _OAuthUser:
             def __init__(self, user_id): self.user_id = user_id
         return _OAuthUser(uid)
 
-    logger.warning(f"MCP auth: OAuth token not found in memory, trying API key lookup")
+    logger.warning(f"MCP auth: OAuth token not found (memory+DB), trying API key lookup")
     # 2. Fall back to API key lookup
     try:
         from services.api_gateway import APIGatewayService
@@ -811,8 +862,7 @@ def oauth_token():
             return resp, 400
 
     access_token = secrets.token_urlsafe(48)
-    with _oauth_lock:
-        _oauth_tokens[access_token] = record['user_id']
+    _store_token_db(access_token, record['user_id'])
     logger.info(f"MCP OAuth: token issued for user_id={record['user_id']} "
                 f"token_prefix={access_token[:8]}... total_tokens={len(_oauth_tokens)}")
 

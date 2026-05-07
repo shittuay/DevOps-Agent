@@ -2983,3 +2983,26 @@ class CrisisIncident(db.Model):
 
     def __repr__(self):
         return f'<CrisisIncident user={self.user_id} severity={self.severity} at={self.detected_at}>'
+
+
+class MCPOAuthToken(db.Model):
+    """Persistent OAuth access tokens for the MCP server.
+
+    Survives server restarts so Claude.ai / Claude Desktop connections
+    remain valid after deploys.
+    """
+    __tablename__ = 'mcp_oauth_tokens'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    token      = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+
+    user = db.relationship('User', backref=db.backref('mcp_oauth_tokens', lazy='dynamic'))
+
+    def is_expired(self) -> bool:
+        return datetime.utcnow() >= self.expires_at
+
+    def __repr__(self):
+        return f'<MCPOAuthToken user={self.user_id} expires={self.expires_at}>'
