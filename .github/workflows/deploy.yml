@@ -39,6 +39,7 @@ jobs:
         VENV=$APP/venv
 
         echo "=== Pulling latest code ==="
+        git config --global --add safe.directory "$CODE"
         cd "$CODE"
         git fetch origin main
         git reset --hard origin/main
