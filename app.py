@@ -312,13 +312,22 @@ from routes.mcp import mcp_bp, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 app.register_blueprint(mcp_bp)
 csrf.exempt(mcp_bp)  # MCP clients send raw JSON, not form posts
 
+def _mcp_base_url() -> str:
+    """Return the base URL for MCP endpoints.
+    MCP_BASE_URL env var allows overriding to a dedicated subdomain
+    (e.g. https://mcp.devopsagent.io) that bypasses Cloudflare proxy
+    so Authorization headers are preserved.
+    """
+    return os.environ.get('MCP_BASE_URL', 'https://devopsagent.io').rstrip('/')
+
 @app.route('/.well-known/oauth-authorization-server')
 def oauth_authorization_server_metadata():
     """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
-    base = 'https://devopsagent.io'
+    base = _mcp_base_url()
+    auth_base = 'https://devopsagent.io'  # auth UI always on main domain
     return jsonify({
         'issuer':                                base,
-        'authorization_endpoint':                f'{base}/mcp/oauth/authorize',
+        'authorization_endpoint':                f'{auth_base}/mcp/oauth/authorize',
         'token_endpoint':                        f'{base}/mcp/oauth/token',
         'registration_endpoint':                 f'{base}/mcp/oauth/register',
         'response_types_supported':              ['code'],
@@ -332,17 +341,13 @@ def oauth_authorization_server_metadata():
 @app.route('/.well-known/oauth-protected-resource/mcp')
 @app.route('/.well-known/oauth-protected-resource/mcp/')
 def oauth_protected_resource_metadata():
-    """OAuth 2.0 Protected Resource Metadata (RFC 9728) — MCP spec requirement.
-    RFC 9728 §3: metadata URL is built by inserting /.well-known/oauth-protected-resource
-    between the host and path, so resource https://devopsagent.io/mcp maps to
-    /.well-known/oauth-protected-resource/mcp — serve both paths.
-    """
-    base = 'https://devopsagent.io'
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
+    base = _mcp_base_url()
     return jsonify({
-        'resource':              f'{base}/mcp',
-        'authorization_servers': [base],
+        'resource':                 f'{base}/mcp',
+        'authorization_servers':    [base],
         'bearer_methods_supported': ['header', 'query'],
-        'scopes_supported':      ['mcp'],
+        'scopes_supported':         ['mcp'],
     })
 
 # Register REST API v1 blueprint (CLI + programmatic access)

@@ -415,9 +415,10 @@ def mcp_sse():
             },
         })
         resp.status_code = 401
+        _mcp_base = os.environ.get('MCP_BASE_URL', 'https://devopsagent.io').rstrip('/')
         resp.headers['WWW-Authenticate'] = (
-            'Bearer realm="DevOps Agent", '
-            'resource_metadata="https://devopsagent.io/.well-known/oauth-protected-resource"'
+            f'Bearer realm="DevOps Agent", '
+            f'resource_metadata="{_mcp_base}/.well-known/oauth-protected-resource"'
         )
         for k, v in _cors_headers().items():
             resp.headers[k] = v
@@ -568,9 +569,10 @@ def mcp_streamable():
         resp.status_code = 401
         for k, v in _cors_headers().items():
             resp.headers[k] = v
+        _mcp_base = os.environ.get('MCP_BASE_URL', 'https://devopsagent.io').rstrip('/')
         resp.headers['WWW-Authenticate'] = (
-            'Bearer realm="DevOps Agent", '
-            'resource_metadata="https://devopsagent.io/.well-known/oauth-protected-resource"'
+            f'Bearer realm="DevOps Agent", '
+            f'resource_metadata="{_mcp_base}/.well-known/oauth-protected-resource"'
         )
         return resp
 
