@@ -654,6 +654,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 
 <script>
 let rawMarkdown = '';
+let _streamHadError = false;
 
 // ── Progress toggle ───────────────────────────────────────────────────────────
 function toggleModule(moduleId, phaseId) {
@@ -740,6 +741,7 @@ function submitAIQuestion() {
     output.innerHTML = '<span class="cursor-blink"></span>';
     footer.classList.remove('visible');
     rawMarkdown = '';
+    _streamHadError = false;
 
     const startTime = Date.now();
 
@@ -766,7 +768,8 @@ function submitAIQuestion() {
                             output.scrollTop = output.scrollHeight;
                         }
                         if (json.error) {
-                            output.innerHTML = '<p style="color:#ef4444">Error: ' + json.error + '</p>';
+                            _streamHadError = true;
+                            output.innerHTML = '<p style="color:#ef4444">Error: ' + escHtml(json.error) + '</p>';
                             finishStream(startTime);
                         }
                     } catch(_) {}
@@ -776,7 +779,8 @@ function submitAIQuestion() {
         }
         read();
     }).catch(e => {
-        output.innerHTML = '<p style="color:#ef4444">Network error: ' + e.message + '</p>';
+        _streamHadError = true;
+        output.innerHTML = '<p style="color:#ef4444">Network error: ' + escHtml(e.message) + '</p>';
         finishStream(startTime);
     });
 }
@@ -788,11 +792,13 @@ function finishStream(startTime) {
     const spinner = document.getElementById('submit-spinner');
     const label = document.getElementById('submit-label');
 
-    // Remove cursor
-    output.innerHTML = marked.parse(rawMarkdown);
+    // Only render markdown if there was actual content — don't wipe error messages
+    if (!_streamHadError) {
+        output.innerHTML = rawMarkdown ? marked.parse(rawMarkdown) : output.innerHTML;
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    document.getElementById('ai-output-meta').textContent = 'Response in ' + elapsed + 's';
+    document.getElementById('ai-output-meta').textContent = _streamHadError ? 'Failed' : 'Response in ' + elapsed + 's';
 
     footer.classList.add('visible');
     submitBtn.disabled = false;
