@@ -25,10 +25,18 @@ jobs:
         #!/bin/bash
         CODE=/home/ubuntu/app/DevOps-Agent
         VENV=/home/ubuntu/app/venv
-        DB=$(find $CODE/instance $CODE -maxdepth 2 -name "*.db" 2>/dev/null | head -1)
+        # Locate DB: check .env first, then search common paths
+        DB_URL=$(grep -E '^DATABASE_URL' $CODE/.env 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+        if echo "$DB_URL" | grep -q 'sqlite:///'; then
+          REL=${DB_URL#sqlite:///}
+          DB="$CODE/$REL"
+        else
+          DB=$(find /home/ubuntu /var/www -name "*.db" 2>/dev/null | head -1)
+        fi
 
         echo "========================================"
         echo "DB path: $DB"
+        echo "DB_URL: $DB_URL"
         echo "========================================"
 
         echo ""
