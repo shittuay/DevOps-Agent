@@ -9,8 +9,8 @@ os.environ.setdefault('FLASK_ENV', 'production')
 from services.secrets_manager import get_moonshot_api_key
 from openai import OpenAI
 
-PASS = "\033[32mPASS\033[0m"
-FAIL = "\033[31mFAIL\033[0m"
+PASS = "PASS"
+FAIL = "FAIL"
 errors = []
 
 def check(label, condition, detail=""):
@@ -82,7 +82,7 @@ print("\n4. Questions preview")
 for i, q in enumerate(questions):
     print(f"\n  Q{i+1}: {q['question']}")
     for j, opt in enumerate(q["options"]):
-        marker = " ✓" if j == q["correct"] else "  "
+        marker = " <-- CORRECT" if j == q["correct"] else ""
         print(f"    [{j}]{marker} {opt}")
     print(f"    Explanation: {q['explanation'][:80]}...")
 
