@@ -198,7 +198,9 @@ def api_ai_guide():
                 return
 
             client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-            kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.6')
+            # moonshot-v1-8k is the stable chat completion model.
+            # kimi-k2.x models are tool-call models that return empty for plain chat.
+            kimi_model = os.environ.get('CURRICULUM_MODEL', 'moonshot-v1-8k')
 
             system_prompt = (
                 f"You are a DevOps learning coach on devopsagent.io. "
@@ -302,7 +304,8 @@ def api_quiz_generate():
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.6')
+        # Use 32k for quiz JSON generation to avoid truncation
+        kimi_model = os.environ.get('CURRICULUM_MODEL', 'moonshot-v1-32k')
 
         prompt = f"""Generate exactly 5 multiple-choice quiz questions for a DevOps student studying:
 
