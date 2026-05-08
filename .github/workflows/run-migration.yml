@@ -21,7 +21,7 @@ jobs:
       env:
         INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
       run: |
-        CMD=$(jq -Rn '"#!/bin/bash\nset -e\nCODE=/home/ubuntu/app/DevOps-Agent\nVENV=/home/ubuntu/app/venv\necho \"=== Running migration ===\"\ncd \"$CODE\" && sudo -u ubuntu \"$VENV/bin/python3\" migrate_missing_columns.py\necho \"=== Restarting service ===\"\nsystemctl restart devops-agent\nsleep 4\nsystemctl is-active devops-agent\necho \"=== Done ===\""')
+        CMD=$(jq -Rn '"#!/bin/bash\nset -e\necho \"=== Restarting service (auto-migration runs at startup) ===\"\nsystemctl restart devops-agent\nsleep 6\nsystemctl is-active devops-agent\necho \"=== Checking migration output in logs ===\"\njournalctl -u devops-agent --since \"30 seconds ago\" --no-pager | grep -i \"auto-migration\\|migration\\|alter table\\|added\" || echo \"(no migration lines found)\"\necho \"=== Done ===\""')
 
         COMMAND_ID=$(aws ssm send-command \
           --instance-id "$INSTANCE_ID" \
