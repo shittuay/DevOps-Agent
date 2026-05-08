@@ -2623,6 +2623,33 @@ class UserQuizAttempt(db.Model):
         return f'<UserQuizAttempt user={self.user_id} module={self.module_id} {self.score}/{self.total}>'
 
 
+class UserPendingQuiz(db.Model):
+    """Stores pending quiz questions server-side (replaces Flask session storage).
+
+    Using the cookie-based session for quiz questions caused silent failures
+    when the JSON payload exceeded the ~4 KB browser cookie limit.  Storing
+    questions in the DB instead eliminates that constraint.
+    """
+    __tablename__ = 'user_pending_quizzes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    module_id = db.Column(db.String(80), nullable=False)
+    questions = db.Column(db.JSON, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'module_id', name='uq_user_pending_quiz'),
+    )
+
+    def is_expired(self):
+        return datetime.utcnow() > self.expires_at
+
+    def __repr__(self):
+        return f'<UserPendingQuiz user={self.user_id} module={self.module_id}>'
+
+
 class WorkflowTemplate(db.Model):
     """Pre-built workflow templates for common DevOps tasks."""
     __tablename__ = 'workflow_templates'

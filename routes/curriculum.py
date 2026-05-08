@@ -5,13 +5,13 @@ import json
 import os
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context, session
+from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context
 from flask_login import login_required, current_user
 
 from extensions import limiter
-from models import db, UserCurriculumProgress, UserQuizAttempt
+from models import db, UserCurriculumProgress, UserQuizAttempt, UserPendingQuiz
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
 
 logger = logging.getLogger(__name__)
@@ -231,6 +231,26 @@ def api_ai_guide():
 
 # ─── Quiz Routes ─────────────────────────────────────────────────────────────
 
+def _save_pending_quiz(user_id, module_id, questions):
+    """Upsert quiz questions for a user+module into the DB (TTL: 24 h)."""
+    record = UserPendingQuiz.query.filter_by(
+        user_id=user_id, module_id=module_id
+    ).first()
+    expires = datetime.utcnow() + timedelta(hours=24)
+    if record:
+        record.questions = questions
+        record.expires_at = expires
+    else:
+        record = UserPendingQuiz(
+            user_id=user_id,
+            module_id=module_id,
+            questions=questions,
+            expires_at=expires,
+        )
+        db.session.add(record)
+    db.session.commit()
+
+
 def _get_module_ctx(module_id):
     for phase in CURRICULUM:
         for module in phase["modules"]:
@@ -259,7 +279,7 @@ def api_quiz_generate():
     if cached:
         questions, expiry = cached
         if time.time() < expiry:
-            session[f'quiz_{module_id}'] = questions
+            _save_pending_quiz(current_user.id, module_id, questions)
             return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
 
     try:
@@ -306,8 +326,9 @@ Rules:
         # Cache for 1 hour (shared across users — questions are per-module)
         _quiz_cache[module_id] = (questions, time.time() + _QUIZ_CACHE_TTL)
 
-        # Store questions server-side so submit can't be faked by the client
-        session[f'quiz_{module_id}'] = questions
+        # Store questions in DB so submit can't be faked by the client
+        # (avoids the ~4 KB Flask cookie session limit that caused silent failures)
+        _save_pending_quiz(current_user.id, module_id, questions)
 
         return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
 
@@ -330,10 +351,16 @@ def api_quiz_submit():
     if not module_id or not user_answers:
         return jsonify({'error': 'module_id and answers are required'}), 400
 
-    # Use server-side questions (generated and stored in session) to prevent score manipulation
-    questions = session.get(f'quiz_{module_id}')
-    if not questions:
+    # Use server-side questions (stored in DB) to prevent score manipulation
+    pending = UserPendingQuiz.query.filter_by(
+        user_id=current_user.id, module_id=module_id
+    ).first()
+    if not pending or pending.is_expired():
+        if pending:
+            db.session.delete(pending)
+            db.session.commit()
         return jsonify({'error': 'No active quiz session for this module. Please generate a quiz first.'}), 400
+    questions = pending.questions
 
     if len(user_answers) != len(questions):
         return jsonify({'error': 'Answer count does not match question count'}), 400
@@ -366,10 +393,9 @@ def api_quiz_submit():
         user_answers=user_answers,
     )
     db.session.add(attempt)
+    # Delete the pending quiz so the same quiz can't be submitted twice
+    db.session.delete(pending)
     db.session.commit()
-
-    # Clear session slot so the same quiz can't be submitted twice
-    session.pop(f'quiz_{module_id}', None)
 
     pct = round((score / len(questions)) * 100)
     passed = pct >= 70
