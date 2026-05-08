@@ -177,6 +177,27 @@ def get_anthropic_api_key() -> Optional[str]:
         return None
 
 
+def get_moonshot_api_key() -> Optional[str]:
+    """
+    Get Moonshot (Kimi) API key from environment or AWS Secrets Manager.
+
+    Returns:
+        API key string or None
+    """
+    api_key = os.environ.get('MOONSHOT_API_KEY')
+    if api_key:
+        return api_key
+
+    try:
+        sm = get_secrets_manager()
+        secrets = sm.get_secret_json(PRIMARY_SECRET_NAME)
+        if secrets and 'MOONSHOT_API_KEY' in secrets:
+            return secrets['MOONSHOT_API_KEY']
+    except ClientError:
+        pass
+    return None
+
+
 def get_all_secrets() -> Dict[str, Optional[str]]:
     """
     Get all application secrets from AWS Secrets Manager.
