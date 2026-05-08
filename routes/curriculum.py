@@ -190,7 +190,13 @@ def api_ai_guide():
     def generate():
         try:
             import anthropic
-            client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
+            api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+            if not api_key:
+                yield f"data: {json.dumps({'error': 'AI Coach is not configured (missing API key). Please contact support.'})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            client = anthropic.Anthropic(api_key=api_key)
 
             system_prompt = (
                 f"You are a DevOps learning coach on devopsagent.io. "
@@ -215,7 +221,7 @@ def api_ai_guide():
             yield "data: [DONE]\n\n"
 
         except Exception as e:
-            logger.error(f"AI guide error: {e}")
+            logger.error(f"AI guide error: {e}", exc_info=True)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
             yield "data: [DONE]\n\n"
 
@@ -282,9 +288,13 @@ def api_quiz_generate():
             _save_pending_quiz(current_user.id, module_id, questions)
             return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
 
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    if not api_key:
+        return jsonify({'error': 'Quiz generation is not configured (missing API key). Please contact support.'}), 503
+
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
+        client = anthropic.Anthropic(api_key=api_key)
 
         prompt = f"""Generate exactly 5 multiple-choice quiz questions for a DevOps student studying:
 
