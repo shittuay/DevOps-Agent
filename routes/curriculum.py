@@ -13,7 +13,7 @@ from flask_login import login_required, current_user
 from extensions import limiter
 from models import db, UserCurriculumProgress, UserQuizAttempt, UserPendingQuiz
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
-from services.secrets_manager import get_anthropic_api_key
+from services.secrets_manager import get_moonshot_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -190,14 +190,15 @@ def api_ai_guide():
 
     def generate():
         try:
-            import anthropic
-            api_key = get_anthropic_api_key()
+            from openai import OpenAI
+            api_key = get_moonshot_api_key()
             if not api_key:
                 yield f"data: {json.dumps({'error': 'AI Coach is not configured (missing API key). Please contact support.'})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
-            client = anthropic.Anthropic(api_key=api_key)
+            client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
+            kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.6')
 
             system_prompt = (
                 f"You are a DevOps learning coach on devopsagent.io. "
@@ -210,13 +211,18 @@ def api_ai_guide():
                 f"capstone project. Be concise but thorough. Format with markdown."
             )
 
-            with client.messages.stream(
-                model="claude-sonnet-4-6",
+            stream = client.chat.completions.create(
+                model=kimi_model,
                 max_tokens=1024,
-                system=system_prompt,
-                messages=[{"role": "user", "content": question}],
-            ) as stream:
-                for text in stream.text_stream:
+                stream=True,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": question},
+                ],
+            )
+            for chunk in stream:
+                text = chunk.choices[0].delta.content or ''
+                if text:
                     yield f"data: {json.dumps({'text': text})}\n\n"
 
             yield "data: [DONE]\n\n"
@@ -289,13 +295,14 @@ def api_quiz_generate():
             _save_pending_quiz(current_user.id, module_id, questions)
             return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
 
-    api_key = get_anthropic_api_key()
+    api_key = get_moonshot_api_key()
     if not api_key:
         return jsonify({'error': 'Quiz generation is not configured (missing API key). Please contact support.'}), 503
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
+        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.6')
 
         prompt = f"""Generate exactly 5 multiple-choice quiz questions for a DevOps student studying:
 
@@ -320,13 +327,13 @@ Rules:
 - Vary difficulty: 2 easy, 2 medium, 1 hard
 - No trick questions — test genuine understanding"""
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        response = client.chat.completions.create(
+            model=kimi_model,
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        raw = response.content[0].text.strip()
+        raw = response.choices[0].message.content.strip()
         # Strip markdown code fences if present
         if raw.startswith('```'):
             raw = raw.split('```')[1]
