@@ -13,6 +13,7 @@ from flask_login import login_required, current_user
 from extensions import limiter
 from models import db, UserCurriculumProgress, UserQuizAttempt, UserPendingQuiz
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
+from services.secrets_manager import get_anthropic_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ def api_ai_guide():
     def generate():
         try:
             import anthropic
-            api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+            api_key = get_anthropic_api_key()
             if not api_key:
                 yield f"data: {json.dumps({'error': 'AI Coach is not configured (missing API key). Please contact support.'})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -288,7 +289,7 @@ def api_quiz_generate():
             _save_pending_quiz(current_user.id, module_id, questions)
             return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
 
-    api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    api_key = get_anthropic_api_key()
     if not api_key:
         return jsonify({'error': 'Quiz generation is not configured (missing API key). Please contact support.'}), 503
 
