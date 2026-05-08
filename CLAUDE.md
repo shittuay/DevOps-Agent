@@ -293,8 +293,8 @@ Free-tier users get **20 credits/month** with full agent experience — Kimi K2.
 
 | Tier | Provider | Model | Tools | Max Tokens |
 |------|----------|-------|-------|------------|
-| free | Kimi | `kimi-k2.5` | Yes | 4096 |
-| starter ($29/mo) | Kimi | `kimi-k2.5` | Yes | 4096 |
+| free | Kimi | `kimi-k2.6` | Yes | 4096 |
+| starter ($29/mo) | Kimi | `kimi-k2.6` | Yes | 4096 |
 | professional ($99/mo) | Anthropic | `claude-sonnet-4-6` | Yes | 8192 |
 | business ($299/mo) | Anthropic | `claude-opus-4-6` | Yes | 8192 |
 
@@ -334,7 +334,7 @@ Optional:
 - `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi K2.5 API key (required for Kimi model provider)
-- `KIMI_MODEL` - Kimi model override (default: `kimi-k2.5`)
+- `KIMI_MODEL` - Kimi model override (default: `kimi-k2.6`)
 
 ## Running the App
 
