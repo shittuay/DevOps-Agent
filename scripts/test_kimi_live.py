@@ -26,10 +26,10 @@ print("\n2. Kimi API smoke test (AI Coach style)...")
 try:
     from openai import OpenAI
     client = OpenAI(api_key=key, base_url="https://api.moonshot.ai/v1")
-    model = os.environ.get('KIMI_MODEL', 'kimi-k2.6')
+    model = os.environ.get('CURRICULUM_MODEL', 'moonshot-v1-8k')
 
     resp = client.chat.completions.create(
-        model=model,
+        model='moonshot-v1-8k',
         max_tokens=60,
         messages=[
             {"role": "system", "content": "You are a DevOps learning coach."},
@@ -45,7 +45,7 @@ except Exception as e:
 print("\n3. Kimi streaming test (AI Coach stream)...")
 try:
     stream = client.chat.completions.create(
-        model=model,
+        model='moonshot-v1-8k',
         max_tokens=40,
         stream=True,
         messages=[
@@ -69,7 +69,7 @@ Return ONLY valid JSON array, no markdown.
 Format: [{"question":"...","options":["A","B","C","D"],"correct":0,"explanation":"..."}]"""
 
     resp = client.chat.completions.create(
-        model=model,
+        model='moonshot-v1-32k',
         max_tokens=512,
         messages=[{"role": "user", "content": quiz_prompt}],
     )
