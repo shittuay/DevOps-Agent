@@ -3,12 +3,13 @@ Tests for curriculum and quiz routes.
 
 Covers:
 - Quiz submit scoring logic (correct / wrong / mixed answers)
-- Quiz submit: session-based integrity (no client-supplied correct values accepted)
+- Quiz submit: DB-backed integrity (no client-supplied correct values accepted)
 - Progress toggle: upsert and idempotency
 - Quiz history best_pct calculation
 """
 import json
 import pytest
+from datetime import datetime, timedelta
 
 
 SAMPLE_QUESTIONS = [
@@ -36,11 +37,29 @@ MODULE_ID = "docker-fundamentals"
 PHASE_ID = "04"
 
 
-def _seed_quiz_session(client, questions=None):
-    """Seed the server-side session with quiz questions (simulates /api/quiz/generate)."""
+def _seed_quiz_session(client, questions=None, module_id=None):
+    """Seed the DB with pending quiz questions (simulates /api/quiz/generate)."""
+    from models import db, UserPendingQuiz
+    from flask_login import current_user
     qs = questions or SAMPLE_QUESTIONS
+    mid = module_id or MODULE_ID
+    # Identify the logged-in user from the client session
     with client.session_transaction() as sess:
-        sess[f'quiz_{MODULE_ID}'] = qs
+        user_id = sess.get('_user_id')
+    record = UserPendingQuiz.query.filter_by(user_id=user_id, module_id=mid).first()
+    expires = datetime.utcnow() + timedelta(hours=24)
+    if record:
+        record.questions = qs
+        record.expires_at = expires
+    else:
+        record = UserPendingQuiz(
+            user_id=user_id,
+            module_id=mid,
+            questions=qs,
+            expires_at=expires,
+        )
+        db.session.add(record)
+    db.session.commit()
 
 
 # ── Quiz submit scoring ───────────────────────────────────────────────────────
@@ -194,8 +213,7 @@ class TestQuizHistory:
     HIST_MODULE_ID = "k8s-architecture"
 
     def _submit_quiz(self, client, answers):
-        with client.session_transaction() as sess:
-            sess[f'quiz_{self.HIST_MODULE_ID}'] = SAMPLE_QUESTIONS
+        _seed_quiz_session(client, module_id=self.HIST_MODULE_ID)
         return client.post(
             '/curriculum/api/quiz/submit',
             json={"module_id": self.HIST_MODULE_ID, "answers": answers},
