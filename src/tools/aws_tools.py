@@ -13133,6 +13133,95 @@ def aws_api_write(
         return {'success': False, 'error': str(e)}
 
 
+def list_ec2_all_regions(
+    state_filter: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    List EC2 instances across ALL AWS regions in parallel.
+
+    Much faster than calling list_ec2_instances per region — scans all regions
+    concurrently using threads and returns a unified summary.
+
+    Args:
+        state_filter: Optional instance state to filter by (e.g. 'running', 'stopped').
+                      If omitted, returns all instances.
+
+    Returns:
+        Dictionary with per-region instance counts and a flat list of all instances.
+    """
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        user_id = get_current_user_id()
+
+        # Fetch the region list once
+        ec2_meta = _get_boto_client('ec2', 'us-east-1')
+        regions = [r['RegionName'] for r in ec2_meta.describe_regions(AllRegions=False)['Regions']]
+
+        boto_filters = []
+        if state_filter:
+            boto_filters = [{'Name': 'instance-state-name', 'Values': [state_filter]}]
+
+        def _scan_region(region_name: str):
+            try:
+                set_user_context(user_id)
+                client = _get_boto_client('ec2', region_name)
+                resp = client.describe_instances(Filters=boto_filters)
+                instances = []
+                for res in resp['Reservations']:
+                    for inst in res['Instances']:
+                        tags = {t['Key']: t['Value'] for t in inst.get('Tags', [])}
+                        instances.append({
+                            'instance_id': inst['InstanceId'],
+                            'instance_type': inst['InstanceType'],
+                            'state': inst['State']['Name'],
+                            'public_ip': inst.get('PublicIpAddress', 'N/A'),
+                            'private_ip': inst.get('PrivateIpAddress', 'N/A'),
+                            'name': tags.get('Name', ''),
+                            'region': region_name,
+                            'az': inst['Placement']['AvailabilityZone'],
+                            'launch_time': inst['LaunchTime'].isoformat(),
+                        })
+                return region_name, instances, None
+            except Exception as e:
+                return region_name, [], str(e)
+
+        all_instances = []
+        per_region = {}
+        errors = {}
+
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            futures = {pool.submit(_scan_region, r): r for r in regions}
+            for future in as_completed(futures):
+                region_name, instances, err = future.result()
+                if err:
+                    errors[region_name] = err
+                else:
+                    per_region[region_name] = len(instances)
+                    all_instances.extend(instances)
+
+        # Sort results by region for readability
+        all_instances.sort(key=lambda x: (x['region'], x['instance_id']))
+
+        return {
+            'success': True,
+            'total_instances': len(all_instances),
+            'regions_scanned': len(regions),
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'empty_regions': [r for r, c in per_region.items() if c == 0],
+            'instances': all_instances,
+            'errors': errors if errors else None,
+            'filter_applied': state_filter or 'none',
+        }
+
+    except ClientError as e:
+        logger.error(f"AWS error in list_ec2_all_regions: {e}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error in list_ec2_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def get_tools() -> List[Dict[str, Any]]:
     """
     Get AWS tool definitions.
@@ -13142,6 +13231,25 @@ def get_tools() -> List[Dict[str, Any]]:
     """
     return [
         # EC2 Operations
+        {
+            'name': 'list_ec2_all_regions',
+            'description': (
+                'List EC2 instances across ALL AWS regions in parallel. '
+                'Use this instead of calling get_ec2_instances per region when the user asks about '
+                '"all regions", "every region", or "global" EC2 inventory. '
+                'Much faster — scans ~30 regions concurrently in seconds.'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'state_filter': {
+                        'type': 'string',
+                        'description': 'Optional: filter by instance state — "running", "stopped", "terminated", etc. Omit for all states.'
+                    }
+                }
+            },
+            'handler': list_ec2_all_regions
+        },
         {
             'name': 'get_ec2_instances',
             'description': 'List EC2 instances with optional filtering by tags, state, etc.',
