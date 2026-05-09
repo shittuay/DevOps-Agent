@@ -17,27 +17,120 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-east-1
 
-    - name: Run migration via SSM
+    - name: Merge directories via SSM
       env:
         INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
       run: |
-        CMD=$(jq -Rn '"#!/bin/bash\nset -e\nOLD=/var/www/devops-agent\nNEW=/home/ubuntu/app/DevOps-Agent\nVENV=/home/ubuntu/app/venv\nDB_SRC=$OLD/instance/devops_agent.db\nDB_DST=$NEW/instance/devops_agent.db\nARCHIVE=/home/ubuntu/devops-agent-old-$(date +%Y%m%d)\n\necho \"=== Step 1: Check current DATABASE_URL in AWS Secrets Manager ===\"\nCURRENT_DB_URL=$(aws secretsmanager get-secret-value --secret-id devops-agent --region us-east-1 --query SecretString --output text 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get(\\\"DATABASE_URL\\\",\\\"(not set)\\\"))\" 2>/dev/null || echo \\\"(secret not found)\\\")\necho \"Current DATABASE_URL: $CURRENT_DB_URL\"\n\necho \"\"\necho \"=== Step 2: Stop service ===\"\nsystemctl stop devops-agent\necho \"Service stopped\"\n\necho \"\"\necho \"=== Step 3: Backup DB ===\"\ncp \"$DB_SRC\" \"${DB_SRC}.bak.$(date +%Y%m%d_%H%M%S)\"\necho \"Backup created: ${DB_SRC}.bak.*\"\n\necho \"\"\necho \"=== Step 4: Copy DB to new location ===\"\nmkdir -p \"$NEW/instance\"\ncp \"$DB_SRC\" \"$DB_DST\"\nchown ubuntu:ubuntu \"$DB_DST\"\nls -lah \"$DB_DST\"\necho \"DB copied\"\n\necho \"\"\necho \"=== Step 5: Update DATABASE_URL in AWS Secrets Manager ===\"\nNEW_DB_URL=\"sqlite:////home/ubuntu/app/DevOps-Agent/instance/devops_agent.db\"\nCURRENT_SECRET=$(aws secretsmanager get-secret-value --secret-id devops-agent --region us-east-1 --query SecretString --output text 2>/dev/null || echo \\\"{}\\\")\nUPDATED_SECRET=$(echo \"$CURRENT_SECRET\" | python3 -c \"import sys,json; d=json.load(sys.stdin); d[\\\"DATABASE_URL\\\"]='$NEW_DB_URL'; print(json.dumps(d))\")\naws secretsmanager update-secret --secret-id devops-agent --region us-east-1 --secret-string \"$UPDATED_SECRET\" && echo \"Secret updated: DATABASE_URL=$NEW_DB_URL\" || echo \"WARNING: Could not update secret - may need manual update\"\n\necho \"\"\necho \"=== Step 6: Start service ===\"\nsystemctl start devops-agent\nsleep 6\nsystemctl is-active devops-agent\n\necho \"\"\necho \"=== Step 7: Health check ===\"\ncurl -sf http://localhost:5000/health && echo \"HEALTH: OK\" || { echo \"HEALTH: FAIL - rolling back\"; systemctl stop devops-agent; cp \"$DB_SRC\" \"$DB_DST\"; systemctl start devops-agent; exit 1; }\n\necho \"\"\necho \"=== Step 8: Verify DB in new location has data ===\"\npython3 -c \"\nimport sqlite3\ncon = sqlite3.connect(\\\"$DB_DST\\\")\nusers = con.execute(\\\"SELECT COUNT(*) FROM users\\\").fetchone()[0]\nmsgs  = con.execute(\\\"SELECT COUNT(*) FROM chat_messages\\\").fetchone()[0]\nprint(f\\\"Users: {users}, Messages: {msgs}\\\")\ncon.close()\n\"\n\necho \"\"\necho \"=== Step 9: Archive old directory ===\"\nmv \"$OLD\" \"$ARCHIVE\"\necho \"Archived to: $ARCHIVE\"\nls -lah /var/www/ 2>/dev/null || echo \"(var/www now empty)\"\n\necho \"\"\necho \"=== DONE ===\"\necho \"Old dir archived at: $ARCHIVE\"\necho \"DB now at: $DB_DST\"\necho \"Service running from: $NEW\""')
+        cat > /tmp/merge.sh << 'SCRIPT'
+        #!/bin/bash
+        set -e
+        OLD=/var/www/devops-agent
+        NEW=/home/ubuntu/app/DevOps-Agent
+        DB_SRC=$OLD/instance/devops_agent.db
+        DB_DST=$NEW/instance/devops_agent.db
+        ARCHIVE=/home/ubuntu/devops-agent-old-$(date +%Y%m%d)
+
+        echo "=== Step 1: Check DATABASE_URL in AWS Secrets Manager ==="
+        CURRENT_DB_URL=$(aws secretsmanager get-secret-value \
+          --secret-id devops-agent --region us-east-1 \
+          --query SecretString --output text 2>/dev/null \
+          | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('DATABASE_URL','(not set)'))" \
+          2>/dev/null || echo "(secret not found)")
+        echo "Current DATABASE_URL: $CURRENT_DB_URL"
+
+        echo ""
+        echo "=== Step 2: Stop service ==="
+        systemctl stop devops-agent
+        echo "Service stopped"
+
+        echo ""
+        echo "=== Step 3: Backup DB ==="
+        BACKUP="${DB_SRC}.bak.$(date +%Y%m%d_%H%M%S)"
+        cp "$DB_SRC" "$BACKUP"
+        echo "Backup: $BACKUP"
+
+        echo ""
+        echo "=== Step 4: Copy DB to new location ==="
+        mkdir -p "$NEW/instance"
+        cp "$DB_SRC" "$DB_DST"
+        chown ubuntu:ubuntu "$DB_DST"
+        ls -lah "$DB_DST"
+
+        echo ""
+        echo "=== Step 5: Update DATABASE_URL in AWS Secrets Manager ==="
+        NEW_DB_URL="sqlite:////home/ubuntu/app/DevOps-Agent/instance/devops_agent.db"
+        CURRENT_SECRET=$(aws secretsmanager get-secret-value \
+          --secret-id devops-agent --region us-east-1 \
+          --query SecretString --output text 2>/dev/null || echo "{}")
+        UPDATED_SECRET=$(echo "$CURRENT_SECRET" | python3 -c "
+        import sys, json
+        d = json.load(sys.stdin)
+        d['DATABASE_URL'] = '$NEW_DB_URL'
+        print(json.dumps(d))
+        ")
+        aws secretsmanager update-secret \
+          --secret-id devops-agent --region us-east-1 \
+          --secret-string "$UPDATED_SECRET" \
+          && echo "Secret updated: DATABASE_URL=$NEW_DB_URL" \
+          || echo "WARNING: Could not update secret"
+
+        echo ""
+        echo "=== Step 6: Start service ==="
+        systemctl start devops-agent
+        sleep 8
+        systemctl is-active devops-agent
+
+        echo ""
+        echo "=== Step 7: Health check ==="
+        if curl -sf http://localhost:5000/health; then
+          echo "HEALTH: OK"
+        else
+          echo "HEALTH: FAIL - rolling back"
+          systemctl stop devops-agent
+          cp "$BACKUP" "$DB_SRC"
+          systemctl start devops-agent
+          exit 1
+        fi
+
+        echo ""
+        echo "=== Step 8: Verify data in new DB ==="
+        python3 - "$DB_DST" << 'PYEOF'
+        import sys, sqlite3
+        con = sqlite3.connect(sys.argv[1])
+        users = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        msgs  = con.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0]
+        print(f"Users: {users}, Messages: {msgs}")
+        con.close()
+        PYEOF
+
+        echo ""
+        echo "=== Step 9: Archive old directory ==="
+        mv "$OLD" "$ARCHIVE"
+        echo "Archived to: $ARCHIVE"
+
+        echo ""
+        echo "=== DONE ==="
+        echo "DB now at:        $DB_DST"
+        echo "Old dir archived: $ARCHIVE"
+        SCRIPT
+
+        CMD=$(jq -Rs . /tmp/merge.sh)
 
         COMMAND_ID=$(aws ssm send-command \
           --instance-id "$INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
-          --timeout-seconds 120 \
+          --timeout-seconds 180 \
           --parameters "{\"commands\":[$CMD]}" \
           --output text --query "Command.CommandId")
 
         echo "SSM Command ID: $COMMAND_ID"
 
-        for i in $(seq 1 24); do
+        for i in $(seq 1 36); do
           STATUS=$(aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID" \
             --query "Status" --output text 2>/dev/null || echo "Pending")
-          echo "[$i/24] $STATUS"
+          echo "[$i/36] $STATUS"
           case "$STATUS" in
             Success) break ;;
             Failed|Cancelled|TimedOut)
