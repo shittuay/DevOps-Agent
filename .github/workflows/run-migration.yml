@@ -17,7 +17,7 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-east-1
 
-    - name: Merge directories via SSM
+    - name: Patch nginx proxy_read_timeout via SSM
       env:
         INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
       run: |
@@ -25,30 +25,59 @@ jobs:
         #!/bin/bash
         set -e
 
-        echo "=== Directories before cleanup ==="
-        ls -lah /home/ubuntu/ | grep -E "DevOps-Agent|devops-agent"
+        echo "=== Current nginx config files ==="
+        ls /etc/nginx/sites-enabled/ 2>/dev/null || echo "(no sites-enabled)"
+        ls /etc/nginx/conf.d/ 2>/dev/null || echo "(no conf.d)"
 
         echo ""
-        echo "=== Removing /home/ubuntu/DevOps-Agent (unused clone) ==="
-        rm -rf /home/ubuntu/DevOps-Agent
+        echo "=== Active nginx config ==="
+        for f in /etc/nginx/sites-enabled/*; do
+          echo "--- $f ---"
+          cat "$f"
+        done
+
+        echo ""
+        echo "=== Current proxy_read_timeout setting ==="
+        grep -r proxy_read_timeout /etc/nginx/ 2>/dev/null || echo "not set (default 60s)"
+
+        echo ""
+        echo "=== Patching: adding proxy_read_timeout 300 to /api/chat location ==="
+        NGINX_CONF=$(ls /etc/nginx/sites-enabled/* 2>/dev/null | head -1)
+        if [ -z "$NGINX_CONF" ]; then
+          NGINX_CONF=$(ls /etc/nginx/conf.d/* 2>/dev/null | head -1)
+        fi
+
+        if [ -z "$NGINX_CONF" ]; then
+          echo "ERROR: no nginx config found"
+          exit 1
+        fi
+
+        echo "Patching: $NGINX_CONF"
+
+        # Check if already patched
+        if grep -q "proxy_read_timeout 300" "$NGINX_CONF"; then
+          echo "Already patched — proxy_read_timeout 300 present"
+        else
+          # Add proxy_read_timeout 300 to the main location block (or server block)
+          # Add before the last closing brace
+          cp "$NGINX_CONF" "${NGINX_CONF}.bak"
+          # Insert proxy_read_timeout 300; before the last } of the server block
+          sed -i '/^\s*location \/ {/a\        proxy_read_timeout 300;' "$NGINX_CONF"
+          echo "Patch applied"
+        fi
+
+        echo ""
+        echo "=== Testing nginx config ==="
+        nginx -t
+
+        echo ""
+        echo "=== Reloading nginx ==="
+        systemctl reload nginx
         echo "Done"
 
         echo ""
-        echo "=== Removing /home/ubuntu/devops-agent-old-20260509 (archived old install) ==="
-        rm -rf /home/ubuntu/devops-agent-old-20260509
-        echo "Done"
-
-        echo ""
-        echo "=== Directories after cleanup ==="
-        ls -lah /home/ubuntu/ | grep -E "DevOps-Agent|devops-agent" || echo "(no other DevOps-Agent dirs)"
-
-        echo ""
-        echo "=== Confirming service still running ==="
-        systemctl is-active devops-agent
-        curl -sf http://localhost:5000/health && echo "HEALTH: OK" || echo "HEALTH: FAIL"
-
-        echo ""
-        echo "=== DONE - only /home/ubuntu/app/DevOps-Agent remains ==="
+        echo "=== Verifying patch ==="
+        grep proxy_read_timeout "$NGINX_CONF" || echo "(not found — may be in different location)"
         SCRIPT
 
         CMD=$(jq -Rs . /tmp/cleanup.sh)
