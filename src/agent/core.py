@@ -197,6 +197,65 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _compute_swarm_agents(messages: list, max_agents: int) -> int:
+    """
+    Scale swarm agent count (0–max_agents) based on task complexity.
+
+    Reads the last user message and scores it:
+      0   → simple query, no swarm
+      2–5 → moderate (a few regions or services)
+      6–10 → complex (multi-service or multi-region)
+      11–20 → very complex (full-environment audit across all regions/services)
+    """
+    if max_agents <= 0:
+        return 0
+
+    user_msg = ''
+    for m in reversed(messages):
+        if m.get('role') == 'user':
+            user_msg = (m.get('content') or '').lower()
+            break
+    if not user_msg:
+        return 0
+
+    score = 0
+
+    # Global / all-region scope
+    if any(k in user_msg for k in ('all regions', 'every region', 'global', 'multi-region', 'across all')):
+        score += 8
+    elif sum(1 for k in ('us-east', 'us-west', 'eu-', 'ap-', 'sa-', 'ca-') if k in user_msg) >= 2:
+        score += 3
+
+    # Number of distinct cloud services referenced
+    services = ('ec2', 's3', 'iam', 'rds', 'lambda', 'eks', 'ecs', 'cloudwatch', 'vpc',
+                'dynamodb', 'route53', 'cloudfront', 'elb', 'alb', 'gke', 'gcs', 'bigquery',
+                'azure', 'blob', 'cosmos', 'firestore', 'pubsub')
+    score += min(sum(1 for s in services if s in user_msg) * 2, 8)
+
+    # Broad-scope / audit keywords
+    if any(k in user_msg for k in ('audit', 'entire', 'comprehensive', 'all ', 'every ', 'across')):
+        score += 4
+    if any(k in user_msg for k in ('report', 'summarize', 'consolidated', 'overview', 'findings')):
+        score += 2
+
+    # Multiple distinct tasks in one prompt (rough count)
+    score += min(user_msg.count(' and ') + user_msg.count(', '), 4)
+
+    # Map score → agent count
+    if score <= 1:
+        n = 0    # simple — no swarm
+    elif score <= 4:
+        n = 2
+    elif score <= 8:
+        n = 5
+    elif score <= 12:
+        n = 10
+    else:
+        n = 20
+
+    return min(n, max_agents)
+
+
 class DevOpsAgent:
     """Main DevOps Agent class that orchestrates Claude AI and tool execution."""
 
@@ -1063,8 +1122,9 @@ User Preferences and Context:
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
-                if swarm_max_agents > 0:
-                    params['extra_body'] = {"swarm": {"max_agents": swarm_max_agents}}
+                effective_swarm = _compute_swarm_agents(messages, swarm_max_agents)
+                if effective_swarm > 0:
+                    params['extra_body'] = {"swarm": {"max_agents": effective_swarm}}
 
                 response = client.chat.completions.create(**params)
                 choice = response.choices[0]
@@ -1133,8 +1193,12 @@ User Preferences and Context:
                     return _HALLUCINATION_REPLACEMENT
                 if severity == 'weak':
                     self.logger.warning("Detected weak hallucination signal in Kimi response — appending warning")
-                    return text + _HALLUCINATION_WARNING
-                return text
+                    text = text + _HALLUCINATION_WARNING
+                swarm_header = (
+                    f"\n🐝 *Swarm active — {effective_swarm} agents working in parallel*\n\n"
+                    if effective_swarm > 0 else ""
+                )
+                return swarm_header + text
 
             except Exception as e:
                 err_str = str(e)

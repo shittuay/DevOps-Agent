@@ -2565,11 +2565,8 @@
                 });
                 clearAttachments();
 
-                // Kimi uses the non-streaming endpoint — swarm extra_body is incompatible with SSE
+                // Kimi uses the non-streaming endpoint — swarm scales with task complexity
                 if (currentModelProvider === 'kimi') {
-                    const swarmHeader = '\n🐝 *Swarm active — up to 20 agents working in parallel*\n\n';
-                    textDiv.innerHTML = formatMessage(swarmHeader);
-                    scrollToBottom();
                     const kimiResp = await fetch('/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -2580,7 +2577,7 @@
                         textDiv.innerHTML = formatMessage(`Error: ${err.error || 'Request failed'}`);
                     } else {
                         const data = await kimiResp.json();
-                        const fullText = swarmHeader + (data.response || '');
+                        const fullText = data.response || '';
                         textDiv.innerHTML = formatMessage(fullText);
                         if (data.credits_remaining !== undefined) updateCreditsDisplay(data.credits_remaining);
                         if (data.credits_remaining === 0) {
