@@ -1190,6 +1190,15 @@ User Preferences and Context:
 
         if swarm_max_agents > 0:
             yield f"\n🐝 *Swarm active — up to {swarm_max_agents} agents working in parallel*\n\n"
+            # Kimi swarm does not support SSE streaming — run non-streaming and yield result
+            result = self._call_kimi_api(
+                user_preferences_context,
+                model_override=model_override,
+                trial_context=trial_context,
+                swarm_max_agents=swarm_max_agents,
+            )
+            yield result
+            return
 
         max_iterations = 50
         tools_called_this_turn = False
