@@ -2564,6 +2564,61 @@
                     attachments: _attachPayload
                 });
                 clearAttachments();
+
+                // Kimi uses the non-streaming endpoint — swarm extra_body is incompatible with SSE
+                if (currentModelProvider === 'kimi') {
+                    const swarmHeader = '\n🐝 *Swarm active — up to 20 agents working in parallel*\n\n';
+                    textDiv.innerHTML = formatMessage(swarmHeader);
+                    scrollToBottom();
+                    const kimiResp = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: _fetchBody
+                    });
+                    if (!kimiResp.ok) {
+                        const err = await kimiResp.json().catch(() => ({}));
+                        textDiv.innerHTML = formatMessage(`Error: ${err.error || 'Request failed'}`);
+                    } else {
+                        const data = await kimiResp.json();
+                        const fullText = swarmHeader + (data.response || '');
+                        textDiv.innerHTML = formatMessage(fullText);
+                        if (data.credits_remaining !== undefined) updateCreditsDisplay(data.credits_remaining);
+                        if (data.credits_remaining === 0) {
+                            const ctaDiv = document.createElement('div');
+                            ctaDiv.className = 'trial-ended-banner';
+                            ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Upgrade to Starter &mdash; $29/month</a>';
+                            textDiv.parentElement.appendChild(ctaDiv);
+                            const _inp = document.getElementById('messageInput');
+                            const _btn = document.getElementById('sendButton');
+                            if (_inp) { _inp.disabled = true; _inp.placeholder = 'Trial ended — upgrade to continue'; }
+                            if (_btn) _btn.disabled = true;
+                        }
+                        const _wfExec = new URLSearchParams(window.location.search).get('wf_exec');
+                        if (_wfExec) {
+                            fetch(`/api/workflows/executions/${_wfExec}`, {
+                                method: 'PATCH',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({status: 'completed'}),
+                            }).catch(() => {});
+                        }
+                        if (fullText.trim()) {
+                            const actionsRow = document.createElement('div');
+                            actionsRow.className = 'message-actions';
+                            actionsRow.appendChild(makeCopyButton(fullText));
+                            const ttsBtn = document.createElement('button');
+                            ttsBtn.className = 'tts-btn';
+                            ttsBtn.innerHTML = '🔊 Listen';
+                            ttsBtn.onclick = (function(t, b) { return function() { speakText(t, b); }; })(fullText, ttsBtn);
+                            actionsRow.appendChild(ttsBtn);
+                            contentDiv.appendChild(actionsRow);
+                            if (voiceEnabled) speakText(fullText, ttsBtn);
+                        }
+                        loadConversations();
+                        scrollToBottom();
+                    }
+                    return;
+                }
+
                 const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
