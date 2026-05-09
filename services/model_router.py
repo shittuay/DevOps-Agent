@@ -24,6 +24,7 @@ class ModelConfig:
     max_tokens: int = 4096
     max_tools: int = 10          # max tools passed per API call (lower = less hallucination for Kimi)
     trust_tool_results: bool = True  # False for Kimi tiers — validates IDs before feeding back
+    swarm_max_agents: int = 0    # Kimi swarm: 0 = disabled, >0 = max parallel sub-agents
 
 
 # Kimi model config constant
@@ -35,6 +36,7 @@ KIMI_MODEL_CONFIG = ModelConfig(
     max_tokens=4096,
     max_tools=100,
     trust_tool_results=False,
+    swarm_max_agents=20,
 )
 
 # Claude model configs for user overrides
@@ -88,6 +90,7 @@ DEFAULT_TIER_MODELS = {
         max_tokens=4096,
         max_tools=100,
         trust_tool_results=False,
+        swarm_max_agents=20,
     ),
     'starter': ModelConfig(
         provider='kimi',
@@ -97,6 +100,7 @@ DEFAULT_TIER_MODELS = {
         max_tokens=4096,
         max_tools=100,
         trust_tool_results=False,
+        swarm_max_agents=20,
     ),
     'professional': ModelConfig(
         provider='anthropic',
@@ -196,6 +200,7 @@ def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[s
             max_tokens=tier_defaults.max_tokens,
             max_tools=tier_defaults.max_tools,
             trust_tool_results=tier_defaults.trust_tool_results,
+            swarm_max_agents=20,
         )
 
     if preferred_provider == 'anthropic':
