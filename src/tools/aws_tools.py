@@ -13150,12 +13150,24 @@ def list_ec2_all_regions(
         Dictionary with per-region instance counts and a flat list of all instances.
     """
     try:
+        import boto3 as _boto3
         from concurrent.futures import ThreadPoolExecutor, as_completed
+        from services.credential_service import get_user_aws_credentials, _get_boto_kwargs
 
         user_id = get_current_user_id()
+        if user_id is None:
+            return {'success': False, 'error': 'Authentication required.'}
 
-        # Fetch the region list once
-        ec2_meta = _get_boto_client('ec2', 'us-east-1')
+        # Resolve credentials ONCE on the main thread (requires Flask context)
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured. Please configure them in Settings.'}
+
+        # Pre-build boto3 kwargs (resolves STS AssumeRole if needed, also on main thread)
+        base_kwargs = _get_boto_kwargs(creds, 'us-east-1')
+
+        # Fetch region list using pre-resolved credentials (no Flask context needed)
+        ec2_meta = _boto3.client('ec2', **base_kwargs)
         regions = [r['RegionName'] for r in ec2_meta.describe_regions(AllRegions=False)['Regions']]
 
         boto_filters = []
@@ -13164,8 +13176,10 @@ def list_ec2_all_regions(
 
         def _scan_region(region_name: str):
             try:
-                set_user_context(user_id)
-                client = _get_boto_client('ec2', region_name)
+                # Build per-region kwargs using pre-resolved credentials — no Flask context needed
+                region_kwargs = dict(base_kwargs)
+                region_kwargs['region_name'] = region_name
+                client = _boto3.client('ec2', **region_kwargs)
                 resp = client.describe_instances(Filters=boto_filters)
                 instances = []
                 for res in resp['Reservations']:
