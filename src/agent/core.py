@@ -230,25 +230,24 @@ def _compute_swarm_agents(messages: list, max_agents: int) -> int:
     services = ('ec2', 's3', 'iam', 'rds', 'lambda', 'eks', 'ecs', 'cloudwatch', 'vpc',
                 'dynamodb', 'route53', 'cloudfront', 'elb', 'alb', 'gke', 'gcs', 'bigquery',
                 'azure', 'blob', 'cosmos', 'firestore', 'pubsub')
-    score += min(sum(1 for s in services if s in user_msg) * 2, 8)
+    service_count = sum(1 for s in services if s in user_msg)
+    score += min(service_count * 2, 8)
 
-    # Broad-scope / audit keywords
-    if any(k in user_msg for k in ('audit', 'entire', 'comprehensive', 'all ', 'every ', 'across')):
-        score += 4
+    # Broad-scope / audit keywords (only apply when 2+ services are also referenced)
+    if service_count >= 2:
+        if any(k in user_msg for k in ('audit', 'entire', 'comprehensive', 'all ', 'every ')):
+            score += 4
     if any(k in user_msg for k in ('report', 'summarize', 'consolidated', 'overview', 'findings')):
         score += 2
 
-    # Multiple distinct tasks in one prompt (rough count)
-    score += min(user_msg.count(' and ') + user_msg.count(', '), 4)
-
     # Map score → agent count
-    if score <= 1:
+    if score <= 2:
         n = 0    # simple — no swarm
-    elif score <= 4:
+    elif score <= 6:
         n = 2
-    elif score <= 8:
+    elif score <= 10:
         n = 5
-    elif score <= 12:
+    elif score <= 15:
         n = 10
     else:
         n = 20
