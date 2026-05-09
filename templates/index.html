@@ -2567,14 +2567,40 @@
 
                 // Kimi uses the non-streaming endpoint — swarm scales with task complexity
                 if (currentModelProvider === 'kimi') {
-                    const kimiResp = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: _fetchBody
-                    });
+                    const kimiAbort = new AbortController();
+                    const kimiTimeout = setTimeout(() => kimiAbort.abort(), 290000); // 290s client-side limit
+                    let kimiResp;
+                    try {
+                        kimiResp = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: _fetchBody,
+                            signal: kimiAbort.signal
+                        });
+                    } catch (fetchErr) {
+                        clearTimeout(kimiTimeout);
+                        const isTimeout = fetchErr.name === 'AbortError';
+                        textDiv.innerHTML = formatMessage(
+                            isTimeout
+                                ? 'Request timed out — this scan is too large for a single request. Try breaking it into smaller queries (e.g., one region at a time).'
+                                : `Network error: ${fetchErr.message}`
+                        );
+                        sendButton.disabled = false;
+                        sendButton.textContent = 'Send';
+                        return;
+                    }
+                    clearTimeout(kimiTimeout);
                     if (!kimiResp.ok) {
-                        const err = await kimiResp.json().catch(() => ({}));
-                        textDiv.innerHTML = formatMessage(`Error: ${err.error || 'Request failed'}`);
+                        const errText = await kimiResp.text().catch(() => '');
+                        let errMsg = 'Request failed';
+                        try { errMsg = JSON.parse(errText).error || errMsg; } catch (_) {
+                            if (kimiResp.status === 504 || kimiResp.status === 502) {
+                                errMsg = 'Request timed out — this scan is too large for a single request. Try breaking it into smaller queries (e.g., one region at a time).';
+                            } else {
+                                errMsg = `Server error (${kimiResp.status})`;
+                            }
+                        }
+                        textDiv.innerHTML = formatMessage(`Error: ${errMsg}`);
                     } else {
                         const data = await kimiResp.json();
                         const fullText = data.response || '';
