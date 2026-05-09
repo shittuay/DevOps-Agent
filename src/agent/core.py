@@ -1188,17 +1188,9 @@ User Preferences and Context:
                     content = '\n'.join(text_parts)
                 messages.append({'role': msg['role'], 'content': content})
 
-        if swarm_max_agents > 0:
-            yield f"\n🐝 *Swarm active — up to {swarm_max_agents} agents working in parallel*\n\n"
-            # Kimi swarm does not support SSE streaming — run non-streaming and yield result
-            result = self._call_kimi_api(
-                user_preferences_context,
-                model_override=model_override,
-                trial_context=trial_context,
-                swarm_max_agents=swarm_max_agents,
-            )
-            yield result
-            return
+        # Note: Kimi swarm (extra_body) is incompatible with SSE streaming — it returns
+        # empty deltas and a blocking fallback would hold the gevent worker causing
+        # ERR_HTTP2_PROTOCOL_ERROR. Swarm is active on the non-streaming path only.
 
         max_iterations = 50
         tools_called_this_turn = False
@@ -1214,8 +1206,7 @@ User Preferences and Context:
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
-                if swarm_max_agents > 0:
-                    params['extra_body'] = {"swarm": {"max_agents": swarm_max_agents}}
+                # swarm extra_body intentionally omitted in streaming mode — see note above
 
                 # Collect streamed response — buffer content, check hallucination before yielding
                 collected_content = ""
