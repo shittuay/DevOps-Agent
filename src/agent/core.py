@@ -467,6 +467,7 @@ class DevOpsAgent:
         provider: Optional[str] = None,
         tools_override: Optional[List[Dict[str, Any]]] = None,
         trust_tool_results: bool = True,
+        swarm_max_agents: int = 0,
     ) -> str:
         """
         Process a user message with isolated conversation context (thread-safe).
@@ -522,7 +523,7 @@ class DevOpsAgent:
 
             # Route to appropriate provider
             if provider == 'kimi':
-                response_text = self._call_kimi_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
+                response_text = self._call_kimi_api(user_preferences_context, model_override=model_override, trial_context=trial_context, swarm_max_agents=swarm_max_agents)
             else:
                 response_text = self._call_claude_api(user_preferences_context, model_override=model_override, trial_context=trial_context)
 
@@ -556,6 +557,7 @@ class DevOpsAgent:
         provider: Optional[str] = None,
         tools_override: Optional[List[Dict[str, Any]]] = None,
         trust_tool_results: bool = True,
+        swarm_max_agents: int = 0,
     ):
         """
         Process a user message and yield text chunks as they stream in.
@@ -591,7 +593,7 @@ class DevOpsAgent:
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
-                yield from self._call_kimi_api_streaming(user_preferences_context, model_override=model_override, trial_context=trial_context)
+                yield from self._call_kimi_api_streaming(user_preferences_context, model_override=model_override, trial_context=trial_context, swarm_max_agents=swarm_max_agents)
                 return
 
             # Streaming loop for Claude (handles tool calls)
@@ -997,7 +999,7 @@ User Preferences and Context:
         self._cached_oai_tools = oai_tools
         return oai_tools
 
-    def _call_kimi_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None) -> str:
+    def _call_kimi_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None, swarm_max_agents: int = 0) -> str:
         """
         Call Kimi K2.5 API with tool support (OpenAI-compatible format).
 
@@ -1061,6 +1063,8 @@ User Preferences and Context:
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
+                if swarm_max_agents > 0:
+                    params['extra_body'] = {"swarm": {"max_agents": swarm_max_agents}}
 
                 response = client.chat.completions.create(**params)
                 choice = response.choices[0]
@@ -1142,7 +1146,7 @@ User Preferences and Context:
 
         return "Maximum number of tool executions reached. Please try rephrasing your request."
 
-    def _call_kimi_api_streaming(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None):
+    def _call_kimi_api_streaming(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None, swarm_max_agents: int = 0):
         """
         Call Kimi K2.5 API with streaming and tool support.
 
@@ -1184,6 +1188,9 @@ User Preferences and Context:
                     content = '\n'.join(text_parts)
                 messages.append({'role': msg['role'], 'content': content})
 
+        if swarm_max_agents > 0:
+            yield f"\n🐝 *Swarm active — up to {swarm_max_agents} agents working in parallel*\n\n"
+
         max_iterations = 50
         tools_called_this_turn = False
         for iteration in range(max_iterations):
@@ -1198,6 +1205,8 @@ User Preferences and Context:
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
+                if swarm_max_agents > 0:
+                    params['extra_body'] = {"swarm": {"max_agents": swarm_max_agents}}
 
                 # Collect streamed response — buffer content, check hallucination before yielding
                 collected_content = ""
