@@ -1103,7 +1103,7 @@ User Preferences and Context:
                     content = '\n'.join(text_parts)
                 messages.append({'role': msg['role'], 'content': content})
 
-        max_iterations = 50
+        max_iterations = 20  # Kimi non-streaming: cap at 20 to stay well under 300s HTTP timeout
         iteration = 0
         tools_called_this_turn = False
 
