@@ -2522,7 +2522,7 @@ def _chat_rate_limit() -> str:
     sub = UserSubscription.query.filter_by(user_id=current_user.id).first()
     tier = sub.tier.name if (sub and sub.tier) else 'free'
     return {
-        'free': '200 per hour',  # TEMP: bumped for testing
+        'free': '10 per hour',
         'starter': '60 per hour',
         'professional': '200 per hour',
         'business': '1000 per hour',
