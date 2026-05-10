@@ -13273,6 +13273,173 @@ def _parallel_region_scan(service: str, scan_fn, creds: Dict) -> tuple:
     return all_items, per_region, errors, len(regions)
 
 
+def list_dynamodb_all_regions() -> Dict[str, Any]:
+    """
+    List DynamoDB tables across ALL AWS regions in parallel.
+    Use this when the user asks about DynamoDB tables globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            names = client.list_tables().get('TableNames', [])
+            items = []
+            for name in names:
+                try:
+                    info = client.describe_table(TableName=name)['Table']
+                    items.append({
+                        'table_name': name,
+                        'status': info.get('TableStatus'),
+                        'item_count': info.get('ItemCount', 0),
+                        'size_bytes': info.get('TableSizeBytes', 0),
+                        'billing_mode': info.get('BillingModeSummary', {}).get('BillingMode', 'PROVISIONED'),
+                        'region': region,
+                    })
+                except Exception:
+                    items.append({'table_name': name, 'status': 'unknown', 'region': region})
+            return items
+
+        items, per_region, errors, n_regions = _parallel_region_scan('dynamodb', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['table_name']))
+        return {
+            'success': True,
+            'total_tables': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'tables': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_dynamodb_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_elasticache_all_regions() -> Dict[str, Any]:
+    """
+    List ElastiCache clusters across ALL AWS regions in parallel.
+    Use this when the user asks about ElastiCache/Redis/Memcached globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            clusters = client.describe_cache_clusters().get('CacheClusters', [])
+            return [{
+                'cluster_id': c['CacheClusterId'],
+                'engine': c.get('Engine'),
+                'node_type': c.get('CacheNodeType'),
+                'num_nodes': c.get('NumCacheNodes'),
+                'status': c.get('CacheClusterStatus'),
+                'region': region,
+            } for c in clusters]
+
+        items, per_region, errors, n_regions = _parallel_region_scan('elasticache', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['cluster_id']))
+        return {
+            'success': True,
+            'total_clusters': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'clusters': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_elasticache_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_api_gateways_all_regions() -> Dict[str, Any]:
+    """
+    List API Gateway REST APIs across ALL AWS regions in parallel.
+    Use this when the user asks about API Gateways globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            apis = client.get_rest_apis().get('items', [])
+            return [{
+                'api_id': a['id'],
+                'name': a['name'],
+                'description': a.get('description', ''),
+                'endpoint_types': a.get('endpointConfiguration', {}).get('types', []),
+                'created_date': a.get('createdDate').isoformat() if a.get('createdDate') else 'N/A',
+                'region': region,
+            } for a in apis]
+
+        items, per_region, errors, n_regions = _parallel_region_scan('apigateway', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['name']))
+        return {
+            'success': True,
+            'total_apis': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'apis': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_api_gateways_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_beanstalk_all_regions() -> Dict[str, Any]:
+    """
+    List Elastic Beanstalk environments across ALL AWS regions in parallel.
+    Use this when the user asks about Beanstalk globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            envs = client.describe_environments().get('Environments', [])
+            return [{
+                'environment_name': e['EnvironmentName'],
+                'application_name': e.get('ApplicationName', ''),
+                'status': e.get('Status'),
+                'health': e.get('Health'),
+                'solution_stack': e.get('SolutionStackName', ''),
+                'region': region,
+            } for e in envs]
+
+        items, per_region, errors, n_regions = _parallel_region_scan('elasticbeanstalk', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['environment_name']))
+        return {
+            'success': True,
+            'total_environments': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'environments': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_beanstalk_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def list_lambda_all_regions() -> Dict[str, Any]:
     """
     List Lambda functions across ALL AWS regions in parallel.
@@ -13566,6 +13733,30 @@ def get_tools() -> List[Dict[str, Any]]:
                 }
             },
             'handler': list_ec2_all_regions
+        },
+        {
+            'name': 'list_dynamodb_all_regions',
+            'description': 'List DynamoDB tables across ALL AWS regions in parallel. Use when user asks about DynamoDB globally or across all regions.',
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_dynamodb_all_regions,
+        },
+        {
+            'name': 'list_elasticache_all_regions',
+            'description': 'List ElastiCache (Redis/Memcached) clusters across ALL AWS regions in parallel. Use when user asks about ElastiCache globally or across all regions.',
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_elasticache_all_regions,
+        },
+        {
+            'name': 'list_api_gateways_all_regions',
+            'description': 'List API Gateway REST APIs across ALL AWS regions in parallel. Use when user asks about API Gateways globally or across all regions.',
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_api_gateways_all_regions,
+        },
+        {
+            'name': 'list_beanstalk_all_regions',
+            'description': 'List Elastic Beanstalk environments across ALL AWS regions in parallel. Use when user asks about Beanstalk globally or across all regions.',
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_beanstalk_all_regions,
         },
         {
             'name': 'list_lambda_all_regions',

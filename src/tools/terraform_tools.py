@@ -2,54 +2,153 @@
 import os
 import subprocess
 import json
+import uuid
+import time
+import tempfile
 from typing import Dict, Any, Optional, List
 from ..utils import get_logger
 
 logger = get_logger(__name__)
 
+# In-memory store for long-running terraform background jobs
+# job_id -> {'proc': Popen, 'log_path': str, 'command': list, 'started_at': float}
+_tf_jobs: Dict[str, Any] = {}
+
 
 def _run_terraform_command(
     command: List[str],
     working_dir: str,
-    capture_output: bool = True
+    async_threshold: int = 45,
 ) -> Dict[str, Any]:
     """
-    Run a Terraform command.
+    Run a Terraform command. Waits up to async_threshold seconds; if still running,
+    returns a background job_id the caller can poll with terraform_job_status().
 
     Args:
         command: Terraform command as list
         working_dir: Working directory
-        capture_output: Whether to capture output
+        async_threshold: Seconds to wait before returning a job handle (default 45)
 
     Returns:
-        Dictionary with command result
+        Dictionary with command result or background job handle
     """
     try:
-        # Check if terraform is installed
         try:
             subprocess.run(['terraform', '-version'], capture_output=True, check=True)
         except FileNotFoundError:
             return {'success': False, 'error': 'Terraform not installed. Install from https://www.terraform.io/downloads.html'}
 
-        result = subprocess.run(
-            command,
-            cwd=working_dir,
-            capture_output=capture_output,
-            text=True,
-            timeout=300  # 5 minute timeout
-        )
+        log_fd, log_path = tempfile.mkstemp(prefix='tf_', suffix='.log')
+        os.close(log_fd)
 
-        return {
-            'success': result.returncode == 0,
-            'stdout': result.stdout if capture_output else '',
-            'stderr': result.stderr if capture_output else '',
-            'return_code': result.returncode
+        with open(log_path, 'w') as log_file:
+            proc = subprocess.Popen(
+                command,
+                cwd=working_dir,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+        job_id = uuid.uuid4().hex[:8]
+        _tf_jobs[job_id] = {
+            'proc': proc,
+            'log_path': log_path,
+            'command': ' '.join(command),
+            'working_dir': working_dir,
+            'started_at': time.time(),
         }
-    except subprocess.TimeoutExpired:
-        return {'success': False, 'error': 'Command timed out after 5 minutes'}
+
+        try:
+            proc.wait(timeout=async_threshold)
+        except subprocess.TimeoutExpired:
+            # Still running — return job handle
+            partial = _read_tail(log_path, 3000)
+            return {
+                'success': True,
+                'status': 'running',
+                'job_id': job_id,
+                'message': (
+                    f'Terraform is still running (job_id: {job_id}). '
+                    f'Call terraform_job_status("{job_id}") to check progress.'
+                ),
+                'partial_output': partial,
+            }
+
+        # Completed within threshold
+        output = open(log_path).read()
+        return {
+            'success': proc.returncode == 0,
+            'status': 'complete',
+            'stdout': output,
+            'stderr': '',
+            'return_code': proc.returncode,
+        }
+
     except Exception as e:
         logger.error(f"Error running Terraform command: {str(e)}")
         return {'success': False, 'error': str(e)}
+
+
+def _read_tail(path: str, max_chars: int = 3000) -> str:
+    """Read the last max_chars characters of a file."""
+    try:
+        with open(path) as f:
+            content = f.read()
+        return content[-max_chars:] if len(content) > max_chars else content
+    except Exception:
+        return ''
+
+
+def terraform_job_status(job_id: str) -> Dict[str, Any]:
+    """
+    Check the status of a long-running Terraform background job.
+
+    Use this after terraform_init / terraform_plan / terraform_apply / terraform_destroy
+    returns status='running' with a job_id. Poll until status is 'complete' or 'failed'.
+
+    Args:
+        job_id: Job ID returned by the terraform command
+
+    Returns:
+        Dictionary with status ('running'|'complete'|'failed'), output so far, and return_code when done
+    """
+    job = _tf_jobs.get(job_id)
+    if not job:
+        return {'success': False, 'error': f'Job {job_id} not found. It may have expired or never existed.'}
+
+    proc = job['proc']
+    returncode = proc.poll()
+    elapsed = round(time.time() - job['started_at'], 1)
+
+    if returncode is None:
+        partial = _read_tail(job['log_path'], 3000)
+        return {
+            'success': True,
+            'status': 'running',
+            'job_id': job_id,
+            'elapsed_seconds': elapsed,
+            'partial_output': partial,
+            'message': f'Still running ({elapsed}s elapsed). Call terraform_job_status("{job_id}") again to check.',
+        }
+
+    output = open(job['log_path']).read()
+    status = 'complete' if returncode == 0 else 'failed'
+    # Clean up
+    try:
+        os.unlink(job['log_path'])
+    except Exception:
+        pass
+    _tf_jobs.pop(job_id, None)
+
+    return {
+        'success': returncode == 0,
+        'status': status,
+        'job_id': job_id,
+        'elapsed_seconds': elapsed,
+        'return_code': returncode,
+        'output': output,
+    }
 
 
 def terraform_init(
@@ -768,6 +867,25 @@ def get_tools() -> List[Dict[str, Any]]:
         List of tool definitions with name, description, input_schema, and handler
     """
     return [
+        {
+            'name': 'terraform_job_status',
+            'description': (
+                'Check the status of a long-running Terraform background job. '
+                'Call this after terraform_init/plan/apply/destroy returns status="running" with a job_id. '
+                'Poll until status is "complete" or "failed".'
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'job_id': {
+                        'type': 'string',
+                        'description': 'Job ID returned by the terraform command'
+                    }
+                },
+                'required': ['job_id']
+            },
+            'handler': terraform_job_status,
+        },
         {
             'name': 'terraform_init',
             'description': 'Initialize a Terraform working directory. Downloads providers and modules.',
