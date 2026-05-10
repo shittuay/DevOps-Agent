@@ -13236,6 +13236,309 @@ def list_ec2_all_regions(
         return {'success': False, 'error': str(e)}
 
 
+def _parallel_region_scan(service: str, scan_fn, creds: Dict) -> tuple:
+    """
+    Helper: resolve region list and run scan_fn(boto3_client, region) across all regions in parallel.
+    Returns (all_items: list, per_region_count: dict, errors: dict, regions_scanned: int).
+    """
+    import boto3 as _boto3
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from services.credential_service import _get_boto_kwargs
+
+    base_kwargs = _get_boto_kwargs(creds, 'us-east-1')
+    meta_client = _boto3.client('ec2', **base_kwargs)
+    regions = [r['RegionName'] for r in meta_client.describe_regions(AllRegions=False)['Regions']]
+
+    def _worker(region_name):
+        try:
+            rk = dict(base_kwargs)
+            rk['region_name'] = region_name
+            client = _boto3.client(service, **rk)
+            items = scan_fn(client, region_name)
+            return region_name, items, None
+        except Exception as e:
+            return region_name, [], str(e)
+
+    all_items, per_region, errors = [], {}, {}
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(_worker, r): r for r in regions}
+        for future in futures:
+            region_name, items, err = future.result()
+            if err:
+                errors[region_name] = err
+            else:
+                per_region[region_name] = len(items)
+                all_items.extend(items)
+
+    return all_items, per_region, errors, len(regions)
+
+
+def list_lambda_all_regions() -> Dict[str, Any]:
+    """
+    List Lambda functions across ALL AWS regions in parallel.
+    Use this when the user asks about Lambda functions globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            items = []
+            paginator = client.get_paginator('list_functions')
+            for page in paginator.paginate():
+                for f in page.get('Functions', []):
+                    items.append({
+                        'function_name': f['FunctionName'],
+                        'runtime': f.get('Runtime', 'N/A'),
+                        'memory_size': f.get('MemorySize', 128),
+                        'timeout': f.get('Timeout', 3),
+                        'state': f.get('State', 'Active'),
+                        'last_modified': f.get('LastModified', 'N/A'),
+                        'region': region,
+                    })
+            return items
+
+        items, per_region, errors, n_regions = _parallel_region_scan('lambda', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['function_name']))
+        return {
+            'success': True,
+            'total_functions': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'functions': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_lambda_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_rds_all_regions() -> Dict[str, Any]:
+    """
+    List RDS instances across ALL AWS regions in parallel.
+    Use this when the user asks about RDS databases globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            items = []
+            paginator = client.get_paginator('describe_db_instances')
+            for page in paginator.paginate():
+                for db in page.get('DBInstances', []):
+                    items.append({
+                        'db_instance_identifier': db['DBInstanceIdentifier'],
+                        'engine': db.get('Engine'),
+                        'engine_version': db.get('EngineVersion'),
+                        'db_instance_class': db.get('DBInstanceClass'),
+                        'status': db.get('DBInstanceStatus'),
+                        'multi_az': db.get('MultiAZ', False),
+                        'publicly_accessible': db.get('PubliclyAccessible', False),
+                        'region': region,
+                    })
+            return items
+
+        items, per_region, errors, n_regions = _parallel_region_scan('rds', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['db_instance_identifier']))
+        return {
+            'success': True,
+            'total_instances': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'instances': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_rds_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_ecs_all_regions() -> Dict[str, Any]:
+    """
+    List ECS clusters across ALL AWS regions in parallel.
+    Use this when the user asks about ECS clusters globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            arns = client.list_clusters().get('clusterArns', [])
+            if not arns:
+                return []
+            clusters = client.describe_clusters(clusters=arns).get('clusters', [])
+            return [{
+                'cluster_name': c['clusterName'],
+                'status': c.get('status'),
+                'running_tasks': c.get('runningTasksCount', 0),
+                'active_services': c.get('activeServicesCount', 0),
+                'region': region,
+            } for c in clusters]
+
+        items, per_region, errors, n_regions = _parallel_region_scan('ecs', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['cluster_name']))
+        return {
+            'success': True,
+            'total_clusters': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'clusters': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_ecs_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_eks_all_regions() -> Dict[str, Any]:
+    """
+    List EKS clusters across ALL AWS regions in parallel.
+    Use this when the user asks about EKS clusters globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            paginator = client.get_paginator('list_clusters')
+            names = []
+            for page in paginator.paginate():
+                names.extend(page.get('clusters', []))
+            items = []
+            for name in names:
+                try:
+                    desc = client.describe_cluster(name=name)['cluster']
+                    items.append({
+                        'name': name,
+                        'status': desc.get('status', ''),
+                        'k8s_version': desc.get('version', ''),
+                        'region': region,
+                    })
+                except Exception:
+                    items.append({'name': name, 'status': 'unknown', 'region': region})
+            return items
+
+        items, per_region, errors, n_regions = _parallel_region_scan('eks', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['name']))
+        return {
+            'success': True,
+            'total_clusters': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'clusters': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_eks_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_vpcs_all_regions() -> Dict[str, Any]:
+    """
+    List VPCs across ALL AWS regions in parallel.
+    Use this when the user asks about VPCs globally or 'across all regions'.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            vpcs = client.describe_vpcs().get('Vpcs', [])
+            return [{
+                'vpc_id': v['VpcId'],
+                'cidr_block': v['CidrBlock'],
+                'state': v['State'],
+                'is_default': v.get('IsDefault', False),
+                'name': {t['Key']: t['Value'] for t in v.get('Tags', [])}.get('Name', 'N/A'),
+                'region': region,
+            } for v in vpcs]
+
+        items, per_region, errors, n_regions = _parallel_region_scan('ec2', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['vpc_id']))
+        return {
+            'success': True,
+            'total_vpcs': len(items),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'vpcs': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_vpcs_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def list_security_groups_all_regions() -> Dict[str, Any]:
+    """
+    List security groups across ALL AWS regions in parallel.
+    Use this when the user asks about security groups globally or 'across all regions'.
+    Excludes default security groups to reduce noise.
+    """
+    try:
+        from services.credential_service import get_user_aws_credentials
+        user_id = get_current_user_id()
+        if not user_id:
+            return {'success': False, 'error': 'Authentication required.'}
+        creds = get_user_aws_credentials(user_id)
+        if not creds:
+            return {'success': False, 'error': 'AWS credentials not configured.'}
+
+        def _scan(client, region):
+            sgs = client.describe_security_groups().get('SecurityGroups', [])
+            return [{
+                'group_id': sg['GroupId'],
+                'group_name': sg['GroupName'],
+                'description': sg['Description'],
+                'vpc_id': sg.get('VpcId', 'N/A'),
+                'ingress_rules': len(sg.get('IpPermissions', [])),
+                'egress_rules': len(sg.get('IpPermissionsEgress', [])),
+                'is_default': sg['GroupName'] == 'default',
+                'region': region,
+            } for sg in sgs]
+
+        items, per_region, errors, n_regions = _parallel_region_scan('ec2', _scan, creds)
+        items.sort(key=lambda x: (x['region'], x['group_id']))
+        non_default = [i for i in items if not i['is_default']]
+        return {
+            'success': True,
+            'total_security_groups': len(items),
+            'non_default_count': len(non_default),
+            'regions_scanned': n_regions,
+            'per_region_count': {r: c for r, c in sorted(per_region.items()) if c > 0},
+            'security_groups': items,
+            'errors': errors or None,
+        }
+    except Exception as e:
+        logger.error(f"Error in list_security_groups_all_regions: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def get_tools() -> List[Dict[str, Any]]:
     """
     Get AWS tool definitions.
@@ -13263,6 +13566,66 @@ def get_tools() -> List[Dict[str, Any]]:
                 }
             },
             'handler': list_ec2_all_regions
+        },
+        {
+            'name': 'list_lambda_all_regions',
+            'description': (
+                'List Lambda functions across ALL AWS regions in parallel. '
+                'Use this instead of calling list_lambda_functions per region when the user asks '
+                'about Lambda "across all regions", "globally", or "everywhere". Fast — concurrent scan.'
+            ),
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_lambda_all_regions,
+        },
+        {
+            'name': 'list_rds_all_regions',
+            'description': (
+                'List RDS instances across ALL AWS regions in parallel. '
+                'Use this instead of calling list_rds_instances per region when the user asks '
+                'about RDS "across all regions", "globally", or "everywhere". Fast — concurrent scan.'
+            ),
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_rds_all_regions,
+        },
+        {
+            'name': 'list_ecs_all_regions',
+            'description': (
+                'List ECS clusters across ALL AWS regions in parallel. '
+                'Use this instead of calling list_ecs_clusters per region when the user asks '
+                'about ECS "across all regions", "globally", or "everywhere". Fast — concurrent scan.'
+            ),
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_ecs_all_regions,
+        },
+        {
+            'name': 'list_eks_all_regions',
+            'description': (
+                'List EKS clusters across ALL AWS regions in parallel. '
+                'Use this instead of calling list_eks_clusters per region when the user asks '
+                'about EKS "across all regions", "globally", or "everywhere". Fast — concurrent scan.'
+            ),
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_eks_all_regions,
+        },
+        {
+            'name': 'list_vpcs_all_regions',
+            'description': (
+                'List VPCs across ALL AWS regions in parallel. '
+                'Use this instead of calling list_vpcs per region when the user asks '
+                'about VPCs "across all regions", "globally", or "everywhere". Fast — concurrent scan.'
+            ),
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_vpcs_all_regions,
+        },
+        {
+            'name': 'list_security_groups_all_regions',
+            'description': (
+                'List security groups across ALL AWS regions in parallel. '
+                'Use this instead of calling list_security_groups per region when the user asks '
+                'about security groups "across all regions", "globally", or "everywhere". Fast — concurrent scan.'
+            ),
+            'input_schema': {'type': 'object', 'properties': {}},
+            'handler': list_security_groups_all_regions,
         },
         {
             'name': 'get_ec2_instances',
