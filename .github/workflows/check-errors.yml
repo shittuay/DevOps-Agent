@@ -49,7 +49,19 @@ jobs:
 
         echo ""
         echo "=== SLACK / NOTIFICATION LOGS (last 2h) ==="
-        journalctl -u devops-agent --since "2 hours ago" --no-pager | grep -i "slack\|notification\|webhook" | tail -40 || echo "(none)"
+        journalctl -u devops-agent --since "2 hours ago" --no-pager | grep -i "slack\|notification\|webhook" | tail -40 || echo "(none from journalctl)"
+
+        echo ""
+        echo "=== SERVICE LOG FILE CHECK ==="
+        # Find where the app actually logs (file vs journalctl)
+        for f in /var/log/devops-agent/app.log /home/ubuntu/app/DevOps-Agent/app.log /var/www/devops-agent/app.log /tmp/devops-agent.log; do
+          if [ -f "$f" ]; then
+            echo "Found log: $f"
+            grep -i "slack\|notification\|webhook" "$f" | tail -20 || echo "(no slack lines)"
+          fi
+        done
+        echo "=== RECENT JOURNALCTL (all levels, last 30 lines) ==="
+        journalctl -u devops-agent --since "2 hours ago" --no-pager | tail -30 || echo "(none)"
 
         echo ""
         echo "=== TOOL CALL FAILURES (last 7 days) ==="
