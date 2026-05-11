@@ -8,6 +8,7 @@ performance optimization recommendations.
 from flask import Blueprint, render_template, jsonify, request
 from flask_login import login_required, current_user
 import logging
+import os
 
 from services.performance_optimizer import (
     get_performance_optimizer,
@@ -266,6 +267,13 @@ def api_run_analysis():
             db.session.add(rec)
             saved += 1
     db.session.commit()
+    if saved > 0:
+        from services.notification_service import notify_changes as _notify_changes
+        _notify_changes(
+            current_user.id,
+            saved,
+            os.environ.get('BASE_URL', 'https://devopsagent.io')
+        )
     return jsonify({'success': True, 'analyzed': len(recs_data), 'saved': saved})
 
 
