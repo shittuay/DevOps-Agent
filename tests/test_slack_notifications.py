@@ -28,7 +28,7 @@ def slack_channel():
     return ch
 
 
-def _make_sync_thread(target, daemon):
+def _make_sync_thread(target, daemon=True):
     """Side-effect for threading.Thread mock: makes .start() call target() synchronously."""
     m = MagicMock()
     m.start.side_effect = target
