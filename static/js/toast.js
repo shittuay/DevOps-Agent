@@ -27,8 +27,17 @@
         var container = getContainer();
         var toast = document.createElement('div');
         toast.className = 'toast ' + type;
-        toast.innerHTML = '<span class="toast-icon">' + (ICONS[type] || ICONS.info) + '</span>' +
-                          '<span class="toast-message">' + message + '</span>';
+        var icon = document.createElement('span');
+        icon.className = 'toast-icon';
+        icon.innerHTML = ICONS[type] || ICONS.info;
+        var text = document.createElement('span');
+        text.className = 'toast-message';
+        // Use textContent so caller-supplied text is never parsed as HTML
+        var safeMsg = typeof message === 'string' ? message : String(message);
+        // Truncate very long messages (e.g. HTML error bodies) to 200 chars
+        text.textContent = safeMsg.length > 200 ? safeMsg.slice(0, 197) + '…' : safeMsg;
+        toast.appendChild(icon);
+        toast.appendChild(text);
 
         toast.addEventListener('click', function() {
             toast.classList.remove('show');
