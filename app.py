@@ -2345,6 +2345,9 @@ def notification_channels():
     if not webhook_url.startswith('https://'):
         return jsonify({'error': 'Webhook URL must use HTTPS'}), 400
 
+    if channel_type == 'slack' and 'hooks.slack.com' not in webhook_url:
+        return jsonify({'error': 'Slack webhook URL must come from hooks.slack.com — go to your Slack workspace → Apps → Incoming Webhooks to generate one'}), 400
+
     from urllib.parse import urlparse
     import ipaddress
     import socket
