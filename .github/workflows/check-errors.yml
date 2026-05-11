@@ -48,6 +48,10 @@ jobs:
         journalctl -u devops-agent --since "24 hours ago" -p warning --no-pager | tail -30 || echo "(none)"
 
         echo ""
+        echo "=== SLACK / NOTIFICATION LOGS (last 2h) ==="
+        journalctl -u devops-agent --since "2 hours ago" --no-pager | grep -i "slack\|notification\|webhook" | tail -40 || echo "(none)"
+
+        echo ""
         echo "=== TOOL CALL FAILURES (last 7 days) ==="
         sudo -u ubuntu "$VENV/bin/python3" - "$DB" << 'PYEOF'
         import sys, sqlite3, json
