@@ -626,21 +626,16 @@ _BASE_URL = os.environ.get('BASE_URL', 'https://devopsagent.io')
 
 
 class _Proxy:
-    """Thin wrapper around Flask's current_app LocalProxy.
-
-    Stores the proxy as an attribute rather than being the proxy itself, so
-    unittest.mock.patch can replace the *wrapper* in the module namespace
-    without triggering Werkzeug's descriptor resolution during patch setup.
-    """
-    def __init__(self):
-        import flask as _flask
-        self._proxy = _flask.current_app
+    """Lazy wrapper — defers flask.current_app resolution to call time so
+    unittest.mock.patch can replace the module-level `current_app` name safely."""
 
     def _get_current_object(self):
-        return self._proxy._get_current_object()
+        import flask as _flask
+        return _flask.current_app._get_current_object()
 
     def app_context(self):
-        return self._proxy.app_context()
+        import flask as _flask
+        return _flask.current_app.app_context()
 
 
 # Module-level references replaced by tests via patch().
@@ -663,6 +658,9 @@ def _send_async(user_id: int, event_type: str, notification: 'Notification') -> 
     import services.notification_service as _self
     _current_app = _self.current_app
     _UserNotificationChannel = _self.UserNotificationChannel
+    if _UserNotificationChannel is None:
+        logger.debug("UserNotificationChannel not available — skipping notification")
+        return
 
     try:
         flask_app = _current_app._get_current_object()
