@@ -1107,6 +1107,11 @@ User Preferences and Context:
         iteration = 0
         tools_called_this_turn = False
 
+        # Compute swarm agent count once — based on the initial user query only.
+        # Must not be re-evaluated inside the loop: tool results accumulate geographic
+        # keywords that would artificially inflate the score across iterations.
+        effective_swarm = _compute_swarm_agents(messages, swarm_max_agents)
+
         while iteration < max_iterations:
             iteration += 1
             self.logger.debug(f"Kimi API call iteration {iteration}")
@@ -1121,11 +1126,20 @@ User Preferences and Context:
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
-                effective_swarm = _compute_swarm_agents(messages, swarm_max_agents)
                 if effective_swarm > 0:
                     params['extra_body'] = {"swarm": {"max_agents": effective_swarm}}
 
-                response = client.chat.completions.create(**params)
+                # Single retry on transient quota/timeout failures
+                try:
+                    response = client.chat.completions.create(**params)
+                except Exception as _retry_exc:
+                    _retry_str = str(_retry_exc)
+                    if any(k in _retry_str for k in ('429', 'rate_limit', 'timeout', 'RateLimitError', 'APITimeoutError')):
+                        self.logger.warning(f"Kimi transient error (retrying once): {_retry_str}")
+                        time.sleep(2)
+                        response = client.chat.completions.create(**params)
+                    else:
+                        raise
                 choice = response.choices[0]
                 msg = choice.message
 

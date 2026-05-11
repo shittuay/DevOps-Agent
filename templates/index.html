@@ -2138,6 +2138,13 @@
                     <span class="toggle-slider"></span>
                 </label>
             </div>
+            <div class="learning-toggle-row" id="swarmRow">
+                <label for="swarmModeToggle" title="Kimi parallel sub-agents for complex queries">Swarm Mode</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="swarmModeToggle" onchange="toggleSwarmMode(this.checked)" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
         </div>
         <div class="conversations-list" id="conversationsList">
             <!-- Conversations will be loaded here -->
@@ -3539,8 +3546,10 @@
                     const p = data.preferences || {};
                     const lm = !!p.learning_mode;
                     const sb = !!p.sandbox_mode;
+                    const sw = p.swarm_enabled !== false;  // default true
                     document.getElementById('learningModeToggle').checked = lm;
                     document.getElementById('sandboxModeToggle').checked = sb;
+                    document.getElementById('swarmModeToggle').checked = sw;
                     document.getElementById('sandboxRow').style.display = lm ? 'flex' : 'none';
                     updateLearningBadge(lm, sb);
                 })
@@ -3608,6 +3617,23 @@
                 if (typeof showToast === 'function') showToast('Sandbox Mode ' + (enabled ? 'enabled' : 'disabled'), 'success');
             }).catch(function(err) {
                 document.getElementById('sandboxModeToggle').checked = !enabled;
+                if (typeof showToast === 'function') showToast('Failed to save: ' + err.message, 'error');
+            });
+        }
+
+        function toggleSwarmMode(enabled) {
+            fetch('/api/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({swarm_enabled: enabled})
+            }).then(function(r) {
+                if (!r.ok) throw new Error('Server returned ' + r.status);
+                return r.json();
+            }).then(function(data) {
+                if (data.error) throw new Error(data.error);
+                if (typeof showToast === 'function') showToast('Swarm Mode ' + (enabled ? 'enabled' : 'disabled'), 'success');
+            }).catch(function(err) {
+                document.getElementById('swarmModeToggle').checked = !enabled;
                 if (typeof showToast === 'function') showToast('Failed to save: ' + err.message, 'error');
             });
         }
