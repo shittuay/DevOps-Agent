@@ -2369,17 +2369,6 @@ def notification_channels():
     db.session.add(channel)
     db.session.commit()
 
-    # Wire into the notification service
-    try:
-        from services.notification_service import get_notification_service
-        svc = get_notification_service()
-        if channel_type == 'slack':
-            svc.configure_slack(webhook_url=webhook_url)
-        elif channel_type == 'teams':
-            svc.configure_teams(webhook_url=webhook_url)
-    except Exception:
-        pass
-
     return jsonify({'success': True, 'channel': channel.to_dict()}), 201
 
 
@@ -2420,28 +2409,28 @@ def manage_notification_channel(channel_id):
 def test_notification_channel(channel_id):
     """Send a test notification to a channel."""
     from models import UserNotificationChannel
-    from services.notification_service import NotificationService, Notification, NotificationPriority
+    from services.notification_service import SlackClient, Notification, NotificationPriority
 
     channel = UserNotificationChannel.query.get_or_404(channel_id)
     if channel.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
 
-    try:
-        svc = NotificationService()
-        if channel.channel_type == 'slack':
-            svc.configure_slack(webhook_url=channel.webhook_url)
-        elif channel.channel_type == 'teams':
-            svc.configure_teams(webhook_url=channel.webhook_url)
+    if not channel.is_active:
+        return jsonify({'success': False, 'error': 'Channel is disabled'}), 400
 
-        notification = Notification(
-            title='Test Notification',
-            message='This is a test from DevOps Agent. If you see this, notifications are working.',
-            priority=NotificationPriority.NORMAL,
-            fields={'Source': 'DevOps Agent', 'Type': 'Test'}
-        )
-        results = svc.send(notification)
-        success = any(results.values())
-        return jsonify({'success': success, 'message': 'Test notification sent' if success else 'Failed to send'})
+    notification = Notification(
+        title='Test Notification from DevOps Agent',
+        message='Your Slack integration is working correctly. You will receive alerts here for incidents, cost findings, security scans, and infrastructure analysis.',
+        priority=NotificationPriority.NORMAL,
+        fields={'Source': 'DevOps Agent', 'Type': 'Connection Test'},
+    )
+
+    try:
+        if channel.channel_type == 'slack':
+            success = SlackClient(webhook_url=channel.webhook_url).send_webhook(notification)
+        else:
+            return jsonify({'success': False, 'error': f"Channel type '{channel.channel_type}' not supported for test"}), 400
+        return jsonify({'success': success, 'message': 'Test notification sent' if success else 'Failed to send — check webhook URL'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
