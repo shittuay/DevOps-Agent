@@ -2,6 +2,8 @@
 from datetime import datetime
 from typing import List, Dict
 from models import db, SecurityFinding, InfrastructureResource
+import os as _os
+from services.notification_service import notify_security as _notify_security
 
 
 def _get_boto_client(service: str, user_id: int = None, region: str = None):
@@ -74,6 +76,11 @@ def scan_aws_security(user_id: int) -> Dict:
     results['total'] = len(findings)
     results['findings'] = findings
 
+    _notify_security(
+        user_id,
+        results,
+        _os.environ.get('BASE_URL', 'https://devopsagent.io')
+    )
     return results
 
 
