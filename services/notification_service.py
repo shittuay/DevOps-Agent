@@ -100,15 +100,17 @@ class Notification:
         if self.actions:
             action_elements = []
             for action in self.actions:
-                action_elements.append({
+                btn = {
                     "type": "button",
                     "text": {
                         "type": "plain_text",
                         "text": action.get("text", "Action")
                     },
                     "url": action.get("url", "#"),
-                    "style": "primary" if action.get("primary") else None
-                })
+                }
+                if action.get("primary"):
+                    btn["style"] = "primary"
+                action_elements.append(btn)
             blocks.append({
                 "type": "actions",
                 "elements": action_elements
@@ -224,9 +226,12 @@ class SlackClient:
             logger.error("Slack webhook URL not configured")
             return False
 
+        # Use blocks-only payload. Slack requires a top-level `text` as a
+        # notification fallback when blocks are present. Sending `attachments`
+        # alongside `blocks` can cause silent delivery failures.
         payload = {
+            "text": notification.title,
             "blocks": notification.to_slack_blocks(),
-            "attachments": [notification.to_slack_attachment()]
         }
 
         if channel:
@@ -240,6 +245,11 @@ class SlackClient:
                 timeout=10
             )
             response.raise_for_status()
+            # Slack returns HTTP 200 for both success ("ok") and some payload
+            # errors ("invalid_payload", "no_text", etc.). Always check the body.
+            if response.text != 'ok':
+                logger.error(f"Slack webhook error: {response.text}")
+                return False
             logger.info(f"Slack notification sent: {notification.title}")
             return True
         except requests.RequestException as e:
