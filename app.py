@@ -2430,7 +2430,9 @@ def test_notification_channel(channel_id):
             success = SlackClient(webhook_url=channel.webhook_url).send_webhook(notification)
         else:
             return jsonify({'success': False, 'error': f"Channel type '{channel.channel_type}' not supported for test"}), 400
-        return jsonify({'success': success, 'message': 'Test notification sent' if success else 'Failed to send — check webhook URL'})
+        if success:
+            return jsonify({'success': True, 'message': 'Test notification sent'})
+        return jsonify({'success': False, 'error': 'Failed to send — check your webhook URL is valid and active'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
