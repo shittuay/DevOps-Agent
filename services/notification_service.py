@@ -7,6 +7,8 @@ incident notifications, and status updates.
 
 import json
 import logging
+import os
+import threading
 import requests
 from datetime import datetime
 from enum import Enum
@@ -618,3 +620,175 @@ def configure_notifications(config: dict) -> NotificationService:
     global _notification_service
     _notification_service = NotificationService(config)
     return _notification_service
+
+
+_BASE_URL = os.environ.get('BASE_URL', 'https://devopsagent.io')
+
+
+class _Proxy:
+    """Thin wrapper around Flask's current_app LocalProxy.
+
+    Stores the proxy as an attribute rather than being the proxy itself, so
+    unittest.mock.patch can replace the *wrapper* in the module namespace
+    without triggering Werkzeug's descriptor resolution during patch setup.
+    """
+    def __init__(self):
+        import flask as _flask
+        self._proxy = _flask.current_app
+
+    def _get_current_object(self):
+        return self._proxy._get_current_object()
+
+    def app_context(self):
+        return self._proxy.app_context()
+
+
+# Module-level references replaced by tests via patch().
+# These are plain Python objects (not Werkzeug LocalProxy instances) so that
+# unittest.mock.patch can inspect them safely outside an app context.
+current_app = _Proxy()
+
+try:
+    from models import UserNotificationChannel  # noqa: E402
+except ImportError:
+    UserNotificationChannel = None  # type: ignore
+
+
+def _send_async(user_id: int, event_type: str, notification: 'Notification') -> None:
+    """Load matching channels from DB and send notification in a daemon thread.
+
+    event_type must be one of: 'incidents', 'cost', 'security', 'changes'.
+    Requires Flask app context at call site. Silently no-ops if no app context.
+    """
+    import services.notification_service as _self
+    _current_app = _self.current_app
+    _UserNotificationChannel = _self.UserNotificationChannel
+
+    try:
+        flask_app = _current_app._get_current_object()
+    except RuntimeError:
+        logger.debug("_send_async called outside app context — skipping")
+        return
+
+    flag_map = {
+        'incidents': _UserNotificationChannel.notify_incidents,
+        'cost':      _UserNotificationChannel.notify_cost,
+        'security':  _UserNotificationChannel.notify_security,
+        'changes':   _UserNotificationChannel.notify_changes,
+    }
+    flag_col = flag_map.get(event_type)
+    if flag_col is None:
+        logger.warning(f"_send_async: unknown event_type '{event_type}'")
+        return
+
+    def _run():
+        with flask_app.app_context():
+            try:
+                channels = (
+                    _UserNotificationChannel.query
+                    .filter_by(user_id=user_id, is_active=True)
+                    .filter(flag_col == True)
+                    .all()
+                )
+                for ch in channels:
+                    if ch.channel_type == 'slack':
+                        SlackClient(webhook_url=ch.webhook_url).send_webhook(notification)
+            except Exception:
+                logger.exception(f"Error sending {event_type} notification for user {user_id}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def notify_incident(user_id: int, incident: dict, event: str, base_url: str = _BASE_URL) -> None:
+    """Fire a Slack notification for an incident lifecycle event."""
+    event_label = {'created': 'New Incident', 'acknowledged': 'Incident Acknowledged',
+                   'resolved': 'Incident Resolved'}.get(event, 'Incident Update')
+    severity = incident.get('severity', 'medium')
+    priority_map = {
+        'low':      NotificationPriority.LOW,
+        'medium':   NotificationPriority.NORMAL,
+        'high':     NotificationPriority.HIGH,
+        'critical': NotificationPriority.CRITICAL,
+    }
+    notification = Notification(
+        title=f"{event_label}: #{incident.get('id', 'N/A')}",
+        message=incident.get('title', 'Incident notification'),
+        priority=priority_map.get(severity, NotificationPriority.NORMAL),
+        fields={
+            'Severity': severity.upper(),
+            'Status':   incident.get('status', 'unknown').upper(),
+            'Source':   incident.get('source', 'N/A'),
+        },
+        actions=[{
+            'text': 'View Incident',
+            'url':  f"{base_url}/incidents/{incident.get('id', '')}",
+            'primary': True,
+        }],
+    )
+    _send_async(user_id, 'incidents', notification)
+
+
+def notify_security(user_id: int, results: dict, base_url: str = _BASE_URL) -> None:
+    """Fire a Slack notification for security scan results. Skips if no critical/high findings."""
+    if results.get('critical', 0) == 0 and results.get('high', 0) == 0:
+        return
+    critical = results.get('critical', 0)
+    high = results.get('high', 0)
+    priority = NotificationPriority.CRITICAL if critical > 0 else NotificationPriority.HIGH
+    notification = Notification(
+        title=f"Security Scan: {results.get('total', 0)} findings",
+        message=f"Security scan found {critical} critical and {high} high severity issues that need attention.",
+        priority=priority,
+        fields={
+            'Critical': str(critical),
+            'High':     str(high),
+            'Medium':   str(results.get('medium', 0)),
+            'Low':      str(results.get('low', 0)),
+        },
+        actions=[{
+            'text': 'View Findings',
+            'url':  f"{base_url}/optimization",
+            'primary': True,
+        }],
+    )
+    _send_async(user_id, 'security', notification)
+
+
+def notify_cost(user_id: int, new_count: int, total_savings: float,
+                base_url: str = _BASE_URL) -> None:
+    """Fire a Slack notification for new cost recommendations. Skips when new_count == 0."""
+    if new_count == 0:
+        return
+    notification = Notification(
+        title=f"Cost Alert: {new_count} new recommendation{'s' if new_count > 1 else ''}",
+        message=f"DevOps Agent found {new_count} new cost optimization opportunities totalling ${total_savings:.2f}/month in potential savings.",
+        priority=NotificationPriority.NORMAL,
+        fields={
+            'New Recommendations': str(new_count),
+            'Potential Savings':   f"${total_savings:.2f}/mo",
+        },
+        actions=[{
+            'text': 'View Recommendations',
+            'url':  f"{base_url}/optimization",
+            'primary': True,
+        }],
+    )
+    _send_async(user_id, 'cost', notification)
+
+
+def notify_changes(user_id: int, rec_count: int, base_url: str = _BASE_URL) -> None:
+    """Fire a Slack notification for new proactive recommendations. Skips when rec_count == 0."""
+    if rec_count == 0:
+        return
+    notification = Notification(
+        title=f"Infrastructure Analysis: {rec_count} new finding{'s' if rec_count > 1 else ''}",
+        message=f"Proactive analysis found {rec_count} new infrastructure recommendation{'s' if rec_count > 1 else ''} across observability, governance, and optimization.",
+        priority=NotificationPriority.NORMAL,
+        fields={'New Findings': str(rec_count)},
+        actions=[{
+            'text': 'View Analysis',
+            'url':  f"{base_url}/optimization/prevention",
+            'primary': True,
+        }],
+    )
+    _send_async(user_id, 'changes', notification)
