@@ -673,6 +673,7 @@ def _send_async(user_id: int, event_type: str, notification: 'Notification') -> 
         'cost':      _UserNotificationChannel.notify_cost,
         'security':  _UserNotificationChannel.notify_security,
         'changes':   _UserNotificationChannel.notify_changes,
+        'alerts':    _UserNotificationChannel.notify_alerts,
     }
     flag_col = flag_map.get(event_type)
     if flag_col is None:
@@ -790,3 +791,31 @@ def notify_changes(user_id: int, rec_count: int, base_url: str = _BASE_URL) -> N
         }],
     )
     _send_async(user_id, 'changes', notification)
+
+
+def notify_alert(user_id: int, alert: dict, base_url: str = _BASE_URL) -> None:
+    """Fire a Slack notification when a monitoring alert fires."""
+    severity = alert.get('severity', 'medium')
+    priority_map = {
+        'low':      NotificationPriority.LOW,
+        'medium':   NotificationPriority.NORMAL,
+        'high':     NotificationPriority.HIGH,
+        'critical': NotificationPriority.CRITICAL,
+    }
+    notification = Notification(
+        title=f"Alert Firing: {alert.get('rule_name', 'Unknown')}",
+        message=alert.get('message', 'Monitoring alert triggered'),
+        priority=priority_map.get(severity, NotificationPriority.NORMAL),
+        fields={
+            'Severity':  severity.upper(),
+            'Value':     str(alert.get('value', 'N/A')),
+            'Threshold': str(alert.get('threshold', 'N/A')),
+            'Condition': alert.get('condition', 'N/A'),
+        },
+        actions=[{
+            'text': 'View Alerts',
+            'url':  f"{base_url}/monitoring",
+            'primary': True,
+        }],
+    )
+    _send_async(user_id, 'alerts', notification)

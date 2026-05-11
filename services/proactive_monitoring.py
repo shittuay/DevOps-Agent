@@ -671,6 +671,8 @@ class ProactiveMonitoringService:
                     db.session.add(db_alert)
                     db.session.commit()
                     alert.db_id = db_alert.id
+                    from services.notification_service import notify_alert as _notify_alert
+                    _notify_alert(user_id, alert.to_dict())
             except Exception as e:
                 logger.error(f"Failed to persist alert to DB: {e}")
 
