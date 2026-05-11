@@ -11,9 +11,11 @@ This service provides automated remediation capabilities:
 """
 
 import os
+import os as _os
 import json
 import logging
 import uuid
+from services.notification_service import notify_incident as _notify_incident
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Callable
 from enum import Enum
@@ -715,6 +717,13 @@ class IncidentResponseEngine:
             author='system'
         )
         logger.info(f"Created incident {incident_id}: {title} for user {user_id}")
+        _notify_incident(
+            user_id,
+            {'id': incident.id, 'title': incident.title, 'severity': incident.severity.value,
+             'status': incident.status.value, 'source': incident.source},
+            'created',
+            _os.environ.get('BASE_URL', 'https://devopsagent.io')
+        )
         return incident
 
     def process_alert(self, user_id: int, alert_data: Dict[str, Any]) -> Optional[Incident]:
@@ -880,6 +889,13 @@ class IncidentResponseEngine:
         self._save_incident_to_db(user_id, incident)
         self._write_journal_entry(user_id, incident.id, 'status_change',
                                    f'Acknowledged by {user}', author='user')
+        _notify_incident(
+            user_id,
+            {'id': incident_id, 'title': incident.title, 'severity': incident.severity.value,
+             'status': incident.status.value, 'source': incident.source},
+            'acknowledged',
+            _os.environ.get('BASE_URL', 'https://devopsagent.io')
+        )
         return {'success': True, 'incident_id': incident_id}
 
     def resolve_incident(self, user_id: int, incident_id: str, resolution: str = None) -> Dict[str, Any]:
@@ -898,6 +914,13 @@ class IncidentResponseEngine:
         self._save_incident_to_db(user_id, incident)
         self._write_journal_entry(user_id, incident.id, 'status_change',
                                    resolution or 'Incident resolved', author='system')
+        _notify_incident(
+            user_id,
+            {'id': incident_id, 'title': incident.title, 'severity': incident.severity.value,
+             'status': incident.status.value, 'source': incident.source},
+            'resolved',
+            _os.environ.get('BASE_URL', 'https://devopsagent.io')
+        )
         return {'success': True, 'incident_id': incident_id}
 
     def get_incident(self, user_id: int, incident_id: str) -> Optional[Incident]:
