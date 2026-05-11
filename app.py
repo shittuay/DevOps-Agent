@@ -2426,13 +2426,28 @@ def test_notification_channel(channel_id):
     )
 
     try:
-        if channel.channel_type == 'slack':
-            success = SlackClient(webhook_url=channel.webhook_url).send_webhook(notification)
-        else:
+        if channel.channel_type != 'slack':
             return jsonify({'success': False, 'error': f"Channel type '{channel.channel_type}' not supported for test"}), 400
-        if success:
+
+        # Call Slack directly so we can surface the exact response body in the UI
+        import requests as _requests
+        payload = {
+            'text': notification.title,
+            'blocks': notification.to_slack_blocks(),
+        }
+        resp = _requests.post(
+            channel.webhook_url,
+            json=payload,
+            headers={'Content-Type': 'application/json'},
+            timeout=10,
+        )
+        slack_body = resp.text.strip()
+        if resp.status_code == 200 and slack_body == 'ok':
             return jsonify({'success': True, 'message': 'Test notification sent'})
-        return jsonify({'success': False, 'error': 'Failed to send — check your webhook URL is valid and active'})
+        return jsonify({
+            'success': False,
+            'error': f"Slack returned: HTTP {resp.status_code} — {slack_body}",
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
