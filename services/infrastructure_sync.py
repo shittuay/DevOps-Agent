@@ -175,7 +175,13 @@ def sync_user_infrastructure(user_id: int) -> Dict:
     results['total_cost'] = sum(r.monthly_cost or 0.0 for r in resources)
 
     # Generate cost optimization recommendations
-    generate_cost_recommendations(user_id)
+    import os as _os
+    from services.notification_service import notify_cost as _notify_cost
+    new_cost_count, new_cost_savings = generate_cost_recommendations(user_id)
+    _notify_cost(
+        user_id, new_cost_count, new_cost_savings,
+        _os.environ.get('BASE_URL', 'https://devopsagent.io')
+    )
 
     return results
 
@@ -1212,59 +1218,71 @@ def sync_aws_elastic_ips(user_id: int) -> int:
 def generate_cost_recommendations(user_id: int):
     """Generate cost optimization recommendations for a user"""
     resources = InfrastructureResource.query.filter_by(user_id=user_id).all()
+    new_count = 0
+    total_new_savings = 0.0
 
     for resource in resources:
         # Check for idle EC2 instances (mock - in production, query CloudWatch)
         if resource.resource_type == 'ec2' and resource.status == 'running':
             # Simulate low CPU usage detection
             if should_recommend_stopping(resource):
-                create_or_update_recommendation(
+                idle_savings = resource.monthly_cost * 0.9
+                if create_or_update_recommendation(
                     user_id=user_id,
                     resource_id=resource.id,
                     rec_type='idle_resource',
                     title=f"Idle EC2 instance: {resource.resource_name}",
                     description=f"This instance appears to be underutilized. Consider stopping it when not in use or downsizing to a smaller instance type.",
-                    savings=resource.monthly_cost * 0.9  # 90% savings if stopped
-                )
+                    savings=idle_savings
+                ):
+                    new_count += 1
+                    total_new_savings += idle_savings
 
             # Check for rightsizing opportunities
             rightsizing_savings = check_rightsizing_opportunity(resource)
             if rightsizing_savings > 0:
                 instance_type = resource.resource_metadata.get('instance_type', 'unknown')
                 smaller_type = get_smaller_instance_type(instance_type)
-                create_or_update_recommendation(
+                if create_or_update_recommendation(
                     user_id=user_id,
                     resource_id=resource.id,
                     rec_type='rightsizing',
                     title=f"Rightsizing opportunity: {resource.resource_name}",
                     description=f"Instance {resource.resource_name} ({instance_type}) is underutilized. Downgrade to {smaller_type} to save costs.",
                     savings=rightsizing_savings
-                )
+                ):
+                    new_count += 1
+                    total_new_savings += rightsizing_savings
 
             # Check for Spot instance opportunities
             if is_spot_candidate(resource):
                 spot_savings = resource.monthly_cost * 0.7  # 70% savings with Spot
-                create_or_update_recommendation(
+                if create_or_update_recommendation(
                     user_id=user_id,
                     resource_id=resource.id,
                     rec_type='spot_instance',
                     title=f"Spot instance opportunity: {resource.resource_name}",
                     description=f"This workload appears suitable for Spot instances. Save up to 70% by using Spot instances.",
                     savings=spot_savings
-                )
+                ):
+                    new_count += 1
+                    total_new_savings += spot_savings
 
         # Check for stopped instances that have been stopped for a long time
         if resource.resource_type == 'ec2' and resource.status == 'stopped':
             days_stopped = (datetime.utcnow() - resource.last_synced).days
             if days_stopped > 30:
-                create_or_update_recommendation(
+                stopped_savings = 5.00  # EBS storage savings
+                if create_or_update_recommendation(
                     user_id=user_id,
                     resource_id=resource.id,
                     rec_type='unused_resource',
                     title=f"Stopped instance for {days_stopped} days: {resource.resource_name}",
                     description=f"This instance has been stopped for over 30 days. Consider terminating it and creating a snapshot if needed.",
-                    savings=5.00  # EBS storage savings
-                )
+                    savings=stopped_savings
+                ):
+                    new_count += 1
+                    total_new_savings += stopped_savings
 
     # Check for S3 optimization opportunities
     for resource in resources:
@@ -1274,26 +1292,30 @@ def generate_cost_recommendations(user_id: int):
             # Recommend lifecycle policies for large buckets
             if size_gb > 100:
                 glacier_savings = resource.monthly_cost * 0.65  # 65% savings with Glacier
-                create_or_update_recommendation(
+                if create_or_update_recommendation(
                     user_id=user_id,
                     resource_id=resource.id,
                     rec_type='s3_lifecycle',
                     title=f"S3 Lifecycle policy: {resource.resource_name}",
                     description=f"Bucket {resource.resource_name} contains {size_gb:.2f}GB. Implement lifecycle policies to move old data to Glacier or Intelligent-Tiering to save costs.",
                     savings=glacier_savings
-                )
+                ):
+                    new_count += 1
+                    total_new_savings += glacier_savings
 
             # Recommend Intelligent-Tiering for all buckets
             if size_gb > 10:
                 intelligent_tiering_savings = resource.monthly_cost * 0.30
-                create_or_update_recommendation(
+                if create_or_update_recommendation(
                     user_id=user_id,
                     resource_id=resource.id,
                     rec_type='s3_intelligent_tiering',
                     title=f"Enable S3 Intelligent-Tiering: {resource.resource_name}",
                     description=f"Enable Intelligent-Tiering for {resource.resource_name} to automatically optimize storage costs based on access patterns.",
                     savings=intelligent_tiering_savings
-                )
+                ):
+                    new_count += 1
+                    total_new_savings += intelligent_tiering_savings
 
     # Check for Reserved Instance opportunities
     check_reserved_instance_opportunities(user_id, resources)
@@ -1302,6 +1324,7 @@ def generate_cost_recommendations(user_id: int):
     check_unattached_volumes(user_id)
 
     db.session.commit()
+    return new_count, total_new_savings
 
 
 def should_recommend_stopping(resource: InfrastructureResource) -> bool:
@@ -1330,9 +1353,8 @@ def create_or_update_recommendation(
     title: str,
     description: str,
     savings: float
-):
-    """Create or update a cost optimization recommendation"""
-    # Check if recommendation already exists
+) -> bool:
+    """Create or update a cost optimization recommendation. Returns True if new row created."""
     existing = CostOptimization.query.filter_by(
         user_id=user_id,
         resource_id=resource_id,
@@ -1350,6 +1372,8 @@ def create_or_update_recommendation(
             potential_monthly_savings=savings
         )
         db.session.add(recommendation)
+        return True
+    return False
 
 
 def check_rightsizing_opportunity(resource: InfrastructureResource) -> float:
