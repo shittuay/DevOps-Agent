@@ -2918,7 +2918,11 @@ def api_chat():
                     provider='kimi',
                     tools_override=_filtered_tools,
                     trust_tool_results=model_config.trust_tool_results,
-                    swarm_max_agents=getattr(model_config, 'swarm_max_agents', 0),
+                    swarm_max_agents=(
+                        getattr(model_config, 'swarm_max_agents', 0)
+                        if (prefs is None or getattr(prefs, 'swarm_enabled', True))
+                        else 0
+                    ),
                 )
             elif model_config.provider == 'anthropic':
                 response = agent.process_message_isolated(
@@ -3478,7 +3482,11 @@ def api_chat_stream():
                             provider=_provider_arg,
                             tools_override=_stream_filtered_tools,
                             trust_tool_results=_stream_trust,
-                            swarm_max_agents=getattr(mc, 'swarm_max_agents', 0),
+                            swarm_max_agents=(
+                                getattr(mc, 'swarm_max_agents', 0)
+                                if (prefs is None or getattr(prefs, 'swarm_enabled', True))
+                                else 0
+                            ),
                         )
                         # Collect initial chunks to detect agent-swallowed errors
                         # The agent catches Anthropic exceptions and yields error text

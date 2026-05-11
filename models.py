@@ -313,6 +313,9 @@ class UserPreferences(db.Model):
     learning_mode = db.Column(db.Boolean, default=False)
     sandbox_mode = db.Column(db.Boolean, default=False)
 
+    # Swarm Mode (Kimi parallel sub-agents for complex queries)
+    swarm_enabled = db.Column(db.Boolean, default=True)
+
     # Currency preference
     preferred_currency = db.Column(db.String(3), nullable=True)  # None=auto-detect, 'USD', 'NGN'
     learning_level = db.Column(db.JSON, default=lambda: {})  # {"aws": 30, "kubernetes": 10, ...}
@@ -353,6 +356,7 @@ class UserPreferences(db.Model):
             'verbose_mode': self.verbose_mode,
             'learning_mode': self.learning_mode or False,
             'sandbox_mode': self.sandbox_mode or False,
+            'swarm_enabled': self.swarm_enabled if self.swarm_enabled is not None else True,
             'preferred_currency': self.preferred_currency,
             'learning_level': self.learning_level or {},
             'favorite_commands': self.favorite_commands or [],
