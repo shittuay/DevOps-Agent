@@ -2391,6 +2391,7 @@ class UserNotificationChannel(db.Model):
     notify_security = db.Column(db.Boolean, default=True)
     notify_cost = db.Column(db.Boolean, default=True)
     notify_incidents = db.Column(db.Boolean, default=True)
+    notify_alerts = db.Column(db.Boolean, default=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -2408,6 +2409,7 @@ class UserNotificationChannel(db.Model):
             'notify_security': self.notify_security,
             'notify_cost': self.notify_cost,
             'notify_incidents': self.notify_incidents,
+            'notify_alerts': self.notify_alerts,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
