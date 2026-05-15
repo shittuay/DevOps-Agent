@@ -3,7 +3,7 @@ from functools import wraps
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
-from models import ApprovalRequest
+from models import ApprovalRequest, InfrastructureChange, User
 
 approvals_bp = Blueprint('approvals', __name__)
 
@@ -31,8 +31,39 @@ def queue_page():
 @_approver_required
 def get_pending():
     from services import approval_service
+    result = []
+
+    # Agent-triggered approval requests
     reqs = approval_service.get_pending_for_approver()
-    return jsonify([r.to_dict() for r in reqs])
+    for r in reqs:
+        d = r.to_dict()
+        d['_type'] = 'agent'
+        result.append(d)
+
+    # Manually-submitted change requests awaiting human approval
+    changes = InfrastructureChange.query.filter_by(status='pending').order_by(
+        InfrastructureChange.created_at.asc()
+    ).all()
+    for c in changes:
+        details = c.change_details or {}
+        requester = User.query.get(c.user_id)
+        tool_label = f"{c.action_type} {c.resource_type}"
+        if c.resource_name:
+            tool_label += f" ({c.resource_name})"
+        result.append({
+            '_type': 'change',
+            'id': c.id,
+            'requester_id': c.user_id,
+            'requester_name': requester.username if requester else 'Unknown',
+            'tool_name': tool_label,
+            'risk_level': details.get('risk_level', 'medium'),
+            'risk_reason': c.title,
+            'created_at': c.created_at.isoformat() + 'Z',
+            'description': c.description,
+        })
+
+    result.sort(key=lambda x: x['created_at'])
+    return jsonify(result)
 
 
 @approvals_bp.route('/api/approvals/count')
@@ -41,7 +72,8 @@ def get_pending():
 def get_count():
     from services import approval_service
     reqs = approval_service.get_pending_for_approver()
-    return jsonify({'count': len(reqs)})
+    pending_changes = InfrastructureChange.query.filter_by(status='pending').count()
+    return jsonify({'count': len(reqs) + pending_changes})
 
 
 @approvals_bp.route('/api/approvals/<int:approval_id>/status')
