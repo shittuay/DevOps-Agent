@@ -96,7 +96,8 @@
         color: var(--text-secondary);
         font-style: italic;
         margin-top: 2px;
-        max-width: 220px;
+        word-break: break-word;
+        white-space: normal;
     }
 
     /* Expandable result */
@@ -162,7 +163,16 @@
 <div class="total-count" id="totalCount"></div>
 
 <div class="card" style="overflow: hidden;">
-    <table id="historyTable">
+    <table id="historyTable" style="table-layout: fixed; width: 100%;">
+        <colgroup>
+            <col style="width: 130px;">
+            <col style="width: 110px;">
+            <col style="width: 200px;">
+            <col style="width: 80px;">
+            <col style="width: 90px;">
+            <col style="width: 130px;">
+            <col>
+        </colgroup>
         <thead>
             <tr>
                 <th>Date</th>
