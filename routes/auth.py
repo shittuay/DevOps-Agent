@@ -5,6 +5,7 @@ Extracted from app.py to reduce its size. All routes keep the same URL paths.
 import hashlib
 import re
 import secrets
+import threading
 from datetime import datetime, timedelta
 
 from flask import (
@@ -238,18 +239,27 @@ def signup():
 
             db.session.commit()  # single commit: user + subscription together
 
-            try:
-                from services.email_service import email_service
-                email_service.send_verification_email(user, token=verification_token)
-                if user.email:
-                    email_service.send_welcome_email(user)
-                    # Record Day 0 drip log
-                    from models import DripEmailLog
-                    drip_log = DripEmailLog(user_id=user.id, drip_key='day_0_welcome', success=True)
-                    db.session.add(drip_log)
-                    db.session.commit()
-            except Exception as email_err:
-                current_app.logger.warning(f"Failed to send verification email to {email}: {email_err}")
+            def _send_signup_emails(app, user_id, user_email, token):
+                with app.app_context():
+                    try:
+                        from services.email_service import email_service
+                        from models import User as _User, DripEmailLog, db as _db
+                        _user = _User.query.get(user_id)
+                        if _user:
+                            email_service.send_verification_email(_user, token=token)
+                            if user_email:
+                                email_service.send_welcome_email(_user)
+                                drip_log = DripEmailLog(user_id=user_id, drip_key='day_0_welcome', success=True)
+                                _db.session.add(drip_log)
+                                _db.session.commit()
+                    except Exception as email_err:
+                        current_app.logger.warning(f"Failed to send signup emails to {user_email}: {email_err}")
+
+            threading.Thread(
+                target=_send_signup_emails,
+                args=(current_app._get_current_object(), user.id, user.email, verification_token),
+                daemon=True,
+            ).start()
 
             login_user(user, remember=True)
             user.update_last_login(ip_address=ip_address)
@@ -429,14 +439,24 @@ def resend_verification():
     user.email_verification_sent_at = datetime.utcnow()
     db.session.commit()
 
-    try:
-        from services.email_service import email_service
-        email_service.send_verification_email(user, token=raw_token)
-        security_logger.info(f"Verification email resent to {user.email}")
-        return jsonify({'success': True, 'message': 'Verification email sent. Please check your inbox.'})
-    except Exception as e:
-        current_app.logger.warning(f"Failed to resend verification email to {user.email}: {e}")
-        return jsonify({'success': False, 'message': 'Failed to send verification email. Please try again later.'}), 500
+    def _resend_email(app, user_id, user_email, token):
+        with app.app_context():
+            try:
+                from services.email_service import email_service
+                from models import User as _User
+                _user = _User.query.get(user_id)
+                if _user:
+                    email_service.send_verification_email(_user, token=token)
+                    current_app.logger.info(f"Verification email resent to {user_email}")
+            except Exception as e:
+                current_app.logger.warning(f"Failed to resend verification email to {user_email}: {e}")
+
+    threading.Thread(
+        target=_resend_email,
+        args=(current_app._get_current_object(), user.id, user.email, raw_token),
+        daemon=True,
+    ).start()
+    return jsonify({'success': True, 'message': 'Verification email sent. Please check your inbox.'})
 
 
 # ==========================================
