@@ -53,6 +53,31 @@ def get_status(approval_id):
     return jsonify(req.to_dict())
 
 
+@approvals_bp.route('/approvals/history')
+@login_required
+@_approver_required
+def history_page():
+    return render_template('approvals/history.html')
+
+
+@approvals_bp.route('/api/approvals/history')
+@login_required
+@_approver_required
+def get_history():
+    status_filter = request.args.get('status', 'all')
+    limit = min(int(request.args.get('limit', 100)), 500)
+
+    query = ApprovalRequest.query.filter(ApprovalRequest.status != 'pending')
+
+    if status_filter == 'approved':
+        query = query.filter(ApprovalRequest.status.in_(['approved', 'executed']))
+    elif status_filter in ('rejected', 'expired'):
+        query = query.filter(ApprovalRequest.status == status_filter)
+
+    reqs = query.order_by(ApprovalRequest.created_at.desc()).limit(limit).all()
+    return jsonify([r.to_dict() for r in reqs])
+
+
 @approvals_bp.route('/api/approvals/<int:approval_id>/approve', methods=['POST'])
 @login_required
 @_approver_required

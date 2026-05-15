@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}Approval History — DevOps Agent{% endblock %}
+{% block content %}
+<style>
+    .page-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 28px;
+        flex-wrap: wrap;
+    }
+    .page-header h1 {
+        font-family: 'Syne', sans-serif;
+        font-size: 26px;
+        font-weight: 700;
+        margin: 0;
+    }
+    .page-header-actions {
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+    .queue-link {
+        padding: 6px 14px;
+        background: rgba(255,107,53,0.12);
+        color: var(--accent-primary);
+        border: 1px solid rgba(255,107,53,0.3);
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background 0.2s;
+    }
+    .queue-link:hover { background: rgba(255,107,53,0.22); }
+
+    /* Filter tabs */
+    .filter-tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+    .filter-tab {
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid var(--border-subtle);
+        background: transparent;
+        color: var(--text-secondary);
+        transition: all 0.15s;
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    .filter-tab:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+    .filter-tab.active {
+        background: rgba(255,107,53,0.15);
+        border-color: rgba(255,107,53,0.4);
+        color: var(--accent-primary);
+    }
+
+    /* Status badges */
+    .status-executed  { background: rgba(16,185,129,0.15);  color: #10b981; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+    .status-approved  { background: rgba(16,185,129,0.10);  color: #10b981; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+    .status-rejected  { background: rgba(239,68,68,0.12);   color: #ef4444; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+    .status-expired   { background: rgba(156,163,175,0.12); color: #9ca3af; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+
+    /* Risk badges */
+    .risk-critical { background: rgba(239,68,68,0.15);  color: #ef4444; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+    .risk-high     { background: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+    .risk-medium   { background: rgba(59,130,246,0.12); color: #60a5fa; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+
+    .tool-name {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 13px;
+        color: var(--accent-primary);
+    }
+    .risk-reason {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 3px;
+    }
+    .ts {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 12px;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+    .approver-name {
+        font-size: 13px;
+        font-weight: 600;
+    }
+    .note-text {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-style: italic;
+        margin-top: 2px;
+        max-width: 220px;
+    }
+
+    /* Expandable result */
+    .result-toggle {
+        background: none;
+        border: 1px solid var(--border-subtle);
+        border-radius: 6px;
+        padding: 3px 10px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-family: 'IBM Plex Mono', monospace;
+        transition: all 0.15s;
+    }
+    .result-toggle:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+    .result-panel {
+        display: none;
+        background: rgba(0,0,0,0.25);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-top: 8px;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 12px;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    .result-panel.open { display: block; }
+
+    .empty-history {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-secondary);
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    .total-count {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+    }
+    tr.row-rejected td { opacity: 0.75; }
+    tr.row-expired td  { opacity: 0.55; }
+</style>
+
+<div class="page-header">
+    <h1>Approval History</h1>
+    <div class="page-header-actions">
+        <a href="/approvals" class="queue-link">⏳ Pending Queue</a>
+    </div>
+</div>
+
+<div class="filter-tabs">
+    <button class="filter-tab active" data-filter="all">All</button>
+    <button class="filter-tab" data-filter="approved">Approved / Executed</button>
+    <button class="filter-tab" data-filter="rejected">Rejected</button>
+    <button class="filter-tab" data-filter="expired">Expired</button>
+</div>
+
+<div class="total-count" id="totalCount"></div>
+
+<div class="card" style="overflow: hidden;">
+    <table id="historyTable">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Requester</th>
+                <th>Tool</th>
+                <th>Risk</th>
+                <th>Status</th>
+                <th>Decided By</th>
+                <th>Note / Result</th>
+            </tr>
+        </thead>
+        <tbody id="historyBody">
+            <tr><td colspan="7"><div class="empty-history">Loading...</div></td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+let currentFilter = 'all';
+let allRecords = [];
+
+function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })
+        + ' ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false });
+}
+
+function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function statusBadge(s) {
+    const map = { executed:'executed', approved:'approved', rejected:'rejected', expired:'expired' };
+    const cls = map[s] || 'expired';
+    return `<span class="status-${cls}">${s.toUpperCase()}</span>`;
+}
+
+function riskBadge(r) {
+    const level = (r || 'high').toLowerCase();
+    return `<span class="risk-${level}">${level.toUpperCase()}</span>`;
+}
+
+function toggleResult(id) {
+    const panel = document.getElementById(`result-panel-${id}`);
+    const btn   = document.getElementById(`result-btn-${id}`);
+    if (!panel) return;
+    const open = panel.classList.toggle('open');
+    btn.textContent = open ? 'Hide result' : 'View result';
+}
+
+async function loadHistory() {
+    try {
+        const res = await fetch(`/api/approvals/history?status=${currentFilter}&limit=200`);
+        if (!res.ok) return;
+        allRecords = await res.json();
+        renderHistory();
+    } catch(e) {
+        console.error('Failed to load history', e);
+    }
+}
+
+function renderHistory() {
+    const tbody = document.getElementById('historyBody');
+    const countEl = document.getElementById('totalCount');
+
+    countEl.textContent = allRecords.length
+        ? `${allRecords.length} record${allRecords.length !== 1 ? 's' : ''}`
+        : '';
+
+    if (!allRecords.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-history">No records found</div></td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = allRecords.map(r => {
+        const rowClass = r.status === 'rejected' ? 'row-rejected' : r.status === 'expired' ? 'row-expired' : '';
+        const decidedBy = r.approver_name
+            ? `<div class="approver-name">${escHtml(r.approver_name)}</div>
+               <div class="ts">${fmtDate(r.decided_at)}</div>`
+            : `<span style="color:var(--text-secondary);font-size:12px;">—</span>`;
+
+        const noteOrResult = buildNoteResult(r);
+
+        return `
+        <tr class="${rowClass}" id="hist-row-${r.id}">
+            <td class="ts">${fmtDate(r.created_at)}</td>
+            <td><strong>${escHtml(r.requester_name || 'Unknown')}</strong></td>
+            <td>
+                <div class="tool-name">${escHtml(r.tool_name)}</div>
+                <div class="risk-reason">${escHtml(r.risk_reason)}</div>
+            </td>
+            <td>${riskBadge(r.risk_level)}</td>
+            <td>${statusBadge(r.status)}</td>
+            <td>${decidedBy}</td>
+            <td>${noteOrResult}</td>
+        </tr>`;
+    }).join('');
+}
+
+function buildNoteResult(r) {
+    let html = '';
+
+    if (r.approver_note) {
+        html += `<div class="note-text">"${escHtml(r.approver_note)}"</div>`;
+    }
+
+    if (r.execution_result) {
+        const success = r.execution_result.success;
+        const indicator = success
+            ? '<span style="color:#10b981;font-size:12px;">✓ Success</span>'
+            : '<span style="color:#ef4444;font-size:12px;">✗ Failed</span>';
+        html += `
+            <div style="margin-top:4px;display:flex;align-items:center;gap:8px;">
+                ${indicator}
+                <button class="result-toggle" id="result-btn-${r.id}" onclick="toggleResult(${r.id})">View result</button>
+            </div>
+            <div class="result-panel" id="result-panel-${r.id}">${escHtml(JSON.stringify(r.execution_result, null, 2))}</div>`;
+    }
+
+    return html || '<span style="color:var(--text-secondary);font-size:12px;">—</span>';
+}
+
+// Filter tabs
+document.querySelectorAll('.filter-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        loadHistory();
+    });
+});
+
+loadHistory();
+</script>
+{% endblock %}
