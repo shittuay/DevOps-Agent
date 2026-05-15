@@ -3052,14 +3052,14 @@ class ApprovalRequest(db.Model):
             'risk_level': self.risk_level,
             'risk_reason': self.risk_reason,
             'status': self.status,
-            'expires_at': self.expires_at.isoformat(),
+            'expires_at': self.expires_at.isoformat() + 'Z',
             'approver_id': self.approver_id,
             'approver_name': self.approver_user.username if self.approver_user else None,
-            'decided_at': self.decided_at.isoformat() if self.decided_at else None,
+            'decided_at': (self.decided_at.isoformat() + 'Z') if self.decided_at else None,
             'approver_note': self.approver_note,
             'execution_result': self.execution_result,
-            'executed_at': self.executed_at.isoformat() if self.executed_at else None,
-            'created_at': self.created_at.isoformat(),
+            'executed_at': (self.executed_at.isoformat() + 'Z') if self.executed_at else None,
+            'created_at': self.created_at.isoformat() + 'Z',
         }
 
     def __repr__(self):
