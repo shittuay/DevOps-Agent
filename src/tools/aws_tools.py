@@ -13206,7 +13206,7 @@ def list_ec2_all_regions(
 
         with ThreadPoolExecutor(max_workers=20) as pool:
             futures = {pool.submit(_scan_region, r): r for r in regions}
-            for future in as_completed(futures):
+            for future in as_completed(futures, timeout=25):
                 region_name, instances, err = future.result()
                 if err:
                     errors[region_name] = err
@@ -13719,9 +13719,10 @@ def get_tools() -> List[Dict[str, Any]]:
             'name': 'list_ec2_all_regions',
             'description': (
                 'List EC2 instances across ALL AWS regions in parallel. '
-                'Use this instead of calling get_ec2_instances per region when the user asks about '
-                '"all regions", "every region", or "global" EC2 inventory. '
-                'Much faster — scans ~30 regions concurrently in seconds.'
+                'ONLY call this when the user explicitly asks about "all regions", "every region", or "global" EC2 inventory. '
+                'Do NOT call this as a pre-flight step before creating, stopping, or modifying an instance in a specific region — '
+                'use list_ec2_instances with the target region instead. '
+                'Calling this unnecessarily causes long delays and server timeouts.'
             ),
             'input_schema': {
                 'type': 'object',
