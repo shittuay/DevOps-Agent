@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}Approval Queue — DevOps Agent{% endblock %}
+{% block content %}
+<style>
+    .queue-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+    .queue-header h1 {
+        font-family: 'Syne', sans-serif;
+        font-size: 26px;
+        font-weight: 700;
+    }
+    .count-badge {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 20px;
+        padding: 4px 12px;
+        font-size: 14px;
+        font-weight: 700;
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    .risk-critical {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    .risk-high {
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    .tool-name {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 13px;
+        color: var(--accent-primary);
+    }
+    .risk-reason {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 4px;
+    }
+    .action-row {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+    }
+    .note-area {
+        display: none;
+        margin-top: 8px;
+    }
+    .note-area.open { display: flex; gap: 8px; align-items: center; }
+    .note-input {
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-size: 13px;
+        font-family: inherit;
+        flex: 1;
+    }
+    .note-input:focus { outline: none; border-color: var(--accent-primary); }
+    .btn-approve {
+        padding: 6px 14px;
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-approve:hover { background: rgba(16, 185, 129, 0.25); }
+    .btn-reject {
+        padding: 6px 14px;
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-reject:hover { background: rgba(239, 68, 68, 0.25); }
+    .status-msg {
+        font-size: 13px;
+        padding: 4px 0;
+    }
+    .empty-queue {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-secondary);
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    .age {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+</style>
+
+<div class="queue-header">
+    <h1>Pending Approvals</h1>
+    <span class="count-badge" id="countBadge">0</span>
+</div>
+
+<div class="card" style="overflow: hidden;">
+    <table id="queueTable">
+        <thead>
+            <tr>
+                <th>Requester</th>
+                <th>Tool</th>
+                <th>Risk</th>
+                <th>Age</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="queueBody">
+            <tr>
+                <td colspan="5"><div class="empty-queue">Loading...</div></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+let requests = [];
+
+function timeAgo(iso) {
+    const ms = Date.now() - new Date(iso).getTime();
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return s + 's ago';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    return h + 'h ago';
+}
+
+async function loadQueue() {
+    try {
+        const res = await fetch('/api/approvals/pending');
+        if (!res.ok) return;
+        requests = await res.json();
+        renderQueue();
+    } catch (e) {
+        console.error('Failed to load queue', e);
+    }
+}
+
+function renderQueue() {
+    const tbody = document.getElementById('queueBody');
+    const badge = document.getElementById('countBadge');
+    badge.textContent = requests.length;
+
+    if (!requests.length) {
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-queue">No pending approvals</div></td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = requests.map(r => `
+        <tr id="row-${r.id}">
+            <td><strong>${escHtml(r.requester_name || 'Unknown')}</strong></td>
+            <td>
+                <div class="tool-name">${escHtml(r.tool_name)}</div>
+                <div class="risk-reason">${escHtml(r.risk_reason)}</div>
+            </td>
+            <td><span class="risk-${r.risk_level}">${r.risk_level.toUpperCase()}</span></td>
+            <td class="age">${timeAgo(r.created_at)}</td>
+            <td>
+                <div class="action-row">
+                    <button class="btn-approve" onclick="startApprove(${r.id})">Approve</button>
+                    <button class="btn-reject" onclick="startReject(${r.id})">Reject</button>
+                </div>
+                <div class="note-area" id="note-${r.id}">
+                    <input class="note-input" id="note-input-${r.id}" placeholder="Optional note..." />
+                    <button class="btn-approve" id="confirm-approve-${r.id}" onclick="confirmApprove(${r.id})" style="display:none">Confirm Approve</button>
+                    <button class="btn-reject" id="confirm-reject-${r.id}" onclick="confirmReject(${r.id})" style="display:none">Confirm Reject</button>
+                    <button class="btn-secondary" style="padding:6px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--border-subtle);border-radius:8px;font-size:13px;cursor:pointer;color:var(--text-secondary)" onclick="cancelNote(${r.id})">Cancel</button>
+                </div>
+                <div class="status-msg" id="status-${r.id}"></div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function startApprove(id) {
+    const note = document.getElementById(`note-${id}`);
+    note.classList.add('open');
+    document.getElementById(`confirm-approve-${id}`).style.display = '';
+    document.getElementById(`confirm-reject-${id}`).style.display = 'none';
+}
+
+function startReject(id) {
+    const note = document.getElementById(`note-${id}`);
+    note.classList.add('open');
+    document.getElementById(`confirm-reject-${id}`).style.display = '';
+    document.getElementById(`confirm-approve-${id}`).style.display = 'none';
+}
+
+function cancelNote(id) {
+    document.getElementById(`note-${id}`).classList.remove('open');
+}
+
+async function confirmApprove(id) {
+    const note = document.getElementById(`note-input-${id}`).value.trim() || null;
+    setStatus(id, 'Approving...');
+    try {
+        const res = await fetch(`/api/approvals/${id}/approve`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({note}),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            setStatus(id, 'Approved — tool executed.');
+            document.getElementById(`row-${id}`).style.opacity = '0.4';
+            setTimeout(loadQueue, 1500);
+        } else {
+            setStatus(id, 'Error: ' + (data.error || 'Unknown'));
+        }
+    } catch (e) {
+        setStatus(id, 'Request failed.');
+    }
+}
+
+async function confirmReject(id) {
+    const note = document.getElementById(`note-input-${id}`).value.trim() || null;
+    setStatus(id, 'Rejecting...');
+    try {
+        const res = await fetch(`/api/approvals/${id}/reject`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({note}),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            setStatus(id, 'Rejected.');
+            document.getElementById(`row-${id}`).style.opacity = '0.4';
+            setTimeout(loadQueue, 1500);
+        } else {
+            setStatus(id, 'Error: ' + (data.error || 'Unknown'));
+        }
+    } catch (e) {
+        setStatus(id, 'Request failed.');
+    }
+}
+
+function setStatus(id, msg) {
+    const el = document.getElementById(`status-${id}`);
+    if (el) el.textContent = msg;
+}
+
+loadQueue();
+setInterval(loadQueue, 15000);
+</script>
+{% endblock %}

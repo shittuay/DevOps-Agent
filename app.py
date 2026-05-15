@@ -227,6 +227,8 @@ def load_user(user_id):
 # Register blueprints
 from routes.auth import auth_bp
 app.register_blueprint(auth_bp)
+from routes.approvals import approvals_bp
+app.register_blueprint(approvals_bp)
 from routes.billing import billing_bp
 app.register_blueprint(billing_bp)
 
@@ -3485,6 +3487,7 @@ def api_chat_stream():
                             conversation_history=conversation_history,
                             user_preferences_context=preferences_context,
                             user_id=uid,
+                            conversation_id=cid,
                             model_override=mc.model,
                             trial_context=tc,
                             sandbox_mode=sb,
@@ -3499,32 +3502,49 @@ def api_chat_stream():
                         )
                         # Collect initial chunks to detect agent-swallowed errors
                         # The agent catches Anthropic exceptions and yields error text
+                        _approval_sentinel = '\x00APPROVAL_REQUIRED\x00'
                         initial_buf = []
+                        _approval_from_buf = None
+                        _buf_exhausted = True
                         for _c in stream_source:
+                            if isinstance(_c, str) and _c.startswith(_approval_sentinel):
+                                _approval_from_buf = _c
+                                _buf_exhausted = False
+                                break
                             initial_buf.append(_c)
-                            # Once we have enough text to check, evaluate
                             combined = ''.join(initial_buf)
                             if _is_anthropic_error(combined):
-                                # Anthropic failed — switch to Groq
                                 actual_mc = _groq_fallback_mc
                                 stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
+                                _buf_exhausted = False
                                 break
-                            # If we've accumulated a reasonable first chunk without error, emit and continue
                             if len(combined) > 20 or not combined.startswith(('\u274c', 'Error', 'API', '{')):
-                                # Looks like a real response, emit buffered chunks
                                 yield from _drain_tool_events()
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
                                     yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
+                                _buf_exhausted = False
                                 break
-                        else:
+                        if _approval_from_buf:
+                            payload = _json.loads(_approval_from_buf[len(_approval_sentinel):])
+                            yield f"data: {_json.dumps({'type': 'approval_required', **payload})}\n\n"
+                            with app.app_context():
+                                try:
+                                    c = Conversation.query.filter_by(id=cid, user_id=uid).first()
+                                    if c:
+                                        c.is_streaming = False
+                                    db.session.commit()
+                                except Exception:
+                                    pass
+                            yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': sub.credits_remaining, 'approval_pending': True})}\n\n"
+                            return
+                        elif _buf_exhausted:
                             # Generator exhausted during initial check
                             combined = ''.join(initial_buf)
                             if _is_anthropic_error(combined):
                                 actual_mc = _groq_fallback_mc
                                 stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
                             else:
-                                # Short but valid response, emit it
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
                                     yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
@@ -3534,7 +3554,21 @@ def api_chat_stream():
                         actual_mc = _groq_fallback_mc
                         stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
 
+                _approval_sentinel = '\x00APPROVAL_REQUIRED\x00'
                 for chunk in stream_source:
+                    if isinstance(chunk, str) and chunk.startswith(_approval_sentinel):
+                        payload = _json.loads(chunk[len(_approval_sentinel):])
+                        yield f"data: {_json.dumps({'type': 'approval_required', **payload})}\n\n"
+                        with app.app_context():
+                            try:
+                                c = Conversation.query.filter_by(id=cid, user_id=uid).first()
+                                if c:
+                                    c.is_streaming = False
+                                db.session.commit()
+                            except Exception:
+                                pass
+                        yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': sub.credits_remaining, 'approval_pending': True})}\n\n"
+                        return
                     yield from _drain_tool_events()
                     full_response.append(chunk)
                     yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(chunk)})}\n\n"

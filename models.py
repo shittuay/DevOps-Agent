@@ -3018,6 +3018,54 @@ class CrisisIncident(db.Model):
         return f'<CrisisIncident user={self.user_id} severity={self.severity} at={self.detected_at}>'
 
 
+class ApprovalRequest(db.Model):
+    """Pending human approval for high-risk tool calls made via chat."""
+    __tablename__ = 'approval_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    requester_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    conversation_id = db.Column(db.String(50), db.ForeignKey('conversations.id'), nullable=True)
+    tool_name = db.Column(db.String(100), nullable=False)
+    tool_input = db.Column(db.JSON)
+    risk_level = db.Column(db.String(20), nullable=False)
+    risk_reason = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), default='pending', nullable=False)  # pending/approved/rejected/executed/expired
+    expires_at = db.Column(db.DateTime, nullable=False)
+    approver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    decided_at = db.Column(db.DateTime, nullable=True)
+    approver_note = db.Column(db.Text, nullable=True)
+    execution_result = db.Column(db.JSON, nullable=True)
+    executed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    requester = db.relationship('User', foreign_keys=[requester_id], backref='approval_requests_made')
+    approver_user = db.relationship('User', foreign_keys=[approver_id], backref='approval_requests_decided')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'requester_id': self.requester_id,
+            'requester_name': self.requester.username if self.requester else None,
+            'conversation_id': self.conversation_id,
+            'tool_name': self.tool_name,
+            'tool_input': self.tool_input,
+            'risk_level': self.risk_level,
+            'risk_reason': self.risk_reason,
+            'status': self.status,
+            'expires_at': self.expires_at.isoformat(),
+            'approver_id': self.approver_id,
+            'approver_name': self.approver_user.username if self.approver_user else None,
+            'decided_at': self.decided_at.isoformat() if self.decided_at else None,
+            'approver_note': self.approver_note,
+            'execution_result': self.execution_result,
+            'executed_at': self.executed_at.isoformat() if self.executed_at else None,
+            'created_at': self.created_at.isoformat(),
+        }
+
+    def __repr__(self):
+        return f'<ApprovalRequest {self.id} tool={self.tool_name} status={self.status}>'
+
+
 class MCPOAuthToken(db.Model):
     """Persistent OAuth access tokens for the MCP server.
 
