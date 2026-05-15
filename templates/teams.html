@@ -3,24 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Team Management - DevOps Agent</title>
-
-    <!-- Terminal Luxury Fonts -->
+    <title>Team Management — DevOps Agent</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
-
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
     <style>
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Outfit', -apple-system, sans-serif;
+            font-family: 'Outfit', sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
@@ -28,14 +21,9 @@
             overflow-x: hidden;
         }
 
-        /* Animated Grid Background */
         body::before {
             content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-image:
                 linear-gradient(var(--border-subtle) 1px, transparent 1px),
                 linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
@@ -47,653 +35,641 @@
         }
 
         @keyframes gridMove {
-            0% { transform: translate(0, 0); }
+            0%   { transform: translate(0, 0); }
             100% { transform: translate(50px, 50px); }
         }
 
-        /* Gradient Mesh */
         body::after {
             content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
-                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(at 0% 0%, rgba(255,107,53,0.12) 0%, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(0,212,255,0.10) 0%, transparent 50%);
             pointer-events: none;
             z-index: 0;
         }
 
-        .page-container {
-            position: relative;
-            z-index: 1;
-        }
+        .page-container { position: relative; z-index: 1; }
 
-        /* Header */
+        /* ── Header ── */
         .header {
             background: var(--glass-bg);
             backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--glass-border);
-            padding: 20px 32px;
+            padding: 18px 32px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 100;
+            position: sticky; top: 0; z-index: 100;
         }
-
-        .logo-section {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
+        .logo-section { display: flex; align-items: center; gap: 12px; }
         .logo-icon {
-            width: 40px;
-            height: 40px;
+            width: 38px; height: 38px;
             background: var(--gradient-primary);
             border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 800;
-            font-size: 20px;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 800; font-size: 18px;
             font-family: 'Syne', sans-serif;
-            position: relative;
-            overflow: hidden;
         }
-
-        .logo-icon::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            animation: shimmer 3s infinite;
-        }
-
-        @keyframes shimmer {
-            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-        }
-
         .logo-text {
-            font-size: 20px;
-            font-weight: 700;
+            font-size: 18px; font-weight: 700;
             font-family: 'Syne', sans-serif;
             background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-
-        .back-button {
-            padding: 10px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-primary);
+        .back-btn {
+            padding: 8px 18px;
+            background: rgba(255,255,255,0.05);
+            color: var(--text-secondary);
             border: 1px solid var(--glass-border);
             border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
+            font-size: 13px; font-weight: 600;
             font-family: 'IBM Plex Mono', monospace;
-            cursor: pointer;
-            transition: all 0.3s ease;
             text-decoration: none;
-            display: inline-block;
+            transition: all 0.2s;
         }
+        .back-btn:hover { color: var(--text-primary); border-color: var(--accent-primary); }
 
-        .back-button:hover {
-            background: rgba(255, 255, 255, 0.1);
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        /* Main Container */
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 60px 32px;
-        }
+        /* ── Main ── */
+        .container { max-width: 1100px; margin: 0 auto; padding: 48px 32px; }
 
         .page-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 48px;
-            animation: fadeSlideUp 0.6s ease;
+            margin-bottom: 36px;
+            flex-wrap: wrap;
+            gap: 16px;
         }
-
-        .page-title-section h1 {
-            font-size: 48px;
-            font-weight: 800;
+        .page-header h1 {
+            font-size: 36px; font-weight: 800;
             font-family: 'Syne', sans-serif;
             background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
             background-clip: text;
-            margin-bottom: 12px;
+            margin-bottom: 6px;
         }
+        .page-header p { color: var(--text-secondary); font-size: 15px; }
 
-        .page-subtitle {
-            color: var(--text-secondary);
-            font-size: 16px;
-        }
-
-        @keyframes fadeSlideUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Add Member Button */
         .btn-primary {
             background: var(--gradient-primary);
-            color: white;
-            padding: 14px 28px;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 700;
+            color: white; border: none;
+            padding: 11px 24px; border-radius: 10px;
+            font-size: 13px; font-weight: 700;
             font-family: 'IBM Plex Mono', monospace;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            border: none;
-            position: relative;
-            overflow: hidden;
+            cursor: pointer; transition: all 0.2s;
+            white-space: nowrap;
         }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(255,107,53,0.35); }
 
-        .btn-primary::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.3);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-
-        .btn-primary:hover::before {
-            width: 300px;
-            height: 300px;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 30px rgba(255, 107, 53, 0.4);
-        }
-
-        /* Team Stats */
-        .team-stats {
+        /* ── Role Reference ── */
+        .role-reference {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 24px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 32px;
         }
+        .role-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 16px 18px;
+        }
+        .role-card-name {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+        .role-card-name.admin    { color: #ff6b35; }
+        .role-card-name.approver { color: #f59e0b; }
+        .role-card-name.user     { color: #60a5fa; }
+        .role-card-name.viewer   { color: #9ca3af; }
+        .role-card p { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
 
-        .stat-card {
+        /* ── Stats ── */
+        .stats-row {
+            display: flex; gap: 16px;
+            margin-bottom: 28px;
+            flex-wrap: wrap;
+        }
+        .stat-pill {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 6px 16px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .stat-pill strong { color: var(--text-primary); }
+
+        /* ── Table card ── */
+        .card {
             background: var(--glass-bg);
             backdrop-filter: blur(40px);
             border: 1px solid var(--glass-border);
             border-radius: 16px;
-            padding: 28px;
-            animation: fadeSlideUp 0.6s ease;
+            overflow: hidden;
         }
-
-        .stat-card:nth-child(1) { animation-delay: 0.2s; animation-fill-mode: both; }
-        .stat-card:nth-child(2) { animation-delay: 0.3s; animation-fill-mode: both; }
-        .stat-card:nth-child(3) { animation-delay: 0.4s; animation-fill-mode: both; }
-
-        .stat-label {
-            font-size: 13px;
-            color: var(--text-tertiary);
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            font-family: 'IBM Plex Mono', monospace;
-            letter-spacing: 0.5px;
-        }
-
-        .stat-value {
-            font-size: 36px;
-            font-weight: 800;
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-subtle);
             font-family: 'Syne', sans-serif;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-size: 18px; font-weight: 700;
         }
 
-        /* Members Card */
-        .members-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(40px);
+        table { width: 100%; border-collapse: collapse; }
+        thead th {
+            text-align: left;
+            padding: 12px 20px;
+            font-size: 11px; font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        tbody tr { border-bottom: 1px solid var(--border-subtle); transition: background 0.15s; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+        td { padding: 16px 20px; vertical-align: middle; }
+
+        /* ── Avatar ── */
+        .member-cell { display: flex; align-items: center; gap: 12px; }
+        .avatar {
+            width: 40px; height: 40px; border-radius: 50%;
+            background: var(--gradient-primary);
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 800; font-size: 15px;
+            font-family: 'Syne', sans-serif; flex-shrink: 0;
+        }
+        .member-name { font-size: 14px; font-weight: 600; }
+        .member-email { font-size: 12px; color: var(--text-secondary); font-family: 'IBM Plex Mono', monospace; }
+
+        /* ── Role badge + select ── */
+        .role-badge {
+            display: inline-block;
+            padding: 3px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 700;
+            font-family: 'IBM Plex Mono', monospace;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .role-badge.admin    { background: rgba(255,107,53,0.15);  color: #ff6b35;  border: 1px solid rgba(255,107,53,0.3); }
+        .role-badge.approver { background: rgba(245,158,11,0.15);  color: #f59e0b;  border: 1px solid rgba(245,158,11,0.3); }
+        .role-badge.user     { background: rgba(96,165,250,0.12);  color: #60a5fa;  border: 1px solid rgba(96,165,250,0.3); }
+        .role-badge.viewer   { background: rgba(156,163,175,0.12); color: #9ca3af;  border: 1px solid rgba(156,163,175,0.3); }
+
+        .role-select {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: 'IBM Plex Mono', monospace;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .role-select:focus { outline: none; border-color: var(--accent-primary); }
+
+        /* ── You badge ── */
+        .you-badge {
+            font-size: 10px; font-weight: 700;
+            font-family: 'IBM Plex Mono', monospace;
+            background: rgba(255,107,53,0.12);
+            color: #ff6b35; border-radius: 4px;
+            padding: 1px 6px; margin-left: 6px;
+            vertical-align: middle;
+        }
+
+        /* ── Action buttons ── */
+        .btn-remove {
+            padding: 5px 12px;
+            background: rgba(239,68,68,0.1);
+            color: #ef4444;
+            border: 1px solid rgba(239,68,68,0.25);
+            border-radius: 8px;
+            font-size: 12px; font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .btn-remove:hover { background: rgba(239,68,68,0.2); }
+
+        .ts { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-secondary); }
+
+        /* ── Empty state ── */
+        .empty-state {
+            text-align: center; padding: 60px 20px;
+            color: var(--text-secondary);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        /* ── Modal ── */
+        .modal-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(6px);
+            z-index: 200;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: var(--bg-secondary);
             border: 1px solid var(--glass-border);
             border-radius: 16px;
             padding: 32px;
-            animation: fadeSlideUp 0.6s ease 0.5s;
-            animation-fill-mode: both;
-        }
-
-        .card-title {
-            font-size: 24px;
-            font-weight: 700;
-            font-family: 'Syne', sans-serif;
-            color: var(--text-primary);
-            margin-bottom: 24px;
-        }
-
-        /* Members Table */
-        .members-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .members-table thead th {
-            text-align: left;
-            padding: 16px 12px;
-            border-bottom: 2px solid var(--glass-border);
-            font-weight: 600;
-            color: var(--text-tertiary);
-            font-size: 12px;
-            text-transform: uppercase;
-            font-family: 'IBM Plex Mono', monospace;
-            letter-spacing: 0.5px;
-        }
-
-        .members-table tbody tr {
-            border-bottom: 1px solid var(--border-subtle);
-            transition: all 0.3s ease;
-        }
-
-        .members-table tbody tr:hover {
-            background: rgba(255, 255, 255, 0.03);
-        }
-
-        .members-table tbody tr:last-child {
-            border-bottom: none;
-        }
-
-        .members-table td {
-            padding: 20px 12px;
-        }
-
-        .member-info {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-
-        .member-avatar {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background: var(--gradient-primary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 800;
-            font-size: 16px;
-            font-family: 'Syne', sans-serif;
+            width: 100%; max-width: 440px;
             position: relative;
-            overflow: hidden;
-            flex-shrink: 0;
         }
-
-        .member-avatar::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-            animation: shimmer 3s infinite;
-        }
-
-        .member-details {
-            flex: 1;
-        }
-
-        .member-name {
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 4px;
-        }
-
-        .member-email {
-            font-size: 13px;
-            color: var(--text-tertiary);
-            font-family: 'IBM Plex Mono', monospace;
-        }
-
-        .role-badge {
-            display: inline-block;
-            padding: 6px 14px;
-            border-radius: 16px;
-            font-size: 12px;
-            font-weight: 600;
-            font-family: 'IBM Plex Mono', monospace;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .role-badge.admin {
-            background: rgba(255, 107, 53, 0.1);
-            color: var(--accent-primary);
-            border: 1px solid rgba(255, 107, 53, 0.3);
-        }
-
-        .role-badge.member {
-            background: rgba(0, 212, 255, 0.1);
-            color: var(--accent-electric);
-            border: 1px solid rgba(0, 212, 255, 0.3);
-        }
-
-        .role-badge.viewer {
-            background: rgba(100, 116, 139, 0.1);
-            color: var(--text-tertiary);
-            border: 1px solid var(--border-subtle);
-        }
-
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--accent-success);
-            animation: pulse 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .status-dot.inactive {
-            background: var(--text-tertiary);
-            animation: none;
-        }
-
-        /* Action Buttons */
-        .action-buttons {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            border: 1px solid var(--glass-border);
-            background: rgba(255, 255, 255, 0.03);
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-        }
-
-        .btn-icon:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: var(--accent-primary);
-            color: var(--accent-primary);
-            transform: translateY(-2px);
-        }
-
-        .btn-icon.danger:hover {
-            border-color: var(--accent-error);
-            color: var(--accent-error);
-        }
-
-        /* Empty State */
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-        }
-
-        .empty-state-icon {
-            font-size: 64px;
-            margin-bottom: 20px;
-            opacity: 0.3;
-        }
-
-        .empty-state h3 {
-            font-size: 20px;
-            font-weight: 700;
+        .modal h2 {
             font-family: 'Syne', sans-serif;
+            font-size: 22px; font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .modal .modal-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 24px; }
+        .modal-close {
+            position: absolute; top: 16px; right: 16px;
+            background: none; border: none;
+            color: var(--text-secondary); font-size: 20px;
+            cursor: pointer; line-height: 1;
+        }
+        .modal-close:hover { color: var(--text-primary); }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.5px; }
+        .form-group input, .form-group select {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
             color: var(--text-primary);
-            margin-bottom: 8px;
+            font-size: 14px;
+            font-family: 'Outfit', sans-serif;
+            padding: 10px 14px;
         }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent-primary); }
+        .form-group .role-hint { font-size: 11px; color: var(--text-secondary); margin-top: 5px; font-style: italic; }
 
-        .empty-state p {
+        .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
+        .btn-cancel {
+            flex: 1; padding: 11px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
             color: var(--text-secondary);
-            margin-bottom: 24px;
+            font-size: 13px; font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer;
         }
+        .btn-cancel:hover { color: var(--text-primary); }
+        .btn-submit { flex: 2; }
 
-        /* Mobile Responsive */
-        @media (max-width: 768px) {
-            .header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 16px;
-                padding: 20px;
-            }
-
-            .back-button {
-                width: 100%;
-                text-align: center;
-            }
-
-            .container {
-                padding: 32px 20px;
-            }
-
-            .page-header {
-                flex-direction: column;
-                gap: 20px;
-            }
-
-            .page-title-section h1 {
-                font-size: 36px;
-            }
-
-            .btn-primary {
-                width: 100%;
-            }
-
-            .team-stats {
-                grid-template-columns: 1fr;
-            }
-
-            .members-card {
-                padding: 24px 20px;
-                overflow-x: auto;
-            }
-
-            .members-table {
-                min-width: 600px;
-            }
-
-            .member-info {
-                gap: 10px;
-            }
-
-            .member-avatar {
-                width: 36px;
-                height: 36px;
-                font-size: 14px;
-            }
-
-            .action-buttons {
-                flex-direction: column;
-            }
+        /* ── Temp password box ── */
+        .temp-password-box {
+            background: rgba(255,107,53,0.08);
+            border: 1px solid rgba(255,107,53,0.25);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-top: 20px;
+            display: none;
         }
+        .temp-password-box.show { display: block; }
+        .temp-password-box p { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+        .temp-password-val {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px; font-weight: 600;
+            color: #ff6b35;
+            word-break: break-all;
+        }
+        .temp-password-warn { font-size: 11px; color: var(--text-secondary); margin-top: 6px; font-style: italic; }
 
-        @media (max-width: 480px) {
-            .logo-text {
-                display: none;
-            }
-
-            .page-title-section h1 {
-                font-size: 28px;
-            }
-
-            .stat-value {
-                font-size: 28px;
-            }
+        @media (max-width: 900px) {
+            .role-reference { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 600px) {
+            .container { padding: 28px 16px; }
+            .role-reference { grid-template-columns: 1fr 1fr; }
+            .header { padding: 16px 20px; }
         }
     </style>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
 <body class="animated-bg">
-    <div class="page-container page-content">
-        <!-- Header -->
-        <div class="header">
-            <div class="logo-section">
-                <div class="logo-icon">>_</div>
-                <span class="logo-text">DevOps Agent</span>
-            </div>
-            <a href="/chat" class="back-button">← Back to Chat</a>
+<div class="page-container page-content">
+
+    <!-- Header -->
+    <div class="header">
+        <div class="logo-section">
+            <div class="logo-icon">>_</div>
+            <span class="logo-text">DevOps Agent</span>
         </div>
-
-        <!-- Main Content -->
-        <div class="container">
-            <div class="page-header">
-                <div class="page-title-section">
-                    <h1>Team Management</h1>
-                    <p class="page-subtitle">Collaborate with your team on DevOps automation.</p>
-                </div>
-                <button class="btn-primary" onclick="showAddMemberModal()">+ Add Member</button>
-            </div>
-
-            <!-- Team Stats -->
-            <div class="team-stats">
-                <div class="stat-card">
-                    <div class="stat-label">Total Members</div>
-                    <div class="stat-value">{{ team_members|length or 0 }}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Active Today</div>
-                    <div class="stat-value">{{ active_today or 0 }}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Team Credits</div>
-                    <div class="stat-value">{{ team_credits or 0 }}</div>
-                </div>
-            </div>
-
-            <!-- Members List -->
-            <div class="members-card">
-                <h2 class="card-title">Team Members</h2>
-
-                {% if team_members %}
-                <table class="members-table">
-                    <thead>
-                        <tr>
-                            <th>Member</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Joined</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for member in team_members %}
-                        <tr>
-                            <td>
-                                <div class="member-info">
-                                    <div class="member-avatar" style="background: {{ member.avatar_color or '#cd7c48' }};">
-                                        {{ member.name[0] if member.name else member.email[0] }}
-                                    </div>
-                                    <div class="member-details">
-                                        <div class="member-name">{{ member.name or member.email }}</div>
-                                        <div class="member-email">{{ member.email }}</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="role-badge {{ member.role }}">{{ member.role }}</span>
-                            </td>
-                            <td>
-                                <div class="status-indicator">
-                                    <span class="status-dot {% if not member.is_active %}inactive{% endif %}"></span>
-                                    <span>{{ 'Active' if member.is_active else 'Inactive' }}</span>
-                                </div>
-                            </td>
-                            <td>
-                                <span style="color: var(--text-secondary); font-size: 14px;">
-                                    {{ member.joined_at.strftime('%b %d, %Y') if member.joined_at else 'N/A' }}
-                                </span>
-                            </td>
-                            <td>
-                                <div class="action-buttons">
-                                    <button class="btn-icon" title="Change Role" onclick="changeRole('{{ member.id }}')">
-                                        👤
-                                    </button>
-                                    <button class="btn-icon danger" title="Remove Member" onclick="removeMember('{{ member.id }}', '{{ member.name or member.email }}')">
-                                        ✕
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                {% else %}
-                <div class="empty-state">
-                    <div class="empty-state-icon">👥</div>
-                    <h3>No team members yet</h3>
-                    <p>Add team members to collaborate on DevOps automation</p>
-                    <button class="btn-primary" onclick="showAddMemberModal()">Add Your First Member</button>
-                </div>
-                {% endif %}
-            </div>
-        </div>
+        <a href="/settings" class="back-btn">← Settings</a>
     </div>
 
-    <script>
-        function showAddMemberModal() {
-            // Add member modal implementation
-            showToast('Add Member feature coming soon!', 'info');
-        }
+    <div class="container">
 
-        function changeRole(memberId) {
-            // Change role implementation
-            showToast('Role change feature coming soon!', 'info');
-        }
+        <!-- Page header -->
+        <div class="page-header">
+            <div>
+                <h1>Team Management</h1>
+                <p>Manage who has access and what they can do. Principle of least privilege.</p>
+            </div>
+            {% if current_user.role == 'admin' %}
+            <button class="btn-primary" onclick="openInviteModal()">+ Invite Member</button>
+            {% endif %}
+        </div>
 
-        function removeMember(memberId, memberName) {
-            if (confirm('Are you sure you want to remove ' + memberName + ' from the team?')) {
-                // Remove member implementation
-                console.log('Removing member:', memberId);
-            }
+        <!-- Role reference -->
+        <div class="role-reference">
+            <div class="role-card">
+                <div class="role-card-name admin">Admin</div>
+                <p>Full access. Manage users, approve operations, configure everything.</p>
+            </div>
+            <div class="role-card">
+                <div class="role-card-name approver">Approver</div>
+                <p>Review and approve high-risk operations. Cannot manage users or settings.</p>
+            </div>
+            <div class="role-card">
+                <div class="role-card-name user">Engineer</div>
+                <p>Use all tools. High-risk actions go to approval queue automatically.</p>
+            </div>
+            <div class="role-card">
+                <div class="role-card-name viewer">Viewer</div>
+                <p>Read-only dashboards. Cannot execute tools or submit change requests.</p>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row">
+            <div class="stat-pill">Total <strong id="statTotal">{{ users|length }}</strong></div>
+            <div class="stat-pill">Admins <strong id="statAdmin">{{ users|selectattr('role','equalto','admin')|list|length }}</strong></div>
+            <div class="stat-pill">Approvers <strong id="statApprover">{{ users|selectattr('role','equalto','approver')|list|length }}</strong></div>
+            <div class="stat-pill">Engineers <strong id="statUser">{{ users|selectattr('role','equalto','user')|list|length }}</strong></div>
+            <div class="stat-pill">Viewers <strong id="statViewer">{{ users|selectattr('role','equalto','viewer')|list|length }}</strong></div>
+        </div>
+
+        <!-- Members table -->
+        <div class="card">
+            <div class="card-header">Members</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Member</th>
+                        <th>Role</th>
+                        <th>Joined</th>
+                        <th>Last Login</th>
+                        {% if current_user.role == 'admin' %}<th>Actions</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody id="membersBody">
+                {% if users %}
+                    {% for u in users %}
+                    <tr id="row-{{ u.id }}">
+                        <td>
+                            <div class="member-cell">
+                                <div class="avatar">{{ (u.full_name or u.username or u.email)[0].upper() }}</div>
+                                <div>
+                                    <div class="member-name">
+                                        {{ u.full_name or u.username }}
+                                        {% if u.id == current_user.id %}<span class="you-badge">YOU</span>{% endif %}
+                                    </div>
+                                    <div class="member-email">{{ u.email or '—' }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if current_user.role == 'admin' and u.id != current_user.id %}
+                            <select class="role-select" onchange="changeRole({{ u.id }}, this.value, this)">
+                                <option value="admin"    {% if u.role == 'admin'    %}selected{% endif %}>Admin</option>
+                                <option value="approver" {% if u.role == 'approver' %}selected{% endif %}>Approver</option>
+                                <option value="user"     {% if u.role == 'user'     %}selected{% endif %}>Engineer</option>
+                                <option value="viewer"   {% if u.role == 'viewer'   %}selected{% endif %}>Viewer</option>
+                            </select>
+                            {% else %}
+                            <span class="role-badge {{ u.role }}">{{ 'Engineer' if u.role == 'user' else u.role|capitalize }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="ts">{{ u.created_at.strftime('%d %b %Y') if u.created_at else '—' }}</td>
+                        <td class="ts">{{ u.last_login.strftime('%d %b %Y') if u.last_login else 'Never' }}</td>
+                        {% if current_user.role == 'admin' %}
+                        <td>
+                            {% if u.id != current_user.id %}
+                            <button class="btn-remove" onclick="removeUser({{ u.id }}, '{{ u.username or u.email }}')">Remove</button>
+                            {% else %}
+                            <span style="font-size:12px;color:var(--text-secondary);">—</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr><td colspan="5"><div class="empty-state">No members yet. Invite your first team member.</div></td></tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Invite Modal -->
+<div class="modal-overlay" id="inviteModal">
+    <div class="modal">
+        <button class="modal-close" onclick="closeInviteModal()">✕</button>
+        <h2>Invite Member</h2>
+        <p class="modal-sub">They'll receive a temporary password to log in with.</p>
+
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="inviteUsername" placeholder="e.g. john-doe" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="inviteEmail" placeholder="john@company.com" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label>Role</label>
+            <select id="inviteRole" onchange="updateRoleHint()">
+                <option value="user">Engineer (recommended)</option>
+                <option value="approver">Approver</option>
+                <option value="viewer">Viewer</option>
+                <option value="admin">Admin</option>
+            </select>
+            <div class="role-hint" id="roleHint">Can use all tools. High-risk actions go to approval queue.</div>
+        </div>
+
+        <div class="temp-password-box" id="tempPasswordBox">
+            <p>Share this temporary password with the new member:</p>
+            <div class="temp-password-val" id="tempPasswordVal"></div>
+            <div class="temp-password-warn">They should change it immediately after first login.</div>
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeInviteModal()">Cancel</button>
+            <button class="btn-primary btn-submit" onclick="inviteMember()">Send Invite</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const ROLE_HINTS = {
+    user:     'Can use all tools. High-risk actions go to the approval queue automatically.',
+    approver: 'Can review and approve/reject high-risk operations. Cannot manage users.',
+    viewer:   'Read-only dashboards only. Cannot execute tools or submit requests.',
+    admin:    'Full access — use this sparingly. Can manage all users and settings.',
+};
+
+function updateRoleHint() {
+    const role = document.getElementById('inviteRole').value;
+    document.getElementById('roleHint').textContent = ROLE_HINTS[role] || '';
+}
+
+function openInviteModal() {
+    document.getElementById('inviteModal').classList.add('open');
+    document.getElementById('inviteUsername').focus();
+    document.getElementById('tempPasswordBox').classList.remove('show');
+}
+
+function closeInviteModal() {
+    document.getElementById('inviteModal').classList.remove('open');
+    document.getElementById('inviteUsername').value = '';
+    document.getElementById('inviteEmail').value = '';
+    document.getElementById('inviteRole').value = 'user';
+    updateRoleHint();
+    document.getElementById('tempPasswordBox').classList.remove('show');
+}
+
+async function inviteMember() {
+    const username = document.getElementById('inviteUsername').value.trim();
+    const email    = document.getElementById('inviteEmail').value.trim();
+    const role     = document.getElementById('inviteRole').value;
+
+    if (!username || !email) { showToast('Username and email are required.', 'error'); return; }
+
+    try {
+        const res = await fetch('/api/team/invite', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username, email, role}),
+        });
+        const data = await res.json();
+        if (!res.ok) { showToast(data.error || 'Failed to invite member.', 'error'); return; }
+
+        // Show temporary password
+        document.getElementById('tempPasswordVal').textContent = data.temporary_password;
+        document.getElementById('tempPasswordBox').classList.add('show');
+        showToast(`${username} invited successfully.`, 'success');
+
+        // Add new row to table without reload
+        addMemberRow(data.user);
+        updateStats();
+    } catch(e) {
+        showToast('Request failed. Try again.', 'error');
+    }
+}
+
+async function changeRole(userId, newRole, selectEl) {
+    const prev = selectEl.dataset.prev || selectEl.options[selectEl.selectedIndex === 0 ? 0 : selectEl.selectedIndex - 1].value;
+    try {
+        const res = await fetch(`/api/team/users/${userId}/role`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({role: newRole}),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast(data.error || 'Failed to update role.', 'error');
+            selectEl.value = selectEl.dataset.prev || prev;
+            return;
         }
-    </script>
-    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
+        selectEl.dataset.prev = newRole;
+        showToast(`Role updated to ${newRole === 'user' ? 'Engineer' : newRole}.`, 'success');
+        updateStats();
+    } catch(e) {
+        showToast('Request failed.', 'error');
+    }
+}
+
+async function removeUser(userId, name) {
+    if (!confirm(`Remove ${name} from the team? This cannot be undone.`)) return;
+    try {
+        const res = await fetch(`/api/team/users/${userId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) { showToast(data.error || 'Failed to remove user.', 'error'); return; }
+        const row = document.getElementById(`row-${userId}`);
+        if (row) row.remove();
+        showToast(`${name} removed.`, 'success');
+        updateStats();
+    } catch(e) {
+        showToast('Request failed.', 'error');
+    }
+}
+
+function addMemberRow(u) {
+    const tbody = document.getElementById('membersBody');
+    // Clear empty state row if present
+    const empty = tbody.querySelector('.empty-state');
+    if (empty) empty.closest('tr').remove();
+
+    const displayRole = u.role === 'user' ? 'Engineer' : (u.role.charAt(0).toUpperCase() + u.role.slice(1));
+    const row = document.createElement('tr');
+    row.id = `row-${u.id}`;
+    row.innerHTML = `
+        <td>
+            <div class="member-cell">
+                <div class="avatar">${(u.username || u.email || '?')[0].toUpperCase()}</div>
+                <div>
+                    <div class="member-name">${escHtml(u.username || u.email)}</div>
+                    <div class="member-email">${escHtml(u.email || '')}</div>
+                </div>
+            </div>
+        </td>
+        <td>
+            <select class="role-select" onchange="changeRole(${u.id}, this.value, this)">
+                <option value="admin"    ${u.role==='admin'?'selected':''}>Admin</option>
+                <option value="approver" ${u.role==='approver'?'selected':''}>Approver</option>
+                <option value="user"     ${u.role==='user'?'selected':''}>Engineer</option>
+                <option value="viewer"   ${u.role==='viewer'?'selected':''}>Viewer</option>
+            </select>
+        </td>
+        <td class="ts">Just now</td>
+        <td class="ts">Never</td>
+        <td><button class="btn-remove" onclick="removeUser(${u.id}, '${escHtml(u.username || u.email)}')">Remove</button></td>
+    `;
+    tbody.appendChild(row);
+}
+
+function updateStats() {
+    const rows = document.querySelectorAll('#membersBody tr[id^="row-"]');
+    let admin=0, approver=0, user=0, viewer=0;
+    rows.forEach(row => {
+        const sel = row.querySelector('.role-select');
+        const badge = row.querySelector('.role-badge');
+        const role = sel ? sel.value : (badge ? badge.className.replace('role-badge','').trim() : '');
+        if (role === 'admin')    admin++;
+        else if (role === 'approver') approver++;
+        else if (role === 'user')     user++;
+        else if (role === 'viewer')   viewer++;
+    });
+    document.getElementById('statTotal').textContent    = rows.length;
+    document.getElementById('statAdmin').textContent    = admin;
+    document.getElementById('statApprover').textContent = approver;
+    document.getElementById('statUser').textContent     = user;
+    document.getElementById('statViewer').textContent   = viewer;
+}
+
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Close modal on overlay click
+document.getElementById('inviteModal').addEventListener('click', function(e) {
+    if (e.target === this) closeInviteModal();
+});
+
+// Store initial role values for rollback
+document.querySelectorAll('.role-select').forEach(sel => { sel.dataset.prev = sel.value; });
+</script>
+
+<script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/toast.js') }}"></script>
 </body>
 </html>
