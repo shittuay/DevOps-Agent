@@ -201,6 +201,9 @@ def reject(approval_id: int, approver_id: int, note: Optional[str] = None) -> di
     if not approver or approver.role not in ('approver', 'admin'):
         return {'success': False, 'error': 'Unauthorized'}
 
+    if approver_id == req.requester_id:
+        return {'success': False, 'error': 'Cannot reject your own request'}
+
     if req.status != 'pending':
         return {'success': False, 'error': f'Request is already {req.status}'}
 
