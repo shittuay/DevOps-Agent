@@ -1830,12 +1830,12 @@ def privacy_policy():
 @app.route('/teams')
 @login_required
 def teams():
-    """Team management page."""
-    # Get users for team management (limit to 200)
-    users = User.query.order_by(User.created_at.desc()).limit(200).all()
-    subscription = UserSubscription.query.filter_by(user_id=current_user.id).first()
-    team_credits = subscription.credits_remaining if subscription else 0
-    return render_template('teams.html', users=users, current_user=current_user, team_credits=team_credits)
+    """Team management page — admin sees all users, others see themselves only."""
+    if current_user.role == 'admin':
+        users = User.query.order_by(User.created_at.asc()).limit(200).all()
+    else:
+        users = [current_user]
+    return render_template('teams.html', users=users, current_user=current_user)
 
 
 @app.route('/about')
