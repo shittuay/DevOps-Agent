@@ -1,6 +1,6 @@
 from functools import wraps
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from models import ApprovalRequest
@@ -12,7 +12,9 @@ def _approver_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated or current_user.role not in ('approver', 'admin'):
-            return jsonify({'error': 'Approver access required'}), 403
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Approver access required'}), 403
+            return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated
 
