@@ -25,6 +25,8 @@ auth_bp = Blueprint('auth', __name__)
 
 def _is_safe_redirect(target: str) -> bool:
     """Reject absolute URLs and protocol-relative URLs to prevent open redirects."""
+    if not target:
+        return False
     ref_url = urlparse(request.host_url)
     test_url = urlparse(target)
     if test_url.scheme and test_url.scheme not in ('http', 'https'):
@@ -34,6 +36,19 @@ def _is_safe_redirect(target: str) -> bool:
     if target.startswith('//'):
         return False
     return True
+
+
+def _validate_password_strength(password: str) -> str | None:
+    """Return an error string if password fails strength rules, else None."""
+    if len(password) < 8:
+        return 'Password must be at least 8 characters long'
+    if not re.search(r'[A-Z]', password):
+        return 'Password must contain at least one uppercase letter'
+    if not re.search(r'[a-z]', password):
+        return 'Password must contain at least one lowercase letter'
+    if not re.search(r'[0-9]', password):
+        return 'Password must contain at least one number'
+    return None
 
 
 def _check_csrf():
@@ -90,7 +105,8 @@ def login():
             if user.has_mfa_enabled():
                 session['2fa_pending_user'] = user.id
                 session['2fa_pending_time'] = datetime.utcnow().isoformat()
-                session['2fa_next'] = request.args.get('next', '')
+                _next = request.args.get('next', '')
+                session['2fa_next'] = _next if _is_safe_redirect(_next) else ''
                 session['2fa_method'] = user.mfa_method or 'totp'
                 security_logger.info(f"MFA ({user.mfa_method}) required for {user.email} from {ip_address}")
 
@@ -183,15 +199,9 @@ def signup():
         if password != confirm_password:
             return render_template('signup.html', error='Passwords do not match')
 
-        if len(password) < 8:
-            return render_template('signup.html', error='Password must be at least 8 characters long')
-
-        if not re.search(r'[A-Z]', password):
-            return render_template('signup.html', error='Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', password):
-            return render_template('signup.html', error='Password must contain at least one lowercase letter')
-        if not re.search(r'[0-9]', password):
-            return render_template('signup.html', error='Password must contain at least one number')
+        pw_error = _validate_password_strength(password)
+        if pw_error:
+            return render_template('signup.html', error=pw_error)
 
         if User.query.filter_by(email=email).first():
             security_logger.warning(f"Signup attempt with existing email from {ip_address}: {email}")
@@ -351,17 +361,9 @@ def reset_password():
         if password != confirm_password:
             return render_template('reset_password.html', error='Passwords do not match.', token_valid=True, token=token, user_id=user_id)
 
-        if len(password) < 8:
-            return render_template('reset_password.html', error='Password must be at least 8 characters long.', token_valid=True, token=token, user_id=user_id)
-
-        if not re.search(r'[A-Z]', password):
-            return render_template('reset_password.html', error='Password must contain at least one uppercase letter.', token_valid=True, token=token, user_id=user_id)
-
-        if not re.search(r'[a-z]', password):
-            return render_template('reset_password.html', error='Password must contain at least one lowercase letter.', token_valid=True, token=token, user_id=user_id)
-
-        if not re.search(r'[0-9]', password):
-            return render_template('reset_password.html', error='Password must contain at least one number.', token_valid=True, token=token, user_id=user_id)
+        pw_error = _validate_password_strength(password)
+        if pw_error:
+            return render_template('reset_password.html', error=pw_error + '.', token_valid=True, token=token, user_id=user_id)
 
         user.set_password(password)
         user.password_reset_token = None
@@ -523,7 +525,9 @@ def verify_2fa():
             session.pop('2fa_method', None)
 
             security_logger.info(f"MFA ({mfa_method}) verified for {user.email} from {ip_address}")
-            return redirect(next_page if next_page else url_for('chat'))
+            if next_page and _is_safe_redirect(next_page):
+                return redirect(next_page)
+            return redirect(url_for('chat'))
         else:
             user.two_factor_attempts = (user.two_factor_attempts or 0) + 1
             if user.two_factor_attempts >= 5:
