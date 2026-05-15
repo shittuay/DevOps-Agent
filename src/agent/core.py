@@ -609,6 +609,7 @@ class DevOpsAgent:
         conversation_history: List[Dict[str, str]],
         user_preferences_context: Optional[str] = None,
         user_id: Optional[int] = None,
+        conversation_id: Optional[str] = None,
         model_override: Optional[str] = None,
         trial_context: Optional[str] = None,
         sandbox_mode: bool = False,
@@ -635,6 +636,9 @@ class DevOpsAgent:
             self.conversation = ConversationManager()
             self.pending_download = None
             self._sandbox_mode = sandbox_mode
+            self._current_user_id = user_id
+            self._current_conversation_id = conversation_id
+            self._pending_approval = None
             self._tools_override = tools_override
             self._trust_tool_results = trust_tool_results
 
@@ -693,7 +697,13 @@ class DevOpsAgent:
                         return
                     elif response.stop_reason == 'tool_use':
                         yield "\n\n_[Executing tool...]_\n\n"
+                        self._pending_approval = None
                         self._handle_tool_uses(response.content)
+                        if self._pending_approval:
+                            approval = self._pending_approval
+                            self._pending_approval = None
+                            yield f"\x00APPROVAL_REQUIRED\x00{json.dumps(approval)}"
+                            return
                     elif response.stop_reason == 'max_tokens':
                         yield "\n\n[Response truncated]"
                         return
@@ -1165,6 +1175,45 @@ User Preferences and Context:
                         validation = self.safety_validator.validate_tool_call(tool_name, tool_input)
                         if not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
+                        elif validation.requires_confirmation:
+                            result = {'success': False, 'error': 'High-risk operation requires approval'}
+                            _uid = getattr(self, '_current_user_id', None)
+                            _is_approver = False
+                            if _uid:
+                                try:
+                                    from models import User
+                                    _u = User.query.get(_uid)
+                                    if _u and _u.role in ('approver', 'admin'):
+                                        _is_approver = True
+                                    elif _u:
+                                        from services.approval_service import create_request, build_risk_reason
+                                        _conv_id = getattr(self, '_current_conversation_id', None)
+                                        _reason = build_risk_reason(tool_name, tool_input)
+                                        create_request(
+                                            tool_name=tool_name,
+                                            tool_input=tool_input,
+                                            risk_level=validation.risk_level,
+                                            risk_reason=_reason,
+                                            requester_id=_uid,
+                                            conversation_id=_conv_id,
+                                        )
+                                        result = {'success': False, 'error': f'Approval request created for {tool_name}. An approver must review.'}
+                                except Exception as _e:
+                                    self.logger.warning(f"Kimi (non-streaming) approval intercept failed: {_e}")
+                            if _is_approver:
+                                if getattr(self, '_sandbox_mode', False):
+                                    from services.learning_sandbox import generate_mock_result
+                                    result = generate_mock_result(tool_name, tool_input)
+                                elif tool_name in self.tools:
+                                    try:
+                                        result = self.tools[tool_name](**tool_input)
+                                        self._last_tools_used.append(tool_name)
+                                        self._audit_chat_deletion(tool_name, tool_input, result)
+                                    except Exception as e:
+                                        self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
+                                        result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                else:
+                                    result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
@@ -1359,6 +1408,59 @@ User Preferences and Context:
                         validation = self.safety_validator.validate_tool_call(tool_name, tool_input)
                         if not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
+                        elif validation.requires_confirmation:
+                            # Approver/admin self-approve; regular users get queued for review
+                            _uid = getattr(self, '_current_user_id', None)
+                            _is_approver = False
+                            _approval_done = False
+                            if _uid:
+                                try:
+                                    from models import User
+                                    _u2 = User.query.get(_uid)
+                                    if _u2 and _u2.role in ('approver', 'admin'):
+                                        _is_approver = True
+                                    elif _u2:
+                                        from services.approval_service import create_request, build_risk_reason
+                                        _conv_id = getattr(self, '_current_conversation_id', None)
+                                        _reason = build_risk_reason(tool_name, tool_input)
+                                        _req = create_request(
+                                            tool_name=tool_name,
+                                            tool_input=tool_input,
+                                            risk_level=validation.risk_level,
+                                            risk_reason=_reason,
+                                            requester_id=_uid,
+                                            conversation_id=_conv_id,
+                                        )
+                                        yield (
+                                            f"\x00APPROVAL_REQUIRED\x00"
+                                            + json.dumps({
+                                                'approval_id': _req.id,
+                                                'tool_name': tool_name,
+                                                'risk_level': validation.risk_level,
+                                                'risk_reason': _reason,
+                                            })
+                                        )
+                                        return
+                                    _approval_done = True
+                                except Exception as _e:
+                                    self.logger.warning(f"Kimi streaming approval intercept failed: {_e}")
+                            if _is_approver:
+                                if getattr(self, '_sandbox_mode', False):
+                                    from services.learning_sandbox import generate_mock_result
+                                    result = generate_mock_result(tool_name, tool_input)
+                                elif tool_name in self.tools:
+                                    try:
+                                        result = self.tools[tool_name](**tool_input)
+                                        self._last_tools_used.append(tool_name)
+                                        self._audit_chat_deletion(tool_name, tool_input, result)
+                                    except Exception as e:
+                                        result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                else:
+                                    result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                            elif not _approval_done:
+                                result = {'success': False, 'error': 'High-risk operation requires approval'}
+                            else:
+                                result = {'success': False, 'error': 'Pending approval'}
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
@@ -1437,10 +1539,38 @@ User Preferences and Context:
                     self.conversation.add_tool_result(tool_use_id, json.dumps(result))
                     continue
 
-                # Check if confirmation is required
-                if validation.requires_confirmation and self.config.require_confirmation:
-                    # For now, we'll proceed but log the warning
-                    # In a real CLI, you'd prompt the user here
+                # Check if approval workflow applies (high-risk + non-approver user)
+                if validation.requires_confirmation:
+                    user_id = getattr(self, '_current_user_id', None)
+                    if user_id:
+                        try:
+                            from models import User
+                            user = User.query.get(user_id)
+                            if user and user.role not in ('approver', 'admin'):
+                                from services.approval_service import create_request, build_risk_reason
+                                conv_id = getattr(self, '_current_conversation_id', None)
+                                reason = build_risk_reason(tool_name, tool_input)
+                                req = create_request(
+                                    tool_name=tool_name,
+                                    tool_input=tool_input,
+                                    risk_level=validation.risk_level,
+                                    risk_reason=reason,
+                                    requester_id=user_id,
+                                    conversation_id=conv_id,
+                                )
+                                self._pending_approval = {
+                                    'approval_id': req.id,
+                                    'tool_name': tool_name,
+                                    'risk_level': validation.risk_level,
+                                    'risk_reason': reason,
+                                }
+                                self.conversation.add_tool_result(
+                                    tool_use_id,
+                                    json.dumps({'success': False, 'error': 'Pending approval from an approver'}),
+                                )
+                                return
+                        except Exception as e:
+                            self.logger.warning(f"Approval intercept failed: {e}")
                     self.logger.warning(
                         f"High-risk operation requires confirmation: {tool_name} "
                         f"(risk_level: {validation.risk_level})"

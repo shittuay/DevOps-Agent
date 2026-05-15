@@ -527,6 +527,22 @@
                 <a href="/incidents" class="header-button"><span>🚨</span> Incidents</a>
                 <a href="/optimization" class="header-button"><span>⚡</span> Optimize</a>
                 <a href="/settings" class="header-button"><span>⚙️</span> Settings</a>
+                {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
+                <a href="/approvals" class="header-button" id="approvalsNavBtn" style="position:relative;">
+                    <span>&#9203;</span> Approvals
+                    <span id="approvalNavBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:50%;width:18px;height:18px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;"></span>
+                </a>
+                <script>
+                (function() {
+                    fetch('/api/approvals/count').then(r => r.ok ? r.json() : null).then(d => {
+                        if (d && d.count > 0) {
+                            const b = document.getElementById('approvalNavBadge');
+                            if (b) { b.textContent = d.count; b.style.display = 'flex'; }
+                        }
+                    }).catch(() => {});
+                })();
+                </script>
+                {% endif %}
                 <a href="/profile" class="profile-button" title="Profile">👤</a>
             </div>
         </div>
