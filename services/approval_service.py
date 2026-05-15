@@ -6,6 +6,7 @@ for high-risk tool calls that require a second human sign-off.
 """
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -91,7 +92,7 @@ def _notify_approvers(req):
                 f"<p><strong>Tool:</strong> {req.tool_name}</p>"
                 f"<p><strong>Risk Level:</strong> {req.risk_level.upper()}</p>"
                 f"<p><strong>Details:</strong> {req.risk_reason}</p>"
-                f'<p><a href="/approvals">Review and approve on DevOps Agent</a></p>'
+                f'<p><a href="{os.environ.get("BASE_URL", "https://devopsagent.io")}/approvals">Review and approve on DevOps Agent</a></p>'
             )
             email_svc.send_email(
                 approver.email,
