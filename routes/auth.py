@@ -206,6 +206,8 @@ def signup():
             verification_token = secrets.token_urlsafe(32)
             hashed_verification_token = hashlib.sha256(verification_token.encode()).hexdigest()
 
+            # First user ever = admin; every direct signup = admin of their own account.
+            # Team members added via invite get user/approver role set by the inviting admin.
             user = User(
                 email=email,
                 username=username,
@@ -213,7 +215,8 @@ def signup():
                 last_login_ip=ip_address,
                 email_verified=False,
                 email_verification_token=hashed_verification_token,
-                email_verification_sent_at=datetime.utcnow()
+                email_verification_sent_at=datetime.utcnow(),
+                role='admin',
             )
             user.set_password(password)
 
