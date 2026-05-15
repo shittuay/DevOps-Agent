@@ -99,15 +99,48 @@ def get_history():
     status_filter = request.args.get('status', 'all')
     limit = min(int(request.args.get('limit', 100)), 500)
 
+    # Agent approval requests (non-pending)
     query = ApprovalRequest.query.filter(ApprovalRequest.status != 'pending')
-
     if status_filter == 'approved':
         query = query.filter(ApprovalRequest.status.in_(['approved', 'executed']))
     elif status_filter in ('rejected', 'expired'):
         query = query.filter(ApprovalRequest.status == status_filter)
-
     reqs = query.order_by(ApprovalRequest.created_at.desc()).limit(limit).all()
-    return jsonify([r.to_dict() for r in reqs])
+    result = [r.to_dict() for r in reqs]
+
+    # InfrastructureChange records (non-pending)
+    if status_filter != 'expired':  # changes have no "expired" status
+        cq = InfrastructureChange.query.filter(InfrastructureChange.status != 'pending')
+        if status_filter == 'approved':
+            cq = cq.filter(InfrastructureChange.status.in_(['approved', 'executed']))
+        elif status_filter == 'rejected':
+            cq = cq.filter(InfrastructureChange.status == 'rejected')
+        changes = cq.order_by(InfrastructureChange.created_at.desc()).limit(limit).all()
+        for c in changes:
+            details = c.change_details or {}
+            requester = User.query.get(c.user_id)
+            approver = User.query.get(c.approver_id) if c.approver_id else None
+            tool_label = f"{c.action_type} {c.resource_type}"
+            if c.resource_name:
+                tool_label += f" ({c.resource_name})"
+            result.append({
+                '_type': 'change',
+                'id': c.id,
+                'requester_id': c.user_id,
+                'requester_name': requester.username if requester else 'Unknown',
+                'tool_name': tool_label,
+                'risk_level': details.get('risk_level', 'medium'),
+                'risk_reason': c.title,
+                'status': c.status,
+                'created_at': c.created_at.isoformat() + 'Z',
+                'decided_at': (c.approved_at.isoformat() + 'Z') if c.approved_at else None,
+                'approver_name': approver.username if approver else None,
+                'approver_note': c.approval_comment,
+                'execution_result': c.execution_result,
+            })
+
+    result.sort(key=lambda x: x['created_at'], reverse=True)
+    return jsonify(result[:limit])
 
 
 @approvals_bp.route('/api/approvals/<int:approval_id>/approve', methods=['POST'])
