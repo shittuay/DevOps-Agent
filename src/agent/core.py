@@ -197,7 +197,7 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-def _compute_swarm_agents(messages: list, max_agents: int) -> int:
+def _compute_swarm_agents(messages: list, max_agents: int) -> tuple[int, int]:
     """
     Scale swarm agent count (0–max_agents) based on task complexity.
 
@@ -252,7 +252,7 @@ def _compute_swarm_agents(messages: list, max_agents: int) -> int:
     else:
         n = 20
 
-    return min(n, max_agents)
+    return min(n, max_agents), score
 
 
 class DevOpsAgent:
@@ -1120,7 +1120,8 @@ User Preferences and Context:
         # Compute swarm agent count once — based on the initial user query only.
         # Must not be re-evaluated inside the loop: tool results accumulate geographic
         # keywords that would artificially inflate the score across iterations.
-        effective_swarm = _compute_swarm_agents(messages, swarm_max_agents)
+        effective_swarm, swarm_score = _compute_swarm_agents(messages, swarm_max_agents)
+        self.logger.info(f"Swarm: {effective_swarm} agents | score={swarm_score} | tier={swarm_max_agents}")
 
         while iteration < max_iterations:
             iteration += 1
