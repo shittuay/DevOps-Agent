@@ -208,7 +208,7 @@ def _compute_swarm_agents(messages: list, max_agents: int) -> tuple[int, int]:
       11–20 → very complex (full-environment audit across all regions/services)
     """
     if max_agents <= 0:
-        return 0
+        return 0, 0
 
     user_msg = ''
     for m in reversed(messages):
@@ -216,7 +216,7 @@ def _compute_swarm_agents(messages: list, max_agents: int) -> tuple[int, int]:
             user_msg = (m.get('content') or '').lower()
             break
     if not user_msg:
-        return 0
+        return 0, 0
 
     score = 0
 
