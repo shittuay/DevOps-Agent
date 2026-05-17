@@ -2477,6 +2477,18 @@
             }
             {% endif %}
 
+            // Pre-fill input from ?prefill= URL param (e.g. Copy to Chat from Prevention page)
+            const urlPrefill = new URLSearchParams(window.location.search).get('prefill');
+            if (urlPrefill) {
+                const inp = document.getElementById('messageInput');
+                if (inp) {
+                    inp.value = urlPrefill;
+                    inp.style.height = 'auto';
+                    inp.style.height = inp.scrollHeight + 'px';
+                    inp.focus();
+                }
+            }
+
             const sidebar = document.getElementById('sidebar');
             const toggleBtn = document.getElementById('collapseToggle');
             const wasCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
