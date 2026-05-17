@@ -313,7 +313,7 @@ function copyToChat() {
     const title = card?.querySelector('.rec-title')?.textContent?.trim() || '';
     const desc = card?.querySelector('.rec-desc')?.textContent?.trim() || '';
     const text = `Help me address this recommendation:\n\n**${title}**\n\n${desc}`;
-    window.open('/?prefill=' + encodeURIComponent(text.substring(0, 500)), '_blank');
+    window.open('/chat?prefill=' + encodeURIComponent(text.substring(0, 500)), '_blank');
 }
 
 document.getElementById('spec-modal').addEventListener('click', function(e) {
