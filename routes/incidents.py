@@ -102,6 +102,22 @@ def edit_playbook(playbook_id):
     if not playbook:
         return jsonify({'error': 'Playbook not found'}), 404
 
+    # Serialize actions so tojson doesn't choke on ActionType enum values
+    serialized_actions = [
+        {
+            'action_type': a.action_type.value if hasattr(a.action_type, 'value') else a.action_type,
+            'name': a.name,
+            'description': a.description,
+            'parameters': a.parameters,
+            'requires_approval': a.requires_approval,
+            'timeout_seconds': a.timeout_seconds,
+            'retry_count': a.retry_count,
+            'retry_delay_seconds': a.retry_delay_seconds,
+        }
+        for a in (playbook.actions or [])
+    ]
+    playbook.actions = serialized_actions
+
     return render_template('incidents/playbook_builder.html', playbook=playbook)
 
 
