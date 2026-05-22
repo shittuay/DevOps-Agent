@@ -443,7 +443,10 @@ class UserPreferences(db.Model):
 
         if self.learning_mode:
             levels = self.learning_level or {}
-            level_str = ', '.join(f'{k}: {v}/100' for k, v in levels.items()) if levels else 'all beginner'
+            if isinstance(levels, dict):
+                level_str = ', '.join(f'{k}: {v}/100' for k, v in levels.items()) if levels else 'all beginner'
+            else:
+                level_str = str(levels) if levels else 'all beginner'
             context.append(f"LEARNING MODE ACTIVE. Proficiency levels: {level_str}")
             if self.sandbox_mode:
                 context.append("SANDBOX MODE ACTIVE. All tool executions are simulated.")
