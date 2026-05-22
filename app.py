@@ -548,7 +548,16 @@ def enforce_two_factor():
         return redirect(url_for('auth.setup_2fa_page'))
     # Redirect to onboarding if not completed (after 2FA is set up)
     if not getattr(current_user, 'onboarding_completed', True):
-        if request.endpoint not in ('onboarding_page', 'complete_onboarding', 'update_onboarding_step'):
+        _onboarding_ok = {
+            'onboarding_page', 'complete_onboarding', 'update_onboarding_step',
+            'onboarding_scan',
+            'aws_config', 'azure_config', 'gcp_config',
+            'static',
+        }
+        if request.endpoint not in _onboarding_ok:
+            # API calls during onboarding should get JSON, not a redirect
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'onboarding_required'}), 403
             return redirect(url_for('onboarding_page'))
 
 
