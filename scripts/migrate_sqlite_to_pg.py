@@ -205,14 +205,18 @@ def migrate():
                         continue
                     pg_uid = user_id_map[c['user_id']]
                     if UserCloudCredential.query.filter_by(
-                        user_id=pg_uid, provider=c['provider']
+                        user_id=pg_uid, cloud_provider=c['cloud_provider']
                     ).first():
                         continue
                     cred = UserCloudCredential(
                         user_id=pg_uid,
-                        provider=c['provider'],
-                        credential_data=c['credential_data'],
-                        auth_mode=_safe(c, 'auth_mode', 'access_key'),
+                        cloud_provider=c['cloud_provider'],
+                        credentials_encrypted=c['credentials_encrypted'],
+                        default_region=_safe(c, 'default_region'),
+                        default_zone=_safe(c, 'default_zone'),
+                        is_active=bool(_safe(c, 'is_active', True)),
+                        last_verified=_parse_dt(_safe(c, 'last_verified')),
+                        verification_status=_safe(c, 'verification_status', 'pending'),
                         created_at=_parse_dt(_safe(c, 'created_at')),
                         updated_at=_parse_dt(_safe(c, 'updated_at')),
                     )
@@ -239,6 +243,7 @@ def migrate():
                     ).first():
                         continue
                     conv = Conversation(
+                        id=os.urandom(8).hex(),
                         user_id=pg_uid,
                         title=c['title'] if c['title'] else 'Imported conversation',
                         created_at=_parse_dt(c['created_at']),
@@ -275,7 +280,7 @@ def migrate():
                             user_id=pg_uid,
                             role=m['role'],
                             content=m['content'],
-                            created_at=_parse_dt(m['created_at']),
+                            timestamp=_parse_dt(_safe(m, 'timestamp') or _safe(m, 'created_at')),
                         )
                         db.session.add(msg)
                         msg_count += 1
