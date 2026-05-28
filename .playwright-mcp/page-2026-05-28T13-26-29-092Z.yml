@@ -1,0 +1,50 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: "1"
+        - generic [ref=e6]: Welcome
+      - generic [ref=e8]:
+        - generic [ref=e9]: "2"
+        - generic [ref=e10]: Connect
+      - generic [ref=e12]:
+        - generic [ref=e13]: "3"
+        - generic [ref=e14]: Scanning
+      - generic [ref=e16]:
+        - generic [ref=e17]: "4"
+        - generic [ref=e18]: Results
+    - generic [ref=e20]:
+      - generic [ref=e21]: Getting started
+      - heading "Welcome, testuser" [level=1] [ref=e22]
+      - paragraph [ref=e23]: DevOps Agent is your AI infrastructure assistant. Let's connect your first cloud account — it takes about 60 seconds.
+      - generic [ref=e24]:
+        - generic [ref=e25]:
+          - img [ref=e27]
+          - generic [ref=e29]:
+            - generic [ref=e30]: 727 Cloud Tools
+            - generic [ref=e31]: AWS, Azure, GCP, Kubernetes, Docker, Terraform, CI/CD and more — all from one chat interface
+        - generic [ref=e32]:
+          - img [ref=e34]
+          - generic [ref=e36]:
+            - generic [ref=e37]: Autonomous SRE
+            - generic [ref=e38]: Proactive monitoring and auto-remediation — no human required
+        - generic [ref=e39]:
+          - img [ref=e41]
+          - generic [ref=e43]:
+            - generic [ref=e44]: Cost Optimization
+            - generic [ref=e45]: Automatically identify idle resources and reduce your cloud bill
+        - generic [ref=e46]:
+          - img [ref=e48]
+          - generic [ref=e51]:
+            - generic [ref=e52]: Instant Discovery
+            - generic [ref=e53]: See every resource in your account within 30 seconds of connecting
+      - generic [ref=e54]:
+        - button "Connect my cloud account" [ref=e55] [cursor=pointer]:
+          - text: Connect my cloud account
+          - img [ref=e56]
+        - button "Skip for now" [ref=e58] [cursor=pointer]
+  - generic [ref=e59]:
+    - button "Dark Mode" [ref=e60] [cursor=pointer]:
+      - img [ref=e61]
+    - button "Light Mode" [ref=e63] [cursor=pointer]:
+      - img [ref=e64]
