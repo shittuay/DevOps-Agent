@@ -826,6 +826,30 @@
             opacity: 0.7;
         }
 
+        .swarm-tip {
+            font-size: 12px;
+            color: var(--text-muted);
+            background: rgba(255, 107, 53, 0.07);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 6px;
+            padding: 5px 10px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .swarm-tip-close {
+            margin-left: auto;
+            cursor: pointer;
+            opacity: 0.5;
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .swarm-tip-close:hover { opacity: 1; }
+
         .message-text pre {
             background: var(--bg-elevated);
             border: 1px solid var(--border-subtle);
@@ -2524,9 +2548,24 @@
             }
         });
 
+        // Swarm tip state — set after each Kimi response
+        let _lastSwarmAgents = 0;
+        let _lastSwarmElapsedSec = 0;
+        let _swarmTipShown = false;
+
         function autoResize(textarea) {
             textarea.style.height = 'auto';
             textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+            _maybeShowSwarmTip(textarea);
+        }
+
+        function _maybeShowSwarmTip(input) {
+            if (_swarmTipShown || _lastSwarmElapsedSec < 30 || _lastSwarmAgents <= 0) return;
+            _swarmTipShown = true;
+            const tip = document.createElement('div');
+            tip.className = 'swarm-tip';
+            tip.innerHTML = `🐝 Tip: Add "across all regions" to activate parallel scanning. <span class="swarm-tip-close" onclick="this.parentElement.remove()">✕</span>`;
+            input.parentElement.insertBefore(tip, input);
         }
 
         function handleKeyDown(event) {
@@ -2643,6 +2682,9 @@
                             badge.className = 'swarm-meta';
                             badge.textContent = `🐝 ${swarmMatch[1]} agents · ${elapsedSec}s`;
                             textDiv.parentElement.appendChild(badge);
+                            _lastSwarmAgents = parseInt(swarmMatch[1], 10);
+                            _lastSwarmElapsedSec = elapsedSec;
+                            _swarmTipShown = false;
                         }
                         if (data.credits_remaining !== undefined) updateCreditsDisplay(data.credits_remaining);
                         if (data.credits_remaining === 0) {

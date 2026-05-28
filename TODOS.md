@@ -63,11 +63,8 @@ Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode 
 ### [x] Swarm metadata badge on message (🐝 N agents · Xs) — DONE
 `templates/index.html`: strips `🐝 *Swarm active — N agents*` header from response text, appends `<div class="swarm-meta">🐝 N agents · Xs</div>` below the bubble using `Date.now()` delta from fetch start.
 
-### [ ] Auto-suggest swarm tip for follow-up queries
-**What:** If the user's previous query took >30s (swarm was active), show a hint in the input bar: `🐝 Tip: Add 'across all regions' to activate parallel scanning.`
-**Why:** Discovery mechanism — most users don't know swarm exists or how to trigger it. This surfaces it contextually.
-**How to start:** Track `lastRequestUsedSwarm` and `lastRequestMs` in JS. On next `keydown` in the input, show a dismissible tooltip if both conditions are met.
-**Effort:** S | **Priority:** P3 | **Depends on:** Nothing
+### [x] Auto-suggest swarm tip for follow-up queries — DONE
+`templates/index.html`: tracks `_lastSwarmAgents`/`_lastSwarmElapsedSec` after each Kimi response. On next `oninput`, `_maybeShowSwarmTip()` inserts a dismissible `🐝 Tip: Add "across all regions"...` banner above the input if previous response took >30s with swarm active.
 
 ---
 
