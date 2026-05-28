@@ -1,0 +1,106 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - button "◀" [ref=e3] [cursor=pointer]
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: ">_"
+        - generic [ref=e7]:
+          - generic [ref=e8]: DevOps Agent
+          - generic [ref=e9]: AI-Powered Automation
+      - button "+ New Session" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: +
+        - generic [ref=e12]: New Session
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15] [cursor=pointer]: Learning Mode
+        - generic [ref=e16] [cursor=pointer]:
+          - checkbox "Learning Mode" [checked]
+      - generic [ref=e18]:
+        - generic [ref=e19] [cursor=pointer]: Sandbox
+        - generic [ref=e20] [cursor=pointer]:
+          - checkbox "Sandbox"
+      - generic [ref=e22]:
+        - generic "Kimi parallel sub-agents for complex queries" [ref=e23] [cursor=pointer]: Swarm Mode
+        - generic [ref=e24] [cursor=pointer]:
+          - checkbox "Swarm Mode" [checked]
+  - generic [ref=e27]:
+    - generic [ref=e29]:
+      - navigation [ref=e30]:
+        - link "Dashboard" [ref=e31] [cursor=pointer]:
+          - /url: /dashboard
+        - link "Monitoring" [ref=e32] [cursor=pointer]:
+          - /url: /monitoring
+        - link "Incidents" [ref=e33] [cursor=pointer]:
+          - /url: /incidents
+        - link "Optimize" [ref=e34] [cursor=pointer]:
+          - /url: /optimization
+        - link "Approvals" [ref=e35] [cursor=pointer]:
+          - /url: /approvals
+        - link "Map" [ref=e37] [cursor=pointer]:
+          - /url: /infrastructure/map
+        - link "Analysis" [ref=e38] [cursor=pointer]:
+          - /url: /analysis
+        - link "Learn" [ref=e39] [cursor=pointer]:
+          - /url: /curriculum
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - button "🌙" [ref=e42] [cursor=pointer]
+          - button "☀️" [ref=e43] [cursor=pointer]
+        - generic [ref=e44]: Learning
+        - generic "Click to view billing" [ref=e45] [cursor=pointer]: 💰 20 credits
+        - button "🔔" [ref=e47] [cursor=pointer]:
+          - generic [ref=e48]: 🔔
+        - button "👤" [ref=e50] [cursor=pointer]
+    - generic [ref=e52]:
+      - generic [ref=e55]:
+        - generic [ref=e57]: ">_"
+        - heading "Your DevOps Command Center" [level=2] [ref=e58]
+        - paragraph [ref=e59]: AI-powered infrastructure automation. Manage cloud, Kubernetes, CI/CD, and more — from a single interface.
+        - generic [ref=e60]:
+          - generic [ref=e61] [cursor=pointer]:
+            - generic [ref=e62]: ☁️
+            - heading "AWS Operations" [level=3] [ref=e63]
+            - paragraph [ref=e64]: Manage EC2, S3, EKS, and more across your AWS infrastructure
+          - generic [ref=e65] [cursor=pointer]:
+            - generic [ref=e66]: 🎯
+            - heading "Kubernetes" [level=3] [ref=e67]
+            - paragraph [ref=e68]: Deploy, manage, and scale your containerized applications
+          - generic [ref=e69] [cursor=pointer]:
+            - generic [ref=e70]: 🔧
+            - heading "Available Tools" [level=3] [ref=e71]
+            - paragraph [ref=e72]: Explore 36+ DevOps tools at your fingertips
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - generic [ref=e76]: "Model:"
+          - generic [ref=e77]:
+            - button "Kimi" [ref=e78] [cursor=pointer]
+            - button "Claude" [ref=e79] [cursor=pointer]
+          - generic [ref=e80]: Kimi K2.6 (Trial)
+        - generic [ref=e81]:
+          - button "Attach file" [ref=e82] [cursor=pointer]:
+            - img [ref=e83]
+          - textbox "Ask me anything about your infrastructure..." [ref=e85]
+          - button "🔇 Voice" [ref=e86] [cursor=pointer]:
+            - generic [ref=e87]: 🔇
+            - text: Voice
+          - button "End Session" [ref=e88] [cursor=pointer]
+          - button "Send" [ref=e89] [cursor=pointer]
+  - generic:
+    - generic:
+      - generic: ⚠️ Confirm Operation
+      - generic: This operation requires confirmation.
+      - generic:
+        - button "Cancel"
+        - button "Confirm"
+  - generic:
+    - generic:
+      - generic: Notifications
+      - generic:
+        - button "Mark all read"
+        - button "Clear all"
+    - generic:
+      - generic: No notifications
+  - generic [ref=e90]:
+    - generic: Need help? Contact us
+    - button "Contact Us" [ref=e91] [cursor=pointer]:
+      - img [ref=e92]

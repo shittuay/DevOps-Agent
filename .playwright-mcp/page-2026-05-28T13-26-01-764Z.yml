@@ -1,0 +1,35 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: ">_"
+        - generic [ref=e6]: DevOps Agent
+      - generic [ref=e7]: MFA Setup Required
+    - generic [ref=e9]:
+      - heading "Choose Your MFA Method" [level=2] [ref=e10]
+      - paragraph [ref=e11]: Multi-factor authentication is required for all accounts. Choose how you'd like to verify your identity at login.
+      - generic [ref=e42]: Please verify your email address first (check Settings).
+      - generic [ref=e12]:
+        - generic [ref=e13] [cursor=pointer]:
+          - generic [ref=e14]: ✉
+          - generic [ref=e15]:
+            - generic [ref=e16]: Email OTP Recommended
+            - generic [ref=e17]: A 6-digit code is sent to your email each time you log in.
+          - generic [ref=e18]: ›
+        - generic [ref=e19] [cursor=pointer]:
+          - generic [ref=e20]: 📱
+          - generic [ref=e21]:
+            - generic [ref=e22]: SMS OTP
+            - generic [ref=e23]: A 6-digit code is sent to your phone via SMS each login.
+          - generic [ref=e24]: ›
+        - generic [ref=e25] [cursor=pointer]:
+          - generic [ref=e26]: 🔒
+          - generic [ref=e27]:
+            - generic [ref=e28]: Authenticator App Advanced
+            - generic [ref=e29]: Use Google Authenticator, Authy, or 1Password to generate codes offline.
+          - generic [ref=e30]: ›
+  - generic [ref=e31]:
+    - button "Dark Mode" [ref=e32] [cursor=pointer]:
+      - img [ref=e33]
+    - button "Light Mode" [ref=e35] [cursor=pointer]:
+      - img [ref=e36]

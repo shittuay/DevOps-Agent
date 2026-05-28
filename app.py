@@ -531,6 +531,13 @@ _2FA_EXEMPT_ROUTES = {
     'api_status_subscribe', 'api_status_health',
 }
 
+_ONBOARDING_OK_ROUTES = {
+    'onboarding_page', 'complete_onboarding', 'update_onboarding_step',
+    'onboarding_scan',
+    'aws_config', 'azure_config', 'gcp_config',
+}
+
+
 @app.before_request
 def enforce_two_factor():
     """Require all logged-in users to set up 2FA before accessing the app."""
@@ -548,13 +555,7 @@ def enforce_two_factor():
         return redirect(url_for('auth.setup_2fa_page'))
     # Redirect to onboarding if not completed (after 2FA is set up)
     if not getattr(current_user, 'onboarding_completed', True):
-        _onboarding_ok = {
-            'onboarding_page', 'complete_onboarding', 'update_onboarding_step',
-            'onboarding_scan',
-            'aws_config', 'azure_config', 'gcp_config',
-            'static',
-        }
-        if request.endpoint not in _onboarding_ok:
+        if request.endpoint and request.endpoint not in _ONBOARDING_OK_ROUTES:
             # API calls during onboarding should get JSON, not a redirect
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'onboarding_required'}), 403
@@ -4826,7 +4827,7 @@ Transcript:
         db.session.add(ls)
 
         if prefs:
-            levels = prefs.learning_level or {}
+            levels = prefs.learning_level if isinstance(prefs.learning_level, dict) else {}
             for domain, delta in summary_data.get('proficiency_deltas', {}).items():
                 current = levels.get(domain, 0)
                 levels[domain] = min(100, current + int(delta))
@@ -4875,7 +4876,7 @@ def learning_proficiency():
     """Get current proficiency levels and session count."""
     try:
         prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
-        levels = prefs.learning_level if prefs and prefs.learning_level else {}
+        levels = prefs.learning_level if prefs and isinstance(prefs.learning_level, dict) else {}
 
         session_count = LearningSession.query.filter_by(user_id=current_user.id).count()
 
@@ -4894,7 +4895,7 @@ def learning_paths():
     """Return structured learning curriculum with suggested path based on proficiency."""
     try:
         prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
-        levels = prefs.learning_level if prefs and prefs.learning_level else {}
+        levels = prefs.learning_level if prefs and isinstance(prefs.learning_level, dict) else {}
 
         paths = []
         for path_id, path_data in LEARNING_CURRICULUM.items():

@@ -1,0 +1,534 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - link ">_ DevOps Agent" [ref=e3] [cursor=pointer]:
+      - /url: "#"
+      - generic [ref=e4]: ">_"
+      - generic [ref=e5]: DevOps Agent
+    - list [ref=e6]:
+      - listitem [ref=e7]:
+        - link "Tools" [ref=e8] [cursor=pointer]:
+          - /url: "#tools"
+      - listitem [ref=e9]:
+        - link "How It Works" [ref=e10] [cursor=pointer]:
+          - /url: "#how"
+      - listitem [ref=e11]:
+        - link "Features" [ref=e12] [cursor=pointer]:
+          - /url: "#features"
+      - listitem [ref=e13]:
+        - link "API" [ref=e14] [cursor=pointer]:
+          - /url: "#api"
+      - listitem [ref=e15]:
+        - link "Pricing" [ref=e16] [cursor=pointer]:
+          - /url: "#pricing"
+    - generic [ref=e17]:
+      - button "🌙" [ref=e18] [cursor=pointer]
+      - link "Sign In" [ref=e19] [cursor=pointer]:
+        - /url: /login
+      - link "Start Free" [ref=e20] [cursor=pointer]:
+        - /url: /signup
+  - generic [ref=e21]:
+    - generic [ref=e22]: 727 tools · 3 cloud providers · 1 AI agent
+    - heading "YOUR CLOUD. AUTOMATED. ON COMMAND." [level=1] [ref=e24]:
+      - text: YOUR CLOUD.
+      - emphasis [ref=e25]: AUTOMATED.
+      - generic [ref=e26]: ON COMMAND.
+    - paragraph [ref=e27]:
+      - text: DevOps Agent is the
+      - strong [ref=e28]: AI-powered command center
+      - text: for your entire cloud infrastructure. Manage AWS, Azure, and GCP through natural language — no dashboards, no context switching.
+    - generic [ref=e29]:
+      - link "Start Free Trial →" [ref=e30] [cursor=pointer]:
+        - /url: /signup
+      - link "See It Work" [ref=e31] [cursor=pointer]:
+        - /url: "#how"
+    - paragraph [ref=e32]: 20 free credits · No credit card required · Deploy in 60 seconds
+    - generic [ref=e38]: devops-agent — bash
+  - generic [ref=e40]:
+    - generic [ref=e41]:
+      - generic [ref=e42]: "0"
+      - generic [ref=e43]: Total Tools
+    - generic [ref=e44]:
+      - generic [ref=e45]: "0"
+      - generic [ref=e46]: Cloud Providers
+    - generic [ref=e47]:
+      - generic [ref=e48]: "0"
+      - generic [ref=e49]: Free Credits
+    - generic [ref=e50]:
+      - generic [ref=e51]: "0"
+      - generic [ref=e52]: Sec Deploy Time
+  - generic [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - paragraph [ref=e56]: Tool Inventory
+        - heading "727 tools. One interface." [level=2] [ref=e57]:
+          - text: 727 tools.
+          - text: One interface.
+      - paragraph [ref=e58]: Every tool you need across the four major clouds, unified into a single conversational interface. No more tab switching. No more context loss.
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - generic [ref=e61]: 🟠
+        - generic [ref=e62]: AWS
+        - generic [ref=e63]: 334 TOOLS
+        - generic [ref=e64]: Full lifecycle management across all major AWS services — compute, storage, networking, security, serverless, and more.
+        - generic [ref=e65]:
+          - generic [ref=e66]: EC2
+          - generic [ref=e67]: S3
+          - generic [ref=e68]: IAM
+          - generic [ref=e69]: Lambda
+          - generic [ref=e70]: EKS
+          - generic [ref=e71]: RDS
+          - generic [ref=e72]: VPC
+          - generic [ref=e73]: "+327"
+      - generic [ref=e74]:
+        - generic [ref=e75]: 🔵
+        - generic [ref=e76]: Azure
+        - generic [ref=e77]: 38 TOOLS
+        - generic [ref=e78]: Virtual machines, storage accounts, SQL servers, NSGs, container instances, VNets, and more — fully automated.
+        - generic [ref=e79]:
+          - generic [ref=e80]: VMs
+          - generic [ref=e81]: Storage
+          - generic [ref=e82]: SQL
+          - generic [ref=e83]: NSGs
+          - generic [ref=e84]: ACI
+          - generic [ref=e85]: "+33"
+      - generic [ref=e86]:
+        - generic [ref=e87]: 🟢
+        - generic [ref=e88]: GCP
+        - generic [ref=e89]: 42 TOOLS
+        - generic [ref=e90]: Compute Engine, GCS, Cloud SQL, GKE, Cloud Run, BigQuery, Pub/Sub, Secret Manager, and Cloud Functions.
+        - generic [ref=e91]:
+          - generic [ref=e92]: GCE
+          - generic [ref=e93]: GKE
+          - generic [ref=e94]: GCS
+          - generic [ref=e95]: BigQuery
+          - generic [ref=e96]: Cloud Run
+          - generic [ref=e97]: "+37"
+      - generic [ref=e98]:
+        - generic [ref=e99]: ⎈
+        - generic [ref=e100]: Kubernetes
+        - generic [ref=e101]: 76 TOOLS
+        - generic [ref=e102]: Pods, deployments, services, ingress, ConfigMaps, secrets, jobs, node management — the full K8s surface.
+        - generic [ref=e103]:
+          - generic [ref=e104]: Pods
+          - generic [ref=e105]: Deployments
+          - generic [ref=e106]: Services
+          - generic [ref=e107]: Ingress
+          - generic [ref=e108]: Jobs
+          - generic [ref=e109]: "+71"
+      - generic [ref=e110]:
+        - generic [ref=e111]: ⚙️
+        - generic [ref=e112]: CI/CD
+        - generic [ref=e113]: 35 TOOLS
+        - generic [ref=e114]: Jenkins job triggers, GitHub Actions workflows, GitLab pipelines — build, test, and deploy from one interface.
+        - generic [ref=e115]:
+          - generic [ref=e116]: Jenkins
+          - generic [ref=e117]: GitHub Actions
+          - generic [ref=e118]: GitLab
+          - generic [ref=e119]: Pipelines
+          - generic [ref=e120]: "+31"
+      - generic [ref=e121]:
+        - generic [ref=e122]: 🏗️
+        - generic [ref=e123]: Terraform
+        - generic [ref=e124]: 25 TOOLS
+        - generic [ref=e125]: Init, plan, apply, destroy, workspace management, state operations, import — full IaC lifecycle.
+        - generic [ref=e126]:
+          - generic [ref=e127]: Plan
+          - generic [ref=e128]: Apply
+          - generic [ref=e129]: State
+          - generic [ref=e130]: Workspaces
+          - generic [ref=e131]: Import
+          - generic [ref=e132]: "+20"
+      - generic [ref=e133]:
+        - generic [ref=e134]: 🐳
+        - generic [ref=e135]: Docker
+        - generic [ref=e136]: 22 TOOLS
+        - generic [ref=e137]: Containers, images, volumes, networks, compose, build, push, exec, system prune — full container lifecycle.
+        - generic [ref=e138]:
+          - generic [ref=e139]: Containers
+          - generic [ref=e140]: Images
+          - generic [ref=e141]: Compose
+          - generic [ref=e142]: Volumes
+          - generic [ref=e143]: "+18"
+      - generic [ref=e144]:
+        - generic [ref=e145]: 🐙
+        - generic [ref=e146]: GitHub
+        - generic [ref=e147]: 18 TOOLS
+        - generic [ref=e148]: Repositories, pull requests, issues, branches, releases — manage your GitHub workflow directly from chat.
+        - generic [ref=e149]:
+          - generic [ref=e150]: Repos
+          - generic [ref=e151]: PRs
+          - generic [ref=e152]: Issues
+          - generic [ref=e153]: Releases
+          - generic [ref=e154]: "+14"
+      - generic [ref=e155]:
+        - generic [ref=e156]: 🚨
+        - generic [ref=e157]: Alerting
+        - generic [ref=e158]: 16 TOOLS
+        - generic [ref=e159]: PagerDuty and OpsGenie incident management — create, acknowledge, resolve, escalate alerts.
+        - generic [ref=e160]:
+          - generic [ref=e161]: PagerDuty
+          - generic [ref=e162]: OpsGenie
+          - generic [ref=e163]: Incidents
+          - generic [ref=e164]: "+13"
+      - generic [ref=e165]:
+        - generic [ref=e166]: 📜
+        - generic [ref=e167]: Ansible
+        - generic [ref=e168]: 13 TOOLS
+        - generic [ref=e169]: Run playbooks, ad-hoc commands, manage inventory, vault encryption, and Galaxy roles.
+        - generic [ref=e170]:
+          - generic [ref=e171]: Playbooks
+          - generic [ref=e172]: Ad-hoc
+          - generic [ref=e173]: Vault
+          - generic [ref=e174]: Galaxy
+          - generic [ref=e175]: "+9"
+      - generic [ref=e176]:
+        - generic [ref=e177]: 📊
+        - generic [ref=e178]: Monitoring
+        - generic [ref=e179]: 12 TOOLS
+        - generic [ref=e180]: Prometheus queries, Datadog metrics, Grafana dashboards — unified observability from one place.
+        - generic [ref=e181]:
+          - generic [ref=e182]: Prometheus
+          - generic [ref=e183]: Datadog
+          - generic [ref=e184]: Grafana
+          - generic [ref=e185]: "+9"
+      - generic [ref=e186]:
+        - generic [ref=e187]: 🔍
+        - generic [ref=e188]: SonarQube
+        - generic [ref=e189]: 12 TOOLS
+        - generic [ref=e190]: Code quality analysis, projects, issues, quality gates, hotspots — keep your codebase clean.
+        - generic [ref=e191]:
+          - generic [ref=e192]: Projects
+          - generic [ref=e193]: Issues
+          - generic [ref=e194]: Quality Gates
+          - generic [ref=e195]: "+9"
+      - generic [ref=e196]:
+        - generic [ref=e197]: 📦
+        - generic [ref=e198]: Nexus
+        - generic [ref=e199]: 12 TOOLS
+        - generic [ref=e200]: Repository management, component search, asset operations, user admin, cleanup tasks.
+        - generic [ref=e201]:
+          - generic [ref=e202]: Repos
+          - generic [ref=e203]: Components
+          - generic [ref=e204]: Assets
+          - generic [ref=e205]: Cleanup
+          - generic [ref=e206]: "+8"
+      - generic [ref=e207]:
+        - generic [ref=e208]: 🛡️
+        - generic [ref=e209]: Pentest
+        - generic [ref=e210]: 12 TOOLS
+        - generic [ref=e211]: Security audits with nmap, nikto, sqlmap, ZAP, and cloud security scans — authorized testing only.
+        - generic [ref=e212]:
+          - generic [ref=e213]: Nmap
+          - generic [ref=e214]: Nikto
+          - generic [ref=e215]: ZAP
+          - generic [ref=e216]: Cloud Audit
+          - generic [ref=e217]: "+8"
+      - generic [ref=e218]:
+        - generic [ref=e219]: 🔧
+        - generic [ref=e220]: DevOps Ops
+        - generic [ref=e221]: 10 TOOLS
+        - generic [ref=e222]: Infrastructure operations, deployment workflows, and cross-service orchestration utilities.
+        - generic [ref=e223]:
+          - generic [ref=e224]: Deploy
+          - generic [ref=e225]: Orchestrate
+          - generic [ref=e226]: Operate
+          - generic [ref=e227]: "+7"
+      - generic [ref=e228]:
+        - generic [ref=e229]: 🔀
+        - generic [ref=e230]: Git
+        - generic [ref=e231]: 47 TOOLS
+        - generic [ref=e232]: Repository status, branches, commit history, diffs, and pull request operations.
+        - generic [ref=e233]:
+          - generic [ref=e234]: Status
+          - generic [ref=e235]: Branches
+          - generic [ref=e236]: Commits
+          - generic [ref=e237]: PRs
+          - generic [ref=e238]: "+43"
+      - generic [ref=e239]:
+        - generic [ref=e240]: 💻
+        - generic [ref=e241]: Command
+        - generic [ref=e242]: 2 TOOLS
+        - generic [ref=e243]: Safe shell command execution with output capture for ad-hoc server operations.
+        - generic [ref=e244]:
+          - generic [ref=e245]: Shell
+          - generic [ref=e246]: Exec
+  - generic [ref=e248]:
+    - generic [ref=e249]:
+      - paragraph [ref=e250]: How It Works
+      - heading "Talk. Execute. Done." [level=2] [ref=e251]:
+        - text: Talk.
+        - text: Execute.
+        - text: Done.
+      - generic [ref=e252]:
+        - generic [ref=e253]:
+          - generic [ref=e254]: "01"
+          - generic [ref=e255]:
+            - generic [ref=e256]: Connect Your Cloud
+            - generic [ref=e257]: Add your AWS access keys, Azure credentials, or GCP service account. Credentials are encrypted at rest with AES-128. Supports IAM Role ARN for enterprise cross-account delegation.
+        - generic [ref=e258]:
+          - generic [ref=e259]: "02"
+          - generic [ref=e260]:
+            - generic [ref=e261]: Ask In Plain English
+            - generic [ref=e262]: No commands to memorize. Describe what you want — "scale my API server and add a health check alarm." The agent plans the tool calls, confirms risky operations, and executes.
+        - generic [ref=e263]:
+          - generic [ref=e264]: "03"
+          - generic [ref=e265]:
+            - generic [ref=e266]: Review & Iterate
+            - generic [ref=e267]: Every action is logged with results. High-risk operations require your confirmation. Ask follow-up questions, refine the output, or chain into the next task.
+    - generic [ref=e268]:
+      - generic [ref=e269]:
+        - generic [ref=e270]: DA
+        - generic [ref=e271]:
+          - generic [ref=e272]: DevOps Agent
+          - generic [ref=e273]: Online
+      - generic [ref=e274]:
+        - generic [ref=e275]: My Kubernetes deployment keeps crashing. Pods are in CrashLoopBackOff.
+        - generic [ref=e276]:
+          - text: Let me investigate. I'll check the pod logs and events.
+          - generic [ref=e277]: ⚙ describe_pod · production/api-server-7d8f9
+          - generic [ref=e278]: ⚙ get_pod_logs · last 50 lines · previous=true
+          - generic [ref=e279]:
+            - generic [ref=e280]: "✓ Exit code: 1 · OOMKilled"
+            - generic [ref=e281]: "Memory limit: 256Mi · Usage at crash: 258Mi"
+          - text: Your pod is being killed by the OOM killer — memory limit is 256Mi but usage peaked at 258Mi. I'll increase the limit to 512Mi and add a memory request.
+        - generic [ref=e282]: Yes, go ahead — but warn me before any production changes.
+        - generic [ref=e283]:
+          - text: "⚠️ Production change: updating memory limit on"
+          - code [ref=e284]: api-server
+          - text: from 256Mi → 512Mi. Confirm?
+          - generic [ref=e285]:
+            - generic [ref=e286]: ✓ Deployment patched · Rolling restart triggered
+            - generic [ref=e287]: ✓ 3/3 pods Running · No further crashes
+      - generic [ref=e288]:
+        - generic [ref=e289]: Ask about your infrastructure...
+        - button "Send" [ref=e290] [cursor=pointer]
+  - generic [ref=e291]:
+    - generic [ref=e292]:
+      - paragraph [ref=e293]: Platform Features
+      - heading "Not just chat. A full ops platform." [level=2] [ref=e294]:
+        - text: Not just chat.
+        - text: A full ops platform.
+      - paragraph [ref=e295]: Built for teams that move fast and can't afford surprises in production.
+    - generic [ref=e296]:
+      - generic [ref=e297]:
+        - generic [ref=e298]: 🛡️
+        - generic [ref=e299]: Safety First
+        - generic [ref=e300]: Every delete and terminate operation requires explicit confirmation. Three-layer guardrail stack prevents prompt injection and blocks malicious commands before execution.
+        - generic [ref=e301]: → High-risk protection on all 727 tools
+      - generic [ref=e302]:
+        - generic [ref=e303]: 🔐
+        - generic [ref=e304]: Credential Isolation
+        - generic [ref=e305]: Per-user encrypted credentials using AES-128 Fernet. Supports direct IAM access keys and enterprise IAM Role ARN with STS AssumeRole for cross-account delegation.
+        - generic [ref=e306]: → Zero credential sharing between users
+      - generic [ref=e307]:
+        - generic [ref=e308]: 📚
+        - generic [ref=e309]: Learning Mode
+        - generic [ref=e310]: Toggle on teaching mode and the agent explains every action — what the tool does, why it's being used, what the result means. 6 learning paths, 22 structured lessons.
+        - generic [ref=e311]: → Built for teams onboarding to DevOps
+      - generic [ref=e312]:
+        - generic [ref=e313]: 🧪
+        - generic [ref=e314]: Sandbox Mode
+        - generic [ref=e315]: All tool calls return realistic simulated data — no real cloud resources touched. 7 pre-built failure scenarios (OOMKilled, CrashLoopBackOff, high CPU) for practice debugging.
+        - generic [ref=e316]: → Experiment without risk
+      - generic [ref=e317]:
+        - generic [ref=e318]: 📊
+        - generic [ref=e319]: Cost Optimization
+        - generic [ref=e320]: Automatically scans for idle resources, rightsizing opportunities, and reserved instance savings. Proactive monitoring with configurable alerts across all cloud providers.
+        - generic [ref=e321]: → Average 23% cost reduction
+      - generic [ref=e322]:
+        - generic [ref=e323]: ⚡
+        - generic [ref=e324]: Incident Response
+        - generic [ref=e325]: Pre-built runbooks for common incidents — high CPU, memory pressure, disk full, pod crash loops, service down. Automated escalation paths and resolution playbooks.
+        - generic [ref=e326]: → MTTR reduced from hours to minutes
+      - generic [ref=e327]:
+        - generic [ref=e328]: </>
+        - generic [ref=e329]: Developer REST API
+        - generic [ref=e330]: Call the full 727-tool agent from your own scripts, CI pipelines, or apps. API key auth, rate-limited per tier, HMAC-signed webhooks. Every tool call is tracked and billed to your credit balance.
+        - generic [ref=e331]: → Professional & Business tiers · /api-gateway/v1/agent
+  - generic [ref=e332]:
+    - paragraph [ref=e333]: What engineers say
+    - generic [ref=e334]:
+      - generic [ref=e335]:
+        - paragraph [ref=e336]: "\"I replaced three hours of AWS console clicking with a two-minute conversation. Scaled our entire ECS cluster, updated security groups, and got a cost report — all in one session.\""
+        - generic [ref=e337]:
+          - generic [ref=e338]: AS
+          - generic [ref=e339]:
+            - generic [ref=e340]: Adebayo S.
+            - generic [ref=e341]: SRE · FinTech Lagos
+      - generic [ref=e342]:
+        - paragraph [ref=e343]: "\"The learning mode is a game-changer for junior engineers. They can see exactly what every command does, why it's safe (or risky), and learn by doing — without touching production.\""
+        - generic [ref=e344]:
+          - generic [ref=e345]: MO
+          - generic [ref=e346]:
+            - generic [ref=e347]: Mildred O.
+            - generic [ref=e348]: Platform Lead · E-commerce
+      - generic [ref=e349]:
+        - paragraph [ref=e350]: "\"We onboarded three new engineers to our multi-cloud setup in a week. Normally that takes a month. The sandbox scenarios let them break things safely and actually understand the fixes.\""
+        - generic [ref=e351]:
+          - generic [ref=e352]: KI
+          - generic [ref=e353]:
+            - generic [ref=e354]: Kolade I.
+            - generic [ref=e355]: CTO · Logistics Startup
+  - generic [ref=e356]:
+    - generic [ref=e357]:
+      - paragraph [ref=e358]: Pricing
+      - heading "Start free. Scale as you grow." [level=2] [ref=e359]:
+        - text: Start free.
+        - text: Scale as you grow.
+    - generic [ref=e360]:
+      - generic [ref=e361]:
+        - generic [ref=e362]: Free
+        - generic [ref=e363]:
+          - generic [ref=e364]: $
+          - generic [ref=e365]: "0"
+          - generic [ref=e366]: /mo
+        - paragraph [ref=e367]: 20 trial credits to explore the full agent experience with real cloud tools.
+        - list [ref=e369]:
+          - listitem [ref=e370]: → 20 trial credits (one-time)
+          - listitem [ref=e371]: → All 727 tools unlocked
+          - listitem [ref=e372]: → 1 cloud account
+          - listitem [ref=e373]: → Learning & Sandbox mode
+          - listitem [ref=e374]: → 25 resources tracked
+        - link "Start Free Trial" [ref=e375] [cursor=pointer]:
+          - /url: /signup
+      - generic [ref=e376]:
+        - generic [ref=e377]: Starter
+        - generic [ref=e378]:
+          - generic [ref=e379]: $
+          - generic [ref=e380]: "29"
+          - generic [ref=e381]: /mo
+        - paragraph [ref=e382]: For individual developers and solo operators managing cloud infrastructure.
+        - list [ref=e384]:
+          - listitem [ref=e385]: → 200 credits / month
+          - listitem [ref=e386]: → All 727 tools unlocked
+          - listitem [ref=e387]: → 1 cloud account
+          - listitem [ref=e388]: → SOC 2 compliance scans
+          - listitem [ref=e389]: → 50 resources tracked
+          - listitem [ref=e390]: → Email support
+        - link "Get Starter" [ref=e391] [cursor=pointer]:
+          - /url: /signup?tier=starter
+      - generic [ref=e392]:
+        - generic [ref=e393]: Most Popular
+        - generic [ref=e394]: Professional
+        - generic [ref=e395]:
+          - generic [ref=e396]: $
+          - generic [ref=e397]: "99"
+          - generic [ref=e398]: /mo
+        - paragraph [ref=e399]: For growing teams managing multi-cloud environments at scale.
+        - list [ref=e401]:
+          - listitem [ref=e402]: → 2,000 credits / month
+          - listitem [ref=e403]: → 3 cloud accounts (AWS+Azure+GCP)
+          - listitem [ref=e404]: → 500 resources tracked
+          - listitem [ref=e405]: → SOC 2 + HIPAA compliance
+          - listitem [ref=e406]: → PDF compliance reports
+          - listitem [ref=e407]: → Auto-remediation
+          - listitem [ref=e408]: → Up to 10 team members
+          - listitem [ref=e409]: → Auto-sync every 6 hours
+          - listitem [ref=e410]:
+            - text: →
+            - strong [ref=e411]: Developer REST API access
+          - listitem [ref=e412]: → Priority support
+        - link "Get Professional" [ref=e413] [cursor=pointer]:
+          - /url: /signup?tier=professional
+      - generic [ref=e414]:
+        - generic [ref=e415]: Business
+        - generic [ref=e416]:
+          - generic [ref=e417]: $
+          - generic [ref=e418]: "299"
+          - generic [ref=e419]: /mo
+        - paragraph [ref=e420]: Full-scale automation for large organizations with compliance requirements.
+        - list [ref=e422]:
+          - listitem [ref=e423]: → 10,000 credits / month
+          - listitem [ref=e424]: → Unlimited cloud accounts
+          - listitem [ref=e425]: → Unlimited resources
+          - listitem [ref=e426]: → All compliance frameworks
+          - listitem [ref=e427]: → SSO / SAML
+          - listitem [ref=e428]: → Audit log export
+          - listitem [ref=e429]: → Custom remediation rules
+          - listitem [ref=e430]: → Auto-sync every 15 minutes
+          - listitem [ref=e431]:
+            - text: →
+            - strong [ref=e432]: Developer REST API + webhooks
+          - listitem [ref=e433]: → Dedicated support + SLA
+        - link "Get Business" [ref=e434] [cursor=pointer]:
+          - /url: /signup?tier=business
+  - generic [ref=e435]:
+    - generic [ref=e436]:
+      - paragraph [ref=e437]: Developer API
+      - heading "Automate the automator. Build on top of DevOps Agent." [level=2] [ref=e438]:
+        - text: Automate the automator.
+        - text: Build on top of DevOps Agent.
+      - paragraph [ref=e439]: Professional and Business subscribers get API key access to the full 727-tool agent. Call it from scripts, CI pipelines, internal tools, or your own SaaS products.
+    - generic [ref=e441]:
+      - generic [ref=e443]:
+        - generic [ref=e444]:
+          - generic [ref=e445]: "01"
+          - generic [ref=e446]:
+            - generic [ref=e447]: Generate an API Key
+            - generic [ref=e448]: From Settings → API Keys, create a named key with optional scopes and expiry. Your key is shown once — store it securely.
+        - generic [ref=e449]:
+          - generic [ref=e450]: "02"
+          - generic [ref=e451]:
+            - generic [ref=e452]: POST a Message
+            - generic [ref=e453]:
+              - text: Send
+              - code [ref=e454]: "{\"message\": \"Scale my ECS service to 5 tasks\"}"
+              - text: to
+              - code [ref=e455]: /api-gateway/v1/agent
+              - text: with your key in the
+              - code [ref=e456]: X-API-Key
+              - text: header.
+        - generic [ref=e457]:
+          - generic [ref=e458]: "03"
+          - generic [ref=e459]:
+            - generic [ref=e460]: Get the Response
+            - generic [ref=e461]:
+              - text: Receive the agent's text response, the list of tools executed, and your updated credit balance. Use
+              - code [ref=e462]: conversation_id
+              - text: to keep multi-turn context across calls.
+      - generic [ref=e463]:
+        - generic [ref=e468]: curl example
+        - generic [ref=e469]:
+          - generic [ref=e470]: "# Call the agent via REST API"
+          - generic [ref=e471]: curl -X POST https://devopsagent.io/api-gateway/v1/agent \
+          - generic [ref=e472]: "-H \"X-API-Key: doa_your_key_here\" \\"
+          - generic [ref=e473]: "-H \"Content-Type: application/json\" \\"
+          - generic [ref=e474]: "-d '{\"message\": \"List all RDS instances in us-east-1\"}'"
+          - generic [ref=e475]: "# Response"
+          - generic [ref=e476]: "{"
+          - generic [ref=e477]: "\"response\": \"Found 3 RDS instances...\","
+          - generic [ref=e478]: "\"tools_used\": [\"list_rds_instances\"],"
+          - generic [ref=e479]: "\"credits_remaining\": 1847,"
+          - generic [ref=e480]: "\"conversation_id\": \"api-12-default\""
+          - generic [ref=e481]: "}"
+  - generic [ref=e482]:
+    - paragraph [ref=e483]: Get Started Now
+    - heading "Your infrastructure. Under control." [level=2] [ref=e484]:
+      - text: Your infrastructure.
+      - text: Under control.
+    - paragraph [ref=e485]: 20 free credits. No credit card. Real cloud tools from the first message.
+    - generic [ref=e486]:
+      - link "Start Free Trial →" [ref=e487] [cursor=pointer]:
+        - /url: /signup
+      - link "Sign In" [ref=e488] [cursor=pointer]:
+        - /url: /login
+  - contentinfo [ref=e489]:
+    - generic [ref=e490]:
+      - generic [ref=e491]: ">_"
+      - generic [ref=e492]: © 2026 DevOps Agent · devopsagent.io
+    - list [ref=e493]:
+      - listitem [ref=e494]:
+        - link "Docs" [ref=e495] [cursor=pointer]:
+          - /url: /docs
+      - listitem [ref=e496]:
+        - link "Privacy" [ref=e497] [cursor=pointer]:
+          - /url: /privacy-policy
+      - listitem [ref=e498]:
+        - link "Terms" [ref=e499] [cursor=pointer]:
+          - /url: /usage-policy
+      - listitem [ref=e500]:
+        - link "Status" [ref=e501] [cursor=pointer]:
+          - /url: https://status.devopsagent.io
+      - listitem [ref=e502]:
+        - link "GitHub" [ref=e503] [cursor=pointer]:
+          - /url: https://github.com/shittuay/DevOps-Agent
