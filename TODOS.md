@@ -57,17 +57,11 @@ Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode 
 
 ## P2 — Swarm observability (from CEO plan review 2026-05-11)
 
-### [ ] Add swarm activation logging
-**What:** Add `logger.info(f"Swarm: {effective_swarm} agents | score={score} | tier={tier}")` in `_call_kimi_api()` before the iteration loop.
-**Why:** The scorer was recalibrated once already via Playwright testing — structured log data would make future recalibration a 5-minute log analysis instead of a multi-session Playwright debugging cycle. Currently swarm activations are invisible in server logs.
-**How to start:** In `src/agent/core.py`, right after `effective_swarm = _compute_swarm_agents(...)`, add the log line. Expose `score` from `_compute_swarm_agents` (or duplicate the scoring inline for logging).
-**Effort:** S | **Priority:** P2 | **Depends on:** Nothing
+### [x] Add swarm activation logging — DONE (commit 5dea5b5)
+`src/agent/core.py:1124`: `self.logger.info(f"Swarm: {effective_swarm} agents | score={swarm_score} | tier={swarm_max_agents}")` — added after `_compute_swarm_agents()` call.
 
-### [ ] Swarm metadata badge on message (🐝 N agents · Xs)
-**What:** Each Kimi response bubble shows `🐝 5 agents · 42s` below the text. Agent count comes from the status header already emitted. Timing from JS-side `Date.now()` delta.
-**Why:** Users wonder why some Kimi responses take 60s and others take 5s. The badge makes swarm timing visible and builds trust.
-**How to start:** Parse the `🐝 *Swarm active — N agents*` line in the JS `formatMessage()` function, extract N, calculate elapsed time from when the fetch started, render a small `<span class="swarm-meta">` below the message bubble.
-**Effort:** S | **Priority:** P3 | **Depends on:** Nothing
+### [x] Swarm metadata badge on message (🐝 N agents · Xs) — DONE
+`templates/index.html`: strips `🐝 *Swarm active — N agents*` header from response text, appends `<div class="swarm-meta">🐝 N agents · Xs</div>` below the bubble using `Date.now()` delta from fetch start.
 
 ### [ ] Auto-suggest swarm tip for follow-up queries
 **What:** If the user's previous query took >30s (swarm was active), show a hint in the input bar: `🐝 Tip: Add 'across all regions' to activate parallel scanning.`
