@@ -818,6 +818,14 @@
             font-weight: 500;
         }
 
+        .swarm-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'IBM Plex Mono', monospace;
+            margin-top: 6px;
+            opacity: 0.7;
+        }
+
         .message-text pre {
             background: var(--bg-elevated);
             border: 1px solid var(--border-subtle);
@@ -2588,6 +2596,7 @@
 
                 // Kimi uses the non-streaming endpoint — swarm scales with task complexity
                 if (currentModelProvider === 'kimi') {
+                    const fetchStart = Date.now();
                     const kimiAbort = new AbortController();
                     const kimiTimeout = setTimeout(() => kimiAbort.abort(), 290000); // 290s client-side limit
                     let kimiResp;
@@ -2625,7 +2634,16 @@
                     } else {
                         const data = await kimiResp.json();
                         const fullText = data.response || '';
-                        textDiv.innerHTML = formatMessage(fullText);
+                        const swarmMatch = fullText.match(/🐝 \*Swarm active — (\d+) agents[^*]*\*/);
+                        const cleanText = fullText.replace(/\n?🐝 \*Swarm active — \d+ agents[^*]*\*\n*/g, '');
+                        const elapsedSec = Math.round((Date.now() - fetchStart) / 1000);
+                        textDiv.innerHTML = formatMessage(cleanText);
+                        if (swarmMatch) {
+                            const badge = document.createElement('div');
+                            badge.className = 'swarm-meta';
+                            badge.textContent = `🐝 ${swarmMatch[1]} agents · ${elapsedSec}s`;
+                            textDiv.parentElement.appendChild(badge);
+                        }
                         if (data.credits_remaining !== undefined) updateCreditsDisplay(data.credits_remaining);
                         if (data.credits_remaining === 0) {
                             const ctaDiv = document.createElement('div');
