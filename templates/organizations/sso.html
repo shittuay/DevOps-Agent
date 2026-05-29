@@ -4,61 +4,90 @@
 <div class="container">
     <div class="page-header">
         <h1>Single Sign-On (SSO)</h1>
-        <a href="{{ url_for('organizations.view_organization', org_id=organization.id) }}" class="btn btn-secondary">Back</a>
+        <a href="{{ url_for('organizations.view_organization', org_id=org.id) }}" class="btn btn-secondary">Back</a>
     </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
     <div class="card">
         <div class="card-header">
-            <h3>SSO Configuration</h3>
-            <span class="badge badge-{{ 'success' if organization.sso_enabled else 'secondary' }}">
-                {{ 'Enabled' if organization.sso_enabled else 'Disabled' }}
+            <h3>OIDC Configuration</h3>
+            <span class="badge badge-{{ 'success' if sso_config.enabled else 'secondary' }}">
+                {{ 'Enabled' if sso_config.enabled else 'Disabled' }}
             </span>
         </div>
         <div class="card-body">
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                 <div class="form-group">
-                    <label>SSO Provider:</label>
-                    <select name="sso_provider" class="form-control">
-                        <option value="">Select Provider</option>
-                        <option value="okta" {{ 'selected' if organization.sso_provider == 'okta' else '' }}>Okta</option>
-                        <option value="azure_ad" {{ 'selected' if organization.sso_provider == 'azure_ad' else '' }}>Azure AD</option>
-                        <option value="google" {{ 'selected' if organization.sso_provider == 'google' else '' }}>Google Workspace</option>
-                        <option value="github" {{ 'selected' if organization.sso_provider == 'github' else '' }}>GitHub</option>
-                        <option value="saml" {{ 'selected' if organization.sso_provider == 'saml' else '' }}>SAML 2.0</option>
-                        <option value="oidc" {{ 'selected' if organization.sso_provider == 'oidc' else '' }}>OpenID Connect</option>
+                    <label>Identity Provider</label>
+                    <select name="provider" id="provider" class="form-control" required>
+                        <option value="">Select provider…</option>
+                        <option value="generic_oidc" {{ 'selected' if sso_config.provider == 'generic_oidc' else '' }}>Generic OIDC (Okta, Auth0, …)</option>
+                        <option value="google" {{ 'selected' if sso_config.provider == 'google' else '' }}>Google Workspace</option>
+                        <option value="azure" {{ 'selected' if sso_config.provider == 'azure' else '' }}>Azure AD / Entra ID</option>
+                        <option value="github" {{ 'selected' if sso_config.provider == 'github' else '' }}>GitHub</option>
                     </select>
                 </div>
 
-                <div id="samlConfig" class="provider-config" style="display:none;">
-                    <h4>SAML Configuration</h4>
-                    <div class="form-group">
-                        <label>Identity Provider SSO URL:</label>
-                        <input type="url" name="saml_sso_url" class="form-control" placeholder="https://idp.example.com/sso">
-                    </div>
-                    <div class="form-group">
-                        <label>Identity Provider Certificate:</label>
-                        <textarea name="saml_certificate" class="form-control" rows="4" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
-                    </div>
+                <div class="form-group prov-field" data-for="generic_oidc">
+                    <label>Discovery / Metadata URL</label>
+                    <input type="url" name="metadata_url" class="form-control"
+                           placeholder="https://idp.example.com/.well-known/openid-configuration"
+                           value="{{ sso_config.metadata_url or '' }}">
                 </div>
 
-                <div id="oidcConfig" class="provider-config" style="display:none;">
-                    <h4>OpenID Connect Configuration</h4>
-                    <div class="form-group">
-                        <label>Issuer URL:</label>
-                        <input type="url" name="oidc_issuer" class="form-control" placeholder="https://accounts.google.com">
-                    </div>
-                    <div class="form-group">
-                        <label>Client ID:</label>
-                        <input type="text" name="oidc_client_id" class="form-control">
-                    </div>
-                    <div class="form-group">
-                        <label>Client Secret:</label>
-                        <input type="password" name="oidc_client_secret" class="form-control">
-                    </div>
+                <div class="form-group prov-field" data-for="azure">
+                    <label>Azure Tenant ID</label>
+                    <input type="text" name="tenant_id" class="form-control"
+                           placeholder="00000000-0000-0000-0000-000000000000"
+                           value="{{ sso_config.tenant_id or '' }}">
+                </div>
+
+                <div class="form-group">
+                    <label>Client ID</label>
+                    <input type="text" name="client_id" class="form-control"
+                           value="{{ sso_config.client_id or '' }}" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Client Secret {% if sso_config.has_secret %}<small>(leave blank to keep current)</small>{% endif %}</label>
+                    <input type="password" name="client_secret" class="form-control"
+                           placeholder="{{ '••••••••••••' if sso_config.has_secret else '' }}"
+                           {{ '' if sso_config.has_secret else 'required' }}>
+                </div>
+
+                <div class="form-group">
+                    <label>Email domains <small>(comma-separated — users with these domains are routed here)</small></label>
+                    <input type="text" name="domains" class="form-control"
+                           placeholder="acme.com, acme.io"
+                           value="{{ sso_config.allowed_domains | join(', ') }}">
+                </div>
+
+                <div class="form-group">
+                    <label>Scopes <small>(optional)</small></label>
+                    <input type="text" name="scopes" class="form-control"
+                           placeholder="openid email profile"
+                           value="{{ sso_config.scopes or '' }}">
+                </div>
+
+                <div class="form-group">
+                    <label>Default role for new members</label>
+                    <select name="default_role" class="form-control">
+                        {% for r in ['member', 'viewer', 'admin'] %}
+                        <option value="{{ r }}" {{ 'selected' if sso_config.default_role == r else '' }}>{{ r|capitalize }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" name="sso_enabled" {{ 'checked' if organization.sso_enabled else '' }}>
+                        <input type="checkbox" name="enabled" {{ 'checked' if sso_config.enabled else '' }}>
                         Enable SSO for this organization
                     </label>
                 </div>
@@ -69,39 +98,46 @@
     </div>
 
     <div class="card mt-4">
-        <div class="card-header"><h3>Service Provider Details</h3></div>
+        <div class="card-header"><h3>Provider Setup Details</h3></div>
         <div class="card-body">
-            <p>Use these details when configuring your Identity Provider:</p>
+            <p>Register this redirect URI in your identity provider:</p>
             <div class="form-group">
-                <label>ACS URL (Assertion Consumer Service):</label>
-                <input type="text" class="form-control" readonly value="{{ request.url_root }}auth/sso/callback">
+                <label>Redirect URI / Callback</label>
+                <input type="text" class="form-control" readonly value="{{ callback_url }}">
             </div>
-            <div class="form-group">
-                <label>Entity ID:</label>
-                <input type="text" class="form-control" readonly value="{{ request.url_root }}">
-            </div>
+            <p><small>Members can then sign in at <code>{{ url_for('sso_auth.start', _external=True) }}</code>
+               or directly via <code>{{ url_for('sso_auth.login_org', slug=org.slug, _external=True) }}</code>.</small></p>
         </div>
     </div>
 </div>
 <style>
 .container { padding: 20px; max-width: 800px; margin: 0 auto; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; }
-.card-header { padding: 15px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+.card { background: var(--card-bg, var(--glass-bg)); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 16px; }
+.card-header { padding: 15px 20px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; }
 .card-body { padding: 20px; }
 .form-group { margin-bottom: 15px; }
-.form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
+.form-group small { color: var(--text-secondary); font-weight: 400; }
+.form-control { width: 100%; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); }
 .checkbox-label { display: flex; align-items: center; gap: 8px; }
-.badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+.badge { padding: 4px 10px; border-radius: 6px; font-size: 12px; }
 .badge-success { background: #28a745; color: white; }
 .badge-secondary { background: #6c757d; color: white; }
-.provider-config { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color); }
+.alert { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; }
+.alert-success { background: rgba(40,167,69,.15); border: 1px solid rgba(40,167,69,.4); }
+.alert-error { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35); }
+.prov-field { display: none; }
 </style>
 <script>
-document.querySelector('select[name="sso_provider"]').addEventListener('change', function() {
-    document.querySelectorAll('.provider-config').forEach(el => el.style.display = 'none');
-    if (this.value === 'saml') document.getElementById('samlConfig').style.display = 'block';
-    if (this.value === 'oidc') document.getElementById('oidcConfig').style.display = 'block';
-});
+(function() {
+    var sel = document.getElementById('provider');
+    function sync() {
+        document.querySelectorAll('.prov-field').forEach(function(el) {
+            el.style.display = (el.dataset.for === sel.value) ? 'block' : 'none';
+        });
+    }
+    sel.addEventListener('change', sync);
+    sync();
+})();
 </script>
 {% endblock %}

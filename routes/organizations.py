@@ -265,30 +265,25 @@ def view_team(org_id, team_id):
 @org_admin_required
 def sso_settings(org_id):
     """SSO configuration"""
+    import os
     from services.multi_tenancy import MultiTenancyService
+    from services import sso_service
     service = MultiTenancyService()
 
     org = service.get_organization(org_id)
-    sso_config = service.get_sso_config(org_id)
 
     if request.method == 'POST':
-        config_data = {
-            'organization_id': org_id,
-            'provider': request.form.get('provider'),
-            'client_id': request.form.get('client_id'),
-            'client_secret': request.form.get('client_secret'),
-            'metadata_url': request.form.get('metadata_url'),
-            'enabled': request.form.get('enabled') == 'on'
-        }
-
-        if service.configure_sso(config_data):
+        ok, error = sso_service.save_config(org_id, request.form)
+        if ok:
             flash('SSO configuration saved!', 'success')
         else:
-            flash('Failed to save SSO configuration.', 'error')
-
+            flash(error or 'Failed to save SSO configuration.', 'error')
         return redirect(url_for('organizations.sso_settings', org_id=org_id))
 
-    return render_template('organizations/sso.html', org=org, sso_config=sso_config)
+    sso_config = sso_service.get_admin_config(org)
+    callback_url = (os.environ.get('BASE_URL') or request.host_url).rstrip('/') + url_for('sso_auth.callback')
+    return render_template('organizations/sso.html', org=org, sso_config=sso_config,
+                           callback_url=callback_url)
 
 
 # API Endpoints
