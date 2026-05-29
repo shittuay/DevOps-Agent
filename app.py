@@ -64,6 +64,7 @@ import re
 from email_validator import validate_email, EmailNotValidError
 from services.email_service import email_service
 from services.status_service import status_service
+from services.credit_service import CreditService
 from models import InfrastructureResource, CostOptimization, SecurityFinding, Alert
 
 # Add src to path
@@ -2638,14 +2639,13 @@ def admin_add_credits():
     sub = UserSubscription.query.filter_by(user_id=target.id).first()
     if not sub:
         return jsonify({'error': f'No subscription for {target_email}'}), 404
-    old = sub.credits_remaining
-    sub.credits_remaining = old + amount
-    db.session.commit()
+    old = CreditService.balance(target.id)
+    new_bal = CreditService.grant(target.id, amount)
     return jsonify({
         'success': True,
         'email': target_email,
         'credits_before': old,
-        'credits_after': sub.credits_remaining,
+        'credits_after': new_bal,
         'tier': sub.tier.name if sub.tier else 'unknown'
     })
 
@@ -2892,7 +2892,7 @@ def api_chat():
         # Build trial context for free-tier users
         trial_context = None
         if tier_name == 'free':
-            credits_left = subscription.credits_remaining
+            credits_left = CreditService.balance(current_user.id)
             trial_context = (
                 f"TRIAL CONTEXT: This user is on a free trial with {credits_left} credits remaining out of 20. "
                 "They are experiencing the full DevOps agent with real tool execution. "
@@ -3038,18 +3038,19 @@ def api_chat():
             conversation.title = title
 
         # Deduct credit AFTER successful response (not before)
+        new_bal = None
         if success:
-            subscription.use_credit(commit=False)
+            new_bal = CreditService.deduct(current_user.id, commit=False)
 
         db.session.commit()
 
         # Fire low-credit warning email at exactly 5 credits remaining (once per threshold)
-        if success and subscription.credits_remaining == 5 and current_user.email:
+        if success and new_bal == 5 and current_user.email:
             try:
                 import threading
                 from services.email_service import email_service as _es
                 _u = current_user._get_current_object()
-                _r = subscription.credits_remaining
+                _r = new_bal
                 threading.Thread(
                     target=_es.send_credit_low_warning, args=(_u, _r), daemon=True
                 ).start()
@@ -3089,7 +3090,7 @@ def api_chat():
         response_data = {
             'response': response,
             'timestamp': datetime.now().isoformat(),
-            'credits_remaining': subscription.credits_remaining,
+            'credits_remaining': CreditService.balance(current_user.id),
             'credits_used_this_month': subscription.credits_used_this_month,
             'conversation_title': conversation.title if conversation else None,
             'model_info': {
@@ -3411,7 +3412,7 @@ def api_chat_stream():
         # Build trial context for free-tier users
         trial_context = None
         if tier_name == 'free':
-            credits_left = subscription.credits_remaining
+            credits_left = CreditService.balance(uid)
             trial_context = (
                 f"TRIAL CONTEXT: This user is on a free trial with {credits_left} credits remaining out of 20. "
                 "They are experiencing the full DevOps agent with real tool execution. "
