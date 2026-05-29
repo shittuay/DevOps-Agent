@@ -3547,7 +3547,7 @@ def api_chat_stream():
                                     db.session.commit()
                                 except Exception:
                                     pass
-                            yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': sub.credits_remaining, 'approval_pending': True})}\n\n"
+                            yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': CreditService.balance(uid), 'approval_pending': True})}\n\n"
                             return
                         elif _buf_exhausted:
                             # Generator exhausted during initial check
@@ -3578,7 +3578,7 @@ def api_chat_stream():
                                 db.session.commit()
                             except Exception:
                                 pass
-                        yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': sub.credits_remaining, 'approval_pending': True})}\n\n"
+                        yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': CreditService.balance(uid), 'approval_pending': True})}\n\n"
                         return
                     yield from _drain_tool_events()
                     full_response.append(chunk)
@@ -3659,17 +3659,12 @@ def api_chat_stream():
                         c.is_streaming = False
 
                     # Deduct credit AFTER successful response (not before)
-                    fresh_sub = UserSubscription.query.filter_by(user_id=uid).first()
-                    if fresh_sub:
-                        fresh_sub.use_credit(commit=False)
+                    remaining = CreditService.deduct(uid, commit=False)
 
                     db.session.commit()
 
-                    # Read remaining credits after commit
-                    remaining = fresh_sub.credits_remaining if fresh_sub else 0
-
                     # Fire low-credit warning email at exactly 5 credits remaining
-                    if fresh_sub and remaining == 5:
+                    if remaining == 5:
                         try:
                             import threading as _threading
                             from services.email_service import email_service as _es2
