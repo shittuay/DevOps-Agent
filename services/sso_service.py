@@ -22,6 +22,7 @@ Security:
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -397,18 +398,43 @@ def find_or_provision_user(org, identity: Identity):
 # Admin configuration (save / read)
 # --------------------------------------------------------------------------- #
 
-def _sync_domains(org_id: int, domains: List[str]) -> None:
+_DOMAIN_RE = re.compile(r'^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$')
+
+
+def add_domain(org_id: int, raw: str) -> Tuple[bool, Optional[str]]:
+    """Claim an email domain for an org (unverified). Returns (ok, error)."""
     from models import db, OrganizationDomain
+
+    domain = (raw or '').strip().lower().lstrip('@')
+    if not domain or not _DOMAIN_RE.match(domain):
+        return False, "Enter a valid domain, e.g. acme.com"
+
+    existing = OrganizationDomain.query.filter_by(domain=domain).first()
+    if existing:
+        if existing.organization_id == org_id:
+            return False, "That domain is already added."
+        return False, "That domain is already claimed by another organization."
+
     from services.domain_verification import generate_token
-    wanted = {d.strip().lower().lstrip('@') for d in domains if d.strip()}
-    existing = {d.domain: d for d in OrganizationDomain.query.filter_by(organization_id=org_id).all()}
-    for domain in wanted:
-        if domain not in existing:
-            db.session.add(OrganizationDomain(organization_id=org_id, domain=domain,
-                                              verified=False, verification_token=generate_token()))
-    for domain, row in existing.items():
-        if domain not in wanted:
-            db.session.delete(row)
+    db.session.add(OrganizationDomain(organization_id=org_id, domain=domain,
+                                      verified=False, verification_token=generate_token()))
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Failed to add domain %s for org %s: %s", domain, org_id, e)
+        return False, "Failed to add domain."
+    return True, None
+
+
+def remove_domain(org_id: int, domain_id: int) -> bool:
+    from models import db, OrganizationDomain
+    row = OrganizationDomain.query.filter_by(id=domain_id, organization_id=org_id).first()
+    if not row:
+        return False
+    db.session.delete(row)
+    db.session.commit()
+    return True
 
 
 def save_config(org_id: int, form: Dict) -> Tuple[bool, Optional[str]]:
@@ -461,10 +487,6 @@ def save_config(org_id: int, form: Dict) -> Tuple[bool, Optional[str]]:
 
     config['default_role'] = (form.get('default_role') or 'member').strip()
 
-    raw_domains = form.get('domains') or ''
-    domains = [d for chunk in raw_domains.replace(',', ' ').split() for d in [chunk]]
-    config['allowed_domains'] = [d.strip().lower().lstrip('@') for d in domains if d.strip()]
-
     enabled = str(form.get('enabled', '')).lower() in ('on', 'true', '1', 'yes')
 
     org.sso_provider = provider
@@ -472,7 +494,6 @@ def save_config(org_id: int, form: Dict) -> Tuple[bool, Optional[str]]:
     org.sso_config = config
 
     try:
-        _sync_domains(org_id, config['allowed_domains'])
         db.session.commit()
     except Exception as e:
         db.session.rollback()

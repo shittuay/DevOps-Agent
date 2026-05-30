@@ -73,7 +73,7 @@ def test_decrypt_garbage_returns_empty():
 # Admin config save / read
 # --------------------------------------------------------------------------- #
 
-def test_save_config_encrypts_and_syncs_domains(sso_app):
+def test_save_config_encrypts_secret(sso_app):
     org = Organization(name='Acme', slug='acme', owner_id=1)
     db.session.add(org)
     db.session.commit()
@@ -81,7 +81,7 @@ def test_save_config_encrypts_and_syncs_domains(sso_app):
     ok, err = sso_service.save_config(org.id, {
         'provider': 'generic_oidc', 'client_id': 'cid', 'client_secret': 'topsecret',
         'metadata_url': 'https://idp.test/.well-known/openid-configuration',
-        'domains': 'acme.com, acme.io', 'enabled': 'on',
+        'enabled': 'on',
     })
     assert ok and err is None
 
@@ -90,8 +90,40 @@ def test_save_config_encrypts_and_syncs_domains(sso_app):
     assert org.sso_provider == 'generic_oidc'
     assert org.sso_config['client_secret_encrypted'] != 'topsecret'
     assert sso_service.decrypt_secret(org.sso_config['client_secret_encrypted']) == 'topsecret'
-    domains = {d.domain for d in OrganizationDomain.query.filter_by(organization_id=org.id)}
-    assert domains == {'acme.com', 'acme.io'}
+
+
+def test_add_and_remove_domain(sso_app):
+    org = Organization(name='Acme', slug='acme', owner_id=1)
+    db.session.add(org)
+    db.session.commit()
+
+    ok, err = sso_service.add_domain(org.id, '  ACME.com ')
+    assert ok and err is None
+    row = OrganizationDomain.query.filter_by(organization_id=org.id).one()
+    assert row.domain == 'acme.com'
+    assert row.verified is False
+    assert row.verification_token  # token issued for DNS challenge
+
+    # Duplicate within the org is rejected.
+    ok, err = sso_service.add_domain(org.id, 'acme.com')
+    assert not ok and 'already added' in err.lower()
+
+    # Invalid format rejected.
+    ok, err = sso_service.add_domain(org.id, 'not a domain')
+    assert not ok and 'valid domain' in err.lower()
+
+    assert sso_service.remove_domain(org.id, row.id) is True
+    assert OrganizationDomain.query.filter_by(organization_id=org.id).count() == 0
+
+
+def test_add_domain_rejects_claim_by_other_org(sso_app):
+    org1 = Organization(name='A', slug='a', owner_id=1)
+    org2 = Organization(name='B', slug='b', owner_id=1)
+    db.session.add_all([org1, org2])
+    db.session.commit()
+    assert sso_service.add_domain(org1.id, 'shared.com')[0] is True
+    ok, err = sso_service.add_domain(org2.id, 'shared.com')
+    assert not ok and 'another organization' in err.lower()
 
 
 def test_save_config_requires_secret_first_time(sso_app):
