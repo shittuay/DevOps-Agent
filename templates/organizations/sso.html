@@ -32,6 +32,7 @@
                         <option value="google" {{ 'selected' if sso_config.provider == 'google' else '' }}>Google Workspace</option>
                         <option value="azure" {{ 'selected' if sso_config.provider == 'azure' else '' }}>Azure AD / Entra ID</option>
                         <option value="github" {{ 'selected' if sso_config.provider == 'github' else '' }}>GitHub</option>
+                        <option value="saml" {{ 'selected' if sso_config.provider == 'saml' else '' }}>SAML 2.0</option>
                     </select>
                 </div>
 
@@ -49,17 +50,41 @@
                            value="{{ sso_config.tenant_id or '' }}">
                 </div>
 
-                <div class="form-group">
+                <!-- OIDC / OAuth2 credentials (hidden for SAML) -->
+                <div class="form-group oidc-field">
                     <label>Client ID</label>
                     <input type="text" name="client_id" class="form-control"
-                           value="{{ sso_config.client_id or '' }}" required>
+                           value="{{ sso_config.client_id or '' }}">
                 </div>
-
-                <div class="form-group">
+                <div class="form-group oidc-field">
                     <label>Client Secret {% if sso_config.has_secret %}<small>(leave blank to keep current)</small>{% endif %}</label>
                     <input type="password" name="client_secret" class="form-control"
-                           placeholder="{{ '••••••••••••' if sso_config.has_secret else '' }}"
-                           {{ '' if sso_config.has_secret else 'required' }}>
+                           placeholder="{{ '••••••••••••' if sso_config.has_secret else '' }}">
+                </div>
+                <div class="form-group oidc-field">
+                    <label>Scopes <small>(optional)</small></label>
+                    <input type="text" name="scopes" class="form-control"
+                           placeholder="openid email profile"
+                           value="{{ sso_config.scopes or '' }}">
+                </div>
+
+                <!-- SAML 2.0 fields -->
+                <div class="form-group prov-field" data-for="saml">
+                    <label>IdP Entity ID (Issuer)</label>
+                    <input type="text" name="idp_entity_id" class="form-control"
+                           placeholder="https://idp.example.com/saml/metadata"
+                           value="{{ sso_config.idp_entity_id or '' }}">
+                </div>
+                <div class="form-group prov-field" data-for="saml">
+                    <label>IdP SSO URL</label>
+                    <input type="url" name="idp_sso_url" class="form-control"
+                           placeholder="https://idp.example.com/sso/saml"
+                           value="{{ sso_config.idp_sso_url or '' }}">
+                </div>
+                <div class="form-group prov-field" data-for="saml">
+                    <label>IdP X.509 Signing Certificate {% if sso_config.idp_x509_cert %}<small>(leave blank to keep current)</small>{% endif %}</label>
+                    <textarea name="idp_x509_cert" class="form-control" rows="5"
+                              placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"></textarea>
                 </div>
 
                 <div class="form-group">
@@ -67,13 +92,6 @@
                     <input type="text" name="domains" class="form-control"
                            placeholder="acme.com, acme.io"
                            value="{{ sso_config.allowed_domains | join(', ') }}">
-                </div>
-
-                <div class="form-group">
-                    <label>Scopes <small>(optional)</small></label>
-                    <input type="text" name="scopes" class="form-control"
-                           placeholder="openid email profile"
-                           value="{{ sso_config.scopes or '' }}">
                 </div>
 
                 <div class="form-group">
@@ -100,10 +118,27 @@
     <div class="card mt-4">
         <div class="card-header"><h3>Provider Setup Details</h3></div>
         <div class="card-body">
-            <p>Register this redirect URI in your identity provider:</p>
-            <div class="form-group">
-                <label>Redirect URI / Callback</label>
-                <input type="text" class="form-control" readonly value="{{ callback_url }}">
+            <div class="setup-oidc">
+                <p>Register this redirect URI in your identity provider:</p>
+                <div class="form-group">
+                    <label>Redirect URI / Callback</label>
+                    <input type="text" class="form-control" readonly value="{{ callback_url }}">
+                </div>
+            </div>
+            <div class="setup-saml">
+                <p>Register these values in your SAML identity provider:</p>
+                <div class="form-group">
+                    <label>ACS URL (Assertion Consumer Service)</label>
+                    <input type="text" class="form-control" readonly value="{{ saml_acs_url }}">
+                </div>
+                <div class="form-group">
+                    <label>SP Entity ID / Audience</label>
+                    <input type="text" class="form-control" readonly value="{{ sp_entity_id }}">
+                </div>
+                <div class="form-group">
+                    <label>SP Metadata</label>
+                    <input type="text" class="form-control" readonly value="{{ saml_metadata_url }}">
+                </div>
             </div>
             <p><small>Members can then sign in at <code>{{ url_for('sso_auth.start', _external=True) }}</code>
                or directly via <code>{{ url_for('sso_auth.login_org', slug=org.slug, _external=True) }}</code>.</small></p>
@@ -126,14 +161,26 @@
 .alert { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; }
 .alert-success { background: rgba(40,167,69,.15); border: 1px solid rgba(40,167,69,.4); }
 .alert-error { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35); }
-.prov-field { display: none; }
+.prov-field, .oidc-field, .setup-oidc, .setup-saml { display: none; }
+code { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent-primary); }
 </style>
 <script>
 (function() {
     var sel = document.getElementById('provider');
     function sync() {
+        var v = sel.value;
         document.querySelectorAll('.prov-field').forEach(function(el) {
-            el.style.display = (el.dataset.for === sel.value) ? 'block' : 'none';
+            el.style.display = (el.dataset.for === v) ? 'block' : 'none';
+        });
+        // OIDC/OAuth2 credentials apply to every provider except SAML.
+        document.querySelectorAll('.oidc-field').forEach(function(el) {
+            el.style.display = (v && v !== 'saml') ? 'block' : 'none';
+        });
+        document.querySelectorAll('.setup-oidc').forEach(function(el) {
+            el.style.display = (v === 'saml') ? 'none' : 'block';
+        });
+        document.querySelectorAll('.setup-saml').forEach(function(el) {
+            el.style.display = (v === 'saml') ? 'block' : 'none';
         });
     }
     sel.addEventListener('change', sync);

@@ -11,7 +11,7 @@ import logging
 import os
 
 from flask import (Blueprint, request, redirect, url_for, render_template,
-                   session, flash)
+                   session, flash, Response)
 from flask_login import login_user
 from urllib.parse import urlparse
 
@@ -22,10 +22,23 @@ logger = logging.getLogger(__name__)
 sso_auth_bp = Blueprint('sso_auth', __name__, url_prefix='/auth/sso')
 
 
+def _base_url() -> str:
+    return (os.environ.get('BASE_URL') or request.host_url).rstrip('/')
+
+
 def _callback_uri() -> str:
     """Build the OAuth redirect URI; must match the IdP registration exactly."""
-    base = (os.environ.get('BASE_URL') or request.host_url).rstrip('/')
-    return base + url_for('sso_auth.callback')
+    return _base_url() + url_for('sso_auth.callback')
+
+
+def _acs_uri() -> str:
+    """SAML Assertion Consumer Service URL (must match IdP registration)."""
+    return _base_url() + url_for('sso_auth.saml_acs')
+
+
+def _sp_entity_id() -> str:
+    """SAML Service Provider entity ID (the audience IdPs assert to)."""
+    return _base_url() + url_for('sso_auth.saml_metadata')
 
 
 def _safe_next(target: str) -> bool:
@@ -36,7 +49,15 @@ def _safe_next(target: str) -> bool:
 
 
 def _begin_login(org, next_url: str = ''):
-    """Store flow state in the session and redirect to the provider."""
+    """Dispatch to the OIDC or SAML login flow for this organization."""
+    provider = org.sso_provider or (org.sso_config or {}).get('provider')
+    if provider == 'saml':
+        return _begin_saml_login(org, next_url)
+    return _begin_oidc_login(org, next_url)
+
+
+def _begin_oidc_login(org, next_url: str = ''):
+    """Store flow state in the session and redirect to the OIDC provider."""
     config = org.sso_config or {}
     state = sso_service.new_state()
     nonce = sso_service.new_nonce()
@@ -142,3 +163,83 @@ def callback():
     if next_url and _safe_next(next_url):
         return redirect(next_url)
     return redirect(url_for('chat'))
+
+
+# --------------------------------------------------------------------------- #
+# SAML 2.0 flow
+# --------------------------------------------------------------------------- #
+
+def _begin_saml_login(org, next_url: str = ''):
+    """Build a SAML AuthnRequest and redirect to the IdP."""
+    from services import saml_service
+
+    acs_url = _acs_uri()
+    sp_entity = _sp_entity_id()
+    safe_next = next_url if _safe_next(next_url) else ''
+    # RelayState carries org id + next so the cross-site ACS POST works even when
+    # the session cookie (SameSite=Lax) is not sent by the browser.
+    relay_state = f"{org.id}|{safe_next}"
+
+    try:
+        redirect_url, request_id = saml_service.build_authn_request(
+            org.sso_config or {}, acs_url, sp_entity, relay_state)
+    except sso_service.SSOError as e:
+        logger.error("SAML start failed for org %s: %s", org.id, e)
+        flash("Single sign-on is not configured correctly for your organization.", "error")
+        return redirect(url_for('auth.login'))
+
+    # request_id is best-effort (used for InResponseTo when the session is present).
+    session['saml_request_id'] = request_id
+    return redirect(redirect_url)
+
+
+@sso_auth_bp.route('/acs', methods=['POST'])
+def saml_acs():
+    """SAML Assertion Consumer Service — IdP POSTs the signed SAMLResponse here."""
+    from models import Organization
+    from services import saml_service
+
+    saml_response = request.form.get('SAMLResponse')
+    relay_state = request.form.get('RelayState', '') or ''
+    org_id, _, next_url = relay_state.partition('|')
+
+    try:
+        org = Organization.query.get(int(org_id)) if org_id.strip() else None
+    except ValueError:
+        org = None
+    if not org or not org.sso_enabled or not org.is_active:
+        flash("Single sign-on is no longer available for this organization.", "error")
+        return redirect(url_for('auth.login'))
+
+    expected_request_id = session.get('saml_request_id')  # best-effort
+    try:
+        identity = saml_service.parse_and_validate_response(
+            org.sso_config or {}, saml_response, _acs_uri(), _sp_entity_id(),
+            expected_request_id)
+        user, created = sso_service.find_or_provision_user(org, identity)
+    except sso_service.SSOError as e:
+        logger.warning("SAML ACS failed for org %s: %s", org.id, e)
+        flash(str(e), "error")
+        return redirect(url_for('auth.login'))
+    except Exception:
+        logger.error("Unexpected SAML ACS error", exc_info=True)
+        flash("Single sign-on failed unexpectedly. Please try again.", "error")
+        return redirect(url_for('auth.login'))
+
+    session.pop('saml_request_id', None)
+    login_user(user, remember=True)
+    user.update_last_login(ip_address=request.remote_addr)
+    session.permanent = True
+    logger.info("SAML login: %s (org=%s, new=%s)", user.email, org.id, created)
+
+    if next_url and _safe_next(next_url):
+        return redirect(next_url)
+    return redirect(url_for('chat'))
+
+
+@sso_auth_bp.route('/saml/metadata')
+def saml_metadata():
+    """SP metadata document for administrators registering the service in their IdP."""
+    from services import saml_service
+    xml = saml_service.sp_metadata(_sp_entity_id(), _acs_uri())
+    return Response(xml, mimetype='application/xml')
