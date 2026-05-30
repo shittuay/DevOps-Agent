@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}SSO Test Result - DevOps Agent{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 720px; margin: 0 auto; padding: 20px;">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <h1>SSO Test Result</h1>
+        <a href="{{ url_for('organizations.sso_settings', org_id=org.id) }}" class="btn btn-secondary">Back to settings</a>
+    </div>
+
+    {% if error %}
+    <div class="card" style="border:1px solid rgba(239,68,68,.4);border-radius:8px;">
+        <div class="card-body" style="padding:20px;">
+            <h3 style="color:#ef4444;margin-bottom:8px;">✕ Sign-in failed</h3>
+            <p style="color:var(--text-secondary);">{{ error }}</p>
+            <p style="margin-top:12px;color:var(--text-secondary);font-size:14px;">
+                No user was created and SSO was not enabled. Fix the configuration and test again.
+            </p>
+        </div>
+    </div>
+    {% else %}
+    <div class="card" style="border:1px solid rgba(40,167,69,.4);border-radius:8px;">
+        <div class="card-body" style="padding:20px;">
+            <h3 style="color:#28a745;margin-bottom:14px;">✓ Connection works</h3>
+            <p style="color:var(--text-secondary);margin-bottom:16px;">
+                This identity was returned by your provider. <strong>No user was created and SSO was not enabled</strong> — this was a dry run.
+            </p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                <tr><td style="padding:8px 0;color:var(--text-secondary);width:160px;">Email</td><td>{{ identity.email }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-secondary);">Name</td><td>{{ identity.name or '—' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-secondary);">Subject (IdP ID)</td><td><code>{{ identity.subject }}</code></td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-secondary);">Email verified</td><td>{{ 'Yes' if identity.email_verified else 'No' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-secondary);">Provider</td><td>{{ identity.provider }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-secondary);">Groups</td><td>{{ identity.groups | join(', ') if identity.groups else '—' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-secondary);">Would be assigned role</td><td><strong>{{ mapped_role }}</strong></td></tr>
+            </table>
+            {% if not identity.email_verified %}
+            <p style="margin-top:14px;color:#f59e0b;font-size:14px;">
+                ⚠ The provider did not mark this email as verified — real logins will be rejected until it does.
+            </p>
+            {% endif %}
+            <a href="{{ url_for('organizations.sso_settings', org_id=org.id) }}#sso-config" class="btn btn-primary" style="margin-top:18px;">
+                Looks good — finish enabling SSO
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

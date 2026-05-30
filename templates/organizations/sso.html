@@ -152,6 +152,16 @@
 
                 <button type="submit" class="btn btn-primary">Save SSO Settings</button>
             </form>
+
+            {% if sso_config.provider %}
+            <form method="POST" action="{{ url_for('organizations.test_sso', org_id=org.id) }}" style="margin-top:12px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-secondary">Test connection</button>
+                <small style="display:block;margin-top:6px;color:var(--text-secondary);">
+                    Signs you in against the IdP and shows the resolved identity — without provisioning or enabling.
+                </small>
+            </form>
+            {% endif %}
         </div>
     </div>
 
