@@ -13,6 +13,7 @@ from models import (
     CreditPurchase, UsageLog, NGNPriceConfig, PaymentWebhookEvent
 )
 from src.utils import get_logger
+from services.credit_service import CreditService
 
 try:
     import stripe
@@ -530,7 +531,7 @@ def get_usage_stats():
         ).group_by(UsageLog.tool_name).all()
 
         return jsonify({
-            'credits_remaining': subscription.credits_remaining,
+            'credits_remaining': CreditService.balance(current_user.id),
             'credits_used_this_month': subscription.credits_used_this_month,
             'total_credits_used': subscription.total_credits_used,
             'tier': subscription.tier.to_dict() if subscription.tier else None,

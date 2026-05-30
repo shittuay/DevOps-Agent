@@ -70,7 +70,7 @@ Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode 
 
 ## P3 — Architecture improvements
 
-### [ ] Extract CreditService
+### [x] Extract CreditService
 **What:** Create `services/credit_service.py` that wraps all reads/writes of `credits_remaining`.
 **Why:** Credits are accessed in 30+ places across app.py, routes, and services. Per-tool pricing or team credit pools would require touching all 30 places.
 **How to start:** Create `CreditService.deduct(user, amount, reason)`, `CreditService.grant(user, amount, reason)`, `CreditService.balance(user)`. Replace usages gradually.
