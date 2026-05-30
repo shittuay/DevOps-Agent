@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Single Sign-On - DevOps Agent</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Outfit', -apple-system, sans-serif;
+      background: var(--bg-primary, #0d0f14);
+      color: var(--text-primary, #e6e6e6);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .sso-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--bg-secondary, #161922);
+      border: 1px solid var(--border-subtle, #2a2f3a);
+      border-radius: 16px;
+      padding: 36px 32px;
+    }
+    .sso-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-family: 'Syne', sans-serif; font-weight: 700; font-size: 20px;
+      margin-bottom: 24px;
+    }
+    .sso-logo .mark {
+      width: 36px; height: 36px; border-radius: 9px;
+      background: var(--accent-primary, #ff6b35); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'IBM Plex Mono', monospace; font-weight: 700;
+    }
+    h1 { font-family: 'Syne', sans-serif; font-size: 24px; margin-bottom: 6px; }
+    .subtitle { color: var(--text-secondary, #9aa1ad); font-size: 14px; margin-bottom: 24px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    input[type="email"] {
+      width: 100%; padding: 12px 14px; font-size: 16px;
+      background: var(--bg-primary, #0d0f14);
+      border: 1px solid var(--border-subtle, #2a2f3a);
+      border-radius: 10px; color: var(--text-primary, #e6e6e6);
+      margin-bottom: 16px;
+    }
+    input[type="email"]:focus { outline: none; border-color: var(--accent-primary, #ff6b35); }
+    .btn-primary {
+      width: 100%; padding: 13px; font-size: 15px; font-weight: 700;
+      background: var(--accent-primary, #ff6b35); color: #fff;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: filter 0.2s;
+    }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .alert {
+      padding: 12px 14px; border-radius: 10px; font-size: 14px; margin-bottom: 18px;
+      background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #fca5a5;
+    }
+    .links { margin-top: 22px; text-align: center; font-size: 14px; color: var(--text-secondary, #9aa1ad); }
+    .links a { color: var(--accent-primary, #ff6b35); text-decoration: none; font-weight: 600; }
+    .links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="sso-card">
+    <div class="sso-logo"><span class="mark">&gt;_</span> DevOps Agent</div>
+    <h1>Single Sign-On</h1>
+    <p class="subtitle">Enter your work email and we'll redirect you to your organization's identity provider.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('sso_auth.start') }}{% if next %}?next={{ next|urlencode }}{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="email">Work email</label>
+      <input type="email" id="email" name="email" placeholder="you@company.com"
+             value="{{ email or '' }}" required autofocus autocomplete="email">
+      <button type="submit" class="btn-primary">Continue with SSO</button>
+    </form>
+
+    <div class="links">
+      <a href="{{ url_for('auth.login') }}">&larr; Back to password login</a>
+    </div>
+  </div>
+</body>
+</html>

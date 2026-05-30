@@ -292,6 +292,10 @@ app.register_blueprint(compliance_bp)
 from routes.organizations import organizations_bp
 app.register_blueprint(organizations_bp)
 
+# Register SSO (OIDC) authentication blueprint
+from routes.sso_auth import sso_auth_bp
+app.register_blueprint(sso_auth_bp)
+
 # Register Change Governance blueprint
 from routes.changes import changes_bp
 app.register_blueprint(changes_bp)

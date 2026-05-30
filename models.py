@@ -76,6 +76,11 @@ class User(UserMixin, db.Model):
     # Email preferences
     email_opt_out = db.Column(db.Boolean, default=False)
 
+    # SSO / federated identity (set when the account authenticates via an org IdP)
+    sso_provider = db.Column(db.String(50), nullable=True)   # generic_oidc|google|azure|github
+    sso_subject = db.Column(db.String(255), nullable=True)   # stable IdP subject ('sub') claim
+    sso_organization_id = db.Column(db.Integer, nullable=True)  # org whose IdP provisioned this user
+
     # API Key Management
     api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade='all, delete-orphan')
 
@@ -1794,6 +1799,29 @@ class Organization(db.Model):
 
     def __repr__(self):
         return f'<Organization {self.name}>'
+
+
+class OrganizationDomain(db.Model):
+    """Email domain claimed by an organization, used to route SSO logins.
+
+    When a user enters their email on the SSO sign-in page, the domain
+    (everything after '@') is looked up here to find which organization's
+    identity provider should handle the login.
+    """
+    __tablename__ = 'organization_domains'
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=False, index=True)
+    domain = db.Column(db.String(255), unique=True, nullable=False, index=True)  # lowercase, no '@'
+    verified = db.Column(db.Boolean, default=False)  # domain ownership proven via DNS TXT record
+    verification_token = db.Column(db.String(64))    # value the admin must publish in DNS
+    verified_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    organization = db.relationship('Organization', backref='sso_domains')
+
+    def __repr__(self):
+        return f'<OrganizationDomain {self.domain} org={self.organization_id}>'
 
 
 class OrganizationMember(db.Model):
