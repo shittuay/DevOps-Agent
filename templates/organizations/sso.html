@@ -115,6 +115,40 @@
         </div>
     </div>
 
+    {% if domains %}
+    <div class="card mt-4">
+        <div class="card-header"><h3>Email Domains</h3></div>
+        <div class="card-body">
+            <p><small>Domains must be verified by DNS before they route SSO logins.
+               Add domains in the form above; unverified domains are ignored at sign-in.</small></p>
+            {% for d in domains %}
+            <div class="domain-row">
+                <div class="domain-head">
+                    <strong>{{ d.domain }}</strong>
+                    {% if d.verified %}
+                        <span class="badge badge-success">Verified</span>
+                    {% else %}
+                        <span class="badge badge-secondary">Unverified</span>
+                    {% endif %}
+                </div>
+                {% if not d.verified %}
+                <p class="domain-help">Publish this DNS record, then click Verify (changes can take a few minutes to propagate):</p>
+                <div class="dns-rec">
+                    <div><span class="dns-k">Host</span> <code>{{ d.dns.host }}</code></div>
+                    <div><span class="dns-k">Type</span> <code>{{ d.dns.type }}</code></div>
+                    <div><span class="dns-k">Value</span> <code>{{ d.dns.value }}</code></div>
+                </div>
+                <form method="POST" action="{{ url_for('organizations.verify_sso_domain', org_id=org.id, domain_id=d.id) }}" style="margin-top:10px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-secondary">Verify domain</button>
+                </form>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="card mt-4">
         <div class="card-header"><h3>Provider Setup Details</h3></div>
         <div class="card-body">
@@ -163,6 +197,13 @@
 .alert-error { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35); }
 .prov-field, .oidc-field, .setup-oidc, .setup-saml { display: none; }
 code { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent-primary); }
+.domain-row { padding: 14px 0; border-bottom: 1px solid var(--border-subtle); }
+.domain-row:last-child { border-bottom: none; }
+.domain-head { display: flex; align-items: center; gap: 10px; }
+.domain-help { font-size: 13px; color: var(--text-secondary); margin: 10px 0 8px; }
+.dns-rec { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 12px; font-size: 13px; }
+.dns-rec > div { margin: 3px 0; }
+.dns-k { display: inline-block; width: 48px; color: var(--text-secondary); font-weight: 600; }
 </style>
 <script>
 (function() {

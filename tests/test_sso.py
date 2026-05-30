@@ -43,7 +43,7 @@ def _make_org(provider='generic_oidc', enabled=True, with_secret=True, domains=(
     db.session.add(org)
     db.session.commit()
     for d in domains:
-        db.session.add(OrganizationDomain(organization_id=org.id, domain=d))
+        db.session.add(OrganizationDomain(organization_id=org.id, domain=d, verified=True))
     db.session.commit()
     return org
 

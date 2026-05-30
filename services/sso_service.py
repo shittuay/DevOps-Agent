@@ -320,7 +320,9 @@ def resolve_org_for_email(email: str):
     domain = email.split('@', 1)[1].strip().lower()
     if not domain:
         return None
-    od = OrganizationDomain.query.filter_by(domain=domain).first()
+    # Only verified domains may route logins (prevents claiming a domain you
+    # don't control, e.g. a public provider like gmail.com).
+    od = OrganizationDomain.query.filter_by(domain=domain, verified=True).first()
     if not od:
         return None
     org = Organization.query.get(od.organization_id)
@@ -397,11 +399,13 @@ def find_or_provision_user(org, identity: Identity):
 
 def _sync_domains(org_id: int, domains: List[str]) -> None:
     from models import db, OrganizationDomain
+    from services.domain_verification import generate_token
     wanted = {d.strip().lower().lstrip('@') for d in domains if d.strip()}
     existing = {d.domain: d for d in OrganizationDomain.query.filter_by(organization_id=org_id).all()}
     for domain in wanted:
         if domain not in existing:
-            db.session.add(OrganizationDomain(organization_id=org_id, domain=domain, verified=False))
+            db.session.add(OrganizationDomain(organization_id=org_id, domain=domain,
+                                              verified=False, verification_token=generate_token()))
     for domain, row in existing.items():
         if domain not in wanted:
             db.session.delete(row)

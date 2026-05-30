@@ -282,12 +282,44 @@ def sso_settings(org_id):
 
     sso_config = sso_service.get_admin_config(org)
     base = (os.environ.get('BASE_URL') or request.host_url).rstrip('/')
+
+    from models import OrganizationDomain
+    from services import domain_verification
+    domains = []
+    for row in OrganizationDomain.query.filter_by(organization_id=org_id).order_by(
+            OrganizationDomain.domain).all():
+        domains.append({
+            'id': row.id,
+            'domain': row.domain,
+            'verified': row.verified,
+            'verified_at': row.verified_at,
+            'dns': domain_verification.dns_instructions(row),
+        })
+
     return render_template(
-        'organizations/sso.html', org=org, sso_config=sso_config,
+        'organizations/sso.html', org=org, sso_config=sso_config, domains=domains,
         callback_url=base + url_for('sso_auth.callback'),
         saml_acs_url=base + url_for('sso_auth.saml_acs'),
         sp_entity_id=base + url_for('sso_auth.saml_metadata'),
         saml_metadata_url=base + url_for('sso_auth.saml_metadata'))
+
+
+@organizations_bp.route('/<int:org_id>/sso/domains/<int:domain_id>/verify', methods=['POST'])
+@login_required
+@org_admin_required
+def verify_sso_domain(org_id, domain_id):
+    """Run a DNS TXT-record check to verify ownership of an SSO domain."""
+    from models import OrganizationDomain
+    from services import domain_verification
+
+    row = OrganizationDomain.query.filter_by(id=domain_id, organization_id=org_id).first()
+    if not row:
+        flash('Domain not found.', 'error')
+        return redirect(url_for('organizations.sso_settings', org_id=org_id))
+
+    ok, message = domain_verification.verify_domain(row)
+    flash(message, 'success' if ok else 'error')
+    return redirect(url_for('organizations.sso_settings', org_id=org_id))
 
 
 # API Endpoints

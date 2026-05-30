@@ -1813,7 +1813,9 @@ class OrganizationDomain(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=False, index=True)
     domain = db.Column(db.String(255), unique=True, nullable=False, index=True)  # lowercase, no '@'
-    verified = db.Column(db.Boolean, default=False)  # domain ownership proven (TXT record, etc.)
+    verified = db.Column(db.Boolean, default=False)  # domain ownership proven via DNS TXT record
+    verification_token = db.Column(db.String(64))    # value the admin must publish in DNS
+    verified_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     organization = db.relationship('Organization', backref='sso_domains')
