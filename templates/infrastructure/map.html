@@ -234,6 +234,14 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 
 /* edge label */
 .elabel { font-size:10px; fill:var(--text-secondary); font-family:'IBM Plex Mono',monospace; }
+
+@media (max-width: 768px) {
+    #topbar { flex-wrap: wrap; height: auto; gap: 8px; padding: 8px 12px; }
+    .tb-left, .tb-right { flex-wrap: wrap; gap: 6px; }
+    #topbar h1 { font-size: 14px; }
+    #statsBar { top: 6px; right: 8px; }
+    #legend { display: none; }
+}
 </style>
 </head>
 <body>
