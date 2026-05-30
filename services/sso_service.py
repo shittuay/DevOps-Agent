@@ -36,7 +36,7 @@ _HTTP_TIMEOUT = 10
 _DISCOVERY_CACHE: Dict[str, Tuple[float, Dict]] = {}
 _DISCOVERY_TTL = 3600  # seconds
 
-SUPPORTED_PROVIDERS = ('generic_oidc', 'google', 'azure', 'github')
+SUPPORTED_PROVIDERS = ('generic_oidc', 'google', 'azure', 'github', 'saml')
 
 
 @dataclass
@@ -121,6 +121,8 @@ def get_provider_endpoints(config: Dict) -> Dict:
     provider = config.get('provider')
     if provider not in SUPPORTED_PROVIDERS:
         raise SSOError(f"Unsupported SSO provider: {provider}")
+    if provider == 'saml':
+        raise SSOError("SAML is handled by saml_service, not the OIDC endpoint resolver")
 
     client_id = config.get('client_id')
     client_secret = decrypt_secret(config.get('client_secret_encrypted', ''))
@@ -422,24 +424,37 @@ def save_config(org_id: int, form: Dict) -> Tuple[bool, Optional[str]]:
     if provider not in SUPPORTED_PROVIDERS:
         return False, f"Unsupported provider '{provider}'"
 
-    client_id = (form.get('client_id') or '').strip()
-    if not client_id:
-        return False, "Client ID is required"
-
     config = dict(org.sso_config or {})
     config['provider'] = provider
-    config['client_id'] = client_id
 
-    # Only replace the stored secret when a new one is submitted.
-    new_secret = (form.get('client_secret') or '').strip()
-    if new_secret:
-        config['client_secret_encrypted'] = encrypt_secret(new_secret)
-    if not config.get('client_secret_encrypted'):
-        return False, "Client secret is required"
+    if provider == 'saml':
+        config['idp_entity_id'] = (form.get('idp_entity_id') or '').strip()
+        config['idp_sso_url'] = (form.get('idp_sso_url') or '').strip()
+        # Keep the existing cert if the field is left blank on edit.
+        new_cert = (form.get('idp_x509_cert') or '').strip()
+        if new_cert:
+            config['idp_x509_cert'] = new_cert
+        from services import saml_service
+        ok, err = saml_service.validate_saml_config(config)
+        if not ok:
+            return False, err
+    else:
+        client_id = (form.get('client_id') or '').strip()
+        if not client_id:
+            return False, "Client ID is required"
+        config['client_id'] = client_id
 
-    config['metadata_url'] = (form.get('metadata_url') or '').strip()
-    config['tenant_id'] = (form.get('tenant_id') or '').strip()
-    config['scopes'] = (form.get('scopes') or '').strip()
+        # Only replace the stored secret when a new one is submitted.
+        new_secret = (form.get('client_secret') or '').strip()
+        if new_secret:
+            config['client_secret_encrypted'] = encrypt_secret(new_secret)
+        if not config.get('client_secret_encrypted'):
+            return False, "Client secret is required"
+
+        config['metadata_url'] = (form.get('metadata_url') or '').strip()
+        config['tenant_id'] = (form.get('tenant_id') or '').strip()
+        config['scopes'] = (form.get('scopes') or '').strip()
+
     config['default_role'] = (form.get('default_role') or 'member').strip()
 
     raw_domains = form.get('domains') or ''

@@ -281,9 +281,13 @@ def sso_settings(org_id):
         return redirect(url_for('organizations.sso_settings', org_id=org_id))
 
     sso_config = sso_service.get_admin_config(org)
-    callback_url = (os.environ.get('BASE_URL') or request.host_url).rstrip('/') + url_for('sso_auth.callback')
-    return render_template('organizations/sso.html', org=org, sso_config=sso_config,
-                           callback_url=callback_url)
+    base = (os.environ.get('BASE_URL') or request.host_url).rstrip('/')
+    return render_template(
+        'organizations/sso.html', org=org, sso_config=sso_config,
+        callback_url=base + url_for('sso_auth.callback'),
+        saml_acs_url=base + url_for('sso_auth.saml_acs'),
+        sp_entity_id=base + url_for('sso_auth.saml_metadata'),
+        saml_metadata_url=base + url_for('sso_auth.saml_metadata'))
 
 
 # API Endpoints
