@@ -75,11 +75,17 @@ def view_organization(org_id):
     members = service.get_organization_members(org_id)
     teams = service.get_organization_teams(org_id)
 
+    sso_onboarding = None
+    if membership.role in ('owner', 'admin'):
+        from services import sso_onboarding as sso_ob
+        sso_onboarding = sso_ob.get_onboarding_status(org)
+
     return render_template('organizations/view.html',
                          org=org,
                          membership=membership,
                          members=members,
-                         teams=teams)
+                         teams=teams,
+                         sso_onboarding=sso_onboarding)
 
 
 @organizations_bp.route('/<int:org_id>/settings', methods=['GET', 'POST'])
@@ -283,6 +289,9 @@ def sso_settings(org_id):
     sso_config = sso_service.get_admin_config(org)
     base = (os.environ.get('BASE_URL') or request.host_url).rstrip('/')
 
+    from services import sso_onboarding as sso_ob
+    onboarding = sso_ob.get_onboarding_status(org)
+
     from models import OrganizationDomain
     from services import domain_verification
     domains = []
@@ -298,6 +307,7 @@ def sso_settings(org_id):
 
     return render_template(
         'organizations/sso.html', org=org, sso_config=sso_config, domains=domains,
+        onboarding=onboarding,
         callback_url=base + url_for('sso_auth.callback'),
         saml_acs_url=base + url_for('sso_auth.saml_acs'),
         sp_entity_id=base + url_for('sso_auth.saml_metadata'),

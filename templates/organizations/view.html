@@ -63,6 +63,28 @@
             </div>
         </div>
 
+        {% if sso_onboarding and not sso_onboarding.all_done %}
+        <div class="content-section sso-onboard">
+            <div class="section-header">
+                <h3>Finish setting up SSO</h3>
+                <a href="{{ url_for('organizations.sso_settings', org_id=org.id) }}">Manage SSO</a>
+            </div>
+            <div class="sso-onboard-bar"><div style="width: {{ sso_onboarding.percent }}%;"></div></div>
+            <ul class="sso-onboard-steps">
+                {% for s in sso_onboarding.steps %}
+                <li class="{{ 'done' if s.done else ('current' if s.current else '') }}">
+                    <span class="sso-onboard-ico">{{ '✓' if s.done else '○' }}</span> {{ s.title }}
+                </li>
+                {% endfor %}
+            </ul>
+            {% if sso_onboarding.next_action %}
+            <a class="sso-onboard-cta" href="{{ url_for('organizations.sso_settings', org_id=org.id) }}{{ sso_onboarding.next_action.anchor or '' }}">
+                Next: {{ sso_onboarding.next_action.label }} &rarr;
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="content-grid">
             <div class="content-section">
                 <div class="section-header">
@@ -362,5 +384,15 @@
         grid-template-columns: 1fr;
     }
 }
+.sso-onboard { margin-bottom: 24px; border: 1px solid var(--accent-primary, #ff6b35); }
+.sso-onboard-bar { height: 6px; background: var(--bg-primary, #0d0f14); border-radius: 6px; overflow: hidden; margin: 12px 0 14px; }
+.sso-onboard-bar > div { height: 100%; background: var(--accent-primary, #ff6b35); }
+.sso-onboard-steps { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 6px; }
+.sso-onboard-steps li { font-size: 14px; color: var(--text-secondary, #9aa1ad); }
+.sso-onboard-steps li.done { color: var(--text-primary, #e6e6e6); }
+.sso-onboard-steps li.current { color: var(--accent-primary, #ff6b35); font-weight: 600; }
+.sso-onboard-ico { display: inline-block; width: 18px; }
+.sso-onboard-steps li.done .sso-onboard-ico { color: #28a745; }
+.sso-onboard-cta { font-weight: 600; color: var(--accent-primary, #ff6b35); text-decoration: none; }
 </style>
 {% endblock %}
