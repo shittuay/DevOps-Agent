@@ -1,7 +1,7 @@
 """
 Organization and Multi-tenancy Routes
 """
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, session
 from flask_login import login_required, current_user
 from functools import wraps
 
@@ -75,11 +75,17 @@ def view_organization(org_id):
     members = service.get_organization_members(org_id)
     teams = service.get_organization_teams(org_id)
 
+    sso_onboarding = None
+    if membership.role in ('owner', 'admin'):
+        from services import sso_onboarding as sso_ob
+        sso_onboarding = sso_ob.get_onboarding_status(org)
+
     return render_template('organizations/view.html',
                          org=org,
                          membership=membership,
                          members=members,
-                         teams=teams)
+                         teams=teams,
+                         sso_onboarding=sso_onboarding)
 
 
 @organizations_bp.route('/<int:org_id>/settings', methods=['GET', 'POST'])
@@ -265,30 +271,106 @@ def view_team(org_id, team_id):
 @org_admin_required
 def sso_settings(org_id):
     """SSO configuration"""
+    import os
     from services.multi_tenancy import MultiTenancyService
+    from services import sso_service
     service = MultiTenancyService()
 
     org = service.get_organization(org_id)
-    sso_config = service.get_sso_config(org_id)
 
     if request.method == 'POST':
-        config_data = {
-            'organization_id': org_id,
-            'provider': request.form.get('provider'),
-            'client_id': request.form.get('client_id'),
-            'client_secret': request.form.get('client_secret'),
-            'metadata_url': request.form.get('metadata_url'),
-            'enabled': request.form.get('enabled') == 'on'
-        }
-
-        if service.configure_sso(config_data):
+        ok, error = sso_service.save_config(org_id, request.form)
+        if ok:
             flash('SSO configuration saved!', 'success')
         else:
-            flash('Failed to save SSO configuration.', 'error')
-
+            flash(error or 'Failed to save SSO configuration.', 'error')
         return redirect(url_for('organizations.sso_settings', org_id=org_id))
 
-    return render_template('organizations/sso.html', org=org, sso_config=sso_config)
+    sso_config = sso_service.get_admin_config(org)
+    base = (os.environ.get('BASE_URL') or request.host_url).rstrip('/')
+
+    from services import sso_onboarding as sso_ob
+    onboarding = sso_ob.get_onboarding_status(org)
+
+    from models import OrganizationDomain
+    from services import domain_verification
+    domains = []
+    for row in OrganizationDomain.query.filter_by(organization_id=org_id).order_by(
+            OrganizationDomain.domain).all():
+        domains.append({
+            'id': row.id,
+            'domain': row.domain,
+            'verified': row.verified,
+            'verified_at': row.verified_at,
+            'dns': domain_verification.dns_instructions(row),
+        })
+
+    return render_template(
+        'organizations/sso.html', org=org, sso_config=sso_config, domains=domains,
+        onboarding=onboarding,
+        callback_url=base + url_for('sso_auth.callback'),
+        saml_acs_url=base + url_for('sso_auth.saml_acs'),
+        sp_entity_id=base + url_for('sso_auth.saml_metadata'),
+        saml_metadata_url=base + url_for('sso_auth.saml_metadata'))
+
+
+@organizations_bp.route('/<int:org_id>/sso/test', methods=['POST'])
+@login_required
+@org_admin_required
+def test_sso(org_id):
+    """Start a dry-run SSO login: validates the round-trip without provisioning."""
+    from services.multi_tenancy import MultiTenancyService
+    from services import sso_onboarding
+    from routes.sso_auth import _begin_login
+
+    org = MultiTenancyService().get_organization(org_id)
+    if not org or not sso_onboarding.is_provider_configured(org.sso_config or {}):
+        flash('Finish configuring the identity provider before testing.', 'error')
+        return redirect(url_for('organizations.sso_settings', org_id=org_id))
+    return _begin_login(org, next_url='', test=True)
+
+
+@organizations_bp.route('/<int:org_id>/sso/domains/add', methods=['POST'])
+@login_required
+@org_admin_required
+def add_sso_domain(org_id):
+    """Claim a new email domain for SSO routing (starts unverified)."""
+    from services import sso_service
+    ok, error = sso_service.add_domain(org_id, request.form.get('domain', ''))
+    flash('Domain added. Verify it via DNS to enable SSO routing.' if ok
+          else (error or 'Failed to add domain.'), 'success' if ok else 'error')
+    return redirect(url_for('organizations.sso_settings', org_id=org_id))
+
+
+@organizations_bp.route('/<int:org_id>/sso/domains/<int:domain_id>/remove', methods=['POST'])
+@login_required
+@org_admin_required
+def remove_sso_domain(org_id, domain_id):
+    """Remove an email domain from the organization."""
+    from services import sso_service
+    if sso_service.remove_domain(org_id, domain_id):
+        flash('Domain removed.', 'success')
+    else:
+        flash('Domain not found.', 'error')
+    return redirect(url_for('organizations.sso_settings', org_id=org_id))
+
+
+@organizations_bp.route('/<int:org_id>/sso/domains/<int:domain_id>/verify', methods=['POST'])
+@login_required
+@org_admin_required
+def verify_sso_domain(org_id, domain_id):
+    """Run a DNS TXT-record check to verify ownership of an SSO domain."""
+    from models import OrganizationDomain
+    from services import domain_verification
+
+    row = OrganizationDomain.query.filter_by(id=domain_id, organization_id=org_id).first()
+    if not row:
+        flash('Domain not found.', 'error')
+        return redirect(url_for('organizations.sso_settings', org_id=org_id))
+
+    ok, message = domain_verification.verify_domain(row)
+    flash(message, 'success' if ok else 'error')
+    return redirect(url_for('organizations.sso_settings', org_id=org_id))
 
 
 # API Endpoints

@@ -98,6 +98,12 @@ def login():
             security_logger.warning(f"Failed login attempt from {ip_address}: User not found - {email_or_username}")
             return render_template('login.html', error='Invalid email/username or password')
 
+        from services import sso_service
+        if sso_service.sso_login_required(user):
+            security_logger.info(f"Password login blocked (SSO enforced) for {user.email}")
+            return render_template('login.html',
+                error='Your organization requires single sign-on. Please use "Sign in with SSO".')
+
         if user.is_locked():
             security_logger.warning(f"Login attempt for locked account: {user.email} from {ip_address}")
             return render_template('login.html', error='Account temporarily locked due to multiple failed login attempts. Try again in 15 minutes.')
