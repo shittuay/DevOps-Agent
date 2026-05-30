@@ -48,15 +48,15 @@ def _safe_next(target: str) -> bool:
     return not parsed.netloc and not parsed.scheme and target.startswith('/')
 
 
-def _begin_login(org, next_url: str = ''):
+def _begin_login(org, next_url: str = '', test: bool = False):
     """Dispatch to the OIDC or SAML login flow for this organization."""
     provider = org.sso_provider or (org.sso_config or {}).get('provider')
     if provider == 'saml':
-        return _begin_saml_login(org, next_url)
-    return _begin_oidc_login(org, next_url)
+        return _begin_saml_login(org, next_url, test=test)
+    return _begin_oidc_login(org, next_url, test=test)
 
 
-def _begin_oidc_login(org, next_url: str = ''):
+def _begin_oidc_login(org, next_url: str = '', test: bool = False):
     """Store flow state in the session and redirect to the OIDC provider."""
     config = org.sso_config or {}
     state = sso_service.new_state()
@@ -74,6 +74,7 @@ def _begin_oidc_login(org, next_url: str = ''):
     session['sso_org_id'] = org.id
     session['sso_redirect_uri'] = redirect_uri
     session['sso_next'] = next_url if _safe_next(next_url) else ''
+    session['sso_test'] = bool(test)
     return redirect(auth_url)
 
 
@@ -133,16 +134,21 @@ def callback():
     org_id = session.get('sso_org_id')
     nonce = session.get('sso_nonce')
     redirect_uri = session.get('sso_redirect_uri')
+    is_test = bool(session.get('sso_test'))
     org = Organization.query.get(org_id) if org_id else None
-    if not org or not org.sso_enabled:
+    if not org or (not org.sso_enabled and not is_test):
         flash("Single sign-on is no longer available for this organization.", "error")
         return redirect(url_for('auth.login'))
 
     try:
         identity = sso_service.handle_callback(org.sso_config or {}, code, redirect_uri, nonce)
+        if is_test:
+            return _render_test_result(org, identity)
         user, created = sso_service.find_or_provision_user(org, identity)
     except sso_service.SSOError as e:
         logger.warning("SSO callback failed for org %s: %s", org_id, e)
+        if is_test:
+            return _render_test_error(org, str(e))
         flash(str(e), "error")
         return redirect(url_for('auth.login'))
     except Exception:
@@ -151,7 +157,7 @@ def callback():
         return redirect(url_for('auth.login'))
 
     next_url = session.get('sso_next', '')
-    for key in ('sso_state', 'sso_nonce', 'sso_org_id', 'sso_redirect_uri', 'sso_next'):
+    for key in ('sso_state', 'sso_nonce', 'sso_org_id', 'sso_redirect_uri', 'sso_next', 'sso_test'):
         session.pop(key, None)
 
     login_user(user, remember=True)
@@ -169,16 +175,16 @@ def callback():
 # SAML 2.0 flow
 # --------------------------------------------------------------------------- #
 
-def _begin_saml_login(org, next_url: str = ''):
+def _begin_saml_login(org, next_url: str = '', test: bool = False):
     """Build a SAML AuthnRequest and redirect to the IdP."""
     from services import saml_service
 
     acs_url = _acs_uri()
     sp_entity = _sp_entity_id()
     safe_next = next_url if _safe_next(next_url) else ''
-    # RelayState carries org id + next so the cross-site ACS POST works even when
-    # the session cookie (SameSite=Lax) is not sent by the browser.
-    relay_state = f"{org.id}|{safe_next}"
+    # RelayState carries org id, next, and a test marker so the cross-site ACS
+    # POST works even when the session cookie (SameSite=Lax) isn't sent.
+    relay_state = f"{org.id}|{safe_next}|{'test' if test else ''}"
 
     try:
         redirect_url, request_id = saml_service.build_authn_request(
@@ -201,13 +207,16 @@ def saml_acs():
 
     saml_response = request.form.get('SAMLResponse')
     relay_state = request.form.get('RelayState', '') or ''
-    org_id, _, next_url = relay_state.partition('|')
+    parts = relay_state.split('|')
+    org_id = parts[0] if parts else ''
+    next_url = parts[1] if len(parts) > 1 else ''
+    is_test = len(parts) > 2 and parts[2] == 'test'
 
     try:
         org = Organization.query.get(int(org_id)) if org_id.strip() else None
     except ValueError:
         org = None
-    if not org or not org.sso_enabled or not org.is_active:
+    if not org or (not org.sso_enabled and not is_test) or not org.is_active:
         flash("Single sign-on is no longer available for this organization.", "error")
         return redirect(url_for('auth.login'))
 
@@ -216,9 +225,13 @@ def saml_acs():
         identity = saml_service.parse_and_validate_response(
             org.sso_config or {}, saml_response, _acs_uri(), _sp_entity_id(),
             expected_request_id)
+        if is_test:
+            return _render_test_result(org, identity)
         user, created = sso_service.find_or_provision_user(org, identity)
     except sso_service.SSOError as e:
         logger.warning("SAML ACS failed for org %s: %s", org.id, e)
+        if is_test:
+            return _render_test_error(org, str(e))
         flash(str(e), "error")
         return redirect(url_for('auth.login'))
     except Exception:
@@ -235,6 +248,27 @@ def saml_acs():
     if next_url and _safe_next(next_url):
         return redirect(next_url)
     return redirect(url_for('chat'))
+
+
+def _render_test_result(org, identity):
+    """Render the dry-run result: the resolved identity, no provisioning/login."""
+    for key in ('sso_state', 'sso_nonce', 'sso_org_id', 'sso_redirect_uri',
+                'sso_next', 'sso_test', 'saml_request_id'):
+        session.pop(key, None)
+    config = org.sso_config or {}
+    mapped_role = (sso_service.role_from_groups(config, identity.groups)
+                   or config.get('default_role', 'member'))
+    logger.info("SSO test successful for org %s: %s", org.id, identity.email)
+    return render_template('sso_test_result.html', org=org, identity=identity,
+                           mapped_role=mapped_role, error=None)
+
+
+def _render_test_error(org, message):
+    for key in ('sso_state', 'sso_nonce', 'sso_org_id', 'sso_redirect_uri',
+                'sso_next', 'sso_test', 'saml_request_id'):
+        session.pop(key, None)
+    return render_template('sso_test_result.html', org=org, identity=None,
+                           mapped_role=None, error=message)
 
 
 @sso_auth_bp.route('/saml/metadata')

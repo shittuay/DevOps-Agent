@@ -1,7 +1,7 @@
 """
 Organization and Multi-tenancy Routes
 """
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, session
 from flask_login import login_required, current_user
 from functools import wraps
 
@@ -312,6 +312,22 @@ def sso_settings(org_id):
         saml_acs_url=base + url_for('sso_auth.saml_acs'),
         sp_entity_id=base + url_for('sso_auth.saml_metadata'),
         saml_metadata_url=base + url_for('sso_auth.saml_metadata'))
+
+
+@organizations_bp.route('/<int:org_id>/sso/test', methods=['POST'])
+@login_required
+@org_admin_required
+def test_sso(org_id):
+    """Start a dry-run SSO login: validates the round-trip without provisioning."""
+    from services.multi_tenancy import MultiTenancyService
+    from services import sso_onboarding
+    from routes.sso_auth import _begin_login
+
+    org = MultiTenancyService().get_organization(org_id)
+    if not org or not sso_onboarding.is_provider_configured(org.sso_config or {}):
+        flash('Finish configuring the identity provider before testing.', 'error')
+        return redirect(url_for('organizations.sso_settings', org_id=org_id))
+    return _begin_login(org, next_url='', test=True)
 
 
 @organizations_bp.route('/<int:org_id>/sso/domains/add', methods=['POST'])
