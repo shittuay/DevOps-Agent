@@ -270,9 +270,23 @@ def parse_and_validate_response(config: Dict, saml_response_b64: str, acs_url: s
             break
 
     subject = name_id or email
+    groups = _extract_groups(assertion, config.get('groups_attribute'))
     # SAML IdPs vouch for the identity; treat the email as verified.
     return Identity(subject=subject, email=email.lower(), email_verified=True,
-                    name=name, provider='saml')
+                    name=name, provider='saml', groups=groups)
+
+
+def _extract_groups(assertion, groups_attr: Optional[str]) -> list:
+    """Collect all values of the group/role attribute (multi-valued)."""
+    target = (groups_attr or 'groups').strip().lower()
+    groups = []
+    for attr in assertion.findall('.//saml:AttributeStatement/saml:Attribute', NS):
+        name = (attr.get('Name') or attr.get('FriendlyName') or '').strip().lower()
+        if name == target or 'group' in name or name.endswith('/claims/group'):
+            for value_el in attr.findall('saml:AttributeValue', NS):
+                if value_el.text and value_el.text.strip():
+                    groups.append(value_el.text.strip())
+    return groups
 
 
 # --------------------------------------------------------------------------- #
