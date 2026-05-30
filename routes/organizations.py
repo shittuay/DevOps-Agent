@@ -304,6 +304,31 @@ def sso_settings(org_id):
         saml_metadata_url=base + url_for('sso_auth.saml_metadata'))
 
 
+@organizations_bp.route('/<int:org_id>/sso/domains/add', methods=['POST'])
+@login_required
+@org_admin_required
+def add_sso_domain(org_id):
+    """Claim a new email domain for SSO routing (starts unverified)."""
+    from services import sso_service
+    ok, error = sso_service.add_domain(org_id, request.form.get('domain', ''))
+    flash('Domain added. Verify it via DNS to enable SSO routing.' if ok
+          else (error or 'Failed to add domain.'), 'success' if ok else 'error')
+    return redirect(url_for('organizations.sso_settings', org_id=org_id))
+
+
+@organizations_bp.route('/<int:org_id>/sso/domains/<int:domain_id>/remove', methods=['POST'])
+@login_required
+@org_admin_required
+def remove_sso_domain(org_id, domain_id):
+    """Remove an email domain from the organization."""
+    from services import sso_service
+    if sso_service.remove_domain(org_id, domain_id):
+        flash('Domain removed.', 'success')
+    else:
+        flash('Domain not found.', 'error')
+    return redirect(url_for('organizations.sso_settings', org_id=org_id))
+
+
 @organizations_bp.route('/<int:org_id>/sso/domains/<int:domain_id>/verify', methods=['POST'])
 @login_required
 @org_admin_required
