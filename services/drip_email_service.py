@@ -111,12 +111,12 @@ def process_drip_emails(db):
             }
 
             # Check if user is on a paid tier
+            from services.credit_service import CreditService
             is_paid = False
-            credits_remaining = 20
+            credits_remaining = CreditService.balance(user.id)
             sub = UserSubscription.query.filter_by(user_id=user.id).first()
             if sub and sub.tier:
                 is_paid = sub.tier.name in ('starter', 'professional', 'business')
-                credits_remaining = sub.credits_remaining or 0
 
             # Process at most 1 drip per user per run
             for step in DRIP_SEQUENCE:

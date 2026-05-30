@@ -5,6 +5,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from functools import wraps
 import time
+from services.credit_service import CreditService
 
 api_gateway_bp = Blueprint('api_gateway', __name__, url_prefix='/api-gateway')
 
@@ -622,13 +623,13 @@ def api_execute_tool():
         user_id=user_id, action_type='api_tool_use',
         tool_name=tool_name, credits_used=1, success=True,
     ))
-    sub.use_credit(commit=False)
+    remaining = CreditService.deduct(user_id, commit=False)
     db.session.commit()
 
     return jsonify({
         'result': result,
         'tool': tool_name,
-        'credits_remaining': sub.credits_remaining,
+        'credits_remaining': remaining,
     })
 
 
@@ -736,9 +737,8 @@ def api_agent_stream():
                     action_type='api_tool_use' if tools_used else 'api_message',
                     tool_name=tools_used[0] if tools_used else None,
                     credits_used=1, success=True, ai_model=model_config.model))
-                _sub.use_credit(commit=False)
+                credits_left = CreditService.deduct(user_id, commit=False)
                 db.session.commit()
-                credits_left = _sub.credits_remaining
 
             yield f"data: {_json.dumps({'type': 'done', 'tools_used': tools_used, 'credits_remaining': credits_left, 'conversation_id': conversation_id})}\n\n"
 
@@ -885,13 +885,13 @@ def api_agent():
             success=True, ai_model=model_config.model,
         ))
 
-    sub.use_credit(commit=False)
+    remaining = CreditService.deduct(user_id, commit=False)
     db.session.commit()
 
     return jsonify({
         'response': response_text,
         'tools_used': tools_used,
-        'credits_remaining': sub.credits_remaining,
+        'credits_remaining': remaining,
         'conversation_id': conversation_id,
     })
 
