@@ -140,6 +140,14 @@
             text-transform: uppercase;
             margin-top: 0.25rem;
         }
+    
+        @media (max-width: 768px) {
+            .header { flex-direction: column; align-items: flex-start; gap: 12px; padding: 1rem; }
+            .header nav { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+            .header nav a { margin-left: 0; }
+            .container { padding: 1rem; }
+            table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+        }
     </style>
 </head>
 <body class="animated-bg">
