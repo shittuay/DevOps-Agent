@@ -43,9 +43,12 @@ def create_organization():
         service = MultiTenancyService()
 
         data = request.form.to_dict()
-        data['owner_id'] = current_user.id
 
-        org = service.create_organization(data)
+        org = service.create_organization(
+            name=data.get('name', ''),
+            owner_id=current_user.id,
+            description=data.get('description'),
+        )
         if org:
             flash('Organization created successfully!', 'success')
             return redirect(url_for('organizations.view_organization', org_id=org.id))
