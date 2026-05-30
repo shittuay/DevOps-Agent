@@ -363,6 +363,35 @@ def resolve_org_for_email(email: str):
     return None
 
 
+def sso_login_required(user) -> Optional[object]:
+    """Return the org that mandates SSO for ``user`` (blocking password login), else None.
+
+    Safety valves: only enforces when SSO is enabled AND the IdP is fully
+    configured, and never for an org owner (so admins can't lock themselves out).
+    """
+    from models import Organization, OrganizationDomain, OrganizationMember
+    from services.sso_onboarding import is_provider_configured
+
+    if not user or not getattr(user, 'email', None) or '@' not in user.email:
+        return None
+    domain = user.email.split('@', 1)[1].strip().lower()
+    od = OrganizationDomain.query.filter_by(domain=domain, verified=True).first()
+    if not od:
+        return None
+    org = Organization.query.get(od.organization_id)
+    if not org or not org.sso_enabled or not org.is_active:
+        return None
+    config = org.sso_config or {}
+    if not config.get('enforce_sso') or not is_provider_configured(config):
+        return None
+    if org.owner_id == user.id:
+        return None
+    member = OrganizationMember.query.filter_by(organization_id=org.id, user_id=user.id).first()
+    if member and member.role == 'owner':
+        return None
+    return org
+
+
 def _unique_username(base: str) -> str:
     from models import User
     base = ''.join(c for c in (base or 'user') if c.isalnum() or c in ('-', '_', '.')) or 'user'
@@ -535,6 +564,7 @@ def save_config(org_id: int, form: Dict) -> Tuple[bool, Optional[str]]:
         if group and role.lower() in ('admin', 'member', 'viewer'):
             mappings[group] = role.lower()
     config['role_mappings'] = mappings
+    config['enforce_sso'] = str(form.get('enforce_sso', '')).lower() in ('on', 'true', '1', 'yes')
 
     enabled = str(form.get('enabled', '')).lower() in ('on', 'true', '1', 'yes')
 

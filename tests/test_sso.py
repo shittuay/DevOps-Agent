@@ -182,6 +182,67 @@ def test_resolve_org_skips_disabled(sso_app):
 
 
 # --------------------------------------------------------------------------- #
+# Enforce SSO
+# --------------------------------------------------------------------------- #
+
+def _member(org, email, role='member'):
+    u = User(email=email, username=email.split('@')[0])
+    u.set_password('pw')
+    db.session.add(u)
+    db.session.commit()
+    db.session.add(OrganizationMember(organization_id=org.id, user_id=u.id, role=role))
+    db.session.commit()
+    return u
+
+
+def test_enforce_blocks_member(sso_app):
+    org = _make_org()
+    org.sso_config = dict(org.sso_config, enforce_sso=True)
+    org.owner_id = 999  # avoid colliding with the member's user id
+    db.session.commit()
+    user = _member(org, 'bob@acme.com')
+    assert sso_service.sso_login_required(user).id == org.id
+
+
+def test_enforce_exempts_owner(sso_app):
+    org = _make_org()
+    org.sso_config = dict(org.sso_config, enforce_sso=True)
+    org.owner_id = 999
+    db.session.commit()
+    owner = _member(org, 'boss@acme.com', role='owner')
+    org.owner_id = owner.id
+    db.session.commit()
+    assert sso_service.sso_login_required(owner) is None
+
+
+def test_enforce_off_allows_password(sso_app):
+    org = _make_org()  # enforce_sso not set
+    user = _member(org, 'bob@acme.com')
+    assert sso_service.sso_login_required(user) is None
+
+
+def test_enforce_requires_verified_domain(sso_app):
+    org = _make_org(domains=())  # no domains
+    org.sso_config = dict(org.sso_config, enforce_sso=True)
+    db.session.commit()
+    user = _member(org, 'bob@acme.com')
+    assert sso_service.sso_login_required(user) is None
+
+
+def test_enforce_requires_configured_provider(sso_app):
+    # enforce on, verified domain, but provider not fully configured
+    org = Organization(name='Acme', slug='acme', owner_id=1, sso_enabled=True,
+                       sso_provider='generic_oidc',
+                       sso_config={'provider': 'generic_oidc', 'enforce_sso': True})
+    db.session.add(org)
+    db.session.commit()
+    db.session.add(OrganizationDomain(organization_id=org.id, domain='acme.com', verified=True))
+    db.session.commit()
+    user = _member(org, 'bob@acme.com')
+    assert sso_service.sso_login_required(user) is None
+
+
+# --------------------------------------------------------------------------- #
 # JIT provisioning
 # --------------------------------------------------------------------------- #
 
