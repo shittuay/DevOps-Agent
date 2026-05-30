@@ -49,7 +49,7 @@ def _fmt(dt):
 
 def _build_response(cert_pem, key_pem, *, audience=AUDIENCE, recipient=ACS,
                     request_id=REQUEST_ID, nameid='alice@acme.com',
-                    email_attr=None, name='Alice',
+                    email_attr=None, name='Alice', groups=None,
                     not_before=None, not_on_or_after=None, sign=True, tamper=False):
     from signxml import XMLSigner
 
@@ -63,6 +63,9 @@ def _build_response(cert_pem, key_pem, *, audience=AUDIENCE, recipient=ACS,
         attrs += f'<saml:Attribute Name="email"><saml:AttributeValue>{email_attr}</saml:AttributeValue></saml:Attribute>'
     if name:
         attrs += f'<saml:Attribute Name="name"><saml:AttributeValue>{name}</saml:AttributeValue></saml:Attribute>'
+    if groups:
+        vals = ''.join(f'<saml:AttributeValue>{g}</saml:AttributeValue>' for g in groups)
+        attrs += f'<saml:Attribute Name="groups">{vals}</saml:Attribute>'
 
     # Build the full Response with the assertion inside, then sign the assertion
     # in place — this mirrors how an IdP produces the document and keeps the
@@ -144,6 +147,14 @@ def test_valid_response_returns_identity(certkey):
     assert identity.email_verified is True
     assert identity.name == 'Alice'
     assert identity.subject == 'alice@acme.com'
+
+
+def test_groups_extracted_from_assertion(certkey):
+    cert_pem, key_pem = certkey
+    resp = _build_response(cert_pem, key_pem, groups=['admins', 'engineering'])
+    identity = saml_service.parse_and_validate_response(
+        _config(cert_pem), resp, ACS, AUDIENCE, REQUEST_ID)
+    assert identity.groups == ['admins', 'engineering']
 
 
 def test_email_from_attribute_when_nameid_opaque(certkey):

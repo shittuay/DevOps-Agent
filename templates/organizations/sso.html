@@ -126,6 +126,23 @@
                     </select>
                 </div>
 
+                <div class="form-group oidc-field">
+                    <label>Groups claim <small>(optional — id_token claim holding the user's groups)</small></label>
+                    <input type="text" name="groups_claim" class="form-control" placeholder="groups"
+                           value="{{ sso_config.groups_claim or '' }}">
+                </div>
+                <div class="form-group prov-field" data-for="saml">
+                    <label>Groups attribute <small>(optional — SAML attribute holding the user's groups)</small></label>
+                    <input type="text" name="groups_attribute" class="form-control" placeholder="groups"
+                           value="{{ sso_config.groups_attribute or '' }}">
+                </div>
+                <div class="form-group">
+                    <label>Group → role mapping <small>(optional — one per line, e.g. <code>admins=admin</code>)</small></label>
+                    <textarea name="role_mappings" class="form-control" rows="3"
+                              placeholder="admins=admin&#10;engineering=member&#10;contractors=viewer">{% for g, r in (sso_config.role_mappings or {}).items() %}{{ g }}={{ r }}
+{% endfor %}</textarea>
+                </div>
+
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" name="enabled" {{ 'checked' if sso_config.enabled else '' }}>

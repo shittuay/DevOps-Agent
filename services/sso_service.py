@@ -48,6 +48,29 @@ class Identity:
     email_verified: bool
     name: Optional[str]
     provider: str
+    groups: Optional[List[str]] = None
+
+
+# Roles that may be granted via IdP group mapping (owner is never auto-granted).
+_ROLE_PRECEDENCE = ['admin', 'member', 'viewer']
+
+
+def role_from_groups(config: Dict, groups: Optional[List[str]]) -> Optional[str]:
+    """Resolve the most-privileged org role for a user's IdP groups, or None.
+
+    ``config['role_mappings']`` is a dict of {idp_group: org_role}. When a user
+    belongs to several mapped groups, the most privileged role wins. 'owner' is
+    never assignable via mapping.
+    """
+    mappings = (config or {}).get('role_mappings') or {}
+    if not mappings or not groups:
+        return None
+    matched = {mappings[g] for g in groups if g in mappings}
+    matched.discard('owner')
+    for role in _ROLE_PRECEDENCE:
+        if role in matched:
+            return role
+    return next(iter(matched)) if matched else None
 
 
 class SSOError(Exception):
@@ -305,8 +328,16 @@ def handle_callback(config: Dict, code: str, redirect_uri: str, nonce: str) -> I
 
     if not email:
         raise SSOError("Identity provider did not supply an email address")
+
+    groups_claim = config.get('groups_claim') or 'groups'
+    raw_groups = claims.get(groups_claim)
+    if raw_groups is None and token.get('access_token'):
+        raw_groups = _fetch_userinfo(ep, token['access_token']).get(groups_claim)
+    groups = [raw_groups] if isinstance(raw_groups, str) else (list(raw_groups) if raw_groups else [])
+
     return Identity(subject=str(claims['sub']), email=email.lower(),
-                    email_verified=verified, name=name, provider=config.get('provider'))
+                    email_verified=verified, name=name, provider=config.get('provider'),
+                    groups=[str(g) for g in groups])
 
 
 # --------------------------------------------------------------------------- #
@@ -356,6 +387,7 @@ def find_or_provision_user(org, identity: Identity):
 
     config = org.sso_config or {}
     default_role = config.get('default_role', 'member')
+    mapped_role = role_from_groups(config, identity.groups)
 
     user = User.query.filter_by(email=identity.email).first()
     created = False
@@ -387,8 +419,11 @@ def find_or_provision_user(org, identity: Identity):
         organization_id=org.id, user_id=user.id).first()
     if membership is None:
         membership = OrganizationMember(
-            organization_id=org.id, user_id=user.id, role=default_role)
+            organization_id=org.id, user_id=user.id, role=(mapped_role or default_role))
         db.session.add(membership)
+    elif mapped_role and membership.role != 'owner':
+        # Keep role in sync with IdP groups on each login (never demote an owner).
+        membership.role = mapped_role
 
     db.session.commit()
     return user, created
@@ -486,6 +521,20 @@ def save_config(org_id: int, form: Dict) -> Tuple[bool, Optional[str]]:
         config['scopes'] = (form.get('scopes') or '').strip()
 
     config['default_role'] = (form.get('default_role') or 'member').strip()
+
+    # Group -> role mapping (optional). Claim/attribute name + "group=role" lines.
+    config['groups_claim'] = (form.get('groups_claim') or '').strip()
+    config['groups_attribute'] = (form.get('groups_attribute') or '').strip()
+    mappings = {}
+    for line in (form.get('role_mappings') or '').replace(',', '\n').splitlines():
+        line = line.strip()
+        sep = '=' if '=' in line else (':' if ':' in line else None)
+        if not sep:
+            continue
+        group, role = (p.strip() for p in line.split(sep, 1))
+        if group and role.lower() in ('admin', 'member', 'viewer'):
+            mappings[group] = role.lower()
+    config['role_mappings'] = mappings
 
     enabled = str(form.get('enabled', '')).lower() in ('on', 'true', '1', 'yes')
 

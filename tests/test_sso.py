@@ -213,6 +213,46 @@ def test_provision_unverified_email_raises(sso_app):
         sso_service.find_or_provision_user(org, _identity(verified=False))
 
 
+def test_role_from_groups_precedence():
+    cfg = {'role_mappings': {'eng': 'member', 'admins': 'admin', 'aud': 'viewer'}}
+    assert sso_service.role_from_groups(cfg, ['eng', 'admins']) == 'admin'
+    assert sso_service.role_from_groups(cfg, ['eng', 'aud']) == 'member'
+    assert sso_service.role_from_groups(cfg, ['aud']) == 'viewer'
+    assert sso_service.role_from_groups(cfg, ['unknown']) is None
+    assert sso_service.role_from_groups({}, ['eng']) is None
+    # owner can never be granted via mapping
+    assert sso_service.role_from_groups({'role_mappings': {'g': 'owner'}}, ['g']) is None
+
+
+def test_provision_assigns_mapped_role(sso_app):
+    org = _make_org()
+    org.sso_config = dict(org.sso_config, role_mappings={'admins': 'admin'})
+    db.session.commit()
+    ident = sso_service.Identity(subject='s', email='a@acme.com', email_verified=True,
+                                 name='A', provider='generic_oidc', groups=['admins'])
+    user, _ = sso_service.find_or_provision_user(org, ident)
+    m = OrganizationMember.query.filter_by(organization_id=org.id, user_id=user.id).one()
+    assert m.role == 'admin'
+
+
+def test_provision_syncs_role_but_not_owner(sso_app):
+    org = _make_org()
+    org.sso_config = dict(org.sso_config, role_mappings={'admins': 'admin'})
+    db.session.commit()
+    # existing owner membership must not be demoted
+    existing = User(email='a@acme.com', username='a')
+    existing.set_password('x')
+    db.session.add(existing)
+    db.session.commit()
+    db.session.add(OrganizationMember(organization_id=org.id, user_id=existing.id, role='owner'))
+    db.session.commit()
+    ident = sso_service.Identity(subject='s', email='a@acme.com', email_verified=True,
+                                 name='A', provider='generic_oidc', groups=['admins'])
+    user, _ = sso_service.find_or_provision_user(org, ident)
+    m = OrganizationMember.query.filter_by(organization_id=org.id, user_id=user.id).one()
+    assert m.role == 'owner'  # preserved
+
+
 def test_provision_links_existing_user(sso_app):
     org = _make_org()
     existing = User(email='alice@acme.com', username='alice', full_name='Alice')
