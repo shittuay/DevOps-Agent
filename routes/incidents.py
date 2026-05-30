@@ -431,14 +431,17 @@ def _transform_webhook_data(source: str, data: dict) -> dict:
         alerts = data.get('alerts', [data])
         if alerts:
             alert = alerts[0]
+            labels = alert.get('labels', {})
             return {
                 'source': 'prometheus',
-                'alert_name': alert.get('labels', {}).get('alertname', 'Unknown'),
-                'title': alert.get('annotations', {}).get('summary', alert.get('labels', {}).get('alertname')),
+                'alert_name': labels.get('alertname', 'Unknown'),
+                'title': alert.get('annotations', {}).get('summary', labels.get('alertname')),
                 'description': alert.get('annotations', {}).get('description', ''),
-                'severity': alert.get('labels', {}).get('severity', 'warning'),
+                'severity': labels.get('severity', 'warning'),
                 'status': alert.get('status', 'firing'),
-                **alert.get('labels', {})
+                'instance': labels.get('instance', ''),
+                'job': labels.get('job', ''),
+                'namespace': labels.get('namespace', ''),
             }
 
     elif source == 'datadog':
@@ -449,7 +452,8 @@ def _transform_webhook_data(source: str, data: dict) -> dict:
             'description': data.get('alert_body', ''),
             'severity': _map_datadog_priority(data.get('priority', 'normal')),
             'alert_id': data.get('alert_id'),
-            **data
+            'monitor_id': data.get('monitor_id'),
+            'tags': data.get('tags', []),
         }
 
     elif source == 'pagerduty':
@@ -491,7 +495,10 @@ def _transform_webhook_data(source: str, data: dict) -> dict:
 
     return {
         'source': source,
-        **data
+        'alert_name': data.get('alert_name') or data.get('title', 'Unknown'),
+        'title': data.get('title', ''),
+        'description': data.get('description', ''),
+        'severity': data.get('severity', 'medium'),
     }
 
 
