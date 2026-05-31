@@ -15,6 +15,15 @@ os.environ['TESTING'] = 'true'
 # Force SQLite in-memory for tests — overrides any external DATABASE_URL
 os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
+# Diagnostic scripts (not real pytest suites): they make live AWS/Stripe API
+# calls and use print()/return instead of assertions, so pytest would collect
+# their test_*-prefixed helpers and report trivial passes. Run them directly
+# (e.g. `python tests/test_stripe.py`) — exclude them from collection here.
+collect_ignore = [
+    'test_stripe.py',
+    'test_secrets_manager.py',
+]
+
 
 @pytest.fixture(scope='session')
 def app():
