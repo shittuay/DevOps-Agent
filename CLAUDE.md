@@ -8,7 +8,7 @@
 
 ## Tech Stack
 
-- **Backend:** Flask + SQLAlchemy (SQLite)
+- **Backend:** Flask + SQLAlchemy (PostgreSQL default via `DATABASE_URL`; SQLite in-memory for tests)
 - **Frontend:** Jinja2 templates + vanilla JavaScript
 - **AI:** Kimi K2.5 (default, free/starter) + Anthropic Claude (professional/business)
 - **Auth:** Flask-Login with bcrypt password hashing
@@ -75,9 +75,13 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (730 total)
+## Tool Inventory (745 total, 19 modules)
 
-### AWS (336 tools)
+> Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`.
+> Two modules below are not detailed in the per-provider sections:
+> `command_tools` (2) and `devops_operations_tools` (10).
+
+### AWS (351 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
 
 ### Kubernetes (76 tools)
@@ -200,7 +204,7 @@ See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **730** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **745** across 19 modules. Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:
@@ -349,6 +353,28 @@ python main.py interactive  # CLI mode
 pytest -q                    # Run all tests
 python -m pytest tests/ -v   # Verbose
 ```
+
+Tests run against **SQLite in-memory** (forced in `tests/conftest.py`, overriding
+`DATABASE_URL`) — Postgres is not required to run the suite. Current suite:
+**404 passing**. `tests/test_stripe.py` and `tests/test_secrets_manager.py` are
+diagnostic scripts that hit live Stripe/AWS APIs; they are excluded from pytest
+collection (`collect_ignore` in `conftest.py`) and run directly instead.
+
+## CI / Security Scanning
+
+GitHub Actions workflows live in `.github/workflows/`:
+
+- **`ci.yml`** — runs on `push`/`pull_request` to `main`/`develop`. Includes a
+  `security` job (`pip-audit`, `safety`, `bandit`) that fires only on those events.
+- **`security-scan.yml`** — routine vulnerability scan on a **daily cron
+  (`0 6 * * *`, 06:00 UTC)**, independent of pushes/PRs. Also runnable on demand
+  via `workflow_dispatch` (Actions tab → "Scheduled Security Scan" → Run workflow).
+  Runs `pip-audit` + `safety` (dependency CVEs) and `bandit` (source linter);
+  uploads `scheduled-bandit-report` artifact (30-day retention). Steps use
+  `continue-on-error` so one tool failing doesn't abort the others.
+
+Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
+do). The scheduled scan is the only timer-based scan.
 
 ## Adding a New Model
 
@@ -523,6 +549,25 @@ fetch('/api/run-migration', {method:'POST'}).then(r=>r.json()).then(console.log)
 ```javascript
 fetch('/api/reset-streaming', {method:'POST'}).then(r=>r.json()).then(console.log)
 ```
+
+## Routine Docs Updates (Stop Hook)
+
+Docs are kept in sync automatically via a `Stop` hook registered in
+`.claude/settings.json` → `scripts/hooks/docs_update_check.py`.
+
+**How it works:** every time the agent finishes a turn, the hook inspects the
+git working tree. If source files changed (`.py`, `.html`, `.js`, `.css`,
+`.yaml`, `.yml`) but no `.md` doc was updated, it returns a `block` decision
+that instructs the agent to update `CLAUDE.md` / `CLAUDE_RUNBOOK.md` /
+`CLAUDE_BILLING.md` before stopping. Once docs are touched, the next stop passes.
+
+**Guards & opt-out:**
+- Ignores changes under `tests/`, `scripts/hooks/`, `.claude/`, `logs/`.
+- Honors `stop_hook_active` to avoid loops (won't re-block after one nudge).
+- Fails open on any git/parse error (never blocks finishing work).
+- Set `DOCS_HOOK_DISABLE=1` to bypass entirely.
+
+For manual/on-demand doc refresh use the `/update-context` skill.
 
 ## Skills Available
 
