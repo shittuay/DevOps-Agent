@@ -350,6 +350,22 @@ pytest -q                    # Run all tests
 python -m pytest tests/ -v   # Verbose
 ```
 
+## CI / Security Scanning
+
+GitHub Actions workflows live in `.github/workflows/`:
+
+- **`ci.yml`** — runs on `push`/`pull_request` to `main`/`develop`. Includes a
+  `security` job (`pip-audit`, `safety`, `bandit`) that fires only on those events.
+- **`security-scan.yml`** — routine vulnerability scan on a **daily cron
+  (`0 6 * * *`, 06:00 UTC)**, independent of pushes/PRs. Also runnable on demand
+  via `workflow_dispatch` (Actions tab → "Scheduled Security Scan" → Run workflow).
+  Runs `pip-audit` + `safety` (dependency CVEs) and `bandit` (source linter);
+  uploads `scheduled-bandit-report` artifact (30-day retention). Steps use
+  `continue-on-error` so one tool failing doesn't abort the others.
+
+Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
+do). The scheduled scan is the only timer-based scan.
+
 ## Adding a New Model
 
 1. Define in `models.py`
