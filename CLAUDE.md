@@ -524,6 +524,25 @@ fetch('/api/run-migration', {method:'POST'}).then(r=>r.json()).then(console.log)
 fetch('/api/reset-streaming', {method:'POST'}).then(r=>r.json()).then(console.log)
 ```
 
+## Routine Docs Updates (Stop Hook)
+
+Docs are kept in sync automatically via a `Stop` hook registered in
+`.claude/settings.json` → `scripts/hooks/docs_update_check.py`.
+
+**How it works:** every time the agent finishes a turn, the hook inspects the
+git working tree. If source files changed (`.py`, `.html`, `.js`, `.css`,
+`.yaml`, `.yml`) but no `.md` doc was updated, it returns a `block` decision
+that instructs the agent to update `CLAUDE.md` / `CLAUDE_RUNBOOK.md` /
+`CLAUDE_BILLING.md` before stopping. Once docs are touched, the next stop passes.
+
+**Guards & opt-out:**
+- Ignores changes under `tests/`, `scripts/hooks/`, `.claude/`, `logs/`.
+- Honors `stop_hook_active` to avoid loops (won't re-block after one nudge).
+- Fails open on any git/parse error (never blocks finishing work).
+- Set `DOCS_HOOK_DISABLE=1` to bypass entirely.
+
+For manual/on-demand doc refresh use the `/update-context` skill.
+
 ## Skills Available
 
 Use `/skill-name` or mention the skill:

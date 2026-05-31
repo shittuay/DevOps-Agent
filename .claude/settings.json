@@ -60,6 +60,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/hooks/docs_update_check.py"
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
