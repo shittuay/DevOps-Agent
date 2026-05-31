@@ -287,6 +287,14 @@ class MultiTenancyService:
         logger.info(f"User {user_id} accepted invitation to org {invitation.organization_id}")
         return invitation
 
+    def get_pending_invitations(self, org_id: int) -> list:
+        """Return all pending (unaccepted) invitations for an organization."""
+        OrganizationMember = self._get_member_model()
+        return OrganizationMember.query.filter_by(
+            organization_id=org_id,
+            is_active=False
+        ).filter(OrganizationMember.invitation_token.isnot(None)).all()
+
     # Team Management
 
     def create_team(self, org_id: int, name: str, description: str = None) -> Any:
