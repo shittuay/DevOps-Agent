@@ -135,7 +135,7 @@ class MultiTenancyService:
             user_id=user_id,
             is_active=True
         ).all()
-        return [m.organization for m in memberships if m.organization and m.organization.is_active]
+        return [m for m in memberships if m.organization and m.organization.is_active]
 
     def update_organization(self, org_id: int, updates: Dict) -> Optional[Any]:
         """Update organization details."""
