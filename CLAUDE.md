@@ -8,7 +8,7 @@
 
 ## Tech Stack
 
-- **Backend:** Flask + SQLAlchemy (SQLite)
+- **Backend:** Flask + SQLAlchemy (PostgreSQL default via `DATABASE_URL`; SQLite in-memory for tests)
 - **Frontend:** Jinja2 templates + vanilla JavaScript
 - **AI:** Kimi K2.5 (default, free/starter) + Anthropic Claude (professional/business)
 - **Auth:** Flask-Login with bcrypt password hashing
@@ -75,9 +75,13 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (730 total)
+## Tool Inventory (745 total, 19 modules)
 
-### AWS (336 tools)
+> Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`.
+> Two modules below are not detailed in the per-provider sections:
+> `command_tools` (2) and `devops_operations_tools` (10).
+
+### AWS (351 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
 
 ### Kubernetes (76 tools)
@@ -200,7 +204,7 @@ See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **730** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **745** across 19 modules. Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:
@@ -349,6 +353,12 @@ python main.py interactive  # CLI mode
 pytest -q                    # Run all tests
 python -m pytest tests/ -v   # Verbose
 ```
+
+Tests run against **SQLite in-memory** (forced in `tests/conftest.py`, overriding
+`DATABASE_URL`) — Postgres is not required to run the suite. Current suite:
+**404 passing**. `tests/test_stripe.py` and `tests/test_secrets_manager.py` are
+diagnostic scripts that hit live Stripe/AWS APIs; they are excluded from pytest
+collection (`collect_ignore` in `conftest.py`) and run directly instead.
 
 ## CI / Security Scanning
 
