@@ -34,6 +34,7 @@ IGNORED_PREFIXES = (
     'scripts/hooks/',
     '.claude/',
     'logs/',
+    '.playwright-mcp/',
 )
 
 # Any change to one of these counts as "docs were updated".
