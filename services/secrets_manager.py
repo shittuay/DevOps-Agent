@@ -31,6 +31,18 @@ MANAGED_SECRET_KEYS = [
     'STRIPE_PRICE_PACK_1000',
     'SMTP_USER',
     'SMTP_PASS',
+    # Email/SMS delivery config (MFA verification codes, transactional email).
+    # SMTP_USER/SMTP_PASS alone are not enough — these companions must load too,
+    # otherwise the app falls back to hardcoded defaults (e.g. Brevo's SMTP relay
+    # host) and a non-Brevo SMTP credential silently fails to authenticate.
+    'EMAIL_PROVIDER',
+    'SMTP_HOST',
+    'SMTP_PORT',
+    'EMAIL_FROM',
+    'EMAIL_FROM_NAME',
+    'SENDGRID_API_KEY',
+    'BREVO_API_KEY',     # required for SMS (phone MFA) and Brevo email
+    'SMS_SENDER_NAME',
     'CREDENTIAL_ENCRYPTION_KEY',
     'GROQ_API_KEY',
     'MOONSHOT_API_KEY',
