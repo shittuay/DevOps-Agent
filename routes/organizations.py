@@ -113,7 +113,7 @@ def organization_settings(org_id):
             flash('Failed to update organization.', 'error')
         return redirect(url_for('organizations.organization_settings', org_id=org_id))
 
-    return render_template('organizations/settings.html', org=org)
+    return render_template('organizations/settings.html', organization=org)
 
 
 @organizations_bp.route('/<int:org_id>/members')
@@ -136,7 +136,7 @@ def list_members(org_id):
         invitations = service.get_pending_invitations(org_id)
 
     return render_template('organizations/members.html',
-                         org=org,
+                         organization=org,
                          members=members,
                          invitations=invitations,
                          current_membership=membership)
@@ -153,7 +153,7 @@ def invite_member(org_id):
     email = request.form.get('email')
     role = request.form.get('role', 'member')
 
-    invitation = service.create_invitation(org_id, email, current_user.id, role)
+    invitation = service.create_invitation(org_id, email, role, current_user.id)
     if invitation:
         flash(f'Invitation sent to {email}!', 'success')
     else:
@@ -212,7 +212,7 @@ def list_teams(org_id):
     teams = service.get_organization_teams(org_id)
 
     return render_template('organizations/teams.html',
-                         org=org,
+                         organization=org,
                          teams=teams,
                          current_membership=membership)
 
@@ -235,7 +235,11 @@ def create_team(org_id):
             'created_by': current_user.id
         }
 
-        team = service.create_team(data)
+        team = service.create_team(
+            org_id=org_id,
+            name=request.form.get('name', ''),
+            description=request.form.get('description'),
+        )
         if team:
             flash('Team created successfully!', 'success')
             return redirect(url_for('organizations.view_team', org_id=org_id, team_id=team.id))
