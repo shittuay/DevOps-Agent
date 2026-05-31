@@ -1,6 +1,9 @@
 # PDF files
 *.pdf
 
+# Playwright MCP session captures (auto-generated, not source)
+.playwright-mcp/
+
 # Environment / Secrets
 .env
 config/.env
