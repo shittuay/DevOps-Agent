@@ -42,7 +42,11 @@ DOC_SUFFIXES = ('.md',)
 
 
 def changed_files():
-    """Return list of changed (staged + unstaged + untracked) repo paths."""
+    """Return list of changed (staged + unstaged tracked) repo paths.
+
+    Untracked files (status '??') are excluded — they haven't been added to
+    the repo yet and don't represent intentional changes requiring doc updates.
+    """
     out = subprocess.run(
         ['git', 'status', '--porcelain'],
         cwd=str(REPO_ROOT),
@@ -53,6 +57,9 @@ def changed_files():
     files = []
     for line in out.stdout.splitlines():
         if not line.strip():
+            continue
+        # Skip untracked files — porcelain marks them with '??'
+        if line.startswith('??'):
             continue
         # porcelain format: XY <path>  (or "XY orig -> new" for renames)
         path = line[3:].strip()
