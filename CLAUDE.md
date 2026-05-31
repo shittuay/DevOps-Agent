@@ -383,6 +383,52 @@ do). The scheduled scan is the only timer-based scan.
 3. For manual/immediate migration without restart: `python migrate_missing_columns.py` or `POST /api/run-migration` (browser console, must be logged in)
 4. Add API routes in `app.py` or appropriate `routes/*.py`
 
+## Admin Access
+
+### Role Hierarchy
+
+| Role | Level | Description |
+|---|---|---|
+| `admin` | 4 | Full access — user management, audit log, system settings |
+| `approver` | 3 | Can approve high-risk tool actions |
+| `user` | 2 | Standard access (default for new signups) |
+| `viewer` | 1 | Read-only |
+
+Enforced by `@admin_required` / `@approver_required` decorators in `services/rbac.py`.
+
+### Admin Pages
+
+| URL | Description |
+|---|---|
+| `/admin/` | Dashboard — user counts, role breakdown, recent signups |
+| `/admin/users` | List, search, filter all users |
+| `/admin/users/<id>` | View user detail, change role, lock/unlock, delete |
+| `/admin/audit-log` | Usage log audit trail |
+| `/admin/settings` | System-wide settings |
+
+### Granting Admin Access
+
+There is no self-serve promotion — it must be done directly in the database. On the EC2 server:
+
+```bash
+ssh -i your-key.pem ubuntu@3.216.127.206
+cd /var/www/devops-agent
+source venv/bin/activate
+python -c "
+from app import app
+from models import db, User
+with app.app_context():
+    user = User.query.filter_by(email='you@example.com').first()
+    user.role = 'admin'
+    db.session.commit()
+    print(f'Done — {user.email} is now admin')
+"
+```
+
+Then visit `https://devopsagent.io/admin/`.
+
+---
+
 ## Current User Context
 
 Each user has isolated:
