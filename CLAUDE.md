@@ -385,6 +385,14 @@ GitHub Actions workflows live in `.github/workflows/`:
 
 - **`ci.yml`** — runs on `push`/`pull_request` to `main`/`develop`. Includes a
   `security` job (`pip-audit`, `safety`, `bandit`) that fires only on those events.
+  On push to `main`, also runs a `deploy` job (after all checks pass) that SSHes
+  into EC2 (`3.216.127.206`) and pulls + restarts the service. SSH key is read from
+  the `EC2_SSH_KEY` GitHub secret (set this in repo Settings → Secrets → Actions).
+- **`deploy.yml`** — standalone deploy-only workflow triggered on push to `main` or
+  manually via `workflow_dispatch`. Uses AWS SSM to run the deploy script on EC2.
+  Requires `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `EC2_INSTANCE_ID`
+  GitHub secrets. **Note:** SSM requires the EC2 instance IAM role to have
+  `AmazonSSMManagedInstanceCore` and SSM Agent to be running on the instance.
 - **`security-scan.yml`** — routine vulnerability scan on a **daily cron
   (`0 6 * * *`, 06:00 UTC)**, independent of pushes/PRs. Also runnable on demand
   via `workflow_dispatch` (Actions tab → "Scheduled Security Scan" → Run workflow).
@@ -394,6 +402,15 @@ GitHub Actions workflows live in `.github/workflows/`:
 
 Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
 do). The scheduled scan is the only timer-based scan.
+
+### Required GitHub Secrets for Deploy
+
+| Secret | Used by | Purpose |
+|--------|---------|---------|
+| `EC2_SSH_KEY` | `ci.yml` | Private key for SSH into `3.216.127.206` |
+| `AWS_ACCESS_KEY_ID` | `ci.yml`, `deploy.yml` | IAM credentials for AWS API calls |
+| `AWS_SECRET_ACCESS_KEY` | `ci.yml`, `deploy.yml` | IAM credentials for AWS API calls |
+| `EC2_INSTANCE_ID` | `deploy.yml` | EC2 instance ID for SSM targeting |
 
 ## Adding a New Model
 
