@@ -232,7 +232,7 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 3.216.127.206
+          host: 13.222.47.92
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
@@ -244,3 +244,4 @@ jobs:
             sudo systemctl restart devops-agent
             sleep 3
             sudo systemctl is-active --quiet devops-agent && echo "Service is running" || (echo "Service failed to start" && sudo journalctl -u devops-agent --no-pager -n 30 && exit 1)
+            curl -sf http://localhost:8000/health && echo "Health check passed" || (echo "Health check failed" && exit 1)
