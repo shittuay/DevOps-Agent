@@ -135,7 +135,7 @@ lxml==6.1.0
 scapy>=2.6.1
 
 # Other Dependencies
-typing_extensions==4.12.2
+typing_extensions>=4.13.0
 
 # Testing
 pytest==9.0.3
