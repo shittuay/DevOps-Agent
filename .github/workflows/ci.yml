@@ -229,19 +229,42 @@ jobs:
     needs: [status-check]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: 13.222.47.92
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -e
-            cd /var/www/devops-agent
-            git pull origin main
-            source venv/bin/activate
-            pip install -r requirements.txt --quiet
-            sudo systemctl restart devops-agent
-            sleep 3
-            sudo systemctl is-active --quiet devops-agent && echo "Service is running" || (echo "Service failed to start" && sudo journalctl -u devops-agent --no-pager -n 30 && exit 1)
-            curl -sf http://localhost:8000/health && echo "Health check passed" || (echo "Health check failed" && exit 1)
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy via EC2 Instance Connect
+        run: |
+          # Generate a one-time SSH key pair
+          ssh-keygen -t rsa -b 2048 -f /tmp/deploy-key -N "" -q
+
+          # Push public key to instance (valid for 60s)
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id i-09af962714b13f9bc \
+            --instance-os-user ubuntu \
+            --ssh-public-key file:///tmp/deploy-key.pub \
+            --availability-zone $(aws ec2 describe-instances \
+                --instance-ids i-09af962714b13f9bc \
+                --query 'Reservations[0].Instances[0].Placement.AvailabilityZone' \
+                --output text)
+
+          # SSH and deploy (must happen within 60s of key push)
+          ssh -i /tmp/deploy-key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=15 \
+            ubuntu@13.222.47.92 "
+              set -e
+              cd /var/www/devops-agent
+              git pull origin main
+              source venv/bin/activate
+              pip install -r requirements.txt --quiet
+              sudo systemctl restart devops-agent
+              sleep 3
+              sudo systemctl is-active --quiet devops-agent && echo 'Service is running' \
+                || (echo 'Service failed to start' && sudo journalctl -u devops-agent --no-pager -n 30 && exit 1)
+              curl -sf http://localhost:8000/health && echo 'Health check passed' \
+                || (echo 'Health check failed' && exit 1)
+            "
