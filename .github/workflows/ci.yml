@@ -271,4 +271,4 @@ jobs:
             || (echo 'Service failed to start' && sudo journalctl -u devops-agent --no-pager -n 30 && exit 1)
           curl -sf http://localhost:8000/health && echo 'Health check passed' \
             || (echo 'Health check failed' && exit 1)
-ENDSSH
+          ENDSSH
