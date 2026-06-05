@@ -389,11 +389,17 @@ GitHub Actions workflows live in `.github/workflows/`:
   to EC2 (`13.222.47.92`, instance `i-09af962714b13f9bc`) via **EC2 Instance Connect**:
   generates a one-time SSH key pair, pushes the public key to the instance (60s TTL),
   then SSHes in to pull + restart. No stored SSH key required — only AWS credentials.
-- **`deploy.yml`** — standalone deploy-only workflow triggered on push to `main` or
-  manually via `workflow_dispatch`. Uses AWS SSM to run the deploy script on EC2.
+- **`deploy.yml`** — **manual/backup** deploy-only workflow (`workflow_dispatch`
+  only — no longer push-triggered, so it doesn't race ci.yml's auto-deploy). Uses
+  AWS SSM to run the deploy script on EC2 (no inbound SSH / public IP needed).
   Requires `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `EC2_INSTANCE_ID`
-  GitHub secrets. **Note:** SSM requires the EC2 instance IAM role to have
-  `AmazonSSMManagedInstanceCore` and SSM Agent to be running on the instance.
+  GitHub secrets. SSM setup is in place in the current account (`188046727805`):
+  IAM role `devops-agent-ssm-role` (`AmazonSSMManagedInstanceCore`) attached to the
+  instance via profile `devops-agent-ssm-profile`, agent Online. The private-repo
+  pull uses a **read-only SSH deploy key** on the box
+  (`/home/ubuntu/.ssh/deploy_key`, wired through the repo's `core.sshCommand`) so no
+  token is ever passed through SSM command parameters/CloudTrail. Deploy targets the
+  real layout: repo `/var/www/devops-agent`, venv `…/venv`, health on port `8000`.
 - **`security-scan.yml`** — routine vulnerability scan on a **daily cron
   (`0 6 * * *`, 06:00 UTC)**, independent of pushes/PRs. Also runnable on demand
   via `workflow_dispatch` (Actions tab → "Scheduled Security Scan" → Run workflow).

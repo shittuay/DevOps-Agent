@@ -1,16 +1,18 @@
 name: Deploy to Ubuntu Server
 
+# Manual / backup deploy path via AWS SSM (no inbound SSH / public IP needed).
+# The automatic push-to-main deploy runs in ci.yml via EC2 Instance Connect;
+# this one is workflow_dispatch-only to avoid racing two deploys per push.
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
-# Prerequisites (one-time setup):
-#   1. Add GitHub secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, EC2_INSTANCE_ID
-#   2. EC2 instance must have an IAM role with AmazonSSMManagedInstanceCore policy
-#   3. SSM Agent must be running on EC2 (pre-installed on Ubuntu 20.04+ AWS AMIs)
-#      Check: sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent
-#      Start:  sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent
+# Setup state (account 188046727805, instance i-09af962714b13f9bc):
+#   1. GitHub secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, EC2_INSTANCE_ID
+#   2. IAM: role 'devops-agent-ssm-role' (AmazonSSMManagedInstanceCore) attached
+#      to the instance via profile 'devops-agent-ssm-profile'. SSM agent Online.
+#   3. Private-repo pull uses a read-only SSH deploy key on the box
+#      (/home/ubuntu/.ssh/deploy_key, set via the repo's core.sshCommand) so no
+#      token is ever passed through SSM command parameters / CloudTrail.
 
 jobs:
   deploy:
@@ -39,11 +41,12 @@ jobs:
           cat > /tmp/deploy.sh << 'SCRIPT'
           #!/bin/bash
           set -e
-          APP=/home/ubuntu/app
-          CODE=$APP/DevOps-Agent
-          VENV=$APP/venv
+          CODE=/var/www/devops-agent
+          VENV=$CODE/venv
 
           echo "=== Pulling latest code ==="
+          # Repo authenticates via a read-only SSH deploy key configured in
+          # the repo's core.sshCommand (no token needed, nothing logged).
           sudo -u ubuntu git -C "$CODE" fetch origin main
           sudo -u ubuntu git -C "$CODE" reset --hard origin/main
           echo "Deployed: $(sudo -u ubuntu git -C $CODE rev-parse --short HEAD)"
@@ -57,7 +60,7 @@ jobs:
           systemctl is-active devops-agent
 
           echo "=== Health check ==="
-          curl -sf http://localhost:5000/health && echo "HEALTH: OK" || { echo "HEALTH: FAIL"; exit 1; }
+          curl -sf http://localhost:8000/health && echo "HEALTH: OK" || { echo "HEALTH: FAIL"; exit 1; }
           echo "=== Deploy complete ==="
           SCRIPT
 
