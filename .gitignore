@@ -15,6 +15,14 @@ config/.env
 *.sqlite
 *.sqlite3
 
+# Production data dumps (NEVER commit — contains real user data)
+*.sql
+prod_dump.sql
+prod_inserts.sql
+
+# Scheduled task lock (transient)
+.claude/scheduled_tasks.lock
+
 # Python
 __pycache__/
 *.py[cod]
