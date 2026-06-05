@@ -45,11 +45,37 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
-from flask import Blueprint, Response, jsonify, redirect, render_template_string, request, stream_with_context
+from flask import (Blueprint, Response, has_request_context, jsonify, redirect,
+                   render_template_string, request, stream_with_context)
 
 logger = logging.getLogger(__name__)
 
 mcp_bp = Blueprint('mcp', __name__, url_prefix='/mcp')
+
+# Hosts we trust to derive the OAuth issuer from (prevents Host-header poisoning
+# of the public metadata documents).
+_MCP_ALLOWED_HOST_SUFFIX = 'devopsagent.io'
+
+
+def mcp_base_url() -> str:
+    """Base URL used for all MCP OAuth metadata and endpoint advertisement.
+
+    RFC 8414 requires the authorization-server metadata ``issuer`` to match the
+    host the client used for discovery. The Claude connector may talk to either
+    the apex (``devopsagent.io``) or the dedicated subdomain
+    (``mcp.devopsagent.io``), so we derive the base from the *request host*
+    (forcing https) so issuer + endpoints always match the host in use.
+
+    Falls back to ``MCP_BASE_URL`` (or the apex) outside a request context.
+    """
+    try:
+        if has_request_context():
+            host = (request.host or '').split(':')[0]
+            if host.endswith(_MCP_ALLOWED_HOST_SUFFIX):
+                return f'https://{host}'
+    except Exception:
+        pass
+    return os.environ.get('MCP_BASE_URL', 'https://devopsagent.io').rstrip('/')
 
 # ── In-memory session registry ───────────────────────────────────────────────
 # session_id → Queue of SSE messages to send back to that client.
@@ -466,7 +492,7 @@ def mcp_sse():
             },
         })
         resp.status_code = 401
-        _mcp_base = os.environ.get('MCP_BASE_URL', 'https://devopsagent.io').rstrip('/')
+        _mcp_base = mcp_base_url()
         resp.headers['WWW-Authenticate'] = (
             f'Bearer realm="DevOps Agent", '
             f'resource_metadata="{_mcp_base}/.well-known/oauth-protected-resource"'
@@ -620,7 +646,7 @@ def mcp_streamable():
         resp.status_code = 401
         for k, v in _cors_headers().items():
             resp.headers[k] = v
-        _mcp_base = os.environ.get('MCP_BASE_URL', 'https://devopsagent.io').rstrip('/')
+        _mcp_base = mcp_base_url()
         resp.headers['WWW-Authenticate'] = (
             f'Bearer realm="DevOps Agent", '
             f'resource_metadata="{_mcp_base}/.well-known/oauth-protected-resource"'
@@ -909,3 +935,26 @@ def oauth_register():
     for k, v in _cors_headers().items():
         resp.headers[k] = v
     return resp
+
+
+# ── Root-level OAuth aliases ──────────────────────────────────────────────────
+# Some MCP clients ignore the metadata's authorization_endpoint and probe the
+# default OAuth paths relative to the server origin (e.g. /authorize, /token,
+# /register). Register those at the root and delegate to the canonical handlers
+# above so the flow completes regardless of which paths the client chooses.
+mcp_oauth_alias_bp = Blueprint('mcp_oauth_alias', __name__)
+
+
+@mcp_oauth_alias_bp.route('/authorize', methods=['GET', 'POST'])
+def oauth_authorize_alias():
+    return oauth_authorize()
+
+
+@mcp_oauth_alias_bp.route('/token', methods=['POST', 'OPTIONS'])
+def oauth_token_alias():
+    return oauth_token()
+
+
+@mcp_oauth_alias_bp.route('/register', methods=['POST', 'OPTIONS'])
+def oauth_register_alias():
+    return oauth_register()

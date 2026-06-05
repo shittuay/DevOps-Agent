@@ -315,17 +315,18 @@ from routes.skills import skills_bp
 app.register_blueprint(skills_bp)
 
 # MCP server (Model Context Protocol — remote tool access for Claude Desktop)
-from routes.mcp import mcp_bp, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
+from routes.mcp import (mcp_bp, mcp_oauth_alias_bp, mcp_base_url,
+                        OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET)
 app.register_blueprint(mcp_bp)
 csrf.exempt(mcp_bp)  # MCP clients send raw JSON, not form posts
+# Root-level OAuth path aliases (/authorize, /token, /register) for clients
+# that probe origin-default paths instead of the advertised endpoints.
+app.register_blueprint(mcp_oauth_alias_bp)
+csrf.exempt(mcp_oauth_alias_bp)
 
-def _mcp_base_url() -> str:
-    """Return the base URL for MCP endpoints.
-    MCP_BASE_URL env var allows overriding to a dedicated subdomain
-    (e.g. https://mcp.devopsagent.io) that bypasses Cloudflare proxy
-    so Authorization headers are preserved.
-    """
-    return os.environ.get('MCP_BASE_URL', 'https://devopsagent.io').rstrip('/')
+# Base URL for MCP OAuth metadata — derived per-request from the host so the
+# issuer matches whichever host the connector uses (apex or mcp. subdomain).
+_mcp_base_url = mcp_base_url
 
 @app.route('/.well-known/oauth-authorization-server')
 def oauth_authorization_server_metadata():
