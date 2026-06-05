@@ -45,8 +45,13 @@ jobs:
           VENV=$CODE/venv
 
           echo "=== Pulling latest code ==="
-          # Repo authenticates via a read-only SSH deploy key configured in
-          # the repo's core.sshCommand (no token needed, nothing logged).
+          # Authenticate via the read-only SSH deploy key. Force the SSH remote +
+          # key here every run because ci.yml's deploy rewrites origin back to
+          # HTTPS (token-injected) on each push; this keeps deploy.yml self-
+          # contained and avoids "could not read Username for https://github.com".
+          # No token passes through SSM params / CloudTrail.
+          sudo -u ubuntu git -C "$CODE" remote set-url origin git@github.com:shittuay/DevOps-Agent.git
+          sudo -u ubuntu git -C "$CODE" config core.sshCommand "ssh -i /home/ubuntu/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
           sudo -u ubuntu git -C "$CODE" fetch origin main
           sudo -u ubuntu git -C "$CODE" reset --hard origin/main
           echo "Deployed: $(sudo -u ubuntu git -C $CODE rev-parse --short HEAD)"
