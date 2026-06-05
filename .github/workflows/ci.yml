@@ -252,19 +252,23 @@ jobs:
                 --output text)
 
           # SSH and deploy (must happen within 60s of key push)
+          # Embed GH_TOKEN inline so git pull can auth against the private repo
           ssh -i /tmp/deploy-key \
             -o StrictHostKeyChecking=no \
             -o ConnectTimeout=15 \
-            ubuntu@13.222.47.92 "
-              set -e
-              cd /var/www/devops-agent
-              git pull origin main
-              source venv/bin/activate
-              pip install -r requirements.txt --quiet
-              sudo systemctl restart devops-agent
-              sleep 3
-              sudo systemctl is-active --quiet devops-agent && echo 'Service is running' \
-                || (echo 'Service failed to start' && sudo journalctl -u devops-agent --no-pager -n 30 && exit 1)
-              curl -sf http://localhost:8000/health && echo 'Health check passed' \
-                || (echo 'Health check failed' && exit 1)
-            "
+            ubuntu@13.222.47.92 \
+            "env GH_TOKEN=${{ github.token }} bash -s" << 'ENDSSH'
+          set -e
+          cd /var/www/devops-agent
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/shittuay/DevOps-Agent.git"
+          git pull origin main
+          git remote set-url origin https://github.com/shittuay/DevOps-Agent.git
+          source venv/bin/activate
+          pip install -r requirements.txt --quiet
+          sudo systemctl restart devops-agent
+          sleep 3
+          sudo systemctl is-active --quiet devops-agent && echo 'Service is running' \
+            || (echo 'Service failed to start' && sudo journalctl -u devops-agent --no-pager -n 30 && exit 1)
+          curl -sf http://localhost:8000/health && echo 'Health check passed' \
+            || (echo 'Health check failed' && exit 1)
+ENDSSH
