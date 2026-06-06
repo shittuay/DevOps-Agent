@@ -261,7 +261,11 @@ jobs:
           set -e
           cd /var/www/devops-agent
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/shittuay/DevOps-Agent.git"
-          git pull origin main
+          # fetch + reset --hard (not pull): robust against untracked/dirty files
+          # on the box that would abort a merge ("untracked working tree files
+          # would be overwritten"). reset --hard force-syncs to origin/main.
+          git fetch origin main
+          git reset --hard origin/main
           git remote set-url origin https://github.com/shittuay/DevOps-Agent.git
           source venv/bin/activate
           pip install -r requirements.txt --quiet
