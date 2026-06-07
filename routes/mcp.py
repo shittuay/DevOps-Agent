@@ -155,6 +155,70 @@ def _lookup_token_db(token: str) -> Optional[int]:
     return None
 
 
+# ── DB-backed authorization-code helpers ──────────────────────────────────────
+# Auth codes MUST live in the DB, not per-process memory: claude.ai / Claude
+# Desktop send /authorize and /token to different gunicorn workers, so an
+# in-memory code issued by one worker is invisible to the worker doing the token
+# exchange (→ invalid_grant → failed connection). Mirrors the token helpers.
+
+def _store_code_db(code: str, user_id: int, redirect_uri: str, code_challenge: str) -> None:
+    """Persist an auth code to the DB (shared by all workers) and warm L1 cache."""
+    from datetime import datetime, timedelta
+    try:
+        from models import MCPOAuthCode, db
+        from flask import current_app
+        with current_app.app_context():
+            row = MCPOAuthCode(
+                code=code,
+                user_id=user_id,
+                redirect_uri=redirect_uri,
+                code_challenge=code_challenge or '',
+                expires_at=datetime.utcnow() + timedelta(seconds=_CODE_TTL),
+            )
+            db.session.add(row)
+            # Prune already-expired codes to keep the table tidy
+            MCPOAuthCode.query.filter(MCPOAuthCode.expires_at < datetime.utcnow()).delete()
+            db.session.commit()
+    except Exception as e:
+        logger.warning(f"MCP: failed to persist auth code to DB (memory-only fallback): {e}")
+    # Always warm the local in-memory store (L1 / fallback if DB is unavailable)
+    with _oauth_lock:
+        _oauth_codes[code] = {
+            'user_id':        user_id,
+            'redirect_uri':   redirect_uri,
+            'expires':        time.time() + _CODE_TTL,
+            'code_challenge': code_challenge,
+        }
+
+
+def _consume_code_db(code: str) -> Optional[Dict[str, Any]]:
+    """Single-use: atomically fetch+delete the auth code from the DB (authoritative,
+    shared across workers). Falls back to in-memory only if the DB is unavailable."""
+    try:
+        from models import MCPOAuthCode, db
+        from flask import current_app
+        with current_app.app_context():
+            row = MCPOAuthCode.query.filter_by(code=code).first()
+            if row is not None:
+                rec = {
+                    'user_id':        row.user_id,
+                    'redirect_uri':   row.redirect_uri,
+                    'expires':        row.expires_at.timestamp(),
+                    'code_challenge': row.code_challenge or '',
+                }
+                # Atomic single-use: only the request that deletes the row wins
+                deleted = MCPOAuthCode.query.filter_by(code=code).delete()
+                db.session.commit()
+                with _oauth_lock:
+                    _oauth_codes.pop(code, None)
+                return rec if deleted else None
+    except Exception as e:
+        logger.warning(f"MCP: DB code consume failed, trying memory: {e}")
+    # Fallback: in-memory (only reached if the DB write failed at issue time)
+    with _oauth_lock:
+        return _oauth_codes.pop(code, None)
+
+
 # ── Tool registry (loaded once, cached) ─────────────────────────────────────
 _tool_cache: Optional[list] = None
 _tool_map: Optional[Dict[str, Any]] = None
@@ -802,15 +866,9 @@ def oauth_authorize():
                                       code_challenge_method=code_challenge_method,
                                       error='Server error, please try again')
 
-    # Issue auth code
+    # Issue auth code (persisted to the DB so any worker can exchange it)
     code = secrets.token_urlsafe(32)
-    with _oauth_lock:
-        _oauth_codes[code] = {
-            'user_id':        user.id,
-            'redirect_uri':   redirect_uri,
-            'expires':        time.time() + _CODE_TTL,
-            'code_challenge': code_challenge,
-        }
+    _store_code_db(code, user.id, redirect_uri, code_challenge)
 
     sep = '&' if '?' in redirect_uri else '?'
     return redirect(f"{redirect_uri}{sep}code={code}&state={state}")
@@ -859,8 +917,7 @@ def oauth_token():
             resp.headers[k] = v
         return resp, 400
 
-    with _oauth_lock:
-        record = _oauth_codes.pop(code, None)
+    record = _consume_code_db(code)
 
     if not record or time.time() > record['expires']:
         resp = jsonify({'error': 'invalid_grant', 'error_description': 'Code expired or invalid'})

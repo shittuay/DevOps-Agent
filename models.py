@@ -3118,3 +3118,32 @@ class MCPOAuthToken(db.Model):
 
     def __repr__(self):
         return f'<MCPOAuthToken user={self.user_id} expires={self.expires_at}>'
+
+
+class MCPOAuthCode(db.Model):
+    """Short-lived OAuth authorization codes for the MCP server.
+
+    Stored in the DB (not per-process memory) so the /authorize and /token
+    steps work across all gunicorn workers. claude.ai / Claude Desktop load-
+    balance these two requests to different workers, so a code issued into one
+    worker's memory was invisible to the worker handling the token exchange —
+    causing 'invalid_grant' and a failed connection. The DB is shared by all
+    workers, so the code is always found. Single-use (deleted on exchange).
+    """
+    __tablename__ = 'mcp_oauth_codes'
+
+    id             = db.Column(db.Integer, primary_key=True)
+    code           = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    user_id        = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    redirect_uri   = db.Column(db.String(512), nullable=True)
+    code_challenge = db.Column(db.String(256), nullable=True)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at     = db.Column(db.DateTime, nullable=False, index=True)
+
+    user = db.relationship('User', backref=db.backref('mcp_oauth_codes', lazy='dynamic'))
+
+    def is_expired(self) -> bool:
+        return datetime.utcnow() >= self.expires_at
+
+    def __repr__(self):
+        return f'<MCPOAuthCode user={self.user_id} expires={self.expires_at}>'
