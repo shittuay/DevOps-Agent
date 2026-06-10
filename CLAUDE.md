@@ -140,7 +140,8 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
   - `auth_mode='access_key'`: Direct IAM access key + secret key (simple, for self-hosting teams)
   - `auth_mode='role_arn'`: IAM Role ARN + optional External ID → STS AssumeRole for temp creds (enterprise, cross-account)
   - `get_user_boto_client()` / `get_user_boto_resource()` handle both modes transparently
-  - Settings UI (`templates/settings.html`) has toggle between the two modes
+  - Settings UI (`templates/settings.html`) and onboarding wizard (`templates/onboarding.html`) both have a mode toggle; **role ARN is the recommended default** (access keys demoted to fallback for self-hosted setups)
+  - Trust policy instructions in both UIs render the platform account ID from `PLATFORM_AWS_ACCOUNT_ID` env var (default `188046727805`), exposed via the `/settings` and `/onboarding` routes in `app.py`
 
 ### Authentication
 - `@login_required` decorator on all API routes

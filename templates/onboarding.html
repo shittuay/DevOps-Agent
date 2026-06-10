@@ -213,6 +213,41 @@
         .cloud-panel { display: none; }
         .cloud-panel.active { display: block; }
 
+        /* ── AWS auth mode toggle ── */
+        .auth-mode-toggle {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            overflow: hidden;
+            width: fit-content;
+        }
+
+        .auth-mode-btn {
+            padding: 9px 18px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            color: var(--text-tertiary);
+        }
+
+        .auth-mode-btn + .auth-mode-btn { border-left: 1px solid var(--border-subtle); }
+
+        .auth-mode-btn.active {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .rec-badge {
+            font-size: 10px;
+            color: var(--accent-electric);
+            margin-left: 4px;
+        }
+
         /* ── Form ─────────────────── */
         .form-group { margin-bottom: 20px; }
 
@@ -692,14 +727,45 @@
 
                 <!-- AWS panel -->
                 <div class="cloud-panel active" id="panel-aws">
-                    <div class="form-group">
-                        <label>AWS Access Key ID</label>
-                        <input type="text" id="aws-access-key" placeholder="AKIAIOSFODNN7EXAMPLE" autocomplete="off" spellcheck="false">
+                    <div class="auth-mode-toggle">
+                        <button type="button" class="auth-mode-btn active" id="aws-mode-role" onclick="switchAwsAuthMode('role_arn', this)">IAM Role <span class="rec-badge">RECOMMENDED</span></button>
+                        <button type="button" class="auth-mode-btn" id="aws-mode-keys" onclick="switchAwsAuthMode('access_key', this)">Access Keys</button>
                     </div>
-                    <div class="form-group">
-                        <label>AWS Secret Access Key</label>
-                        <input type="password" id="aws-secret-key" placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" autocomplete="new-password">
+
+                    <!-- Role ARN fields (default) -->
+                    <div id="aws-role-fields">
+                        <div class="form-group">
+                            <label>IAM Role ARN</label>
+                            <input type="text" id="aws-role-arn" placeholder="arn:aws:iam::123456789012:role/DevOpsAgentRole" autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="form-group">
+                            <label>External ID</label>
+                            <input type="text" id="aws-external-id" placeholder="any-unique-string" autocomplete="off" spellcheck="false">
+                            <p class="field-hint">Recommended &mdash; set the same value in the role's trust policy condition.</p>
+                        </div>
+                        <p class="field-hint">
+                            In IAM &rarr; Roles &rarr; Create role &rarr; "Another AWS account", trust account <code>{{ platform_aws_account_id }}</code>
+                            and attach <code>ReadOnlyAccess</code> to start. No access keys leave your account &mdash; we assume the role for
+                            1-hour temporary credentials, and you can revoke access anytime by deleting the role.
+                        </p>
                     </div>
+
+                    <!-- Access key fields (hidden by default) -->
+                    <div id="aws-key-fields" style="display:none">
+                        <div class="form-group">
+                            <label>AWS Access Key ID</label>
+                            <input type="text" id="aws-access-key" placeholder="AKIAIOSFODNN7EXAMPLE" autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="form-group">
+                            <label>AWS Secret Access Key</label>
+                            <input type="password" id="aws-secret-key" placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" autocomplete="new-password">
+                        </div>
+                        <p class="field-hint">
+                            Create a read-only IAM user with <code>ReadOnlyAccess</code> policy for the safest setup.
+                            Credentials are AES-128 encrypted before storage.
+                        </p>
+                    </div>
+
                     <div class="form-row">
                         <div class="form-group">
                             <label>Default Region</label>
@@ -718,10 +784,6 @@
                             </select>
                         </div>
                     </div>
-                    <p class="field-hint">
-                        Create a read-only IAM user with <code>ReadOnlyAccess</code> policy for the safest setup.
-                        Credentials are AES-128 encrypted before storage.
-                    </p>
                 </div>
 
                 <!-- Azure panel -->
@@ -861,6 +923,18 @@
             }
         }
 
+        // ── AWS auth mode switching ─────────────────────────────────
+        let awsAuthMode = 'role_arn';
+
+        function switchAwsAuthMode(mode, btn) {
+            awsAuthMode = mode;
+            document.querySelectorAll('.auth-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('aws-role-fields').style.display = mode === 'role_arn' ? 'block' : 'none';
+            document.getElementById('aws-key-fields').style.display = mode === 'access_key' ? 'block' : 'none';
+            document.getElementById('connect-alert').style.display = 'none';
+        }
+
         // ── Cloud tab switching ─────────────────────────────────────
         function switchCloud(cloud, btn) {
             activeCloud = cloud;
@@ -881,14 +955,23 @@
 
             let url, body;
             if (activeCloud === 'aws') {
-                const key = document.getElementById('aws-access-key').value.trim();
-                const secret = document.getElementById('aws-secret-key').value.trim();
                 const region = document.getElementById('aws-region').value;
-                if (!key || !secret) {
-                    return showConnectError('Please enter your AWS Access Key ID and Secret Access Key.');
-                }
                 url = '/api/aws/config';
-                body = { access_key: key, secret_key: secret, region: region };
+                if (awsAuthMode === 'role_arn') {
+                    const roleArn = document.getElementById('aws-role-arn').value.trim();
+                    const externalId = document.getElementById('aws-external-id').value.trim();
+                    if (!roleArn) {
+                        return showConnectError('Please enter your IAM Role ARN.');
+                    }
+                    body = { role_arn: roleArn, external_id: externalId, region: region };
+                } else {
+                    const key = document.getElementById('aws-access-key').value.trim();
+                    const secret = document.getElementById('aws-secret-key').value.trim();
+                    if (!key || !secret) {
+                        return showConnectError('Please enter your AWS Access Key ID and Secret Access Key.');
+                    }
+                    body = { access_key: key, secret_key: secret, region: region };
+                }
 
             } else if (activeCloud === 'azure') {
                 const sub = document.getElementById('azure-sub').value.trim();

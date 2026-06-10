@@ -1536,11 +1536,15 @@ def doctor_page():
     return render_template('doctor.html', results=results, user=current_user)
 
 
+PLATFORM_AWS_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '188046727805')
+
+
 @app.route('/onboarding', methods=['GET'])
 @login_required
 def onboarding_page():
     """Onboarding wizard for new users."""
-    return render_template('onboarding.html', user=current_user)
+    return render_template('onboarding.html', user=current_user,
+                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID)
 
 
 @app.route('/api/onboarding/complete', methods=['POST'])
@@ -1672,7 +1676,8 @@ def setup():
 @login_required
 def settings():
     """Settings page for AWS and other configurations."""
-    return render_template('settings.html', user=current_user)
+    return render_template('settings.html', user=current_user,
+                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID)
 
 
 @app.route('/settings/skills')
