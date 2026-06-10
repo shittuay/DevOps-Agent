@@ -22,6 +22,7 @@ prod_inserts.sql
 
 # Scheduled task lock (transient)
 .claude/scheduled_tasks.lock
+.scheduler.lock
 
 # Python
 __pycache__/
@@ -78,7 +79,15 @@ video/
 
 # MCP publisher binary and tokens
 mcp-publisher.exe
+mcp-publisher.tar.gz
 mcp/.mcpregistry_*
+
+# Contact lists / PII (never commit)
+contacts.csv
+cookies.txt
+
+# Local QA screenshots
+test-*.png
 
 # Coverage
 .coverage
