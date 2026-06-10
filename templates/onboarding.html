@@ -734,6 +734,14 @@
 
                     <!-- Role ARN fields (default) -->
                     <div id="aws-role-fields">
+                        <button type="button" class="btn btn-secondary" onclick="openCfQuickCreate()" style="margin-bottom:6px;">
+                            &#9889; Create role with CloudFormation
+                        </button>
+                        <p class="field-hint" style="margin-bottom:16px;">
+                            One click sets up the role, trust policy, and least-privilege permissions in your AWS account
+                            (<a href="https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json" target="_blank">auditable template</a>).
+                            When the stack finishes, copy the <code>RoleArn</code> from its Outputs tab into the field below.
+                        </p>
                         <div class="form-group">
                             <label>IAM Role ARN</label>
                             <input type="text" id="aws-role-arn" placeholder="arn:aws:iam::123456789012:role/DevOpsAgentRole" autocomplete="off" spellcheck="false">
@@ -926,6 +934,20 @@
 
         // ── AWS auth mode switching ─────────────────────────────────
         let awsAuthMode = 'role_arn';
+
+        const CF_TEMPLATE_URL = 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json';
+
+        function openCfQuickCreate() {
+            const eidInput = document.getElementById('aws-external-id');
+            if (!eidInput.value.trim()) {
+                eidInput.value = 'devops-agent-' + crypto.randomUUID();
+            }
+            const url = 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate'
+                + '?templateURL=' + encodeURIComponent(CF_TEMPLATE_URL)
+                + '&stackName=devops-agent-access'
+                + '&param_ExternalId=' + encodeURIComponent(eidInput.value.trim());
+            window.open(url, '_blank');
+        }
 
         function switchAwsAuthMode(mode, btn) {
             awsAuthMode = mode;

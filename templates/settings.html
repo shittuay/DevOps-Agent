@@ -667,7 +667,13 @@
 
                     <!-- Info boxes for each mode -->
                     <div id="roleArnInfo" class="info-box">
-                        <h4>How to set up IAM Role delegation:</h4>
+                        <h4>Fastest: CloudFormation quick-create</h4>
+                        <p style="margin:6px 0;">One click creates the role, trust policy, and least-privilege permissions in your account. When the stack finishes, copy the <code>RoleArn</code> from its Outputs tab into the field above.</p>
+                        <button type="button" class="btn-secondary" onclick="openCfQuickCreate()" style="margin:4px 0 10px;">
+                            &#9889; Create role with CloudFormation
+                        </button>
+                        <p style="margin:4px 0 12px;font-size:0.85em;color:#666;">Fills in your External ID automatically and opens the AWS console. The template is <a href="https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json" target="_blank">public and auditable</a>.</p>
+                        <h4>Or set up manually:</h4>
                         <ol>
                             <li>In your AWS account, go to <strong>IAM &rarr; Roles &rarr; Create Role</strong></li>
                             <li>Select <strong>"Another AWS account"</strong> as the trusted entity</li>
@@ -1194,6 +1200,23 @@
 
         // AWS Functions
         var currentAwsMode = 'role_arn';
+
+        var CF_TEMPLATE_URL = 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json';
+
+        function buildCfQuickCreateUrl(externalId) {
+            return 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate'
+                + '?templateURL=' + encodeURIComponent(CF_TEMPLATE_URL)
+                + '&stackName=devops-agent-access'
+                + '&param_ExternalId=' + encodeURIComponent(externalId);
+        }
+
+        function openCfQuickCreate() {
+            var eidInput = document.getElementById('externalId');
+            if (!eidInput.value.trim()) {
+                eidInput.value = 'devops-agent-' + crypto.randomUUID();
+            }
+            window.open(buildCfQuickCreateUrl(eidInput.value.trim()), '_blank');
+        }
 
         function switchAwsMode(mode) {
             currentAwsMode = mode;

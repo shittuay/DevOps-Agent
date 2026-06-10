@@ -1,0 +1,362 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "DevOps Agent (devopsagent.io) cross-account access role. Creates an IAM role that DevOps Agent assumes via STS AssumeRole with an External ID. No access keys are created or shared; delete the stack to revoke access instantly. Policy contents are published at https://devopsagent.io/static/iam/",
+  "Parameters": {
+    "ExternalId": {
+      "Type": "String",
+      "MinLength": 8,
+      "MaxLength": 256,
+      "AllowedPattern": "[\\w+=,.@:\\/-]+",
+      "Description": "External ID for confused-deputy protection. Must match the External ID you enter in DevOps Agent. Pre-filled when launched from the app."
+    },
+    "PolicyLevel": {
+      "Type": "String",
+      "AllowedValues": [
+        "ReadOnly",
+        "Management"
+      ],
+      "Default": "ReadOnly",
+      "Description": "ReadOnly: discovery, cost and security scanning - metadata only, never your data. Management: the agent can also create/modify/delete resources (IAM stays read-only and secret values stay unreadable either way)."
+    },
+    "RoleName": {
+      "Type": "String",
+      "Default": "DevOpsAgentRole",
+      "Description": "Name of the IAM role to create."
+    }
+  },
+  "Conditions": {
+    "IsManagement": {
+      "Fn::Equals": [
+        {
+          "Ref": "PolicyLevel"
+        },
+        "Management"
+      ]
+    }
+  },
+  "Resources": {
+    "DevOpsAgentRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Ref": "RoleName"
+        },
+        "Description": "Assumed by DevOps Agent (devopsagent.io) for infrastructure operations.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:aws:iam::188046727805:root"
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": {
+                    "Ref": "ExternalId"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "DevOpsAgentAccess",
+            "PolicyDocument": {
+              "Fn::If": [
+                "IsManagement",
+                {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Sid": "ServiceManagement",
+                      "Effect": "Allow",
+                      "Action": [
+                        "ec2:*",
+                        "autoscaling:*",
+                        "eks:*",
+                        "ecs:*",
+                        "lambda:*",
+                        "elasticloadbalancing:*",
+                        "elasticbeanstalk:*",
+                        "states:*",
+                        "ecr:*",
+                        "rds:*",
+                        "dynamodb:*",
+                        "elasticache:*",
+                        "efs:*",
+                        "kinesis:*",
+                        "s3:*",
+                        "route53:*",
+                        "cloudfront:*",
+                        "acm:*",
+                        "apigateway:*",
+                        "appsync:*",
+                        "wafv2:*",
+                        "cloudwatch:*",
+                        "logs:*",
+                        "events:*",
+                        "sns:*",
+                        "sqs:*",
+                        "cloudformation:*",
+                        "backup:*",
+                        "athena:*",
+                        "glue:*",
+                        "kafka:*",
+                        "opensearch:*",
+                        "redshift:*",
+                        "codeartifact:*",
+                        "sagemaker:*",
+                        "bedrock:*",
+                        "servicecatalog:*"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "SecretsManagementNoValueRead",
+                      "Effect": "Allow",
+                      "Action": [
+                        "secretsmanager:CreateSecret",
+                        "secretsmanager:UpdateSecret",
+                        "secretsmanager:DeleteSecret",
+                        "secretsmanager:TagResource",
+                        "secretsmanager:UntagResource",
+                        "secretsmanager:ListSecrets",
+                        "secretsmanager:DescribeSecret"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "SystemsManagerScoped",
+                      "Effect": "Allow",
+                      "Action": [
+                        "ssm:Describe*",
+                        "ssm:List*",
+                        "ssm:PutParameter",
+                        "ssm:SendCommand",
+                        "ssm:GetCommandInvocation",
+                        "ssm:CancelCommand"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "GovernanceRead",
+                      "Effect": "Allow",
+                      "Action": [
+                        "iam:Get*",
+                        "iam:List*",
+                        "sts:GetCallerIdentity",
+                        "ce:Get*",
+                        "ce:Describe*",
+                        "ce:List*",
+                        "cloudtrail:Describe*",
+                        "cloudtrail:Get*",
+                        "cloudtrail:LookupEvents",
+                        "config:Describe*",
+                        "config:Get*",
+                        "config:List*",
+                        "organizations:Describe*",
+                        "organizations:List*",
+                        "servicequotas:Get*",
+                        "servicequotas:List*",
+                        "support:Describe*",
+                        "resource-groups:*",
+                        "tag:Get*",
+                        "xray:Get*",
+                        "xray:BatchGet*"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "PassRoleToAwsServicesOnly",
+                      "Effect": "Allow",
+                      "Action": "iam:PassRole",
+                      "Resource": "*",
+                      "Condition": {
+                        "StringEquals": {
+                          "iam:PassedToService": [
+                            "ec2.amazonaws.com",
+                            "ecs-tasks.amazonaws.com",
+                            "lambda.amazonaws.com",
+                            "eks.amazonaws.com",
+                            "events.amazonaws.com",
+                            "states.amazonaws.com",
+                            "autoscaling.amazonaws.com"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Sid": "ComputeContainersRead",
+                      "Effect": "Allow",
+                      "Action": [
+                        "ec2:Describe*",
+                        "autoscaling:Describe*",
+                        "eks:Describe*",
+                        "eks:List*",
+                        "ecs:Describe*",
+                        "ecs:List*",
+                        "lambda:List*",
+                        "lambda:GetAccountSettings",
+                        "lambda:GetFunctionConfiguration",
+                        "lambda:GetPolicy",
+                        "elasticloadbalancing:Describe*",
+                        "elasticbeanstalk:Describe*",
+                        "elasticbeanstalk:List*",
+                        "states:Describe*",
+                        "states:List*",
+                        "ecr:Describe*",
+                        "ecr:List*"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "DataStoresMetadataRead",
+                      "Effect": "Allow",
+                      "Action": [
+                        "rds:Describe*",
+                        "rds:ListTagsForResource",
+                        "dynamodb:Describe*",
+                        "dynamodb:List*",
+                        "elasticache:Describe*",
+                        "efs:Describe*",
+                        "redshift:Describe*",
+                        "opensearch:Describe*",
+                        "opensearch:List*",
+                        "kafka:Describe*",
+                        "kafka:List*",
+                        "kinesis:Describe*",
+                        "kinesis:List*",
+                        "glue:Get*",
+                        "glue:List*",
+                        "athena:List*",
+                        "backup:Describe*",
+                        "backup:List*",
+                        "s3:ListAllMyBuckets",
+                        "s3:ListBucket",
+                        "s3:GetBucketLocation",
+                        "s3:GetBucketTagging",
+                        "s3:GetBucketVersioning",
+                        "s3:GetBucketAcl",
+                        "s3:GetBucketPolicyStatus",
+                        "s3:GetBucketPublicAccessBlock",
+                        "s3:GetEncryptionConfiguration",
+                        "s3:GetLifecycleConfiguration"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "NetworkingEdgeRead",
+                      "Effect": "Allow",
+                      "Action": [
+                        "route53:Get*",
+                        "route53:List*",
+                        "cloudfront:Get*",
+                        "cloudfront:List*",
+                        "acm:Describe*",
+                        "acm:List*",
+                        "apigateway:GET",
+                        "appsync:Get*",
+                        "appsync:List*",
+                        "wafv2:Get*",
+                        "wafv2:List*"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "SecurityGovernanceRead",
+                      "Effect": "Allow",
+                      "Action": [
+                        "iam:Get*",
+                        "iam:List*",
+                        "sts:GetCallerIdentity",
+                        "cloudtrail:Describe*",
+                        "cloudtrail:Get*",
+                        "cloudtrail:LookupEvents",
+                        "config:Describe*",
+                        "config:Get*",
+                        "config:List*",
+                        "organizations:Describe*",
+                        "organizations:List*",
+                        "secretsmanager:ListSecrets",
+                        "secretsmanager:DescribeSecret",
+                        "ssm:Describe*",
+                        "servicequotas:Get*",
+                        "servicequotas:List*",
+                        "servicecatalog:Describe*",
+                        "servicecatalog:List*",
+                        "codeartifact:Describe*",
+                        "codeartifact:List*",
+                        "bedrock:Get*",
+                        "bedrock:List*",
+                        "sagemaker:Describe*",
+                        "sagemaker:List*"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "ObservabilityCostRead",
+                      "Effect": "Allow",
+                      "Action": [
+                        "cloudwatch:Describe*",
+                        "cloudwatch:Get*",
+                        "cloudwatch:List*",
+                        "logs:Describe*",
+                        "logs:Get*",
+                        "logs:FilterLogEvents",
+                        "ce:Get*",
+                        "ce:Describe*",
+                        "ce:List*",
+                        "xray:Get*",
+                        "xray:BatchGet*",
+                        "support:Describe*",
+                        "resource-groups:Get*",
+                        "resource-groups:List*",
+                        "resource-groups:SearchResources",
+                        "tag:Get*",
+                        "cloudformation:Describe*",
+                        "cloudformation:List*",
+                        "events:Describe*",
+                        "events:List*",
+                        "sns:Get*",
+                        "sns:List*",
+                        "sqs:Get*",
+                        "sqs:List*"
+                      ],
+                      "Resource": "*"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "RoleArn": {
+      "Description": "Paste this Role ARN into DevOps Agent.",
+      "Value": {
+        "Fn::GetAtt": [
+          "DevOpsAgentRole",
+          "Arn"
+        ]
+      }
+    },
+    "ExternalId": {
+      "Description": "Must match the External ID entered in DevOps Agent.",
+      "Value": {
+        "Ref": "ExternalId"
+      }
+    }
+  }
+}

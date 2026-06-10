@@ -10,9 +10,11 @@ from pathlib import Path
 
 import pytest
 
-IAM_DIR = Path(__file__).resolve().parent.parent / 'static' / 'iam'
+ROOT = Path(__file__).resolve().parent.parent
+IAM_DIR = ROOT / 'static' / 'iam'
 READONLY = IAM_DIR / 'devops-agent-readonly.json'
 MANAGEMENT = IAM_DIR / 'devops-agent-management.json'
+CF_TEMPLATE = ROOT / 'cloudformation' / 'devops-agent-role.json'
 
 # IAM counts only non-whitespace characters against the managed policy limit
 IAM_MANAGED_POLICY_CHAR_LIMIT = 6144
@@ -103,3 +105,24 @@ def test_management_passrole_is_conditioned_to_aws_services():
     assert len(passrole) == 1
     services = passrole[0]['Condition']['StringEquals']['iam:PassedToService']
     assert all(s.endswith('.amazonaws.com') for s in services)
+
+
+def test_cloudformation_template_embeds_published_policies():
+    """The quick-create template must stay in sync with the published policy
+    files. If this fails, re-run scripts/build_cf_template.py and re-upload."""
+    template = _load(CF_TEMPLATE)
+    policies = template['Resources']['DevOpsAgentRole']['Properties']['Policies']
+    assert len(policies) == 1
+    branches = policies[0]['PolicyDocument']['Fn::If']
+    assert branches[0] == 'IsManagement'
+    assert branches[1] == _load(MANAGEMENT), 'template management policy out of sync'
+    assert branches[2] == _load(READONLY), 'template readonly policy out of sync'
+
+
+def test_cloudformation_template_trust_policy_requires_external_id():
+    template = _load(CF_TEMPLATE)
+    assert template['Parameters']['ExternalId']['MinLength'] >= 8
+    assert template['Parameters']['PolicyLevel']['Default'] == 'ReadOnly'
+    trust = template['Resources']['DevOpsAgentRole']['Properties']['AssumeRolePolicyDocument']
+    condition = trust['Statement'][0]['Condition']['StringEquals']
+    assert condition['sts:ExternalId'] == {'Ref': 'ExternalId'}

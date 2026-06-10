@@ -52,6 +52,27 @@ reading logs is core to the agent's troubleshooting value. Remove the
 
 ## Setup
 
+### Fastest: CloudFormation quick-create
+
+The "Create role with CloudFormation" button in Settings → AWS Configuration
+(and in the onboarding wizard) opens an AWS console quick-create link that
+provisions the role, trust policy, and chosen policy level in one click. The
+app pre-fills a random External ID; copy the `RoleArn` stack output back into
+the app when the stack completes.
+
+- Template source of truth: `cloudformation/devops-agent-role.json`,
+  generated from the policy files by `scripts/build_cf_template.py` (a test
+  fails if they drift).
+- Hosted publicly at
+  `https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json`
+  (S3 bucket `devopsagent-cf-templates` in the platform account; quick-create
+  links require an S3 template URL).
+- The `PolicyLevel` parameter selects ReadOnly (default) or Management.
+- After editing a policy file: re-run the build script, then
+  `aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates/devops-agent-role.json --content-type application/json`.
+
+### Manual
+
 1. IAM → Policies → Create policy → JSON → paste the policy file.
 2. IAM → Roles → Create role → "Another AWS account" → enter the DevOps
    Agent platform account ID (shown in Settings → AWS Configuration).
