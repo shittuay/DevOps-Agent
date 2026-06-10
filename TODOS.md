@@ -1,6 +1,28 @@
 # TODOS
 
-Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review). Last updated 2026-03-25 (implementation session).
+Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review). Last updated 2026-06-10 (no-bs project analysis).
+
+---
+
+## P0 — From 2026-06-10 project analysis (in priority order)
+
+### [ ] 1. Verify and complete API key rotation from April security incident
+April's post-hack scan flagged all API keys for rotation (manual). Confirm it happened: check age/last-changed of AWS IAM keys, Anthropic, Moonshot, Groq, Stripe, Brevo, Sentry, SECRET_KEY, CREDENTIAL_ENCRYPTION_KEY (rotating this one requires re-encrypting stored user credentials). Sources: AWS Secrets Manager `devops-agent/production`, `.env`, GitHub secrets. Rotate anything pre-dating the incident.
+
+### [ ] 2. Customer acquisition — first 20 paying users
+Distribution, not code, is the gap. Execute MARKETING_PLAN.md + March Brevo campaign: launch email to contact list, Product Hunt / HN / r/devops posts, daily outreach, pricing page review. **Feature freeze until 20 paying users.**
+
+### [ ] 3. Trust/social proof to overcome the credential barrier
+Biggest conversion blocker: handing an unknown vendor cloud credentials. Build a public `/security` page (encryption, role-ARN mode, guardrails stack), promote "start in sandbox — no credentials needed" onboarding, publish auditable least-privilege IAM policy JSON for role-ARN setup.
+
+### [ ] 4. Decompose app.py (5,904 lines, 123 routes) into blueprints
+Move route clusters into `routes/` blueprints group by group (chat APIs, dashboard, settings, onboarding, model switching). app.py becomes app factory + registration. Run pytest after each cluster. Target: under ~1,500 lines.
+
+### [ ] 5. Tool reliability — smoke-test the 745-tool surface
+(1) Registration integrity test: valid schemas, handler signatures match, every `delete_*`/`terminate_*` classified high-risk. (2) Live smoke test of ~30 most-used read-only tools against the real AWS account. (3) Error-path test: handlers return `{'success': False}` instead of raising.
+
+### [x] 0. Root directory cleanup — DONE 2026-06-10
+115 → 59 root entries. Junk scripts/screenshots deleted, contacts.csv untracked + purged from git history on both remotes, blog drafts moved to docs/blog/, stale remote branches deleted.
 
 ---
 
