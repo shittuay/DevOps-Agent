@@ -15,6 +15,13 @@ Distribution, not code, is the gap. Execute MARKETING_PLAN.md + March Brevo camp
 ### [ ] 3. Trust/social proof to overcome the credential barrier
 Biggest conversion blocker: handing an unknown vendor cloud credentials. Build a public `/security` page (encryption, role-ARN mode, guardrails stack), promote "start in sandbox — no credentials needed" onboarding, publish auditable least-privilege IAM policy JSON for role-ARN setup.
 
+**Role ARN over access keys (expanded):** Access-key mode means storing long-lived secrets that can do anything the IAM user can until manually rotated — the same failure mode as the April incident. Role ARN + External ID (the Datadog/Vanta model) means the customer creates a role in their own account that trusts ours, scoped by External ID against confused-deputy attacks; `get_user_boto_client()` already does STS AssumeRole with 1-hour temp creds, and the customer can revoke instantly by deleting the role. Code support exists (`credential_service.py` dual-mode) — the work is:
+- [ ] Make role-ARN the recommended/default option in the settings UI and onboarding (access keys demoted to "simple/self-hosted" fallback)
+- [ ] Write and publish the least-privilege IAM policy JSON customers can audit before connecting
+- [ ] CloudFormation quick-create link that provisions role + policy + external ID in two clicks
+- [ ] Feature "we never need your access keys" on the `/security` page as a trust selling point
+- [ ] Related (ties into P0 #1): switch our own CI (`ci.yml`/`deploy.yml`) from stored `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` GitHub secrets to GitHub OIDC → AssumeRole, eliminating long-lived keys
+
 ### [ ] 4. Decompose app.py (5,904 lines, 123 routes) into blueprints
 Move route clusters into `routes/` blueprints group by group (chat APIs, dashboard, settings, onboarding, model switching). app.py becomes app factory + registration. Run pytest after each cluster. Target: under ~1,500 lines.
 
