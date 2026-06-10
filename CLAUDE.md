@@ -142,6 +142,7 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
   - `get_user_boto_client()` / `get_user_boto_resource()` handle both modes transparently
   - Settings UI (`templates/settings.html`) and onboarding wizard (`templates/onboarding.html`) both have a mode toggle; **role ARN is the recommended default** (access keys demoted to fallback for self-hosted setups)
   - Trust policy instructions in both UIs render the platform account ID from `PLATFORM_AWS_ACCOUNT_ID` env var (default `188046727805`), exposed via the `/settings` and `/onboarding` routes in `app.py`
+  - **Published least-privilege IAM policies** (`static/iam/devops-agent-readonly.json` + `devops-agent-management.json`, docs in `docs/iam-policies.md`): read-only = metadata never data (no `s3:GetObject`, `secretsmanager:GetSecretValue`, `ssm:GetParameter`, `lambda:GetFunction`); management = service writes but IAM read-only + `iam:PassRole` conditioned to AWS service principals, secret values still excluded. Guarded by `tests/test_iam_policies.py` — update the tests if you change the policy guarantees.
 
 ### Authentication
 - `@login_required` decorator on all API routes

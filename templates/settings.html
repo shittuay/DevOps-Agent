@@ -673,7 +673,9 @@
                             <li>Select <strong>"Another AWS account"</strong> as the trusted entity</li>
                             <li>Enter our AWS Account ID: <code>{{ platform_aws_account_id }}</code></li>
                             <li>Check <strong>"Require external ID"</strong> and enter the same External ID as above</li>
-                            <li>Attach the policies for resources you want to manage (e.g., <code>ReadOnlyAccess</code> to start)</li>
+                            <li>Attach our least-privilege policy:
+                                <a href="/static/iam/devops-agent-readonly.json" target="_blank">read-only</a> (recommended start &mdash; metadata only, never your data) or
+                                <a href="/static/iam/devops-agent-management.json" target="_blank">management</a> (full agent capability, no IAM writes, no secret values)</li>
                             <li>Copy the Role ARN and paste it above</li>
                         </ol>
                         <p style="margin-top:8px;font-size:0.9em;">The role's trust policy should look like:</p>

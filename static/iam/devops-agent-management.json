@@ -1,0 +1,123 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ServiceManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "autoscaling:*",
+        "eks:*",
+        "ecs:*",
+        "lambda:*",
+        "elasticloadbalancing:*",
+        "elasticbeanstalk:*",
+        "states:*",
+        "ecr:*",
+        "rds:*",
+        "dynamodb:*",
+        "elasticache:*",
+        "efs:*",
+        "kinesis:*",
+        "s3:*",
+        "route53:*",
+        "cloudfront:*",
+        "acm:*",
+        "apigateway:*",
+        "appsync:*",
+        "wafv2:*",
+        "cloudwatch:*",
+        "logs:*",
+        "events:*",
+        "sns:*",
+        "sqs:*",
+        "cloudformation:*",
+        "backup:*",
+        "athena:*",
+        "glue:*",
+        "kafka:*",
+        "opensearch:*",
+        "redshift:*",
+        "codeartifact:*",
+        "sagemaker:*",
+        "bedrock:*",
+        "servicecatalog:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SecretsManagementNoValueRead",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:UntagResource",
+        "secretsmanager:ListSecrets",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SystemsManagerScoped",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:Describe*",
+        "ssm:List*",
+        "ssm:PutParameter",
+        "ssm:SendCommand",
+        "ssm:GetCommandInvocation",
+        "ssm:CancelCommand"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "GovernanceRead",
+      "Effect": "Allow",
+      "Action": [
+        "iam:Get*",
+        "iam:List*",
+        "sts:GetCallerIdentity",
+        "ce:Get*",
+        "ce:Describe*",
+        "ce:List*",
+        "cloudtrail:Describe*",
+        "cloudtrail:Get*",
+        "cloudtrail:LookupEvents",
+        "config:Describe*",
+        "config:Get*",
+        "config:List*",
+        "organizations:Describe*",
+        "organizations:List*",
+        "servicequotas:Get*",
+        "servicequotas:List*",
+        "support:Describe*",
+        "resource-groups:*",
+        "tag:Get*",
+        "xray:Get*",
+        "xray:BatchGet*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassRoleToAwsServicesOnly",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "ec2.amazonaws.com",
+            "ecs-tasks.amazonaws.com",
+            "lambda.amazonaws.com",
+            "eks.amazonaws.com",
+            "events.amazonaws.com",
+            "states.amazonaws.com",
+            "autoscaling.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -745,7 +745,8 @@
                         </div>
                         <p class="field-hint">
                             In IAM &rarr; Roles &rarr; Create role &rarr; "Another AWS account", trust account <code>{{ platform_aws_account_id }}</code>
-                            and attach <code>ReadOnlyAccess</code> to start. No access keys leave your account &mdash; we assume the role for
+                            and attach our auditable <a href="/static/iam/devops-agent-readonly.json" target="_blank">least-privilege read-only policy</a>
+                            (metadata only &mdash; no S3 objects, no secret values). No access keys leave your account &mdash; we assume the role for
                             1-hour temporary credentials, and you can revoke access anytime by deleting the role.
                         </p>
                     </div>
