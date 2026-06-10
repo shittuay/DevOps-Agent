@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security - DevOps Agent</title>
+    <meta name="description" content="How DevOps Agent handles your cloud credentials: IAM role delegation instead of access keys, auditable least-privilege policies, encryption at rest, and a sandbox mode that needs no credentials at all.">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border-subtle) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            pointer-events: none;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: var(--gradient-mesh);
+            pointer-events: none;
+        }
+
+        .header {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+        }
+
+        .logo {
+            font-family: 'Syne', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--gradient-primary);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 800;
+            font-size: 14px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-button {
+            padding: 8px 14px;
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+            text-decoration: none;
+        }
+
+        .header-button:hover {
+            background: var(--bg-elevated);
+            border-color: var(--border-medium);
+            color: var(--text-primary);
+        }
+
+        .header-button.active {
+            background: rgba(255, 107, 53, 0.1);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .main-container {
+            max-width: 900px;
+            margin: 48px auto;
+            padding: 0 24px;
+            flex: 1;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 56px;
+        }
+
+        .hero-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-subtitle {
+            font-size: 18px;
+            color: var(--text-secondary);
+            max-width: 640px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        .features {
+            display: grid;
+            gap: 24px;
+            margin-bottom: 56px;
+        }
+
+        .feature-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            padding: 28px;
+            transition: all 0.2s;
+            box-shadow: var(--glass-shadow);
+        }
+
+        .feature-card:hover {
+            border-color: var(--border-medium);
+            transform: translateY(-2px);
+        }
+
+        .feature-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            flex-shrink: 0;
+            color: white;
+        }
+
+        .feature-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .feature-description {
+            color: var(--text-secondary);
+            margin-bottom: 14px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-list li {
+            padding: 5px 0;
+            padding-left: 20px;
+            position: relative;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .feature-list li:before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 10px;
+            width: 6px;
+            height: 6px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+        }
+
+        .feature-list li strong { color: var(--text-primary); }
+
+        .feature-list li a,
+        .feature-description a {
+            color: var(--accent-primary);
+            text-decoration: none;
+        }
+
+        .feature-list li a:hover,
+        .feature-description a:hover { text-decoration: underline; }
+
+        .feature-list li code {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            background: var(--bg-elevated);
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+
+        .cta {
+            text-align: center;
+            padding: 48px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            margin-bottom: 48px;
+            box-shadow: var(--glass-shadow);
+        }
+
+        .cta-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .cta-description {
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            font-size: 15px;
+        }
+
+        .btn-primary {
+            display: inline-block;
+            padding: 14px 36px;
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
+        }
+
+        .btn-secondary {
+            display: inline-block;
+            padding: 14px 28px;
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-medium);
+            border-radius: 10px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-left: 12px;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        @media (max-width: 768px) {
+            .hero-title { font-size: 32px; }
+            .header-right { display: none; }
+            .main-container { padding: 0 16px; margin: 32px auto; }
+            .feature-card { padding: 20px; }
+            .btn-secondary { margin-left: 0; margin-top: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <a href="/" class="logo">
+                <div class="logo-icon">>_</div>
+                <span>DevOps Agent</span>
+            </a>
+            <div class="header-right">
+                <a href="/" class="header-button">Home</a>
+                <a href="/about" class="header-button">About</a>
+                <a href="/security" class="header-button active">Security</a>
+                <a href="/login" class="header-button">Sign in</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="hero">
+            <h1 class="hero-title">We never need your access keys</h1>
+            <p class="hero-subtitle">
+                Handing an AI agent your cloud credentials is a big ask. Here is exactly how
+                DevOps Agent earns that trust &mdash; and how you can verify every claim yourself.
+            </p>
+        </div>
+
+        <div class="features">
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">&#128273;</div>
+                    <h2 class="feature-title">IAM role delegation, not stored secrets</h2>
+                </div>
+                <p class="feature-description">
+                    The recommended way to connect AWS is a cross-account IAM role &mdash; the same model
+                    used by Datadog and every credible cloud vendor. No long-lived key ever leaves your account.
+                </p>
+                <ul class="feature-list">
+                    <li><strong>You create the role in your own account</strong> &mdash; one click via our CloudFormation quick-create, or manually from our published instructions</li>
+                    <li><strong>External ID required</strong> &mdash; protects against confused-deputy attacks</li>
+                    <li><strong>Temporary credentials only</strong> &mdash; we assume the role via STS for 1-hour sessions; nothing long-lived is stored</li>
+                    <li><strong>Instant revocation</strong> &mdash; delete the role (or the CloudFormation stack) and our access is gone, immediately</li>
+                    <li>Prefer access keys for a self-hosted setup? Supported, encrypted at rest &mdash; but the role is always the recommended path</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">&#128269;</div>
+                    <h2 class="feature-title">Auditable least-privilege policies</h2>
+                </div>
+                <p class="feature-description">
+                    Don't take our word for what the agent can touch &mdash; read the exact policy JSON
+                    before you connect. Your security team can review every action we request.
+                </p>
+                <ul class="feature-list">
+                    <li><strong><a href="/static/iam/devops-agent-readonly.json" target="_blank">Read-only policy</a></strong> (recommended start): discovery, cost analysis, and security scanning &mdash; <strong>metadata only, never your data</strong></li>
+                    <li>No <code>s3:GetObject</code> &mdash; we see bucket configuration, never object contents</li>
+                    <li>No <code>secretsmanager:GetSecretValue</code>, no <code>ssm:GetParameter</code> &mdash; secret values stay unreadable</li>
+                    <li>No <code>lambda:GetFunction</code> &mdash; we read function configuration, never your code</li>
+                    <li><strong><a href="/static/iam/devops-agent-management.json" target="_blank">Management policy</a></strong>: full agent capability, but IAM stays read-only (no privilege escalation) and secret values stay excluded</li>
+                    <li>Automated tests in our <a href="https://github.com/shittuay/DevOps-Agent" target="_blank" rel="noopener">public repository</a> fail if any release weakens these guarantees</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">&#129514;</div>
+                    <h2 class="feature-title">Start in sandbox &mdash; no credentials needed</h2>
+                </div>
+                <p class="feature-description">
+                    You don't have to connect anything to evaluate DevOps Agent. Sandbox mode gives you
+                    the full agent experience against simulated infrastructure.
+                </p>
+                <ul class="feature-list">
+                    <li>Every tool runs against realistic mock resources &mdash; zero access to any real account</li>
+                    <li>Practice incident response, cost optimization, and Kubernetes troubleshooting risk-free</li>
+                    <li>Enable it in Settings &rarr; Preferences, or just skip the credential step during onboarding</li>
+                    <li>Connect a real account later, only when you're ready</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">&#128274;</div>
+                    <h2 class="feature-title">Encryption &amp; isolation</h2>
+                </div>
+                <p class="feature-description">
+                    Anything you do store with us is encrypted and isolated per user.
+                </p>
+                <ul class="feature-list">
+                    <li>Credentials encrypted at rest with Fernet (AES-128-CBC + HMAC) before they touch the database</li>
+                    <li>All traffic encrypted in transit (TLS via Cloudflare)</li>
+                    <li>Strict per-user isolation: conversations, credentials, resources, and findings are scoped to your account in every query</li>
+                    <li>Platform secrets live in AWS Secrets Manager, not in code or config files</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">&#128737;</div>
+                    <h2 class="feature-title">Guardrails on every action</h2>
+                </div>
+                <p class="feature-description">
+                    An agent that can touch infrastructure needs more than good intentions.
+                    Every message and every tool call passes through layered checks.
+                </p>
+                <ul class="feature-list">
+                    <li><strong>Three-layer prompt defense</strong>: input sanitization, an independent AI harmlessness pre-screen, and a hardened system prompt that rejects injection and impersonation</li>
+                    <li><strong>Risk classification for all 745 tools</strong>: destructive operations (delete, terminate, destroy) always require your explicit confirmation</li>
+                    <li><strong>Production escalation</strong>: high-risk actions targeting production resources are escalated to critical</li>
+                    <li>Repeated abuse attempts lock the account automatically</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">&#128100;</div>
+                    <h2 class="feature-title">Account security</h2>
+                </div>
+                <p class="feature-description">
+                    Standard protections on the account itself, on by default.
+                </p>
+                <ul class="feature-list">
+                    <li>Passwords hashed with bcrypt; email verification required for new accounts</li>
+                    <li>Multi-factor authentication: authenticator app (TOTP), email, or SMS</li>
+                    <li>Automatic lockout after 5 failed login attempts</li>
+                    <li>Role-based access control for teams (admin / approver / user / viewer) with audit logging</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-header">
+                    <div class="feature-icon">&#128231;</div>
+                    <h2 class="feature-title">Found a vulnerability?</h2>
+                </div>
+                <p class="feature-description">
+                    We want to hear about it. Email
+                    <a href="mailto:security@devopsagent.io">security@devopsagent.io</a>
+                    and we'll respond within 48 hours. Please include reproduction steps and
+                    give us reasonable time to fix before public disclosure.
+                </p>
+            </div>
+        </div>
+
+        <div class="cta">
+            <h2 class="cta-title">Try it without connecting anything</h2>
+            <p class="cta-description">
+                Full agent experience in sandbox mode &mdash; connect a real account only when you're ready.
+            </p>
+            <a href="/signup" class="btn-primary">Start in sandbox</a>
+            <a href="/static/iam/devops-agent-readonly.json" class="btn-secondary" target="_blank">Audit our IAM policy</a>
+        </div>
+    </div>
+
+    <footer style="border-top:1px solid var(--border-subtle);padding:24px 40px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--text-tertiary);">
+        <span>© 2026 DevOps Agent</span>
+        <div style="display:flex;gap:20px;">
+            <a href="/usage-policy" style="color:var(--text-tertiary);text-decoration:none;">Terms</a>
+            <a href="/privacy-policy" style="color:var(--text-tertiary);text-decoration:none;">Privacy</a>
+            <a href="/security" style="color:var(--text-tertiary);text-decoration:none;">Security</a>
+            <a href="/about" style="color:var(--text-tertiary);text-decoration:none;">About</a>
+            <a href="/login" style="color:var(--accent-primary);text-decoration:none;">Sign in</a>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

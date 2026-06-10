@@ -248,6 +248,33 @@
             margin-left: 4px;
         }
 
+        .sandbox-callout {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px 18px;
+            margin-bottom: 24px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+        }
+
+        .sandbox-callout strong {
+            display: block;
+            font-size: 13px;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+
+        .sandbox-callout span {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            line-height: 1.5;
+        }
+
+        .sandbox-callout button { white-space: nowrap; flex-shrink: 0; }
+
         /* ── Form ─────────────────── */
         .form-group { margin-bottom: 20px; }
 
@@ -714,7 +741,15 @@
             <div class="step" id="step-1">
                 <div class="step-tag">Step 1 of 3</div>
                 <h1>Connect your cloud</h1>
-                <p class="subtitle">Add your credentials. They're encrypted at rest and only used to run your commands.</p>
+                <p class="subtitle">Add your credentials. They're encrypted at rest and only used to run your commands. <a href="/security" target="_blank" style="color:var(--accent-electric);text-decoration:none;">How we handle credentials &rarr;</a></p>
+
+                <div class="sandbox-callout">
+                    <div>
+                        <strong>Not ready to connect a real account?</strong>
+                        <span>Start in sandbox mode &mdash; the full agent experience on simulated infrastructure. No credentials needed.</span>
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="startSandbox()">Start in sandbox</button>
+                </div>
 
                 <div id="connect-alert" style="display:none"></div>
 
@@ -1186,6 +1221,21 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ step: 0, skipped: true })
+            }).then(() => { window.location.href = '/chat'; });
+        }
+
+        async function startSandbox() {
+            try {
+                await fetch('/api/preferences', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sandbox_mode: true })
+                });
+            } catch (e) { /* sandbox can still be enabled later in Settings */ }
+            fetch('/api/onboarding/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step: 1, skipped: true, sandbox: true })
             }).then(() => { window.location.href = '/chat'; });
         }
 

@@ -1865,6 +1865,12 @@ def about():
     return render_template('about.html')
 
 
+@app.route('/security')
+def security_page():
+    """Public security/trust page - credential handling, policies, guardrails."""
+    return render_template('security.html')
+
+
 @app.route('/api/team/invite', methods=['POST'])
 @login_required
 def invite_team_member():
