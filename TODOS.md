@@ -9,6 +9,12 @@ Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode 
 ### [ ] 1. Verify and complete API key rotation from April security incident
 April's post-hack scan flagged all API keys for rotation (manual). Confirm it happened: check age/last-changed of AWS IAM keys, Anthropic, Moonshot, Groq, Stripe, Brevo, Sentry, SECRET_KEY, CREDENTIAL_ENCRYPTION_KEY (rotating this one requires re-encrypting stored user credentials). Sources: AWS Secrets Manager `devops-agent/production`, `.env`, GitHub secrets. Rotate anything pre-dating the incident.
 
+**Progress 2026-06-12 (found while debugging role-ARN save):**
+- Dead April-incident key (`AKIAU4YZ…`, old account) was still in `/var/www/devops-agent/config/.env` on prod and was being loaded into the app env at startup, breaking all platform STS calls. Removed (backup `config/.env.bak-stale-keys` on the box). Audit `config/.env` for other stale values.
+- [ ] **Secrets Manager load fails in production** — `init_secrets()` returns False on the box; the app actually runs off `.env` via systemd `EnvironmentFile`. Either fix the secret name/permissions (`devops-agent/production` vs `devops-agent/prod/secrets`) or formally drop SM loading.
+- [ ] `CREDENTIAL_ENCRYPTION_KEY` is not set in prod (warning in journal: falls back to SECRET_KEY) — set it before any SECRET_KEY rotation or stored user credentials become undecryptable.
+- Platform AWS auth is now the EC2 instance profile (`devops-agent-ssm-role`, new inline policy `devops-agent-assume-customer-roles` for `sts:AssumeRole`) — no static platform keys should exist anywhere.
+
 ### [ ] 2. Customer acquisition — first 20 paying users
 Distribution, not code, is the gap. Execute MARKETING_PLAN.md + March Brevo campaign: launch email to contact list, Product Hunt / HN / r/devops posts, daily outreach, pricing page review. **Feature freeze until 20 paying users.**
 
