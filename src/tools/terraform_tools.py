@@ -14,6 +14,72 @@ logger = get_logger(__name__)
 # job_id -> {'proc': Popen, 'log_path': str, 'command': list, 'started_at': float}
 _tf_jobs: Dict[str, Any] = {}
 
+# Sensitive directories that must never be used as a Terraform working directory.
+# These are checked against the realpath-resolved value so symlinks and ".." are
+# already stripped before the comparison.
+_SENSITIVE_PREFIXES = (
+    '/etc', '/bin', '/sbin', '/lib', '/lib64',
+    '/usr/bin', '/usr/sbin', '/usr/lib',
+    '/proc', '/sys', '/dev', '/boot', '/root',
+    '/var/run', '/run', '/snap',
+)
+
+
+def _validate_working_dir(working_dir: str) -> str:
+    """Resolve and validate a Terraform working directory.
+
+    If the TERRAFORM_BASE_DIR env var is set the path must be under it.
+    Otherwise, sensitive system directories are blocked.  Raises ValueError
+    on any violation so callers can return an error without running anything.
+    Returns the resolved absolute path.
+    """
+    if not working_dir:
+        raise ValueError("working_dir is required")
+
+    resolved = os.path.realpath(os.path.abspath(working_dir))
+
+    base_dir = os.environ.get('TERRAFORM_BASE_DIR', '').strip()
+    if base_dir:
+        resolved_base = os.path.realpath(os.path.abspath(base_dir))
+        if not (resolved == resolved_base or resolved.startswith(resolved_base + os.sep)):
+            raise ValueError(
+                f"working_dir '{working_dir}' is outside the permitted base "
+                f"directory '{base_dir}'. Set TERRAFORM_BASE_DIR to the root "
+                "of your Terraform projects."
+            )
+    else:
+        for prefix in _SENSITIVE_PREFIXES:
+            if resolved == prefix or resolved.startswith(prefix + os.sep):
+                raise ValueError(
+                    f"working_dir '{working_dir}' resolves to a sensitive system "
+                    f"path. Use a project-specific directory instead."
+                )
+
+    if not os.path.isdir(resolved):
+        raise ValueError(
+            f"working_dir '{working_dir}' does not exist or is not a directory."
+        )
+
+    return resolved
+
+
+def _validate_state_file(state_file: str, resolved_working_dir: str) -> str:
+    """Ensure state_file resolves to a path within resolved_working_dir.
+
+    Prevents reading arbitrary host files via 'terraform show <path>'.
+    Returns the resolved absolute path of the state file.
+    """
+    resolved = os.path.realpath(os.path.abspath(
+        os.path.join(resolved_working_dir, state_file)
+    ))
+    # Must be the working dir itself or a file inside it
+    if resolved != resolved_working_dir and not resolved.startswith(resolved_working_dir + os.sep):
+        raise ValueError(
+            f"state_file '{state_file}' resolves outside working_dir. "
+            "Provide a relative path to a file inside the working directory."
+        )
+    return resolved
+
 
 def _run_terraform_command(
     command: List[str],
@@ -34,6 +100,11 @@ def _run_terraform_command(
     """
     try:
         try:
+            resolved_dir = _validate_working_dir(working_dir)
+        except ValueError as e:
+            return {'success': False, 'error': str(e)}
+
+        try:
             subprocess.run(['terraform', '-version'], capture_output=True, check=True)
         except FileNotFoundError:
             return {'success': False, 'error': 'Terraform not installed. Install from https://www.terraform.io/downloads.html'}
@@ -44,7 +115,7 @@ def _run_terraform_command(
         with open(log_path, 'w') as log_file:
             proc = subprocess.Popen(
                 command,
-                cwd=working_dir,
+                cwd=resolved_dir,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -343,7 +414,12 @@ def terraform_show(working_dir: str, state_file: Optional[str] = None) -> Dict[s
         command = ['terraform', 'show', '-json']
 
         if state_file:
-            command.append(state_file)
+            try:
+                resolved_wd = _validate_working_dir(working_dir)
+                safe_state_file = _validate_state_file(state_file, resolved_wd)
+            except ValueError as e:
+                return {'success': False, 'error': str(e)}
+            command.append(safe_state_file)
 
         result = _run_terraform_command(command, working_dir)
 
