@@ -268,9 +268,25 @@ class DevOpsAgent:
         self.config = config
         self.logger = get_logger(__name__)
         self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-        self.conversation = ConversationManager()
 
-        # Thread lock for conversation context isolation
+        # Per-request state is stored in threading.local() so concurrent requests
+        # on different threads never overwrite each other's user_id, sandbox flag,
+        # conversation, or credential context.  See the @property block below.
+        self._local = threading.local()
+
+        # Seed defaults for the main thread so attribute reads before the first
+        # request don't raise AttributeError.
+        self.conversation = ConversationManager()
+        self.pending_download = None
+        self._last_tools_used = []
+        self._sandbox_mode = False
+        self._current_user_id = None
+        self._current_conversation_id = None
+        self._pending_approval = None
+        self._tools_override = None
+        self._trust_tool_results = True
+
+        # Thread lock kept for any legacy callers that import it directly.
         self._conversation_lock = threading.Lock()
 
         # Initialize SafetyValidator with pentest configuration
@@ -285,17 +301,92 @@ class DevOpsAgent:
         self.tools: Dict[str, Callable] = {}
         self.tool_definitions: List[Dict[str, Any]] = []
 
-        # Store pending file downloads (e.g., keypairs) - per request, protected by lock
-        self.pending_download: Optional[Dict[str, Any]] = None
-
-        # Track tools used in the most recent process_message_isolated call
-        self._last_tools_used: List[str] = []
-
         # Optional callback for streaming tool events to the UI
         # Signature: callback(event_type: str, tool_name: str, data: dict)
         self._tool_event_callback: Optional[Callable] = None
 
         self.logger.info("DevOps Agent initialized")
+
+    # ------------------------------------------------------------------
+    # Per-request state — backed by threading.local() so that concurrent
+    # requests on different threads are fully isolated.
+    # ------------------------------------------------------------------
+
+    @property
+    def conversation(self):
+        val = getattr(self._local, 'conversation', None)
+        if val is None:
+            val = ConversationManager()
+            self._local.conversation = val
+        return val
+
+    @conversation.setter
+    def conversation(self, value):
+        self._local.conversation = value
+
+    @property
+    def pending_download(self):
+        return getattr(self._local, 'pending_download', None)
+
+    @pending_download.setter
+    def pending_download(self, value):
+        self._local.pending_download = value
+
+    @property
+    def _last_tools_used(self):
+        return getattr(self._local, 'last_tools_used', [])
+
+    @_last_tools_used.setter
+    def _last_tools_used(self, value):
+        self._local.last_tools_used = value
+
+    @property
+    def _sandbox_mode(self):
+        return getattr(self._local, 'sandbox_mode', False)
+
+    @_sandbox_mode.setter
+    def _sandbox_mode(self, value):
+        self._local.sandbox_mode = value
+
+    @property
+    def _current_user_id(self):
+        return getattr(self._local, 'current_user_id', None)
+
+    @_current_user_id.setter
+    def _current_user_id(self, value):
+        self._local.current_user_id = value
+
+    @property
+    def _current_conversation_id(self):
+        return getattr(self._local, 'current_conversation_id', None)
+
+    @_current_conversation_id.setter
+    def _current_conversation_id(self, value):
+        self._local.current_conversation_id = value
+
+    @property
+    def _pending_approval(self):
+        return getattr(self._local, 'pending_approval', None)
+
+    @_pending_approval.setter
+    def _pending_approval(self, value):
+        self._local.pending_approval = value
+
+    @property
+    def _tools_override(self):
+        return getattr(self._local, 'tools_override', None)
+
+    @_tools_override.setter
+    def _tools_override(self, value):
+        self._local.tools_override = value
+
+    @property
+    def _trust_tool_results(self):
+        return getattr(self._local, 'trust_tool_results', True)
+
+    @_trust_tool_results.setter
+    def _trust_tool_results(self, value):
+        self._local.trust_tool_results = value
 
     def set_tool_event_callback(self, callback: Optional[Callable]) -> None:
         """Set a callback to receive tool start/done events during execution."""
