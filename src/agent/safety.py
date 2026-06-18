@@ -481,6 +481,9 @@ class SafetyValidator:
             'terraform_force_unlock',
             'terraform_state_push',
             'terraform_workspace_delete',
+            # Ansible medium risk
+            'ansible_adhoc_command',
+            'ansible_playbook_run',
             # GitLab CI medium risk
             'trigger_gitlab_pipeline',
             'retry_gitlab_pipeline',

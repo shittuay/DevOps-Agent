@@ -8,6 +8,13 @@ from ..utils import get_logger
 
 logger = get_logger(__name__)
 
+# Modules that execute arbitrary commands on the target host.  Blocking them
+# prevents an AI-driven caller from running 'shell'/'command' against localhost,
+# which would give it arbitrary code execution on the agent server itself.
+_BLOCKED_ANSIBLE_MODULES = frozenset({
+    'shell', 'command', 'raw', 'script', 'expect',
+})
+
 
 def _run_ansible_command(
     command: List[str],
@@ -185,6 +192,15 @@ def ansible_adhoc_command(
     Returns:
         Dictionary with command result
     """
+    if module.lower() in _BLOCKED_ANSIBLE_MODULES:
+        return {
+            'success': False,
+            'error': (
+                f"Module '{module}' is blocked because it executes arbitrary commands. "
+                "Use a task-specific module (e.g., apt, yum, service, copy, file, ping, setup)."
+            )
+        }
+
     try:
         command = ['ansible', host_pattern, '-m', module]
 
@@ -774,7 +790,7 @@ def get_tools() -> List[Dict[str, Any]]:
                     },
                     'module': {
                         'type': 'string',
-                        'description': 'Ansible module to run (e.g., "ping", "shell", "copy", "apt", "yum")'
+                        'description': 'Ansible module to run (e.g., "ping", "setup", "copy", "file", "apt", "yum", "service", "systemd"). Modules that run arbitrary commands (shell, command, raw, script, expect) are blocked.'
                     },
                     'module_args': {
                         'type': 'string',
