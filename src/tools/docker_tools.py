@@ -1,10 +1,17 @@
 """Docker tools for DevOps Agent."""
 import os
+import shlex
 import subprocess
 from typing import Dict, Any, Optional, List
 from ..utils import get_logger
 
 logger = get_logger(__name__)
+
+# Shell executables that, when used as the first token of a docker_exec command,
+# allow arbitrary shell interpretation and bypass the argv-list protection.
+_BLOCKED_EXEC_SHELLS = frozenset({
+    'sh', 'bash', 'dash', 'zsh', 'ash', 'ksh', 'csh', 'tcsh', 'busybox',
+})
 
 
 def _get_docker_client():
@@ -573,10 +580,32 @@ def remove_volume(name: str, force: bool = False) -> Dict[str, Any]:
 
 def exec_in_container(container_id: str, command: str, workdir: Optional[str] = None) -> Dict[str, Any]:
     """Execute a command inside a running container."""
+    # Split into argv list so Docker calls execve() directly instead of
+    # wrapping the string in /bin/sh -c, preventing shell metacharacter injection.
+    try:
+        cmd_list = shlex.split(command)
+    except ValueError as e:
+        return {'success': False, 'error': f'Invalid command syntax: {e}'}
+
+    if not cmd_list:
+        return {'success': False, 'error': 'Empty command'}
+
+    # Block explicit shell invocations — passing "sh -c <payload>" as the first
+    # token would re-introduce shell interpretation even with argv splitting.
+    if cmd_list[0] in _BLOCKED_EXEC_SHELLS:
+        return {
+            'success': False,
+            'error': (
+                f"Shell invocation '{cmd_list[0]}' is blocked. "
+                "Pass the specific binary and its arguments directly "
+                "(e.g. 'ls -la /tmp' instead of 'sh -c \"ls -la /tmp\"')."
+            )
+        }
+
     try:
         client = _get_docker_client()
         container = client.containers.get(container_id)
-        exit_code, output = container.exec_run(command, workdir=workdir)
+        exit_code, output = container.exec_run(cmd_list, workdir=workdir)
         return {
             'success': exit_code == 0,
             'container_id': container_id,
