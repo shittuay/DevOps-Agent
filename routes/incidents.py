@@ -11,7 +11,9 @@ from services.incident_response import (
 )
 from services.rbac import require_permission, Permission, approver_required
 from datetime import datetime
+import hmac
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -390,17 +392,52 @@ def api_toggle_playbook(playbook_id):
     })
 
 
+def _verify_incidents_webhook_secret(source: str) -> bool:
+    """Verify the incoming webhook request carries a valid shared secret.
+
+    Checks WEBHOOK_SECRET_INCIDENTS_<SOURCE> first, then WEBHOOK_SECRET_INCIDENTS
+    as a fallback. Accepts the secret via X-Webhook-Secret header or
+    Authorization: Bearer <token> header. Returns False if no secret is
+    configured (endpoint disabled) or the token does not match.
+    """
+    secret = (
+        os.environ.get(f'WEBHOOK_SECRET_INCIDENTS_{source.upper()}')
+        or os.environ.get('WEBHOOK_SECRET_INCIDENTS')
+        or ''
+    )
+    if not secret:
+        return False
+
+    token = (
+        request.headers.get('X-Webhook-Secret', '')
+        or _extract_bearer(request.headers.get('Authorization', ''))
+    )
+    return hmac.compare_digest(secret, token)
+
+
+def _extract_bearer(auth_header: str) -> str:
+    parts = auth_header.split(' ', 1)
+    return parts[1] if len(parts) == 2 and parts[0].lower() == 'bearer' else ''
+
+
 # Webhook endpoint for external alerting systems
 @incidents_bp.route('/webhook/<source>', methods=['POST'])
 def webhook_receive(source):
     """
     Webhook endpoint for receiving alerts from external systems.
     Supports: prometheus, alertmanager, datadog, pagerduty, opsgenie, grafana
-    Note: Webhooks use a system user_id since there's no authenticated user.
+
+    Authentication: requires WEBHOOK_SECRET_INCIDENTS_<SOURCE> or
+    WEBHOOK_SECRET_INCIDENTS env var. Pass the secret via X-Webhook-Secret
+    header or Authorization: Bearer <token>.
     """
     valid_sources = {'prometheus', 'alertmanager', 'datadog', 'pagerduty', 'opsgenie', 'grafana'}
     if source not in valid_sources:
         return jsonify({'error': 'Unsupported webhook source'}), 400
+
+    if not _verify_incidents_webhook_secret(source):
+        logger.warning("Incidents webhook rejected: missing or invalid secret for source '%s' from %s", source, request.remote_addr)
+        return jsonify({'error': 'Unauthorized'}), 401
 
     data = request.get_json()
 
