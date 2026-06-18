@@ -2641,8 +2641,8 @@ def run_db_migration():
 @login_required
 def admin_add_credits():
     """One-time admin endpoint: add credits to any user by email. Owner-only."""
-    OWNER_EMAIL = 'yabiolashittu@gmail.com'
-    if current_user.email != OWNER_EMAIL:
+    owner_email = os.environ.get('ADMIN_OWNER_EMAIL', '')
+    if not owner_email or current_user.email != owner_email:
         return jsonify({'error': 'Forbidden'}), 403
     data = request.get_json() or {}
     target_email = data.get('email', '').strip()
