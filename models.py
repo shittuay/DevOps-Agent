@@ -3,6 +3,7 @@ Database models for user authentication
 """
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
+from sqlalchemy import update as _sa_update
 from datetime import datetime
 import bcrypt
 
@@ -641,24 +642,33 @@ class UserSubscription(db.Model):
 
     def use_credit(self, commit: bool = True) -> bool:
         """
-        Deduct one credit from user's account.
+        Atomically deduct one credit.
 
-        Args:
-            commit: If True (default), commits immediately. Pass False to let
-                    the caller commit as part of a larger transaction.
+        Uses a single UPDATE … WHERE credits_remaining > 0 so concurrent
+        requests on the same user cannot both succeed when only one credit
+        remains (eliminates the read-modify-write TOCTOU race).
 
-        Returns:
-            bool: True if credit was deducted, False if no credits available
+        Returns True if a credit was deducted, False if balance was already 0.
         """
-        if self.credits_remaining <= 0:
-            return False
-
-        self.credits_remaining -= 1
-        self.credits_used_this_month += 1
-        self.total_credits_used += 1
+        result = db.session.execute(
+            _sa_update(UserSubscription)
+            .where(
+                UserSubscription.id == self.id,
+                UserSubscription.credits_remaining > 0,
+            )
+            .values(
+                credits_remaining=UserSubscription.credits_remaining - 1,
+                credits_used_this_month=UserSubscription.credits_used_this_month + 1,
+                total_credits_used=UserSubscription.total_credits_used + 1,
+            )
+            .execution_options(synchronize_session=False)
+        )
         if commit:
             db.session.commit()
-        return True
+        if result.rowcount > 0:
+            db.session.refresh(self)
+            return True
+        return False
 
     def add_credits(self, amount: int):
         """Add credits to user's account"""
