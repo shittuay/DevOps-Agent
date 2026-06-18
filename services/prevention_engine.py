@@ -153,7 +153,7 @@ class PreventionEngine:
             stale = [
                 r.resource_id for r in resources
                 if r.resource_type in ('ebs_volume', 'disk')
-                and r.last_synced_at and r.last_synced_at < cutoff
+                and r.last_synced and r.last_synced < cutoff
                 and (r.resource_metadata or {}).get('state', '').lower() == 'available'
             ]
             if stale:

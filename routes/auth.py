@@ -142,6 +142,7 @@ def login():
                 return redirect(url_for('.verify_2fa'))
 
             remember_me = request.form.get('remember') == 'on'
+            session.clear()
             login_user(user, remember=remember_me)
             user.update_last_login(ip_address=ip_address)
             session.permanent = remember_me
@@ -280,6 +281,7 @@ def signup():
                 daemon=True,
             ).start()
 
+            session.clear()
             login_user(user, remember=True)
             user.update_last_login(ip_address=ip_address)
 
@@ -544,14 +546,11 @@ def verify_2fa():
             user.two_factor_attempts = 0
             db.session.commit()
 
+            next_page = session.get('2fa_next', '')
+            session.clear()
             login_user(user, remember=True)
             user.update_last_login(ip_address=ip_address)
             session.permanent = True
-
-            next_page = session.pop('2fa_next', '')
-            session.pop('2fa_pending_user', None)
-            session.pop('2fa_pending_time', None)
-            session.pop('2fa_method', None)
 
             security_logger.info(f"MFA ({mfa_method}) verified for {user.email} from {ip_address}")
             if next_page and _is_safe_redirect(next_page):
@@ -630,6 +629,7 @@ def reset_mfa():
     user.mfa_reset_expires = None
     db.session.commit()
 
+    session.clear()
     login_user(user)
     security_logger.info(f"MFA reset and login for {user.email} via email token")
     return redirect(url_for('chat'))
