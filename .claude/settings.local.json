@@ -8,7 +8,9 @@
       "Bash(git stash:*)",
       "Bash(git status:*)",
       "Bash(git commit:*)",
-      "Bash(python -m pytest:*)"
+      "Bash(python -m pytest:*)",
+      "Bash(aws sts get-caller-identity *)",
+      "Bash(aws s3api create-bucket *)"
     ],
     "deny": [],
     "ask": []
