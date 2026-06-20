@@ -23,7 +23,8 @@ alembic==1.17.1
 
 # Security & Authentication
 bcrypt==4.3.0
-cryptography==46.0.7
+cryptography==48.0.1
+pyopenssl==26.2.0  # pinned: must allow cryptography>=48 (security fix) and <49 (msal cap)
 email-validator==2.2.0
 pyotp==2.9.0
 qrcode==7.4.2
