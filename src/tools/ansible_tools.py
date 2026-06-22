@@ -8,6 +8,29 @@ from ..utils import get_logger
 
 logger = get_logger(__name__)
 
+# Modules that execute arbitrary OS commands on remote hosts are excluded.
+# Specifically: shell, command, raw, script.
+_ALLOWED_ANSIBLE_MODULES: frozenset = frozenset({
+    'ping', 'setup', 'gather_facts',
+    'file', 'copy', 'fetch', 'template', 'lineinfile', 'blockinfile',
+    'replace', 'assemble',
+    'apt', 'yum', 'dnf', 'zypper', 'package', 'pip',
+    'service', 'systemd',
+    'user', 'group',
+    'cron',
+    'git',
+    'stat', 'find',
+    'debug', 'assert', 'fail', 'set_fact',
+    'wait_for', 'wait_for_connection', 'pause',
+    'uri', 'get_url',
+    'unarchive', 'archive',
+    'mount',
+    'authorized_key', 'known_hosts',
+    'firewalld', 'iptables',
+    'docker_container', 'docker_image',
+    'k8s', 'helm',
+})
+
 
 def _run_ansible_command(
     command: List[str],
@@ -186,6 +209,15 @@ def ansible_adhoc_command(
         Dictionary with command result
     """
     try:
+        if module not in _ALLOWED_ANSIBLE_MODULES:
+            logger.warning(f"Blocked ansible ad-hoc call with non-allowlisted module: {module}")
+            return {
+                'success': False,
+                'error': f"Module '{module}' is not permitted. "
+                         f"Modules that execute arbitrary OS commands (shell, command, raw, script) are blocked. "
+                         f"Allowed modules: {', '.join(sorted(_ALLOWED_ANSIBLE_MODULES))}",
+            }
+
         command = ['ansible', host_pattern, '-m', module]
 
         if module_args:

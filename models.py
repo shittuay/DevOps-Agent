@@ -1453,12 +1453,11 @@ class UserCloudCredential(db.Model):
         # Fallback: stretch SECRET_KEY with PBKDF2
         secret = os.environ.get('SECRET_KEY')
         if not secret:
-            logging.getLogger(__name__).critical(
+            raise RuntimeError(
                 "Neither CREDENTIAL_ENCRYPTION_KEY nor SECRET_KEY is set. "
-                "Cloud credentials are encrypted with a default key — "
-                "set CREDENTIAL_ENCRYPTION_KEY in production immediately."
+                "Set at least SECRET_KEY (or preferably CREDENTIAL_ENCRYPTION_KEY) "
+                "before storing or loading cloud credentials."
             )
-            secret = 'default-secret-key-change-in-production'
         else:
             logging.getLogger(__name__).warning(
                 "CREDENTIAL_ENCRYPTION_KEY not set; falling back to SECRET_KEY "
