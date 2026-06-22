@@ -1921,11 +1921,21 @@ def invite_team_member():
         db.session.add(new_user)
         db.session.commit()
 
-        # In a production app, you'd send an email invitation with a password reset link instead
+        # Send invitation email with a password reset link so the plaintext
+        # credential is never written to a response body, proxy log, or SIEM.
+        try:
+            from services.email_service import send_invitation_email
+            send_invitation_email(new_user.email, new_user.username, default_password)
+            invite_note = 'An invitation email has been sent to the new team member.'
+        except Exception:
+            invite_note = (
+                'Email delivery is not configured. '
+                'Communicate the login credentials to the new team member via a secure channel.'
+            )
+
         return jsonify({
             'success': True,
-            'message': f'Team member invited successfully. Temporary password: {default_password}',
-            'temporary_password': default_password,  # Admin will need to securely communicate this
+            'message': f'Team member invited successfully. {invite_note}',
             'user': {
                 'id': new_user.id,
                 'username': new_user.username,
@@ -5133,6 +5143,9 @@ def use_template(template_id):
 
         if not template:
             return jsonify({'error': 'Template not found'}), 404
+
+        if template.user_id != current_user.id and not template.is_public:
+            return jsonify({'error': 'Unauthorized'}), 403
 
         # Increment use count
         template.increment_use_count()

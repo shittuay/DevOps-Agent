@@ -573,10 +573,17 @@ def remove_volume(name: str, force: bool = False) -> Dict[str, Any]:
 
 def exec_in_container(container_id: str, command: str, workdir: Optional[str] = None) -> Dict[str, Any]:
     """Execute a command inside a running container."""
+    import shlex as _shlex
     try:
         client = _get_docker_client()
         container = client.containers.get(container_id)
-        exit_code, output = container.exec_run(command, workdir=workdir)
+        # Split into a list so Docker passes args directly without invoking a shell.
+        # A bare string causes Docker to run /bin/sh -c "<command>", enabling injection.
+        try:
+            command_args = _shlex.split(command)
+        except ValueError as e:
+            return {'success': False, 'error': f'Invalid command syntax: {e}'}
+        exit_code, output = container.exec_run(command_args, workdir=workdir)
         return {
             'success': exit_code == 0,
             'container_id': container_id,

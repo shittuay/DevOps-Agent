@@ -3,7 +3,7 @@ from functools import wraps
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
-from models import ApprovalRequest, InfrastructureChange, User
+from models import ApprovalRequest, InfrastructureChange, User, db
 
 approvals_bp = Blueprint('approvals', __name__)
 
@@ -40,7 +40,9 @@ def get_pending():
         d['_type'] = 'agent'
         result.append(d)
 
-    # Manually-submitted change requests awaiting human approval
+    # Manually-submitted change requests awaiting human approval.
+    # Approvers intentionally see all pending changes (cross-user) so they can
+    # act on them; description is excluded to limit sensitive data exposure.
     changes = InfrastructureChange.query.filter_by(status='pending').order_by(
         InfrastructureChange.created_at.asc()
     ).all()
@@ -48,8 +50,6 @@ def get_pending():
         details = c.change_details or {}
         requester = User.query.get(c.user_id)
         tool_label = f"{c.action_type} {c.resource_type}"
-        if c.resource_name:
-            tool_label += f" ({c.resource_name})"
         result.append({
             '_type': 'change',
             'id': c.id,
@@ -59,7 +59,6 @@ def get_pending():
             'risk_level': details.get('risk_level', 'medium'),
             'risk_reason': c.title,
             'created_at': c.created_at.isoformat() + 'Z',
-            'description': c.description,
         })
 
     result.sort(key=lambda x: x['created_at'])
@@ -108,9 +107,16 @@ def get_history():
     reqs = query.order_by(ApprovalRequest.created_at.desc()).limit(limit).all()
     result = [r.to_dict() for r in reqs]
 
-    # InfrastructureChange records (non-pending)
+    # InfrastructureChange history — scoped to changes the current user
+    # requested or approved to prevent cross-tenant history exposure.
     if status_filter != 'expired':  # changes have no "expired" status
-        cq = InfrastructureChange.query.filter(InfrastructureChange.status != 'pending')
+        cq = InfrastructureChange.query.filter(
+            InfrastructureChange.status != 'pending',
+            db.or_(
+                InfrastructureChange.user_id == current_user.id,
+                InfrastructureChange.approver_id == current_user.id,
+            )
+        )
         if status_filter == 'approved':
             cq = cq.filter(InfrastructureChange.status.in_(['approved', 'executed']))
         elif status_filter == 'rejected':
@@ -121,8 +127,6 @@ def get_history():
             requester = User.query.get(c.user_id)
             approver = User.query.get(c.approver_id) if c.approver_id else None
             tool_label = f"{c.action_type} {c.resource_type}"
-            if c.resource_name:
-                tool_label += f" ({c.resource_name})"
             result.append({
                 '_type': 'change',
                 'id': c.id,
@@ -136,7 +140,6 @@ def get_history():
                 'decided_at': (c.approved_at.isoformat() + 'Z') if c.approved_at else None,
                 'approver_name': approver.username if approver else None,
                 'approver_note': c.approval_comment,
-                'execution_result': c.execution_result,
             })
 
     result.sort(key=lambda x: x['created_at'], reverse=True)

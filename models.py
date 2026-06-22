@@ -171,20 +171,29 @@ class User(UserMixin, db.Model):
 
     def set_mfa_otp(self, code):
         """Hash and store a 6-digit OTP with 10-minute expiry."""
-        import hashlib
+        import hashlib, hmac, os
         from datetime import timedelta
-        self.mfa_otp_hash = hashlib.sha256(code.encode()).hexdigest()
+        # Use a random per-OTP salt so the stored hash cannot be reversed via
+        # a precomputed table (a 6-digit OTP has only 10^6 possible values).
+        salt = os.urandom(16).hex()
+        digest = hmac.new(salt.encode(), code.encode(), hashlib.sha256).hexdigest()
+        self.mfa_otp_hash = f"{salt}:{digest}"
         self.mfa_otp_expires = datetime.utcnow() + timedelta(minutes=10)
         self.mfa_otp_sent_at = datetime.utcnow()
 
     def verify_mfa_otp(self, code):
         """Verify a 6-digit OTP against stored hash. Returns True if valid."""
-        import hashlib
+        import hashlib, hmac
         if not self.mfa_otp_hash or not self.mfa_otp_expires:
             return False
         if datetime.utcnow() > self.mfa_otp_expires:
             return False
-        return hashlib.sha256(code.encode()).hexdigest() == self.mfa_otp_hash
+        stored = self.mfa_otp_hash
+        if ':' not in stored:
+            return False  # reject legacy unsalted hashes
+        salt, expected = stored.split(':', 1)
+        actual = hmac.new(salt.encode(), code.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(actual, expected)
 
     def clear_mfa_otp(self):
         """Clear OTP after successful verification or expiry."""
