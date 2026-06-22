@@ -2353,6 +2353,34 @@ def get_cloud_credentials_status():
     return jsonify(result)
 
 
+def _validate_webhook_url(webhook_url: str, channel_type: str) -> str | None:
+    """Return an error string if the URL fails SSRF/validation checks, else None."""
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket as _socket
+
+    if not webhook_url.startswith('https://'):
+        return 'Webhook URL must use HTTPS'
+
+    if channel_type == 'slack' and 'hooks.slack.com' not in webhook_url:
+        return (
+            'Slack webhook URL must come from hooks.slack.com — '
+            'go to your Slack workspace → Apps → Incoming Webhooks to generate one'
+        )
+
+    parsed = urlparse(webhook_url)
+    if not parsed.hostname:
+        return 'Invalid webhook URL'
+    try:
+        ip = ipaddress.ip_address(_socket.gethostbyname(parsed.hostname))
+        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+            return 'Webhook URL must not point to a private or reserved IP address'
+    except (_socket.gaierror, ValueError):
+        pass
+
+    return None
+
+
 @app.route('/api/notification-channels', methods=['GET', 'POST'])
 @login_required
 def notification_channels():
@@ -2371,22 +2399,9 @@ def notification_channels():
     if not name or not webhook_url:
         return jsonify({'error': 'Name and webhook URL are required'}), 400
 
-    if not webhook_url.startswith('https://'):
-        return jsonify({'error': 'Webhook URL must use HTTPS'}), 400
-
-    if channel_type == 'slack' and 'hooks.slack.com' not in webhook_url:
-        return jsonify({'error': 'Slack webhook URL must come from hooks.slack.com — go to your Slack workspace → Apps → Incoming Webhooks to generate one'}), 400
-
-    from urllib.parse import urlparse
-    import ipaddress
-    import socket
-    parsed = urlparse(webhook_url)
-    try:
-        ip = ipaddress.ip_address(socket.gethostbyname(parsed.hostname))
-        if ip.is_private or ip.is_loopback or ip.is_reserved:
-            return jsonify({'error': 'Webhook URL must not point to a private or reserved IP address'}), 400
-    except (socket.gaierror, ValueError):
-        pass
+    url_error = _validate_webhook_url(webhook_url, channel_type)
+    if url_error:
+        return jsonify({'error': url_error}), 400
 
     channel = UserNotificationChannel(
         user_id=current_user.id,
@@ -2430,6 +2445,9 @@ def manage_notification_channel(channel_id):
     if 'notify_incidents' in data:
         channel.notify_incidents = data['notify_incidents']
     if 'webhook_url' in data:
+        url_error = _validate_webhook_url(data['webhook_url'], channel.channel_type)
+        if url_error:
+            return jsonify({'error': url_error}), 400
         channel.webhook_url = data['webhook_url']
 
     db.session.commit()
@@ -3426,6 +3444,7 @@ def api_chat_stream():
             pass
 
         # Build trial context for free-tier users
+        uid = current_user.id
         trial_context = None
         if tier_name == 'free':
             credits_left = CreditService.balance(uid)
@@ -3462,7 +3481,6 @@ def api_chat_stream():
             )
 
         # Capture variables for the generator closure
-        uid = current_user.id
         cid = conversation_id
         is_first = is_first_message
         conv = conversation

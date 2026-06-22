@@ -1,4 +1,5 @@
 """Command execution tools for DevOps Agent."""
+import os
 import subprocess
 import shlex
 import time
@@ -7,6 +8,26 @@ from ..utils import get_logger
 
 
 logger = get_logger(__name__)
+
+# Only binaries in this set may be invoked.  Execution environments (sh, bash,
+# python, perl, nc, …) are intentionally excluded to prevent RCE via the AI.
+_ALLOWED_BINARIES: frozenset = frozenset({
+    # File / text inspection
+    'cat', 'ls', 'find', 'grep', 'awk', 'sed', 'head', 'tail', 'wc',
+    'sort', 'uniq', 'cut', 'tr', 'echo', 'printf', 'date', 'hostname',
+    'uname', 'whoami', 'id', 'env', 'printenv', 'pwd', 'which',
+    # System info
+    'ps', 'df', 'du', 'free', 'uptime', 'netstat', 'ss',
+    # DevOps / cloud CLIs
+    'kubectl', 'helm', 'docker', 'docker-compose',
+    'terraform', 'ansible', 'ansible-playbook', 'ansible-galaxy',
+    'git', 'make', 'jq', 'yq',
+    'aws', 'gcloud', 'az',
+    # Network diagnostics (read-only)
+    'ping', 'nslookup', 'dig', 'host', 'traceroute',
+    # Service management
+    'systemctl', 'service',
+})
 
 
 def execute_command(
@@ -57,6 +78,20 @@ def execute_command(
                 'execution_time_ms': 0,
                 'dry_run': False,
                 'error': str(e)
+            }
+
+        binary = os.path.basename(command_args[0])
+        if binary not in _ALLOWED_BINARIES:
+            logger.warning(f"Blocked execution of non-allowlisted binary: {binary}")
+            return {
+                'success': False,
+                'command': command,
+                'stdout': '',
+                'stderr': f"Binary '{binary}' is not permitted. Allowed tools: {', '.join(sorted(_ALLOWED_BINARIES))}",
+                'exit_code': -1,
+                'execution_time_ms': 0,
+                'dry_run': False,
+                'error': 'binary_not_allowed'
             }
 
         result = subprocess.run(
