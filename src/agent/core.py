@@ -11,6 +11,7 @@ from ..config import ConfigManager
 from ..utils import get_logger, log_operation
 from .conversation import ConversationManager
 from .safety import SafetyValidator
+from .tool_selection import classify_tool, select_tool_definitions, module_category_from_name
 
 
 # Strong hallucination signals — always replace response, regardless of tools_called_this_turn
@@ -284,6 +285,36 @@ class DevOpsAgent:
         self.safety_validator = SafetyValidator(config.dangerous_commands, pentest_config)
         self.tools: Dict[str, Callable] = {}
         self.tool_definitions: List[Dict[str, Any]] = []
+        # Category tag per tool name (for progressive tool loading).
+        self.tool_categories: Dict[str, str] = {}
+        # Filtered tool list for the in-flight request (progressive loading).
+        self._tools_override: Optional[List[Dict[str, Any]]] = None
+        # Token budget for per-request conversation history compaction.
+        self._context_token_budget = config.get('context.token_budget', 120000)
+
+        # Always-available tool-search meta-tool (the "ToolSearch" escape hatch):
+        # lets the model recover any tool that progressive loading filtered out.
+        self.register_tool(
+            name='search_tools',
+            description=(
+                'Search the full tool catalog by keyword when the tool you need is '
+                'not in the currently available set. Returns matching tool names and '
+                'makes them callable on the next turn. Use this whenever you cannot '
+                'find a tool for the user\'s request.'
+            ),
+            input_schema={
+                'type': 'object',
+                'properties': {
+                    'query': {
+                        'type': 'string',
+                        'description': 'Keywords describing the capability you need, e.g. "delete dynamodb table".',
+                    },
+                },
+                'required': ['query'],
+            },
+            handler=self._search_tools_handler,
+        )
+        self.tool_categories['search_tools'] = 'meta'
 
         # Store pending file downloads (e.g., keypairs) - per request, protected by lock
         self.pending_download: Optional[Dict[str, Any]] = None
@@ -439,6 +470,7 @@ class DevOpsAgent:
             module: Module containing tool definitions and handlers
         """
         if hasattr(module, 'get_tools'):
+            module_category = module_category_from_name(getattr(module, '__name__', ''))
             tools = module.get_tools()
             for tool in tools:
                 self.register_tool(
@@ -447,6 +479,66 @@ class DevOpsAgent:
                     input_schema=tool['input_schema'],
                     handler=tool['handler']
                 )
+                self.tool_categories[tool['name']] = classify_tool(tool['name'], module_category)
+
+    def _maybe_select_tools(self, user_message: str, max_tools: Optional[int] = None) -> None:
+        """
+        Apply progressive tool loading: narrow self._tools_override to a relevant
+        subset based on the message. No-op when a caller already supplied an
+        explicit override or when tool selection is disabled in config.
+        """
+        if self._tools_override is not None:
+            return  # respect an explicit caller-supplied override
+        if not self.config.get('tool_selection.enabled', True):
+            return
+        cap = max_tools or self.config.get('tool_selection.max_tools', 100)
+        subset = select_tool_definitions(
+            self.tool_definitions, self.tool_categories, user_message, cap
+        )
+        if subset:
+            self.logger.info(
+                f"Progressive tool loading: {len(subset)}/{len(self.tool_definitions)} tools selected"
+            )
+            self._tools_override = subset
+
+    def _search_tools_handler(self, query: str, limit: int = 25) -> Dict[str, Any]:
+        """
+        Search the full tool catalog and surface matches for the current request.
+        Expands the active tool override so matched tools become callable next turn.
+        """
+        terms = [t for t in re.split(r'\W+', (query or '').lower()) if t]
+        if not terms:
+            return {'success': False, 'error': 'Empty query'}
+        scored = []
+        for td in self.tool_definitions:
+            if td['name'] == 'search_tools':
+                continue
+            haystack = (td['name'] + ' ' + td.get('description', '')).lower()
+            score = sum(1 for t in terms if t in haystack)
+            if score:
+                scored.append((score, td))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = [td for _, td in scored[:limit]]
+
+        # Make the matched tools available on subsequent turns.
+        if self._tools_override is not None:
+            existing = {td['name'] for td in self._tools_override}
+            for td in top:
+                if td['name'] not in existing:
+                    self._tools_override.append(td)
+                    existing.add(td['name'])
+
+        return {
+            'success': True,
+            'matches': [
+                {'name': td['name'], 'description': td.get('description', '')[:160]}
+                for td in top
+            ],
+            'note': (
+                'These tools are now available — call them directly.'
+                if top else 'No matching tools found.'
+            ),
+        }
 
     def _set_cloud_user_context(self, user_id: Optional[int] = None):
         """
@@ -526,6 +618,7 @@ class DevOpsAgent:
         tools_override: Optional[List[Dict[str, Any]]] = None,
         trust_tool_results: bool = True,
         swarm_max_agents: int = 0,
+        max_tools: Optional[int] = None,
     ) -> str:
         """
         Process a user message with isolated conversation context (thread-safe).
@@ -556,7 +649,7 @@ class DevOpsAgent:
 
         try:
             # Create fresh conversation context for this request
-            self.conversation = ConversationManager()
+            self.conversation = ConversationManager(token_budget=self._context_token_budget)
             self.pending_download = None
             self._sandbox_mode = sandbox_mode
             self._current_user_id = user_id
@@ -575,6 +668,9 @@ class DevOpsAgent:
 
             # Add the new user message
             self.conversation.add_user_message(user_message)
+
+            # Progressive tool loading: narrow the tool set to what's relevant.
+            self._maybe_select_tools(user_message, max_tools)
 
             # Reset per-request tool tracking
             self._last_tools_used = []
@@ -617,6 +713,7 @@ class DevOpsAgent:
         tools_override: Optional[List[Dict[str, Any]]] = None,
         trust_tool_results: bool = True,
         swarm_max_agents: int = 0,
+        max_tools: Optional[int] = None,
     ):
         """
         Process a user message and yield text chunks as they stream in.
@@ -633,7 +730,7 @@ class DevOpsAgent:
         original_pending_download = self.pending_download
 
         try:
-            self.conversation = ConversationManager()
+            self.conversation = ConversationManager(token_budget=self._context_token_budget)
             self.pending_download = None
             self._sandbox_mode = sandbox_mode
             self._current_user_id = user_id
@@ -652,6 +749,9 @@ class DevOpsAgent:
                     }])
 
             self.conversation.add_user_message(user_message)
+
+            # Progressive tool loading: narrow the tool set to what's relevant.
+            self._maybe_select_tools(user_message, max_tools)
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':

@@ -24,7 +24,8 @@ src/
     core.py         # DevOpsAgent - main AI orchestration
     safety.py       # SafetyValidator - command/tool risk classification
 
-    conversation.py # ConversationManager - message handling
+    conversation.py # ConversationManager - message handling + token-aware compaction
+    tool_selection.py # Progressive tool loading (classify_tool, select_tool_definitions)
     guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
     aws_tools.py         # 155 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
@@ -190,6 +191,53 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
   - `action in ('stop', 'reboot')` → MEDIUM RISK (requires confirmation)
   - `action='start'` → LOW RISK (no confirmation required)
   - This is implemented in `validate_tool_call()` with special-case logic that inspects the action param before returning the classification result
+
+## Context Management & Progressive Tool Loading
+
+Two harness improvements raise the agent's autonomy ceiling (Phase 1 of the
+Claude Code harness roadmap). Both have safe fallbacks and are unit-tested in
+`tests/test_conversation_compaction.py` and `tests/test_tool_selection.py`.
+
+### Token-aware context compaction (`src/agent/conversation.py`)
+- `estimate_tokens(text)` — module-level, uses a cached tiktoken `cl100k` encoder
+  if available, else a `len/4` heuristic. Never an HTTP round-trip (Anthropic
+  `count_tokens` is too slow for the per-turn path); a slight over-estimate keeps
+  budgets safely under the context window.
+- `ConversationManager(max_history=20, token_budget=None, recency_keep=8)` —
+  when `token_budget` is set, `_trim_history()` calls `_compact_old_tool_results()`,
+  which **shrinks old `tool_result` bodies in place** (head 400 + tail 120 chars
+  with a `…[compacted N chars]…` marker) until under budget. Compacting, not
+  dropping, keeps every `tool_use`/`tool_result` pair intact and preserves
+  resource IDs/ARNs (which live at the JSON head). The last `recency_keep`
+  messages are never compacted. `token_budget=None` = legacy count-only behavior.
+- Wired in `core.py`: `__init__` reads `self._context_token_budget =
+  config.get('context.token_budget', 120000)`; both `process_message_isolated`
+  and `process_message_streaming` construct `ConversationManager(token_budget=...)`.
+
+### Progressive tool loading (`src/agent/tool_selection.py`)
+Stops shipping all ~745 tool schemas on every request (token cost + worse tool
+selection). Rides the **existing `_tools_override` hook** — no new plumbing.
+- `classify_tool(name, module_category)` — AWS tools classified at the **service
+  level** (`aws.ec2`, `aws.s3`, ...) so a single-service query selects ~30 tools
+  instead of all 351; non-AWS tools use their module category. Categories are
+  stored in `self.tool_categories` (populated in `register_tools_from_module`).
+- `select_tool_definitions(defs, categories, message, max_tools)` — keyword-matches
+  the message to categories (seeded from `_compute_swarm_agents` / `_TOOL_SIGNAL_RE`),
+  always includes `command` + `devops_operations` + `search_tools`, honors
+  `max_tools`, and **returns `None` when nothing matches** (caller uses full list —
+  never hide tools when unsure).
+- `core._maybe_select_tools(message, max_tools)` runs after the user message is
+  added in both entry points; it's a no-op if a caller passed an explicit
+  `tools_override` or if `tool_selection.enabled` is false.
+- **`search_tools` meta-tool** (registered in `core.__init__`, category `meta`):
+  the ToolSearch escape hatch — searches the full catalog and expands
+  `self._tools_override` so any filtered-out tool becomes callable next turn.
+
+### Config keys
+- `context.token_budget` (default `120000`) — history compaction budget.
+- `tool_selection.enabled` (default `true`) — kill-switch for progressive loading.
+- `tool_selection.max_tools` (default `100`) — fallback cap when a caller doesn't
+  pass `max_tools` (callers should pass `ModelConfig.max_tools`).
 
 ## Historical Fixes & Gotchas
 
