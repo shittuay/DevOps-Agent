@@ -40,3 +40,26 @@ def build_volatile_tail(preferences: Optional[str], trial_context: Optional[str]
     if trial_context:
         tail += f"\n\n{trial_context}"
     return tail
+
+
+def apply_message_breakpoint(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Breakpoint 2: tag the last content block of the last message with
+    cache_control. Returns a new list whose last message (and its content) is
+    deep-copied, so the caller's stored history is never mutated. A string
+    `content` is normalized into a one-block list first. No-op on empty input.
+    """
+    if not messages:
+        return messages
+    out = list(messages)
+    last = copy.deepcopy(out[-1])
+    content = last.get("content")
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+        last["content"] = content
+    if not isinstance(content, list) or not content:
+        out[-1] = last
+        return out
+    if isinstance(content[-1], dict):
+        content[-1]["cache_control"] = dict(_EPHEMERAL)
+    out[-1] = last
+    return out

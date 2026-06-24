@@ -35,3 +35,50 @@ def test_volatile_tail_with_prefs():
 
 def test_volatile_tail_with_prefs_and_trial():
     assert build_volatile_tail("PREFS", "TRIAL") == "User Preferences and Context:\nPREFS\n\nTRIAL"
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — apply_message_breakpoint (with non-mutation guarantee)
+# ---------------------------------------------------------------------------
+from src.agent.prompt_cache import apply_message_breakpoint
+from src.agent.conversation import ConversationManager
+
+
+def test_empty_list_noop():
+    assert apply_message_breakpoint([]) == []
+
+
+def test_string_content_normalized_and_tagged():
+    msgs = [{"role": "user", "content": "hi"}]
+    out = apply_message_breakpoint(msgs)
+    assert out[-1]["content"] == [
+        {"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}
+    ]
+    assert msgs[-1]["content"] == "hi"  # input not mutated
+
+
+def test_last_block_of_block_list_tagged():
+    msgs = [{"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": "RESULT"},
+    ]}]
+    out = apply_message_breakpoint(msgs)
+    assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_does_not_mutate_stored_history():
+    """Load-bearing: get_messages_for_api() shares content references, so tagging
+    must deep-copy. Otherwise cache_control accumulates into stored history across
+    the tool loop and exceeds the 4-breakpoint limit -> 400."""
+    mgr = ConversationManager(max_history=100)
+    mgr.add_user_message("hello")
+    mgr.add_assistant_message([{"type": "tool_use", "id": "t1", "name": "x", "input": {}}])
+    mgr.add_tool_result("t1", "RESULT")
+
+    tagged = apply_message_breakpoint(mgr.get_messages_for_api())
+    assert tagged[-1]["content"][-1].get("cache_control") == {"type": "ephemeral"}
+
+    for m in mgr.get_messages_for_api():
+        c = m["content"]
+        if isinstance(c, list):
+            for block in c:
+                assert "cache_control" not in block
