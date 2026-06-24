@@ -972,15 +972,7 @@ class DevOpsAgent:
 
                         response = stream.get_final_message()
 
-                    _u = getattr(response, 'usage', None)
-                    if _u is not None:
-                        self.logger.info(
-                            "Claude usage (stream): input=%s cache_read=%s cache_write=%s output=%s",
-                            getattr(_u, 'input_tokens', 0),
-                            getattr(_u, 'cache_read_input_tokens', 0),
-                            getattr(_u, 'cache_creation_input_tokens', 0),
-                            getattr(_u, 'output_tokens', 0),
-                        )
+                    self._log_claude_usage(response, streaming=True)
 
                     self.conversation.add_assistant_message(response.content)
 
@@ -1034,6 +1026,20 @@ class DevOpsAgent:
         core, tail = self._build_system_prompt_parts(user_preferences_context, trial_context)
         return f"{core}\n\n{tail}"
 
+    def _log_claude_usage(self, response, streaming: bool = False) -> None:
+        """Log Anthropic token usage (incl. prompt-cache hits) from a response."""
+        usage = getattr(response, 'usage', None)
+        if usage is None:
+            return
+        self.logger.info(
+            "%s: input=%s cache_read=%s cache_write=%s output=%s",
+            "Claude usage (stream)" if streaming else "Claude usage",
+            getattr(usage, 'input_tokens', 0),
+            getattr(usage, 'cache_read_input_tokens', 0),
+            getattr(usage, 'cache_creation_input_tokens', 0),
+            getattr(usage, 'output_tokens', 0),
+        )
+
     def _call_claude_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None) -> str:
         """
         Call Claude API with current conversation and handle tool execution.
@@ -1081,15 +1087,7 @@ class DevOpsAgent:
                     # and assembles the final message for us
                     response = stream.get_final_message()
 
-                _u = getattr(response, 'usage', None)
-                if _u is not None:
-                    self.logger.info(
-                        "Claude usage: input=%s cache_read=%s cache_write=%s output=%s",
-                        getattr(_u, 'input_tokens', 0),
-                        getattr(_u, 'cache_read_input_tokens', 0),
-                        getattr(_u, 'cache_creation_input_tokens', 0),
-                        getattr(_u, 'output_tokens', 0),
-                    )
+                self._log_claude_usage(response)
 
                 # Add assistant's response to conversation
                 self.conversation.add_assistant_message(response.content)
