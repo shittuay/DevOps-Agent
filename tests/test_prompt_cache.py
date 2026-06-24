@@ -107,3 +107,16 @@ def test_only_last_message_copied_earlier_shared():
     assert out[-1] is not msgs[-1]
     assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
     assert "cache_control" not in earlier["content"][-1]
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — STABLE_SYSTEM_PROMPT structural check
+# ---------------------------------------------------------------------------
+
+
+def test_stable_system_prompt_has_no_volatile_markers():
+    from src.agent.core import STABLE_SYSTEM_PROMPT
+    assert "{preferences}" not in STABLE_SYSTEM_PROMPT
+    assert "User Preferences and Context:" not in STABLE_SYSTEM_PROMPT
+    assert not STABLE_SYSTEM_PROMPT.endswith("\n")
+    assert len(STABLE_SYSTEM_PROMPT) > 2000
