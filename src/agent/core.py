@@ -1010,7 +1010,7 @@ class DevOpsAgent:
         tail = build_volatile_tail(user_preferences_context, trial_context)
         return STABLE_SYSTEM_PROMPT, tail
 
-    def _build_system_prompt(self, user_preferences_context: Optional[str] = None, trial_context: Optional[str] = None) -> Optional[str]:
+    def _build_system_prompt(self, user_preferences_context: Optional[str] = None, trial_context: Optional[str] = None) -> str:
         """Joined system prompt (legacy callers: Kimi paths + cache-disabled path)."""
         core, tail = self._build_system_prompt_parts(user_preferences_context, trial_context)
         return f"{core}\n\n{tail}"
@@ -1034,28 +1034,43 @@ class DevOpsAgent:
             self.logger.debug(f"Claude API call iteration {iteration}")
 
             try:
-                # Build system prompt with user preferences if provided
-                system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
-
-                # Call Claude API with streaming to prevent timeouts
                 effective_tools = getattr(self, '_tools_override', None) or self.tool_definitions
                 api_params = {
                     'model': model_override or self.config.claude_model,
                     'max_tokens': self.config.claude_max_tokens,
                     'temperature': self.config.claude_temperature,
                     'tools': effective_tools if effective_tools else None,
-                    'messages': self.conversation.get_messages_for_api()
+                    'messages': self.conversation.get_messages_for_api(),
                 }
 
-                # Add system prompt if we have one
-                if system_prompt:
-                    api_params['system'] = system_prompt
+                if self.config.get('prompt_cache.enabled', True):
+                    core, tail = self._build_system_prompt_parts(
+                        user_preferences_context, trial_context=trial_context
+                    )
+                    api_params['system'] = build_cached_system(core, tail)
+                    api_params['messages'] = apply_message_breakpoint(api_params['messages'])
+                else:
+                    system_prompt = self._build_system_prompt(
+                        user_preferences_context, trial_context=trial_context
+                    )
+                    if system_prompt:
+                        api_params['system'] = system_prompt
 
                 # Use streaming to prevent network timeouts on long requests
                 with self.client.messages.stream(**api_params) as stream:
                     # The stream context manager handles all the event processing
                     # and assembles the final message for us
                     response = stream.get_final_message()
+
+                _u = getattr(response, 'usage', None)
+                if _u is not None:
+                    self.logger.info(
+                        "Claude usage: input=%s cache_read=%s cache_write=%s output=%s",
+                        getattr(_u, 'input_tokens', 0),
+                        getattr(_u, 'cache_read_input_tokens', 0),
+                        getattr(_u, 'cache_creation_input_tokens', 0),
+                        getattr(_u, 'output_tokens', 0),
+                    )
 
                 # Add assistant's response to conversation
                 self.conversation.add_assistant_message(response.content)
