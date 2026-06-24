@@ -194,9 +194,11 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
 
 ## Context Management & Progressive Tool Loading
 
-Two harness improvements raise the agent's autonomy ceiling (Phase 1 of the
-Claude Code harness roadmap). Both have safe fallbacks and are unit-tested in
-`tests/test_conversation_compaction.py` and `tests/test_tool_selection.py`.
+Harness improvements that raise the agent's autonomy ceiling: Phase 1 (token-aware
+context compaction + progressive tool loading) and Phase 2 (Anthropic prompt
+caching). All have safe fallbacks and kill-switches and are unit-tested in
+`tests/test_conversation_compaction.py`, `tests/test_tool_selection.py`, and
+`tests/test_prompt_cache.py`.
 
 ### Token-aware context compaction (`src/agent/conversation.py`)
 - `estimate_tokens(text)` — module-level, uses a cached tiktoken `cl100k` encoder
@@ -233,11 +235,39 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
   the ToolSearch escape hatch — searches the full catalog and expands
   `self._tools_override` so any filtered-out tool becomes callable next turn.
 
+### Prompt caching (`src/agent/prompt_cache.py`)
+Phase 2 of the harness roadmap. Caches the static system prompt + tool schemas
+(breakpoint 1) and the conversation prefix (breakpoint 2) via Anthropic
+`cache_control` on the **Claude path only** — Kimi (OpenAI-compatible) uses a
+different mechanism and is untouched. Pure helpers, unit-tested in
+`tests/test_prompt_cache.py`.
+- `STABLE_SYSTEM_PROMPT` (module constant in `core.py`) is the byte-stable system
+  core, extracted from the old inline literal; the volatile tail (preferences/trial)
+  is built by `build_volatile_tail` and left uncached. `_build_system_prompt_parts`
+  returns `(stable_core, volatile_tail)`; `_build_system_prompt` joins them
+  byte-identically for the Kimi/cache-disabled callers.
+- `build_cached_system(core, tail)` puts `cache_control:{type:"ephemeral"}` on the
+  core block (this also caches the tool schemas, which render before `system`).
+- `apply_message_breakpoint(messages)` tags the last message's last block; it
+  **deep-copies only the last message** so stored history is never mutated
+  (otherwise breakpoints accumulate across the 50-iteration tool loop and exceed
+  the 4-breakpoint limit → 400).
+- Wired in `_call_claude_api` and the streaming path, gated by
+  `prompt_cache.enabled`; `_log_claude_usage(response, streaming)` logs
+  `cache_read`/`cache_write` tokens at both sites.
+- **Known limits (by design, not fixed):** Phase 1 `_compact_old_tool_results` and
+  the `search_tools` meta-tool both rewrite the prefix mid-turn and can invalidate
+  breakpoint 2; **breakpoint 1 (system+tools) is the dependable win.** Short
+  tool-result messages fall under the 2048-token cache minimum and won't cache.
+  Verify hits via the `Claude usage:` log line (`cache_read > 0` from iteration 2).
+
 ### Config keys
 - `context.token_budget` (default `120000`) — history compaction budget.
 - `tool_selection.enabled` (default `true`) — kill-switch for progressive loading.
 - `tool_selection.max_tools` (default `100`) — fallback cap when a caller doesn't
   pass `max_tools` (callers should pass `ModelConfig.max_tools`).
+- `prompt_cache.enabled` (default `true`) — kill-switch for Anthropic prompt caching
+  (Claude path only). When false, the system prompt is sent as a plain string.
 
 ## Historical Fixes & Gotchas
 
