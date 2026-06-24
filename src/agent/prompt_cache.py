@@ -59,6 +59,8 @@ def apply_message_breakpoint(messages: List[Dict[str, Any]]) -> List[Dict[str, A
     if not isinstance(content, list) or not content:
         out[-1] = last
         return out
+    # Tag only when the last block is a dict; a non-dict trailing block is left
+    # untagged (no breakpoint) rather than raising — silent skip is intentional.
     if isinstance(content[-1], dict):
         content[-1]["cache_control"] = dict(_EPHEMERAL)
     out[-1] = last

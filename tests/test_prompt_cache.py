@@ -82,3 +82,28 @@ def test_does_not_mutate_stored_history():
         if isinstance(c, list):
             for block in c:
                 assert "cache_control" not in block
+
+
+def test_none_content_returns_message_untouched():
+    msgs = [{"role": "assistant", "content": None}]
+    out = apply_message_breakpoint(msgs)
+    assert out[-1]["content"] is None
+
+
+def test_non_dict_last_block_skipped_silently():
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "a"}, "raw-string"]}]
+    out = apply_message_breakpoint(msgs)
+    # last block is a non-dict string -> no breakpoint applied, no crash
+    assert out[-1]["content"][-1] == "raw-string"
+    assert "cache_control" not in out[-1]["content"][0]
+
+
+def test_only_last_message_copied_earlier_shared():
+    earlier = {"role": "user", "content": [{"type": "text", "text": "keep"}]}
+    msgs = [earlier, {"role": "user", "content": [{"type": "text", "text": "tag"}]}]
+    out = apply_message_breakpoint(msgs)
+    # earlier messages are the SAME objects (only the last is deep-copied)
+    assert out[0] is earlier
+    assert out[-1] is not msgs[-1]
+    assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in earlier["content"][-1]
