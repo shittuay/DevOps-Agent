@@ -934,17 +934,26 @@ class DevOpsAgent:
             max_iterations = 50
             for iteration in range(max_iterations):
                 try:
-                    system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
                     effective_tools = getattr(self, '_tools_override', None) or self.tool_definitions
                     api_params = {
                         'model': model_override or self.config.claude_model,
                         'max_tokens': self.config.claude_max_tokens,
                         'temperature': self.config.claude_temperature,
                         'tools': effective_tools if effective_tools else None,
-                        'messages': self.conversation.get_messages_for_api()
+                        'messages': self.conversation.get_messages_for_api(),
                     }
-                    if system_prompt:
-                        api_params['system'] = system_prompt
+                    if self.config.get('prompt_cache.enabled', True):
+                        core, tail = self._build_system_prompt_parts(
+                            user_preferences_context, trial_context=trial_context
+                        )
+                        api_params['system'] = build_cached_system(core, tail)
+                        api_params['messages'] = apply_message_breakpoint(api_params['messages'])
+                    else:
+                        system_prompt = self._build_system_prompt(
+                            user_preferences_context, trial_context=trial_context
+                        )
+                        if system_prompt:
+                            api_params['system'] = system_prompt
 
                     collected_content = []
                     current_text = ""
@@ -962,6 +971,16 @@ class DevOpsAgent:
                                         yield chunk
 
                         response = stream.get_final_message()
+
+                    _u = getattr(response, 'usage', None)
+                    if _u is not None:
+                        self.logger.info(
+                            "Claude usage (stream): input=%s cache_read=%s cache_write=%s output=%s",
+                            getattr(_u, 'input_tokens', 0),
+                            getattr(_u, 'cache_read_input_tokens', 0),
+                            getattr(_u, 'cache_creation_input_tokens', 0),
+                            getattr(_u, 'output_tokens', 0),
+                        )
 
                     self.conversation.add_assistant_message(response.content)
 
