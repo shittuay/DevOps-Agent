@@ -120,3 +120,83 @@ def test_stable_system_prompt_has_no_volatile_markers():
     assert "User Preferences and Context:" not in STABLE_SYSTEM_PROMPT
     assert not STABLE_SYSTEM_PROMPT.endswith("\n")
     assert len(STABLE_SYSTEM_PROMPT) > 2000
+
+
+# ---------------------------------------------------------------------------
+# Call-site integration — assert the assembled api_params shape at _call_claude_api
+# (closes the gap between the pure-helper unit tests and the real call site)
+# ---------------------------------------------------------------------------
+from unittest.mock import MagicMock, patch
+
+
+def _make_agent(prompt_cache_enabled: bool):
+    """Build a DevOpsAgent with a mocked Anthropic client and a config whose
+    `prompt_cache.enabled` resolves to the given value (other keys -> default)."""
+    from src.agent.core import DevOpsAgent
+
+    def cfg_get(key, default=None):
+        if key == 'prompt_cache.enabled':
+            return prompt_cache_enabled
+        return default
+
+    cfg = MagicMock()
+    cfg.get.side_effect = cfg_get
+    cfg.claude_model = 'claude-sonnet-4-6'
+    cfg.claude_max_tokens = 4096
+    cfg.claude_temperature = 0.0
+    with patch('src.agent.core.anthropic.Anthropic'):
+        agent = DevOpsAgent(cfg)
+    return agent
+
+
+def _drive_call_claude_api(agent):
+    """Stub the streaming client so one end_turn iteration runs, and return the
+    api_params dict the agent passed to client.messages.stream(**api_params)."""
+    fake_response = MagicMock()
+    fake_response.stop_reason = 'end_turn'
+    fake_response.content = [MagicMock(type='text', text='ok')]
+    fake_response.usage = None  # _log_claude_usage short-circuits
+
+    stream_cm = MagicMock()
+    stream_cm.__enter__.return_value.get_final_message.return_value = fake_response
+    agent.client.messages.stream.return_value = stream_cm
+
+    agent.conversation.add_user_message("hello")
+    agent._call_claude_api()
+    return agent.client.messages.stream.call_args.kwargs
+
+
+def _count_cache_control(api_params):
+    n = 0
+    system = api_params.get('system')
+    if isinstance(system, list):
+        n += sum(1 for b in system if isinstance(b, dict) and 'cache_control' in b)
+    for msg in api_params.get('messages', []):
+        content = msg.get('content')
+        if isinstance(content, list):
+            n += sum(1 for b in content if isinstance(b, dict) and 'cache_control' in b)
+    return n
+
+
+def test_call_site_enabled_emits_two_breakpoints():
+    agent = _make_agent(prompt_cache_enabled=True)
+    api_params = _drive_call_claude_api(agent)
+
+    # system is a block list whose FIRST (stable-core) block carries bp1
+    system = api_params['system']
+    assert isinstance(system, list)
+    assert system[0]['cache_control'] == {'type': 'ephemeral'}
+
+    # bp2 sits on the last block of the last message
+    assert api_params['messages'][-1]['content'][-1]['cache_control'] == {'type': 'ephemeral'}
+
+    # exactly two breakpoints total — never approaches the 4-breakpoint ceiling
+    assert _count_cache_control(api_params) == 2
+
+
+def test_call_site_disabled_sends_plain_string_system_no_breakpoints():
+    agent = _make_agent(prompt_cache_enabled=False)
+    api_params = _drive_call_claude_api(agent)
+
+    assert isinstance(api_params['system'], str)
+    assert _count_cache_control(api_params) == 0
