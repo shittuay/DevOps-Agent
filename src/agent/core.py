@@ -1040,6 +1040,28 @@ class DevOpsAgent:
             getattr(usage, 'output_tokens', 0),
         )
 
+    def _log_kimi_usage(self, usage, streaming: bool = False) -> None:
+        """Log Moonshot/Kimi (OpenAI-compatible) token usage from a usage object.
+
+        Surfaces cached-prompt tokens if the provider reports them — flat
+        `cached_tokens` or OpenAI-style `prompt_tokens_details.cached_tokens`.
+        Logs `cached=n/a` when the provider doesn't report caching at all (so the
+        log distinguishes 'no cache hit' from 'caching not supported')."""
+        if usage is None:
+            return
+        cached = getattr(usage, 'cached_tokens', None)
+        if cached is None:
+            details = getattr(usage, 'prompt_tokens_details', None)
+            cached = getattr(details, 'cached_tokens', None) if details is not None else None
+        self.logger.info(
+            "%s: prompt=%s cached=%s completion=%s total=%s",
+            "Kimi usage (stream)" if streaming else "Kimi usage",
+            getattr(usage, 'prompt_tokens', 0),
+            cached if cached is not None else 'n/a',
+            getattr(usage, 'completion_tokens', 0),
+            getattr(usage, 'total_tokens', 0),
+        )
+
     def _call_claude_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None) -> str:
         """
         Call Claude API with current conversation and handle tool execution.
@@ -1282,6 +1304,7 @@ class DevOpsAgent:
                         response = client.chat.completions.create(**params)
                     else:
                         raise
+                self._log_kimi_usage(getattr(response, 'usage', None))
                 choice = response.choices[0]
                 msg = choice.message
 
@@ -1459,6 +1482,9 @@ class DevOpsAgent:
                     'messages': messages,
                     'max_tokens': self.config.claude_max_tokens,
                     'stream': True,
+                    # request a final usage chunk so we can log token usage / cache hits;
+                    # guarded below in case a provider rejects stream_options
+                    'stream_options': {'include_usage': True},
                 }
                 if 'k2' not in model:
                     params['temperature'] = self.config.claude_temperature
@@ -1470,9 +1496,22 @@ class DevOpsAgent:
                 collected_content = ""
                 collected_reasoning = ""
                 collected_tool_calls = {}  # index -> {id, name, arguments}
+                collected_usage = None
 
-                stream = client.chat.completions.create(**params)
+                try:
+                    stream = client.chat.completions.create(**params)
+                except Exception as _so_exc:
+                    # Defensive: if the provider rejects stream_options, drop it and retry
+                    # so usage logging can never break the chat stream.
+                    if 'stream_options' in str(_so_exc).lower():
+                        params.pop('stream_options', None)
+                        stream = client.chat.completions.create(**params)
+                    else:
+                        raise
                 for chunk in stream:
+                    # The final usage chunk (from include_usage) has empty choices.
+                    if getattr(chunk, 'usage', None) is not None:
+                        collected_usage = chunk.usage
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
@@ -1500,6 +1539,8 @@ class DevOpsAgent:
                                     collected_tool_calls[idx]['arguments'] += tc_delta.function.arguments
 
                     finish_reason = chunk.choices[0].finish_reason
+
+                self._log_kimi_usage(collected_usage, streaming=True)
 
                 # Check if we need to handle tool calls
                 if collected_tool_calls:
