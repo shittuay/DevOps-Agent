@@ -468,9 +468,10 @@ GitHub Actions workflows live in `.github/workflows/`:
 - **`ci.yml`** — runs on `push`/`pull_request` to `main`/`develop`. Includes a
   `security` job (`pip-audit`, `safety`, `bandit`) that fires only on those events.
   On push to `main`, also runs a `deploy` job (after all checks pass) that deploys
-  to EC2 (`13.222.47.92`, instance `i-09af962714b13f9bc`) via **EC2 Instance Connect**:
-  generates a one-time SSH key pair, pushes the public key to the instance (60s TTL),
-  then SSHes in to pull + restart. No stored SSH key required — only AWS credentials.
+  to EC2 (instance `i-09af962714b13f9bc`) via **AWS SSM** (`AWS-RunShellScript`) —
+  no inbound SSH / port 22 required. Git pull on the instance uses the read-only SSH
+  deploy key (`/home/ubuntu/.ssh/deploy_key`). Port 22 on the security group is
+  restricted to the operator's IP; SSM is the only automated deploy path.
 - **`deploy.yml`** — **manual/backup** deploy-only workflow (`workflow_dispatch`
   only — no longer push-triggered, so it doesn't race ci.yml's auto-deploy). Uses
   AWS SSM to run the deploy script on EC2 (no inbound SSH / public IP needed).
@@ -496,10 +497,10 @@ do). The scheduled scan is the only timer-based scan.
 
 | Secret | Used by | Purpose |
 |--------|---------|---------|
-| `EC2_SSH_KEY` | ~~`ci.yml`~~ | No longer needed — deploy uses EC2 Instance Connect |
+| `EC2_SSH_KEY` | ~~none~~ | No longer needed — both deploy paths use SSM, not SSH |
 | `AWS_ACCESS_KEY_ID` | `ci.yml`, `deploy.yml` | IAM credentials for AWS API calls |
 | `AWS_SECRET_ACCESS_KEY` | `ci.yml`, `deploy.yml` | IAM credentials for AWS API calls |
-| `EC2_INSTANCE_ID` | `deploy.yml` | EC2 instance ID for SSM targeting |
+| `EC2_INSTANCE_ID` | `ci.yml`, `deploy.yml` | EC2 instance ID for SSM targeting |
 
 ## Adding a New Model
 
