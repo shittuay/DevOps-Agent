@@ -6,6 +6,7 @@ from github import Github, GithubException
 from urllib.parse import quote
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
+from services.ssrf_guard import is_safe_external_url, is_safe_probe_url
 
 
 logger = get_logger(__name__)
@@ -36,6 +37,11 @@ def trigger_jenkins_job(
             return {
                 'success': False,
                 'error': 'Jenkins credentials not provided'
+            }
+        if not is_safe_external_url(jenkins_url):
+            return {
+                'success': False,
+                'error': f'Refusing to call unsafe Jenkins URL: {jenkins_url!r}'
             }
 
         server = jenkins.Jenkins(jenkins_url, username=username, password=token)
@@ -93,6 +99,11 @@ def get_jenkins_job_status(
             return {
                 'success': False,
                 'error': 'Jenkins credentials not provided'
+            }
+        if not is_safe_external_url(jenkins_url):
+            return {
+                'success': False,
+                'error': f'Refusing to call unsafe Jenkins URL: {jenkins_url!r}'
             }
 
         server = jenkins.Jenkins(jenkins_url, username=username, password=token)
@@ -162,6 +173,11 @@ def get_jenkins_build_logs(
                 'success': False,
                 'error': 'Jenkins credentials not provided'
             }
+        if not is_safe_external_url(jenkins_url):
+            return {
+                'success': False,
+                'error': f'Refusing to call unsafe Jenkins URL: {jenkins_url!r}'
+            }
 
         server = jenkins.Jenkins(jenkins_url, username=username, password=token)
 
@@ -205,6 +221,8 @@ def _get_jenkins_server(
     tok = token or os.environ.get('JENKINS_TOKEN', '')
     if not all([url, user, tok]):
         raise ValueError('Jenkins credentials not provided and not found in environment (JENKINS_URL, JENKINS_USERNAME, JENKINS_TOKEN)')
+    if not is_safe_external_url(url):
+        raise ValueError(f'Refusing to call unsafe Jenkins URL: {url!r}')
     return jenkins.Jenkins(url, username=user, password=tok)
 
 
@@ -817,7 +835,10 @@ def _get_gitlab_token(gitlab_token: Optional[str] = None) -> str:
 
 
 def _get_gitlab_base_url(gitlab_url: Optional[str] = None) -> str:
-    return (gitlab_url or os.environ.get('GITLAB_URL', 'https://gitlab.com')).rstrip('/')
+    base = (gitlab_url or os.environ.get('GITLAB_URL', 'https://gitlab.com')).rstrip('/')
+    if not is_safe_external_url(base):
+        raise ValueError(f'Refusing to call unsafe GitLab URL: {base!r}')
+    return base
 
 
 def list_gitlab_pipelines(
@@ -1227,6 +1248,8 @@ def run_smoke_test(
 ) -> Dict[str, Any]:
     """Run a basic HTTP smoke test against a deployed service to verify it is healthy."""
     try:
+        if not is_safe_probe_url(url):
+            return {'success': False, 'error': f'Refusing to probe unsafe URL: {url!r}', 'url': url, 'healthy': False}
         resp = requests.get(url, headers=headers or {}, timeout=timeout, allow_redirects=True)
         success = resp.status_code == expected_status
         return {
@@ -1254,6 +1277,8 @@ def auto_rollback_deployment(
     try:
         # Run health check
         try:
+            if not is_safe_probe_url(health_check_url):
+                raise ValueError(f'Refusing to probe unsafe URL: {health_check_url!r}')
             resp = requests.get(health_check_url, timeout=health_timeout)
             healthy = resp.status_code == expected_status
         except Exception:

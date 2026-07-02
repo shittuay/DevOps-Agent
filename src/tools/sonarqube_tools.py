@@ -2,6 +2,7 @@
 import requests
 from typing import Dict, Any, Optional, List
 from ..utils import get_logger
+from services.ssrf_guard import is_safe_external_url
 
 logger = get_logger(__name__)
 
@@ -18,6 +19,9 @@ def _get_sonar_client(base_url: str, token: Optional[str] = None):
         Tuple of (base_url, headers)
     """
     import os
+
+    if not is_safe_external_url(base_url):
+        raise Exception(f"Refusing to call unsafe SonarQube base_url: {base_url!r}")
 
     if not token:
         token = os.environ.get('SONAR_TOKEN')

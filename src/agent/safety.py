@@ -327,6 +327,10 @@ class SafetyValidator:
             'delete_cronjob',
             'delete_service_account',
             'drain_node',
+            # Ansible — runs arbitrary playbook tasks (including shell/command
+            # modules with become:true) with no module allowlist, unlike
+            # ansible_adhoc_command. Most powerful tool in the inventory.
+            'ansible_playbook_run',
         }
 
         medium_risk_tools = {
@@ -508,6 +512,9 @@ class SafetyValidator:
             'update_configmap',
             'update_k8s_secret',
             'apply_manifest',
+            # Ansible medium risk — module allowlist still permits impactful
+            # changes (user, iptables, firewalld, systemd, file state=absent).
+            'ansible_adhoc_command',
         }
 
         # Check if tool is a pentest tool

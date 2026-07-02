@@ -5,6 +5,7 @@ from git import Repo, GitCommandError
 from github import Github, GithubException
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
+from services.path_guard import validate_workspace_path
 
 
 logger = get_logger(__name__)
@@ -12,6 +13,9 @@ logger = get_logger(__name__)
 
 def _get_repo(repo_path: str) -> Repo:
     """Validate path and return Repo object."""
+    block_reason = validate_workspace_path(repo_path, env_var='GIT_WORKSPACE_ROOT')
+    if block_reason:
+        raise ValueError(block_reason)
     if not os.path.isdir(repo_path):
         raise ValueError(f"Path does not exist: {repo_path}")
     try:
@@ -380,6 +384,10 @@ def git_clone_repository(url: str, dest_path: str, branch: Optional[str] = None,
         if not _validate_git_url(url):
             return {'success': False, 'error': f'Invalid or disallowed git URL: {url}'}
 
+        block_reason = validate_workspace_path(dest_path, env_var='GIT_WORKSPACE_ROOT')
+        if block_reason:
+            return {'success': False, 'error': block_reason}
+
         kwargs = {}
         if branch:
             kwargs['branch'] = branch
@@ -403,6 +411,10 @@ def git_clone_repository(url: str, dest_path: str, branch: Optional[str] = None,
 def git_init_repository(repo_path: str, bare: bool = False) -> Dict[str, Any]:
     """Initialize a new git repository."""
     try:
+        block_reason = validate_workspace_path(repo_path, env_var='GIT_WORKSPACE_ROOT')
+        if block_reason:
+            return {'success': False, 'error': block_reason}
+
         repo = Repo.init(repo_path, bare=bare)
         return {
             'success': True,

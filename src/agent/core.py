@@ -1712,14 +1712,21 @@ class DevOpsAgent:
                     self.conversation.add_tool_result(tool_use_id, json.dumps(result))
                     continue
 
-                # Check if approval workflow applies (high-risk + non-approver user)
+                # Check if approval workflow applies (high-risk + non-approver user).
+                # Fail CLOSED: unless we can positively verify the caller is an
+                # approver/admin, the tool is blocked rather than executed.
                 if validation.requires_confirmation:
                     user_id = getattr(self, '_current_user_id', None)
-                    if user_id:
-                        try:
+                    is_privileged = False
+                    approval_created = False
+
+                    try:
+                        if user_id:
                             from models import User
                             user = User.query.get(user_id)
-                            if user and user.role not in ('approver', 'admin'):
+                            if user and user.role in ('approver', 'admin'):
+                                is_privileged = True
+                            else:
                                 from services.approval_service import create_request, build_risk_reason
                                 conv_id = getattr(self, '_current_conversation_id', None)
                                 reason = build_risk_reason(tool_name, tool_input)
@@ -1741,11 +1748,33 @@ class DevOpsAgent:
                                     tool_use_id,
                                     json.dumps({'success': False, 'error': 'Pending approval from an approver'}),
                                 )
-                                return
-                        except Exception as e:
-                            self.logger.warning(f"Approval intercept failed: {e}")
+                                approval_created = True
+                        else:
+                            self.logger.error(
+                                f"High-risk tool {tool_name} blocked: no authenticated user context"
+                            )
+                    except Exception as e:
+                        self.logger.error(
+                            f"Approval intercept failed for high-risk tool {tool_name}, blocking execution: {e}"
+                        )
+
+                    if approval_created:
+                        return
+
+                    if not is_privileged:
+                        result = {
+                            'success': False,
+                            'error': (
+                                f"Tool execution blocked: unable to verify approval for "
+                                f"high-risk operation ({tool_name})"
+                            ),
+                            'risk_level': validation.risk_level,
+                        }
+                        self.conversation.add_tool_result(tool_use_id, json.dumps(result))
+                        continue
+
                     self.logger.warning(
-                        f"High-risk operation requires confirmation: {tool_name} "
+                        f"High-risk operation confirmed via privileged role: {tool_name} "
                         f"(risk_level: {validation.risk_level})"
                     )
 

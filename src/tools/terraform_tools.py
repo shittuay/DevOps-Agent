@@ -7,6 +7,7 @@ import time
 import tempfile
 from typing import Dict, Any, Optional, List
 from ..utils import get_logger
+from services.path_guard import validate_workspace_path
 
 logger = get_logger(__name__)
 
@@ -33,6 +34,10 @@ def _run_terraform_command(
         Dictionary with command result or background job handle
     """
     try:
+        block_reason = validate_workspace_path(working_dir, env_var='TERRAFORM_WORKSPACE_ROOT')
+        if block_reason:
+            return {'success': False, 'error': block_reason}
+
         try:
             subprocess.run(['terraform', '-version'], capture_output=True, check=True)
         except FileNotFoundError:

@@ -495,12 +495,12 @@ def _make_confirm_token(api_key_id: int, tool_name: str, params: dict) -> str:
     import hashlib
     import hmac
     import json
-    import os
     import time
+    from flask import current_app
 
     hour_bucket = str(int(time.time()) // 3600)
     payload = f"{api_key_id}:{tool_name}:{json.dumps(params, sort_keys=True)}:{hour_bucket}"
-    secret = os.environ.get('SECRET_KEY', 'devops-agent-secret').encode()
+    secret = current_app.secret_key.encode()
     return hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
 
 
@@ -509,10 +509,10 @@ def _verify_confirm_token(api_key_id: int, tool_name: str, params: dict, token: 
     import hashlib
     import hmac
     import json
-    import os
     import time
+    from flask import current_app
 
-    secret = os.environ.get('SECRET_KEY', 'devops-agent-secret').encode()
+    secret = current_app.secret_key.encode()
     for hour_offset in (0, -1):  # current hour or previous hour
         hour_bucket = str(int(time.time()) // 3600 + hour_offset)
         payload = f"{api_key_id}:{tool_name}:{json.dumps(params, sort_keys=True)}:{hour_bucket}"

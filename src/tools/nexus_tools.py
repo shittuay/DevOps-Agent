@@ -3,6 +3,7 @@ import os
 import requests
 from typing import Dict, Any, Optional, List
 from ..utils import get_logger
+from services.ssrf_guard import is_safe_external_url
 
 logger = get_logger(__name__)
 
@@ -16,6 +17,9 @@ def _get_nexus_client(
     Returns (base_url, auth_tuple) using env vars as fallback.
     Auth: Basic auth with username/password against Nexus REST API v1.
     """
+    if not is_safe_external_url(base_url):
+        raise Exception(f"Refusing to call unsafe Nexus base_url: {base_url!r}")
+
     u = username or os.environ.get('NEXUS_USERNAME', 'admin')
     p = password or os.environ.get('NEXUS_PASSWORD', '')
     return base_url.rstrip('/'), (u, p)

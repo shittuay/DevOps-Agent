@@ -5,7 +5,6 @@ Provides public API access, API key management, rate limiting, and webhooks out.
 Uses database persistence for all data.
 """
 
-import ipaddress
 import logging
 from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime, timedelta, date
@@ -14,32 +13,13 @@ import secrets
 import hashlib
 import hmac
 import json
-import socket
-from urllib.parse import urlparse
 from functools import wraps
 
 from flask import request, jsonify, g
 
+from services.ssrf_guard import is_safe_external_url as _is_safe_webhook_url
+
 logger = logging.getLogger(__name__)
-
-
-def _is_safe_webhook_url(url: str) -> bool:
-    """Block webhook URLs targeting internal/private networks (SSRF protection)."""
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ('http', 'https'):
-            return False
-        hostname = parsed.hostname
-        if not hostname:
-            return False
-        resolved = socket.getaddrinfo(hostname, None)
-        for _, _, _, _, sockaddr in resolved:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return False
-        return True
-    except Exception:
-        return False
 
 
 class APIKeyScope(Enum):
@@ -239,41 +219,43 @@ class APIGatewayService:
 
     # Webhook Management
 
-    def create_webhook(self, user_id: int, name: str, url: str,
-                       events: List[str]) -> Any:
-        """Create a webhook endpoint."""
+    def create_webhook(self, data: Dict) -> Any:
+        """Create a webhook endpoint owned by data['user_id']."""
         WebhookEndpoint = self._get_webhook_model()
         db = self._get_db()
 
         webhook = WebhookEndpoint(
-            user_id=user_id,
-            name=name,
-            url=url,
+            user_id=data['user_id'],
+            name=data.get('name'),
+            url=data.get('url'),
             secret=secrets.token_urlsafe(32),
-            events=events,
+            events=data.get('events') or [],
             is_active=True
         )
 
         db.session.add(webhook)
         db.session.commit()
 
-        logger.info(f"Created webhook: {url} for events {events}")
+        logger.info(f"Created webhook: {webhook.url} for events {webhook.events}")
         return webhook
 
-    def get_webhook(self, webhook_id: int) -> Optional[Any]:
-        """Get webhook by ID."""
+    def get_webhook(self, webhook_id: int, user_id: Optional[int] = None) -> Optional[Any]:
+        """Get webhook by ID, scoped to user_id when provided to prevent cross-user access."""
         WebhookEndpoint = self._get_webhook_model()
-        return WebhookEndpoint.query.get(webhook_id)
+        query = WebhookEndpoint.query.filter_by(id=webhook_id)
+        if user_id is not None:
+            query = query.filter_by(user_id=user_id)
+        return query.first()
 
     def get_user_webhooks(self, user_id: int) -> List[Any]:
         """Get all webhooks for a user."""
         WebhookEndpoint = self._get_webhook_model()
         return WebhookEndpoint.query.filter_by(user_id=user_id).all()
 
-    def update_webhook(self, webhook_id: int, updates: Dict) -> Optional[Any]:
-        """Update a webhook."""
+    def update_webhook(self, webhook_id: int, updates: Dict, user_id: Optional[int] = None) -> Optional[Any]:
+        """Update a webhook owned by user_id."""
         db = self._get_db()
-        webhook = self.get_webhook(webhook_id)
+        webhook = self.get_webhook(webhook_id, user_id=user_id)
         if not webhook:
             return None
 
@@ -289,20 +271,20 @@ class APIGatewayService:
         db.session.commit()
         return webhook
 
-    def delete_webhook(self, webhook_id: int) -> bool:
-        """Delete a webhook."""
+    def delete_webhook(self, webhook_id: int, user_id: Optional[int] = None) -> bool:
+        """Delete a webhook owned by user_id."""
         db = self._get_db()
-        webhook = self.get_webhook(webhook_id)
+        webhook = self.get_webhook(webhook_id, user_id=user_id)
         if webhook:
             db.session.delete(webhook)
             db.session.commit()
             return True
         return False
 
-    def toggle_webhook(self, webhook_id: int) -> Optional[Any]:
-        """Toggle webhook active state."""
+    def toggle_webhook(self, webhook_id: int, user_id: Optional[int] = None) -> Optional[Any]:
+        """Toggle webhook active state, scoped to the owning user."""
         db = self._get_db()
-        webhook = self.get_webhook(webhook_id)
+        webhook = self.get_webhook(webhook_id, user_id=user_id)
         if webhook:
             webhook.is_active = not webhook.is_active
             db.session.commit()
@@ -384,11 +366,14 @@ class APIGatewayService:
 
             db.session.commit()
 
-    def test_webhook(self, webhook_id: int) -> Dict:
-        """Send a test event to a webhook."""
-        webhook = self.get_webhook(webhook_id)
+    def test_webhook(self, webhook_id: int, user_id: Optional[int] = None) -> Dict:
+        """Send a test event to a webhook owned by user_id."""
+        webhook = self.get_webhook(webhook_id, user_id=user_id)
         if not webhook:
             return {'success': False, 'error': 'Webhook not found'}
+
+        if not _is_safe_webhook_url(webhook.url):
+            return {'success': False, 'error': 'Webhook URL targets a private/internal network (blocked by SSRF protection)'}
 
         test_payload = {
             'event': 'test',

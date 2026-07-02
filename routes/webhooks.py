@@ -55,14 +55,17 @@ def receive_github():
     if not event_type:
         return jsonify({'error': 'Missing X-GitHub-Event header'}), 400
 
-    # Validate signature if secret is configured
+    # Require a configured secret — refuse unauthenticated events rather
+    # than silently accepting them when no secret has been set up.
     secret = service.secrets.get('github')
-    if secret:
-        if not signature:
-            return jsonify({'error': 'Missing signature'}), 401
-        if not service.validate_github_signature(request.get_data(), signature, secret):
-            logger.warning("Invalid GitHub webhook signature")
-            return jsonify({'error': 'Invalid signature'}), 401
+    if not secret:
+        logger.warning("Rejected GitHub webhook: no secret configured (use /webhooks/api/configure)")
+        return jsonify({'error': 'Webhook receiver not configured'}), 503
+    if not signature:
+        return jsonify({'error': 'Missing signature'}), 401
+    if not service.validate_github_signature(request.get_data(), signature, secret):
+        logger.warning("Invalid GitHub webhook signature")
+        return jsonify({'error': 'Invalid signature'}), 401
 
     data = request.get_json()
     if not data:
@@ -102,12 +105,15 @@ def receive_gitlab():
     if not event_type:
         return jsonify({'error': 'Missing X-Gitlab-Event header'}), 400
 
-    # Validate token if secret is configured
+    # Require a configured secret — refuse unauthenticated events rather
+    # than silently accepting them when no secret has been set up.
     secret = service.secrets.get('gitlab')
-    if secret:
-        if not service.validate_gitlab_token(token, secret):
-            logger.warning("Invalid GitLab webhook token")
-            return jsonify({'error': 'Invalid token'}), 401
+    if not secret:
+        logger.warning("Rejected GitLab webhook: no secret configured (use /webhooks/api/configure)")
+        return jsonify({'error': 'Webhook receiver not configured'}), 503
+    if not service.validate_gitlab_token(token, secret):
+        logger.warning("Invalid GitLab webhook token")
+        return jsonify({'error': 'Invalid token'}), 401
 
     data = request.get_json()
     if not data:
@@ -132,13 +138,28 @@ def receive_bitbucket():
 
     Headers:
     - X-Event-Key: Event type (repo:push, pullrequest:created, etc.)
+    - X-Hub-Signature: HMAC-SHA256 signature for validation (Bitbucket Cloud
+      webhook secret, same sha256=... format as GitHub's signature header)
     """
     service = get_webhook_service()
 
     event_type = request.headers.get('X-Event-Key')
+    signature = request.headers.get('X-Hub-Signature')
 
     if not event_type:
         return jsonify({'error': 'Missing X-Event-Key header'}), 400
+
+    # Require a configured secret — refuse unauthenticated events rather
+    # than silently accepting them when no secret has been set up.
+    secret = service.secrets.get('bitbucket')
+    if not secret:
+        logger.warning("Rejected Bitbucket webhook: no secret configured (use /webhooks/api/configure)")
+        return jsonify({'error': 'Webhook receiver not configured'}), 503
+    if not signature:
+        return jsonify({'error': 'Missing signature'}), 401
+    if not service.validate_github_signature(request.get_data(), signature, secret):
+        logger.warning("Invalid Bitbucket webhook signature")
+        return jsonify({'error': 'Invalid signature'}), 401
 
     data = request.get_json()
     if not data:
@@ -224,6 +245,9 @@ def api_configure():
 
     if 'gitlab_token' in data:
         service.set_secret('gitlab', data['gitlab_token'])
+
+    if 'bitbucket_secret' in data:
+        service.set_secret('bitbucket', data['bitbucket_secret'])
 
     logger.info(f"Webhook secrets configured by {current_user.email}")
 

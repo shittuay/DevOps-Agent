@@ -55,6 +55,8 @@ services/
   learning_sandbox.py      # Mock tool results for sandbox/learning mode
   prevention_engine.py     # ProactiveRecommendation: SQL pattern analysis + Claude spec generation
   skills_engine.py         # Skills: frontmatter parsing, trigger matching, learned infra context
+  ssrf_guard.py             # is_safe_external_url() / is_safe_probe_url() — outbound URL SSRF guard
+  path_guard.py             # validate_workspace_path() — filesystem containment for working_dir/repo_path
 routes/
   incidents.py             # Incident dashboard, journal, correlation group APIs
   artifacts.py             # Chat artifact CRUD + markdown export
@@ -151,6 +153,11 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - `@login_required` decorator on all API routes
 - Email verification required for new accounts
 - Account lockout after 5 failed attempts
+- **Admin role bootstrap** (`routes/auth.py` `signup()`): only the very first user ever
+  created (`User.query.count() == 0`) gets `role='admin'`; every subsequent signup gets
+  `role='user'`. `role` is global (not per-tenant) — `admin_required` in `services/rbac.py`
+  grants platform-wide access, so promotion beyond the bootstrap user must go through the
+  DB-direct process in "Granting Admin Access" below, never through signup.
 
 ### Guardrails (Jailbreak / Prompt Injection Defense)
 Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any credit is deducted:
@@ -180,10 +187,35 @@ Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any 
 - Auto-detection fallback: prefixes `delete_`, `terminate_`, `destroy_`, `remove_`, `drop_`, `purge_` are auto-classified as high risk even without explicit listing. Explicit sets take priority over auto-detection.
 
 **Current high-risk additions (beyond auto-detection):**
-`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `resize_ec2_instance`
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `resize_ec2_instance`, `ansible_playbook_run` (runs arbitrary playbook tasks, no module allowlist — most powerful tool in the inventory)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`, `ansible_adhoc_command` (module allowlist still permits `user`/`iptables`/`firewalld`/`systemd`/`file state=absent`)
+
+**Confirmation gate fail-closed (`src/agent/core.py` `_handle_tool_uses`, Claude path):**
+When `validation.requires_confirmation` is true, the tool executes ONLY if the caller is
+positively verified as `approver`/`admin`, or an approval request was successfully created
+(the method returns early, pending approval). Any other outcome — missing `_current_user_id`,
+a deleted `User` row, or an exception while creating the approval request — blocks execution
+and returns an error `tool_result` instead of falling through to execute. The Kimi
+streaming/non-streaming tool-call paths already default `result` to a blocked message and
+only overwrite it once privilege is confirmed, so they were fail-closed by construction.
+
+### SSRF and filesystem containment guards
+- **`services/ssrf_guard.py`** — for tools that call a user-supplied URL server-side.
+  `is_safe_external_url(url)` blocks non-http(s) schemes and any hostname resolving to a
+  private/loopback/link-local/reserved/multicast IP (webhooks, SonarQube/Nexus/Jenkins/GitLab
+  `base_url` params — external integrations where an internal target is never legitimate).
+  `is_safe_probe_url(url)` only blocks loopback/link-local/reserved/multicast (allows private
+  ranges) for `run_smoke_test`/`auto_rollback_deployment`, since post-deploy health checks
+  legitimately target internal cluster/VPC service addresses.
+- **`services/path_guard.py`** — `validate_workspace_path(path, env_var=None)` for tools that
+  accept a filesystem working directory (`terraform_tools.working_dir`, `git_tools.repo_path`).
+  Always blocks the app's own source tree and sensitive system paths (`/etc`, `/root`, `/boot`,
+  `/sys`, `/proc`, etc.), even with no config. When `TERRAFORM_WORKSPACE_ROOT` /
+  `GIT_WORKSPACE_ROOT` env vars are set, additionally enforces containment under that root —
+  set these for stricter multi-tenant deployments where each tenant's infra-as-code lives under
+  a dedicated directory.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -421,6 +453,8 @@ Optional:
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi K2.5 API key (required for Kimi model provider)
 - `KIMI_MODEL` - Kimi model override (default: `kimi-k2.7-code`). Valid Moonshot ids: `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed` (no bare `kimi-k2.7`).
+- `TERRAFORM_WORKSPACE_ROOT` - When set, constrains `terraform_*` tools' `working_dir` to this directory (see `services/path_guard.py`). Unset = only the app-source-tree/sensitive-system-path blocklist applies.
+- `GIT_WORKSPACE_ROOT` - When set, constrains `git_*` tools' `repo_path`/`dest_path` to this directory. Same blocklist-only behavior when unset.
 
 ### Email / SMS MFA delivery (`email`/`sms` mfa_method)
 

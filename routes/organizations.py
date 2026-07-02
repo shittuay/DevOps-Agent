@@ -260,6 +260,10 @@ def view_team(org_id, team_id):
     team = service.get_team(team_id)
     membership = service.get_membership(org_id, current_user.id)
 
+    if not membership:
+        flash('You are not a member of this organization.', 'error')
+        return redirect(url_for('organizations.list_organizations'))
+
     if not team or team.organization_id != org_id:
         flash('Team not found.', 'error')
         return redirect(url_for('organizations.list_teams', org_id=org_id))

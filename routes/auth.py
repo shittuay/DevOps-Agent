@@ -222,8 +222,10 @@ def signup():
             verification_token = secrets.token_urlsafe(32)
             hashed_verification_token = hashlib.sha256(verification_token.encode()).hexdigest()
 
-            # First user ever = admin; every direct signup = admin of their own account.
-            # Team members added via invite get user/approver role set by the inviting admin.
+            # First user ever = admin (platform bootstrap). Every other signup
+            # gets the standard 'user' role — admin/approver must be granted
+            # explicitly afterwards (see CLAUDE.md "Granting Admin Access").
+            is_first_user = User.query.count() == 0
             user = User(
                 email=email,
                 username=username,
@@ -232,7 +234,7 @@ def signup():
                 email_verified=False,
                 email_verification_token=hashed_verification_token,
                 email_verification_sent_at=datetime.utcnow(),
-                role='admin',
+                role='admin' if is_first_user else 'user',
             )
             user.set_password(password)
 
