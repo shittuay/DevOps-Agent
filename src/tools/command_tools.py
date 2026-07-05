@@ -11,6 +11,12 @@ logger = get_logger(__name__)
 
 # Only binaries in this set may be invoked.  Execution environments (sh, bash,
 # python, perl, nc, …) are intentionally excluded to prevent RCE via the AI.
+#
+# NOTE: 'ansible', 'ansible-playbook', 'ansible-galaxy' are intentionally
+# excluded — they must go through src/tools/ansible_tools.py, which enforces
+# a module allowlist (_ALLOWED_ANSIBLE_MODULES). Allowing them here would let
+# a caller bypass that allowlist entirely (e.g. `ansible all -m shell -a ...`
+# or a raw `ansible-playbook` running a `shell`/`command` task).
 _ALLOWED_BINARIES: frozenset = frozenset({
     # File / text inspection
     'cat', 'ls', 'find', 'grep', 'awk', 'sed', 'head', 'tail', 'wc',
@@ -20,7 +26,7 @@ _ALLOWED_BINARIES: frozenset = frozenset({
     'ps', 'df', 'du', 'free', 'uptime', 'netstat', 'ss',
     # DevOps / cloud CLIs
     'kubectl', 'helm', 'docker', 'docker-compose',
-    'terraform', 'ansible', 'ansible-playbook', 'ansible-galaxy',
+    'terraform',
     'git', 'make', 'jq', 'yq',
     'aws', 'gcloud', 'az',
     # Network diagnostics (read-only)
@@ -28,6 +34,44 @@ _ALLOWED_BINARIES: frozenset = frozenset({
     # Service management
     'systemctl', 'service',
 })
+
+# Per-binary argument denylist. Several allowlisted binaries have built-in
+# features that spawn a shell / execute arbitrary code or files, which would
+# otherwise defeat the binary allowlist above (e.g. `awk 'BEGIN{system(...)}'`,
+# `find . -exec sh -c ... \;`, `git -c alias.x=!... x`, `docker run -v /:/mnt
+# ... chroot`, `terraform apply` running a `local-exec` provisioner).
+# Returns (is_blocked, reason) for the given binary + its argv (excluding argv[0]).
+def _check_binary_args(binary: str, args: List[str]) -> Optional[str]:
+    joined = ' '.join(args)
+
+    if binary == 'find':
+        for flag in ('-exec', '-execdir', '-ok', '-okdir'):
+            if flag in args:
+                return f"'{flag}' spawns arbitrary processes and is not permitted"
+
+    if binary == 'awk':
+        if 'system(' in joined.replace(' ', ''):
+            return "awk's system() function is not permitted (spawns a shell)"
+
+    if binary in ('git',):
+        if '-c' in args:
+            return "'git -c' (arbitrary config override) is not permitted"
+        if 'alias.' in joined and '!' in joined:
+            return "git alias shell-escapes ('!...') are not permitted"
+
+    if binary in ('docker', 'docker-compose'):
+        for flag in ('--privileged', '--cap-add', '--device', '-v', '--volume',
+                     '--mount', '--entrypoint', '--pid'):
+            if any(a == flag or a.startswith(flag + '=') for a in args):
+                return f"docker flag '{flag}' is not permitted via execute_command"
+        if binary == 'docker' and args and args[0] in ('run', 'create'):
+            return "'docker run'/'docker create' are not permitted via execute_command; use the dedicated docker tools instead"
+
+    if binary == 'terraform':
+        if args and args[0] in ('apply', 'destroy'):
+            return "'terraform apply'/'terraform destroy' are not permitted via execute_command (they can run local-exec provisioners); use the dedicated terraform tools instead"
+
+    return None
 
 
 def execute_command(
@@ -93,6 +137,26 @@ def execute_command(
                 'dry_run': False,
                 'error': 'binary_not_allowed'
             }
+
+        block_reason = _check_binary_args(binary, command_args[1:])
+        if block_reason:
+            logger.warning(f"Blocked '{binary}' invocation: {block_reason}")
+            return {
+                'success': False,
+                'command': command,
+                'stdout': '',
+                'stderr': block_reason,
+                'exit_code': -1,
+                'execution_time_ms': 0,
+                'dry_run': False,
+                'error': 'argument_not_allowed'
+            }
+
+        # GNU sed's 'e', 'w', 'r' commands can execute/read/write arbitrary
+        # files; --sandbox disables them. Harmless no-op on non-GNU sed builds
+        # that reject the flag (falls through to the normal error path below).
+        if binary == 'sed' and '--sandbox' not in command_args:
+            command_args = [command_args[0], '--sandbox'] + command_args[1:]
 
         result = subprocess.run(
             command_args,

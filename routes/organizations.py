@@ -7,6 +7,12 @@ from functools import wraps
 
 organizations_bp = Blueprint('organizations', __name__, url_prefix='/organizations')
 
+# Valid organization roles, ranked low -> high. An actor may never grant (or
+# hold a target at) a rank higher than their own — otherwise an 'admin' could
+# promote themselves or anyone else to 'owner'.
+VALID_ORG_ROLES = {'owner', 'admin', 'member', 'billing', 'viewer'}
+ORG_ROLE_RANK = {'owner': 4, 'admin': 3, 'billing': 2, 'member': 2, 'viewer': 1}
+
 
 def org_admin_required(f):
     """Decorator to require organization admin role"""
@@ -153,6 +159,16 @@ def invite_member(org_id):
     email = request.form.get('email')
     role = request.form.get('role', 'member')
 
+    if role not in VALID_ORG_ROLES:
+        flash('Invalid role.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
+    actor_membership = service.get_membership(org_id, current_user.id)
+    actor_rank = ORG_ROLE_RANK.get(actor_membership.role if actor_membership else None, 0)
+    if ORG_ROLE_RANK[role] > actor_rank:
+        flash('You cannot invite a member with a role higher than your own.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
     invitation = service.create_invitation(org_id, email, role, current_user.id)
     if invitation:
         flash(f'Invitation sent to {email}!', 'success')
@@ -171,6 +187,22 @@ def update_member_role(org_id, user_id):
     service = MultiTenancyService()
 
     new_role = request.form.get('role')
+    if new_role not in VALID_ORG_ROLES:
+        flash('Invalid role.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
+    actor_membership = service.get_membership(org_id, current_user.id)
+    actor_rank = ORG_ROLE_RANK.get(actor_membership.role if actor_membership else None, 0)
+
+    target_membership = service.get_membership(org_id, user_id)
+    target_rank = ORG_ROLE_RANK.get(target_membership.role if target_membership else None, 0)
+
+    # An actor may never grant a role above their own rank, nor change the
+    # role of someone who already outranks them (e.g. an admin editing an owner).
+    if ORG_ROLE_RANK[new_role] > actor_rank or target_rank > actor_rank:
+        flash('You cannot assign a role higher than your own.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
     if service.update_member_role(org_id, user_id, new_role):
         flash('Member role updated!', 'success')
     else:

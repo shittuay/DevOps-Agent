@@ -59,6 +59,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from datetime import datetime, timedelta
 import secrets
 import hashlib
+import hmac
 import logging
 import re
 from email_validator import validate_email, EmailNotValidError
@@ -5134,6 +5135,9 @@ def use_template(template_id):
         if not template:
             return jsonify({'error': 'Template not found'}), 404
 
+        if template.user_id != current_user.id and not template.is_public:
+            return jsonify({'error': 'Unauthorized'}), 403
+
         # Increment use count
         template.increment_use_count()
 
@@ -5467,7 +5471,7 @@ def init_database():
 
     # Verify the secret token
     provided_token = request.headers.get('X-Init-Secret') or request.json.get('secret') if request.json else None
-    if not provided_token or provided_token != init_secret:
+    if not provided_token or not hmac.compare_digest(provided_token, init_secret):
         security_logger.warning(f"Unauthorized database initialization attempt from {request.remote_addr}")
         return jsonify({'error': 'Unauthorized'}), 403
 

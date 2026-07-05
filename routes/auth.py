@@ -3,6 +3,7 @@ Authentication and MFA routes.
 Extracted from app.py to reduce its size. All routes keep the same URL paths.
 """
 import hashlib
+import hmac
 import re
 import secrets
 import threading
@@ -612,7 +613,7 @@ def reset_mfa():
 
     user = User.query.get(user_id)
     hashed_token = hashlib.sha256(token.encode()).hexdigest()
-    if not user or user.mfa_reset_token != hashed_token:
+    if not user or not user.mfa_reset_token or not hmac.compare_digest(user.mfa_reset_token, hashed_token):
         return render_template('login.html', error='Invalid or expired reset link.')
 
     if datetime.utcnow() > user.mfa_reset_expires:

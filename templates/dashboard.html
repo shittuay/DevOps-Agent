@@ -700,7 +700,7 @@
 
     async function loadIncidents() {
         try {
-            const r = await fetch('/api/incidents?limit=5&status=open');
+            const r = await fetch('/incidents/api/list?limit=5&status=open');
             if (!r.ok) {
                 document.getElementById('incidents-list').innerHTML = '<div class="empty-state">No recent incidents</div>';
                 return;
@@ -713,10 +713,10 @@
             }
             document.getElementById('incidents-list').innerHTML = list.slice(0, 5).map(inc => `
                 <div class="incident-row">
-                    <span class="incident-badge ${inc.severity || 'medium'}">${(inc.severity || 'medium').toUpperCase()}</span>
+                    <span class="incident-badge ${escapeHtml(inc.severity || 'medium')}">${escapeHtml((inc.severity || 'medium').toUpperCase())}</span>
                     <div>
-                        <div class="incident-title">${inc.title || 'Untitled incident'}</div>
-                        <div class="incident-meta">${inc.triggered_at ? timeAgo(new Date(inc.triggered_at)) : ''} · ${inc.status || 'open'}</div>
+                        <div class="incident-title">${escapeHtml(inc.title || 'Untitled incident')}</div>
+                        <div class="incident-meta">${inc.triggered_at ? timeAgo(new Date(inc.triggered_at)) : ''} · ${escapeHtml(inc.status || 'open')}</div>
                     </div>
                 </div>
             `).join('');
@@ -797,6 +797,12 @@
         loadSummary();
         loadIncidents();
         loadCosts();
+    }
+
+    function escapeHtml(str) {
+        const d = document.createElement('div');
+        d.appendChild(document.createTextNode(str == null ? '' : String(str)));
+        return d.innerHTML;
     }
 
     function timeAgo(date) {
