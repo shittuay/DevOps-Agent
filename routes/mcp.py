@@ -195,6 +195,7 @@ def _consume_code_db(code: str) -> Optional[Dict[str, Any]]:
     """Single-use: atomically fetch+delete the auth code from the DB (authoritative,
     shared across workers). Falls back to in-memory only if the DB is unavailable."""
     try:
+        from datetime import datetime, timezone
         from models import MCPOAuthCode, db
         from flask import current_app
         with current_app.app_context():
@@ -203,7 +204,12 @@ def _consume_code_db(code: str) -> Optional[Dict[str, Any]]:
                 rec = {
                     'user_id':        row.user_id,
                     'redirect_uri':   row.redirect_uri,
-                    'expires':        row.expires_at.timestamp(),
+                    # expires_at is a naive datetime holding a UTC value (from
+                    # datetime.utcnow()). Calling .timestamp() directly on it
+                    # would make Python interpret it as *local* server time,
+                    # silently shifting the expiry by the server's UTC offset —
+                    # tag it UTC explicitly before converting to epoch.
+                    'expires':        row.expires_at.replace(tzinfo=timezone.utc).timestamp(),
                     'code_challenge': row.code_challenge or '',
                 }
                 # Atomic single-use: only the request that deletes the row wins
