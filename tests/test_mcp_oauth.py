@@ -1,16 +1,47 @@
 """
-Regression tests for the MCP OAuth authorization-code flow (routes/mcp.py).
+MCP OAuth + transport regression tests (routes/mcp.py).
 
-Covers a timezone bug where `_consume_code_db` called `.timestamp()` on a
-naive UTC datetime, which Python interprets as *local* server time — silently
-shifting the expiry check by the server's UTC offset and causing every code
-exchange to fail with `invalid_grant` on non-UTC hosts.
+Covers two production bugs behind the long-standing "still unauthorized"
+connector failure:
+
+1. Timezone bug: `_consume_code_db` called `.timestamp()` on a naive UTC
+   datetime, which Python interprets as *local* server time — silently
+   shifting the expiry check by the server's UTC offset and causing every
+   code exchange to fail with `invalid_grant` on non-UTC hosts.
+
+2. Path/resource mismatch: claude.ai custom connectors configured with the
+   bare origin (no /mcp path) POSTed JSON-RPC to the GET-only landing page
+   (405) and read a root protected-resource document that advertised a
+   mismatched resource (…/mcp), so tokens issued by a successful browser
+   sign-in were never usable. The fix: the streamable transport answers at
+   POST /, and each metadata document advertises the resource path it was
+   fetched for.
 """
 
+import base64
+import hashlib
+import secrets
 import time
 
 import pytest
 
+
+INIT_RPC = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {"protocolVersion": "2025-03-26", "capabilities": {}},
+}
+
+
+def _pkce_pair():
+    verifier = secrets.token_urlsafe(48)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
+    return verifier, challenge
+
+
+# ── Timezone safety of the auth-code store ───────────────────────────────────
 
 @pytest.fixture
 def _restore_localtime():
@@ -19,6 +50,8 @@ def _restore_localtime():
     time.tzset()
 
 
+@pytest.mark.skipif(not hasattr(time, 'tzset'),
+                    reason='time.tzset() is POSIX-only (unavailable on Windows)')
 def test_consume_code_db_expiry_is_timezone_safe(app, db_session, test_user, monkeypatch, _restore_localtime):
     """Codes issued via _store_code_db must not appear expired due to server TZ."""
     import os
@@ -47,3 +80,156 @@ def test_consume_code_db_returns_none_for_unknown_code(app, db_session):
     from routes import mcp as mcp_module
 
     assert mcp_module._consume_code_db('does-not-exist') is None
+
+
+# ── Transport paths ──────────────────────────────────────────────────────────
+
+class TestMCPTransportPaths:
+    def test_root_post_serves_mcp_unauthorized(self, client):
+        """POST / must reach the MCP transport (401 JSON-RPC), never a 405."""
+        resp = client.post('/', json=INIT_RPC)
+        assert resp.status_code == 401
+        body = resp.get_json()
+        assert body['jsonrpc'] == '2.0'
+        assert body['error']['code'] == -32000
+        challenge = resp.headers.get('WWW-Authenticate', '')
+        assert 'resource_metadata=' in challenge
+        # Root-path request → root metadata document (no /mcp suffix)
+        assert challenge.rstrip('"').endswith('/.well-known/oauth-protected-resource')
+
+    def test_mcp_post_challenge_points_to_mcp_metadata(self, client):
+        resp = client.post('/mcp', json=INIT_RPC)
+        assert resp.status_code == 401
+        challenge = resp.headers.get('WWW-Authenticate', '')
+        assert challenge.rstrip('"').endswith('/.well-known/oauth-protected-resource/mcp')
+
+    def test_get_root_still_serves_landing_page(self, client):
+        resp = client.get('/')
+        assert resp.status_code == 200
+        assert b'jsonrpc' not in resp.data
+
+
+# ── Discovery metadata ───────────────────────────────────────────────────────
+
+class TestOAuthMetadata:
+    def test_protected_resource_root_matches_root(self, client):
+        doc = client.get('/.well-known/oauth-protected-resource').get_json()
+        assert not doc['resource'].endswith('/mcp')
+        assert doc['authorization_servers'] == [doc['resource']]
+
+    def test_protected_resource_mcp_matches_mcp(self, client):
+        doc = client.get('/.well-known/oauth-protected-resource/mcp').get_json()
+        assert doc['resource'].endswith('/mcp')
+        assert doc['resource'] == doc['authorization_servers'][0] + '/mcp'
+
+    def test_authorization_server_metadata_and_path_variant(self, client):
+        root = client.get('/.well-known/oauth-authorization-server')
+        variant = client.get('/.well-known/oauth-authorization-server/mcp')
+        assert root.status_code == 200 and variant.status_code == 200
+        assert root.get_json() == variant.get_json()
+        doc = root.get_json()
+        assert doc['authorization_endpoint'].endswith('/mcp/oauth/authorize')
+        assert doc['token_endpoint'].endswith('/mcp/oauth/token')
+        assert 'S256' in doc['code_challenge_methods_supported']
+        assert 'none' in doc['token_endpoint_auth_methods_supported']
+
+
+# ── Full flow ────────────────────────────────────────────────────────────────
+
+class TestOAuthFlowEndToEnd:
+    def test_full_pkce_flow_then_initialize_on_both_paths(self, client, test_user):
+        # 1. Dynamic client registration
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'pytest-connector',
+            'redirect_uris': ['https://claude.ai/api/mcp/auth_callback'],
+        })
+        assert reg.status_code == 201
+        client_id = reg.get_json()['client_id']
+
+        # 2. Authorize: login form GET, then credential POST → 302 with code
+        verifier, challenge = _pkce_pair()
+        params = {
+            'response_type': 'code',
+            'client_id': client_id,
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'state': 'st4te',
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+        }
+        form_page = client.get('/mcp/oauth/authorize', query_string=params)
+        assert form_page.status_code == 200
+
+        authz = client.post('/mcp/oauth/authorize', query_string=params, data={
+            'client_id': client_id,
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'state': 'st4te',
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+            'email': 'test@example.com',
+            'password': 'TestPassword123!',
+        })
+        assert authz.status_code == 302
+        location = authz.headers['Location']
+        assert location.startswith('https://claude.ai/api/mcp/auth_callback')
+        assert 'state=st4te' in location
+        code = location.split('code=')[1].split('&')[0]
+
+        # 3. Token exchange (public client, PKCE only — no client_secret)
+        tok = client.post('/mcp/oauth/token', data={
+            'grant_type': 'authorization_code',
+            'code': code,
+            'code_verifier': verifier,
+            'client_id': client_id,
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+        })
+        assert tok.status_code == 200, tok.get_json()
+        token = tok.get_json()['access_token']
+
+        # 4. The token must work on BOTH the /mcp path and the origin root
+        for path in ('/mcp', '/'):
+            resp = client.post(path, json=INIT_RPC,
+                               headers={'Authorization': f'Bearer {token}'})
+            assert resp.status_code == 200, f'{path}: {resp.data[:200]}'
+            result = resp.get_json()['result']
+            assert result['serverInfo']['name'] == 'DevOps Agent'
+
+        # 5. Auth code is single-use
+        replay = client.post('/mcp/oauth/token', data={
+            'grant_type': 'authorization_code',
+            'code': code,
+            'code_verifier': verifier,
+            'client_id': client_id,
+        })
+        assert replay.status_code == 400
+        assert replay.get_json()['error'] == 'invalid_grant'
+
+        # Cleanup: token rows FK-reference the user; remove them so the
+        # test_user fixture teardown can delete the user cleanly.
+        from models import MCPOAuthToken, db
+        MCPOAuthToken.query.filter_by(user_id=test_user.id).delete()
+        db.session.commit()
+
+    def test_wrong_pkce_verifier_rejected(self, client, test_user):
+        verifier, challenge = _pkce_pair()
+        params = {
+            'response_type': 'code',
+            'client_id': 'any-public-client',
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'state': 's',
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+        }
+        authz = client.post('/mcp/oauth/authorize', query_string=params, data={
+            **params, 'email': 'test@example.com', 'password': 'TestPassword123!',
+        })
+        assert authz.status_code == 302
+        code = authz.headers['Location'].split('code=')[1].split('&')[0]
+
+        tok = client.post('/mcp/oauth/token', data={
+            'grant_type': 'authorization_code',
+            'code': code,
+            'code_verifier': 'wrong-verifier-wrong-verifier-wrong-verifier',
+            'client_id': 'any-public-client',
+        })
+        assert tok.status_code == 400
+        assert tok.get_json()['error'] == 'invalid_grant'

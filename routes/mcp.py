@@ -322,6 +322,19 @@ def _to_mcp_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _resource_metadata_url() -> str:
+    """RFC 9728 metadata URL matching the resource path the client requested.
+
+    A client bound to the /mcp path must be pointed at the /mcp-suffixed
+    document (which advertises resource=…/mcp); a client bound to the origin
+    root gets the root document (resource=origin). Mixing them up makes strict
+    clients discard freshly issued tokens as resource-mismatched.
+    """
+    base = mcp_base_url()
+    suffix = '/mcp' if request.path.startswith('/mcp') else ''
+    return f'{base}/.well-known/oauth-protected-resource{suffix}'
+
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 def _authenticate() -> Optional[Dict[str, Any]]:
@@ -562,10 +575,9 @@ def mcp_sse():
             },
         })
         resp.status_code = 401
-        _mcp_base = mcp_base_url()
         resp.headers['WWW-Authenticate'] = (
             f'Bearer realm="DevOps Agent", '
-            f'resource_metadata="{_mcp_base}/.well-known/oauth-protected-resource"'
+            f'resource_metadata="{_resource_metadata_url()}"'
         )
         for k, v in _cors_headers().items():
             resp.headers[k] = v
@@ -716,10 +728,9 @@ def mcp_streamable():
         resp.status_code = 401
         for k, v in _cors_headers().items():
             resp.headers[k] = v
-        _mcp_base = mcp_base_url()
         resp.headers['WWW-Authenticate'] = (
             f'Bearer realm="DevOps Agent", '
-            f'resource_metadata="{_mcp_base}/.well-known/oauth-protected-resource"'
+            f'resource_metadata="{_resource_metadata_url()}"'
         )
         return resp
 
@@ -1021,3 +1032,16 @@ def oauth_token_alias():
 @mcp_oauth_alias_bp.route('/register', methods=['POST', 'OPTIONS'])
 def oauth_register_alias():
     return oauth_register()
+
+
+# ── Root-level MCP transport ─────────────────────────────────────────────────
+# Claude.ai custom connectors are frequently configured with the bare origin
+# (https://mcp.devopsagent.io) instead of the /mcp path. Before this route,
+# their JSON-RPC POSTs hit the GET-only landing page and got a 405 — the OAuth
+# flow completed and tokens were issued, but the client could never initialize,
+# so the connector stayed "unauthorized" forever. Serving the streamable
+# transport at POST / makes both URL styles work. GET / stays the landing page.
+
+@mcp_oauth_alias_bp.route('/', methods=['POST'])
+def mcp_root_streamable():
+    return mcp_streamable()

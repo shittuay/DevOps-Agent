@@ -329,8 +329,10 @@ csrf.exempt(mcp_oauth_alias_bp)
 _mcp_base_url = mcp_base_url
 
 @app.route('/.well-known/oauth-authorization-server')
+@app.route('/.well-known/oauth-authorization-server/mcp')
+@app.route('/.well-known/oauth-authorization-server/mcp/')
 def oauth_authorization_server_metadata():
-    """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
+    """OAuth 2.0 Authorization Server Metadata (RFC 8414, incl. path-variant probes)."""
     base = _mcp_base_url()
     resp = jsonify({
         'issuer':                                base,
@@ -350,10 +352,18 @@ def oauth_authorization_server_metadata():
 @app.route('/.well-known/oauth-protected-resource/mcp')
 @app.route('/.well-known/oauth-protected-resource/mcp/')
 def oauth_protected_resource_metadata():
-    """OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728).
+
+    The advertised resource MUST match the URL the client is configured with,
+    or strict clients (claude.ai connectors) discard their freshly issued
+    tokens as resource-mismatched. The /mcp-suffixed document describes the
+    /mcp resource; the root document describes the origin root (the MCP
+    streamable transport is also served at POST / for root-configured clients).
+    """
     base = _mcp_base_url()
+    wants_mcp_path = request.path.rstrip('/').endswith('/mcp')
     resp = jsonify({
-        'resource':                 f'{base}/mcp',
+        'resource':                 f'{base}/mcp' if wants_mcp_path else base,
         'authorization_servers':    [base],
         'bearer_methods_supported': ['header', 'query'],
         'scopes_supported':         ['mcp'],
