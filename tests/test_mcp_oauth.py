@@ -209,6 +209,94 @@ class TestOAuthFlowEndToEnd:
         MCPOAuthToken.query.filter_by(user_id=test_user.id).delete()
         db.session.commit()
 
+    def test_refresh_token_grant_rotates_and_authenticates(self, client, test_user):
+        verifier, challenge = _pkce_pair()
+        params = {
+            'response_type': 'code',
+            'client_id': 'refresh-test-client',
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'state': 's',
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+        }
+        authz = client.post('/mcp/oauth/authorize', query_string=params, data={
+            **params, 'email': 'test@example.com', 'password': 'TestPassword123!',
+        })
+        assert authz.status_code == 302
+        # RFC 9207: authorization response carries the issuer
+        assert 'iss=' in authz.headers['Location']
+        code = authz.headers['Location'].split('code=')[1].split('&')[0]
+
+        tok = client.post('/mcp/oauth/token', data={
+            'grant_type': 'authorization_code',
+            'code': code,
+            'code_verifier': verifier,
+            'client_id': 'refresh-test-client',
+        })
+        assert tok.status_code == 200
+        assert tok.headers.get('Cache-Control') == 'no-store'
+        body = tok.get_json()
+        refresh1 = body['refresh_token']
+
+        # Refresh tokens must NOT authenticate MCP requests directly
+        resp = client.post('/mcp', json=INIT_RPC,
+                           headers={'Authorization': f'Bearer {refresh1}'})
+        assert resp.status_code == 401
+
+        # Exchange the refresh token for a new pair
+        ref = client.post('/mcp/oauth/token', data={
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh1,
+            'client_id': 'refresh-test-client',
+        })
+        assert ref.status_code == 200, ref.get_json()
+        new = ref.get_json()
+        assert new['access_token'] != body['access_token']
+        assert new['refresh_token'] != refresh1
+
+        # New access token works; old refresh token is single-use (rotated out)
+        resp = client.post('/mcp', json=INIT_RPC,
+                           headers={'Authorization': f'Bearer {new["access_token"]}'})
+        assert resp.status_code == 200
+        replay = client.post('/mcp/oauth/token', data={
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh1,
+            'client_id': 'refresh-test-client',
+        })
+        assert replay.status_code == 400
+        assert replay.get_json()['error'] == 'invalid_grant'
+
+        from models import MCPOAuthToken, db
+        MCPOAuthToken.query.filter_by(user_id=test_user.id).delete()
+        db.session.commit()
+
+    def test_register_echoes_grant_types(self, client):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'strict-client',
+            'redirect_uris': ['https://claude.ai/api/mcp/auth_callback'],
+            'grant_types': ['authorization_code', 'refresh_token'],
+            'response_types': ['code'],
+        })
+        assert reg.status_code == 201
+        doc = reg.get_json()
+        assert doc['grant_types'] == ['authorization_code', 'refresh_token']
+        assert doc['response_types'] == ['code']
+        assert doc['client_name'] == 'strict-client'
+
+    def test_non_https_redirect_uri_rejected_but_loopback_allowed(self, client):
+        base = {
+            'response_type': 'code',
+            'client_id': 'c',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        }
+        bad = client.get('/mcp/oauth/authorize',
+                         query_string={**base, 'redirect_uri': 'http://evil.example.com/cb'})
+        assert bad.status_code == 400
+        ok = client.get('/mcp/oauth/authorize',
+                        query_string={**base, 'redirect_uri': 'http://localhost:33418/callback'})
+        assert ok.status_code == 200
+
     def test_wrong_pkce_verifier_rejected(self, client, test_user):
         verifier, challenge = _pkce_pair()
         params = {

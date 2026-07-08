@@ -99,15 +99,17 @@ _oauth_codes:   Dict[str, Dict[str, Any]] = {}   # code  → {user_id, expires, 
 _oauth_tokens:  Dict[str, int]            = {}   # token → user_id  (L1 cache; DB is source of truth)
 _registered_clients: Dict[str, Dict[str, Any]] = {}  # client_id → registration metadata
 _oauth_lock = threading.Lock()
-_CODE_TTL  = 300          # 5 min
-_TOKEN_TTL = 86400 * 30   # 30 days
+_CODE_TTL    = 300          # 5 min
+_TOKEN_TTL   = 86400 * 30   # access tokens: 30 days
+_REFRESH_TTL = 86400 * 90   # refresh tokens: 90 days
 
 
 # ── DB-backed token helpers ───────────────────────────────────────────────────
 
-def _store_token_db(token: str, user_id: int) -> None:
+def _store_token_db(token: str, user_id: int, kind: str = 'access') -> None:
     """Persist an OAuth token to the database and warm the in-memory cache."""
     from datetime import datetime, timedelta
+    ttl = _REFRESH_TTL if kind == 'refresh' else _TOKEN_TTL
     try:
         from models import MCPOAuthToken, db
         from flask import current_app
@@ -115,7 +117,8 @@ def _store_token_db(token: str, user_id: int) -> None:
             row = MCPOAuthToken(
                 token=token,
                 user_id=user_id,
-                expires_at=datetime.utcnow() + timedelta(seconds=_TOKEN_TTL),
+                token_kind=kind,
+                expires_at=datetime.utcnow() + timedelta(seconds=ttl),
             )
             db.session.add(row)
             # Prune tokens that expired more than a day ago (keep the table tidy)
@@ -124,13 +127,15 @@ def _store_token_db(token: str, user_id: int) -> None:
             db.session.commit()
     except Exception as e:
         logger.warning(f"MCP: failed to persist token to DB (falling back to memory-only): {e}")
-    # Always update in-memory cache
-    with _oauth_lock:
-        _oauth_tokens[token] = user_id
+    # Only access tokens authenticate requests — never cache refresh tokens
+    # where _authenticate() would find them.
+    if kind == 'access':
+        with _oauth_lock:
+            _oauth_tokens[token] = user_id
 
 
 def _lookup_token_db(token: str) -> Optional[int]:
-    """Look up a token: L1 = in-memory cache, L2 = database."""
+    """Look up an ACCESS token: L1 = in-memory cache, L2 = database."""
     # L1: in-memory cache
     with _oauth_lock:
         uid = _oauth_tokens.get(token)
@@ -139,11 +144,10 @@ def _lookup_token_db(token: str) -> Optional[int]:
 
     # L2: database (handles server restarts)
     try:
-        from datetime import datetime
         from models import MCPOAuthToken
         from flask import current_app
         with current_app.app_context():
-            row = MCPOAuthToken.query.filter_by(token=token).first()
+            row = MCPOAuthToken.query.filter_by(token=token, token_kind='access').first()
             if row and not row.is_expired():
                 # Warm the cache for subsequent requests
                 with _oauth_lock:
@@ -153,6 +157,26 @@ def _lookup_token_db(token: str) -> Optional[int]:
         logger.warning(f"MCP: DB token lookup failed: {e}")
 
     return None
+
+
+def _consume_refresh_token_db(token: str) -> Optional[int]:
+    """Validate a refresh token and delete it (rotation: each refresh token is
+    single-use; the token endpoint issues a replacement). Returns user_id."""
+    try:
+        from models import MCPOAuthToken, db
+        from flask import current_app
+        with current_app.app_context():
+            row = MCPOAuthToken.query.filter_by(token=token, token_kind='refresh').first()
+            if row is None or row.is_expired():
+                return None
+            user_id = row.user_id
+            # Atomic single-use: only the request that deletes the row wins
+            deleted = MCPOAuthToken.query.filter_by(id=row.id).delete()
+            db.session.commit()
+            return user_id if deleted else None
+    except Exception as e:
+        logger.warning(f"MCP: refresh token lookup failed: {e}")
+        return None
 
 
 # ── DB-backed authorization-code helpers ──────────────────────────────────────
@@ -847,6 +871,16 @@ def oauth_authorize():
     if not client_id:
         return jsonify({'error': 'invalid_request', 'error_description': 'client_id required'}), 400
 
+    # Redirect target guard: https for real clients, plain http only for
+    # loopback (Claude Desktop / Claude Code use http://localhost:<port>).
+    if redirect_uri:
+        from urllib.parse import urlparse
+        parsed = urlparse(redirect_uri)
+        is_loopback = parsed.hostname in ('localhost', '127.0.0.1', '::1')
+        if parsed.scheme != 'https' and not (parsed.scheme == 'http' and is_loopback):
+            return jsonify({'error': 'invalid_request',
+                            'error_description': 'redirect_uri must be https (or http on loopback)'}), 400
+
     if request.method == 'GET':
         return render_template_string(_AUTHORIZE_HTML,
                                       client_id=client_id,
@@ -887,8 +921,12 @@ def oauth_authorize():
     code = secrets.token_urlsafe(32)
     _store_code_db(code, user.id, redirect_uri, code_challenge)
 
+    # RFC 9207: identify the issuer in the authorization response so clients
+    # can detect mix-up attacks (and strict clients don't reject the redirect).
+    from urllib.parse import quote
+    iss = quote(mcp_base_url(), safe='')
     sep = '&' if '?' in redirect_uri else '?'
-    return redirect(f"{redirect_uri}{sep}code={code}&state={state}")
+    return redirect(f"{redirect_uri}{sep}code={code}&state={state}&iss={iss}")
 
 
 @mcp_bp.route('/oauth/token', methods=['POST', 'OPTIONS'])
@@ -916,6 +954,17 @@ def oauth_token():
         client_id     = request.form.get('client_id')     or body.get('client_id')
         client_secret = request.form.get('client_secret') or body.get('client_secret')
 
+    # ── refresh_token grant (RFC 6749 §6, single-use rotating tokens) ─────────
+    if grant_type == 'refresh_token':
+        refresh_token = request.form.get('refresh_token') or body.get('refresh_token')
+        if not refresh_token:
+            return _token_error('invalid_request', 'refresh_token required')
+        user_id = _consume_refresh_token_db(refresh_token)
+        if user_id is None:
+            return _token_error('invalid_grant', 'Refresh token expired or invalid')
+        return _issue_token_response(user_id)
+
+    # ── authorization_code grant ──────────────────────────────────────────────
     # Accept the built-in confidential client (client_secret required) OR any public
     # client using PKCE (code_verifier present, no secret needed).  Claude.ai and
     # Claude Desktop are public OAuth clients — they never send a client_secret.
@@ -929,7 +978,8 @@ def oauth_token():
         return resp, 401
 
     if grant_type != 'authorization_code' or not code:
-        resp = jsonify({'error': 'invalid_request'})
+        resp = jsonify({'error': 'unsupported_grant_type' if grant_type not in
+                        (None, 'authorization_code') else 'invalid_request'})
         for k, v in _cors_headers().items():
             resp.headers[k] = v
         return resp, 400
@@ -961,17 +1011,36 @@ def oauth_token():
                 resp.headers[k] = v
             return resp, 400
 
-    access_token = secrets.token_urlsafe(48)
-    _store_token_db(access_token, record['user_id'])
-    logger.info(f"MCP OAuth: token issued for user_id={record['user_id']} "
-                f"token_prefix={access_token[:8]}... total_tokens={len(_oauth_tokens)}")
+    return _issue_token_response(record['user_id'])
+
+
+def _token_error(error: str, description: str, status: int = 400):
+    resp = jsonify({'error': error, 'error_description': description})
+    resp.headers['Cache-Control'] = 'no-store'
+    for k, v in _cors_headers().items():
+        resp.headers[k] = v
+    return resp, status
+
+
+def _issue_token_response(user_id: int):
+    """Issue a fresh access + refresh token pair (used by both grant types)."""
+    access_token  = secrets.token_urlsafe(48)
+    refresh_token = secrets.token_urlsafe(48)
+    _store_token_db(access_token, user_id, kind='access')
+    _store_token_db(refresh_token, user_id, kind='refresh')
+    logger.info(f"MCP OAuth: token issued for user_id={user_id} "
+                f"token_prefix={access_token[:8]}...")
 
     resp = jsonify({
-        'access_token': access_token,
-        'token_type':   'Bearer',
-        'expires_in':   _TOKEN_TTL,
-        'scope':        'mcp',
+        'access_token':  access_token,
+        'token_type':    'Bearer',
+        'expires_in':    _TOKEN_TTL,
+        'refresh_token': refresh_token,
+        'scope':         'mcp',
     })
+    # RFC 6749 §5.1: token responses MUST NOT be cached
+    resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['Pragma'] = 'no-cache'
     for k, v in _cors_headers().items():
         resp.headers[k] = v
     return resp
@@ -999,11 +1068,20 @@ def oauth_register():
         }
     logger.info(f"MCP: registered OAuth client {client_id!r} ({body.get('client_name', '?')})")
 
+    # RFC 7591 §3.2.1: echo the registered metadata — strict clients validate
+    # that the response covers the grant types they asked for.
+    requested_grants = body.get('grant_types') or ['authorization_code']
+    supported_grants = [g for g in requested_grants
+                        if g in ('authorization_code', 'refresh_token')] or ['authorization_code']
     resp = jsonify({
         'client_id':            client_id,
         'client_id_issued_at':  int(time.time()),
+        'client_name':          body.get('client_name', 'MCP Client'),
         'token_endpoint_auth_method': 'none',   # public client — PKCE only
         'redirect_uris':        body.get('redirect_uris', []),
+        'grant_types':          supported_grants,
+        'response_types':       ['code'],
+        'scope':                'mcp',
     })
     resp.status_code = 201
     for k, v in _cors_headers().items():

@@ -3107,6 +3107,9 @@ class MCPOAuthToken(db.Model):
     id         = db.Column(db.Integer, primary_key=True)
     token      = db.Column(db.String(128), unique=True, nullable=False, index=True)
     user_id    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    # 'access' or 'refresh' — refresh tokens live longer and are exchanged
+    # (with rotation) for new access tokens at the token endpoint.
+    token_kind = db.Column(db.String(16), nullable=False, default='access', server_default='access')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     expires_at = db.Column(db.DateTime, nullable=False, index=True)
 
