@@ -71,7 +71,7 @@ def mcp_base_url() -> str:
     try:
         if has_request_context():
             host = (request.host or '').split(':')[0]
-            if host.endswith(_MCP_ALLOWED_HOST_SUFFIX):
+            if host == _MCP_ALLOWED_HOST_SUFFIX or host.endswith(f'.{_MCP_ALLOWED_HOST_SUFFIX}'):
                 return f'https://{host}'
     except Exception:
         pass
@@ -106,7 +106,8 @@ _REFRESH_TTL = 86400 * 90   # refresh tokens: 90 days
 
 # ── DB-backed token helpers ───────────────────────────────────────────────────
 
-def _store_token_db(token: str, user_id: int, kind: str = 'access') -> None:
+def _store_token_db(token: str, user_id: int, kind: str = 'access',
+                     client_id: Optional[str] = None) -> None:
     """Persist an OAuth token to the database and warm the in-memory cache."""
     from datetime import datetime, timedelta
     ttl = _REFRESH_TTL if kind == 'refresh' else _TOKEN_TTL
@@ -118,6 +119,7 @@ def _store_token_db(token: str, user_id: int, kind: str = 'access') -> None:
                 token=token,
                 user_id=user_id,
                 token_kind=kind,
+                client_id=client_id,
                 expires_at=datetime.utcnow() + timedelta(seconds=ttl),
             )
             db.session.add(row)
@@ -159,9 +161,18 @@ def _lookup_token_db(token: str) -> Optional[int]:
     return None
 
 
-def _consume_refresh_token_db(token: str) -> Optional[int]:
+def _consume_refresh_token_db(token: str, client_id: Optional[str] = None,
+                               client_secret: Optional[str] = None) -> Optional[int]:
     """Validate a refresh token and delete it (rotation: each refresh token is
-    single-use; the token endpoint issues a replacement). Returns user_id."""
+    single-use; the token endpoint issues a replacement). Returns user_id.
+
+    Binds redemption to the client the token was issued to: a refresh token
+    minted for the confidential built-in client requires the client_secret to
+    redeem (matching the authorization_code grant's requirement); a refresh
+    token minted for any other client_id must be redeemed with that same
+    client_id, so a leaked refresh token can't be redeemed under a different
+    client identity than the one it was issued to.
+    """
     try:
         from models import MCPOAuthToken, db
         from flask import current_app
@@ -169,6 +180,12 @@ def _consume_refresh_token_db(token: str) -> Optional[int]:
             row = MCPOAuthToken.query.filter_by(token=token, token_kind='refresh').first()
             if row is None or row.is_expired():
                 return None
+            if row.client_id:
+                if row.client_id == OAUTH_CLIENT_ID:
+                    if client_secret != OAUTH_CLIENT_SECRET:
+                        return None
+                elif client_id != row.client_id:
+                    return None
             user_id = row.user_id
             # Atomic single-use: only the request that deletes the row wins
             deleted = MCPOAuthToken.query.filter_by(id=row.id).delete()
@@ -177,6 +194,61 @@ def _consume_refresh_token_db(token: str) -> Optional[int]:
     except Exception as e:
         logger.warning(f"MCP: refresh token lookup failed: {e}")
         return None
+
+
+# ── DB-backed client registry (RFC 7591 dynamic client registration) ────────
+# Registered in the DB, not just per-process memory: DCR (POST /register) and
+# the later /authorize request can land on different gunicorn workers, so a
+# purely in-memory registry would make a just-registered client look unknown
+# to whichever worker serves /authorize. Mirrors the code/token DB helpers.
+
+def _store_client_db(client_id: str, client_name: str, redirect_uris: list) -> None:
+    try:
+        from models import MCPOAuthClient, db
+        from flask import current_app
+        with current_app.app_context():
+            row = MCPOAuthClient(
+                client_id=client_id,
+                client_name=client_name,
+                redirect_uris=json.dumps(redirect_uris or []),
+            )
+            db.session.add(row)
+            db.session.commit()
+    except Exception as e:
+        logger.warning(f"MCP: failed to persist client registration to DB (falling back to memory-only): {e}")
+    with _oauth_lock:
+        _registered_clients[client_id] = {
+            'redirect_uris': redirect_uris or [],
+            'client_name':   client_name,
+            'registered_at': time.time(),
+        }
+
+
+def _lookup_client_db(client_id: str) -> Optional[Dict[str, Any]]:
+    """Look up a registered client: L1 = in-memory cache, L2 = database."""
+    with _oauth_lock:
+        cached = _registered_clients.get(client_id)
+    if cached is not None:
+        return cached
+
+    try:
+        from models import MCPOAuthClient
+        from flask import current_app
+        with current_app.app_context():
+            row = MCPOAuthClient.query.filter_by(client_id=client_id).first()
+            if row is not None:
+                try:
+                    redirect_uris = json.loads(row.redirect_uris or '[]')
+                except (TypeError, ValueError):
+                    redirect_uris = []
+                info = {'redirect_uris': redirect_uris, 'client_name': row.client_name}
+                with _oauth_lock:
+                    _registered_clients[client_id] = info
+                return info
+    except Exception as e:
+        logger.warning(f"MCP: DB client lookup failed: {e}")
+
+    return None
 
 
 # ── DB-backed authorization-code helpers ──────────────────────────────────────
@@ -839,7 +911,11 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 <body>
 <div class="card">
   <h2>DevOps Agent</h2>
+  {% if client_name %}
+  <p>Sign in to let <strong>{{ client_name }}</strong> access your infrastructure tools.</p>
+  {% else %}
   <p>Sign in to connect Claude to your infrastructure tools.</p>
+  {% endif %}
   {% if error %}<div class="err">{{ error }}</div>{% endif %}
   <form method="POST">
     <input type="hidden" name="client_id"             value="{{ client_id }}">
@@ -865,11 +941,25 @@ def oauth_authorize():
     code_challenge         = request.values.get('code_challenge', '')
     code_challenge_method  = request.values.get('code_challenge_method', 'S256')
 
-    # Accept the built-in client OR any dynamically registered client OR any public PKCE client.
-    # We do not reject unknown client_ids here because claude.ai and other public OAuth clients
-    # generate their own client_id and authenticate via PKCE rather than a pre-shared secret.
     if not client_id:
         return jsonify({'error': 'invalid_request', 'error_description': 'client_id required'}), 400
+
+    # Every client_id must be known: either the built-in confidential client,
+    # or one that completed dynamic client registration (POST
+    # /mcp/oauth/register). Accepting an arbitrary, never-registered client_id
+    # here would let an attacker reuse a real client's client_id together with
+    # a redirect_uri that client never registered — redirecting a
+    # legitimately-authenticated victim's auth code to an attacker-controlled
+    # URL (authorization code interception / account takeover).
+    client_name = None
+    allowed_redirect_uris = None
+    if client_id != OAUTH_CLIENT_ID:
+        client_record = _lookup_client_db(client_id)
+        if client_record is None:
+            return jsonify({'error': 'invalid_client',
+                            'error_description': 'Unknown client_id — register via /mcp/oauth/register first'}), 400
+        allowed_redirect_uris = client_record.get('redirect_uris') or None
+        client_name = client_record.get('client_name')
 
     # Redirect target guard: https for real clients, plain http only for
     # loopback (Claude Desktop / Claude Code use http://localhost:<port>).
@@ -880,6 +970,9 @@ def oauth_authorize():
         if parsed.scheme != 'https' and not (parsed.scheme == 'http' and is_loopback):
             return jsonify({'error': 'invalid_request',
                             'error_description': 'redirect_uri must be https (or http on loopback)'}), 400
+        if allowed_redirect_uris and redirect_uri not in allowed_redirect_uris:
+            return jsonify({'error': 'invalid_request',
+                            'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
 
     if request.method == 'GET':
         return render_template_string(_AUTHORIZE_HTML,
@@ -888,6 +981,7 @@ def oauth_authorize():
                                       state=state,
                                       code_challenge=code_challenge,
                                       code_challenge_method=code_challenge_method,
+                                      client_name=client_name,
                                       error=None)
 
     # POST — validate credentials
@@ -906,6 +1000,7 @@ def oauth_authorize():
                                       state=state,
                                       code_challenge=code_challenge,
                                       code_challenge_method=code_challenge_method,
+                                      client_name=client_name,
                                       error=str(e))
     except Exception as e:
         logger.error(f"OAuth authorize error: {e}", exc_info=True)
@@ -915,6 +1010,7 @@ def oauth_authorize():
                                       state=state,
                                       code_challenge=code_challenge,
                                       code_challenge_method=code_challenge_method,
+                                      client_name=client_name,
                                       error='Server error, please try again')
 
     # Issue auth code (persisted to the DB so any worker can exchange it)
@@ -959,10 +1055,10 @@ def oauth_token():
         refresh_token = request.form.get('refresh_token') or body.get('refresh_token')
         if not refresh_token:
             return _token_error('invalid_request', 'refresh_token required')
-        user_id = _consume_refresh_token_db(refresh_token)
+        user_id = _consume_refresh_token_db(refresh_token, client_id, client_secret)
         if user_id is None:
             return _token_error('invalid_grant', 'Refresh token expired or invalid')
-        return _issue_token_response(user_id)
+        return _issue_token_response(user_id, client_id)
 
     # ── authorization_code grant ──────────────────────────────────────────────
     # Accept the built-in confidential client (client_secret required) OR any public
@@ -971,47 +1067,30 @@ def oauth_token():
     is_known_confidential = (client_id == OAUTH_CLIENT_ID and client_secret == OAUTH_CLIENT_SECRET)
     is_public_pkce = bool(code_verifier)  # PKCE verifier will be checked against stored challenge
     if not is_known_confidential and not is_public_pkce:
-        resp = jsonify({'error': 'invalid_client',
-                        'error_description': 'Provide client_secret or use PKCE (code_verifier)'})
-        for k, v in _cors_headers().items():
-            resp.headers[k] = v
-        return resp, 401
+        return _token_error('invalid_client', 'Provide client_secret or use PKCE (code_verifier)', 401)
 
     if grant_type != 'authorization_code' or not code:
-        resp = jsonify({'error': 'unsupported_grant_type' if grant_type not in
-                        (None, 'authorization_code') else 'invalid_request'})
-        for k, v in _cors_headers().items():
-            resp.headers[k] = v
-        return resp, 400
+        error = 'unsupported_grant_type' if grant_type not in (None, 'authorization_code') else 'invalid_request'
+        return _token_error(error, 'grant_type must be authorization_code or refresh_token')
 
     record = _consume_code_db(code)
 
     if not record or time.time() > record['expires']:
-        resp = jsonify({'error': 'invalid_grant', 'error_description': 'Code expired or invalid'})
-        for k, v in _cors_headers().items():
-            resp.headers[k] = v
-        return resp, 400
+        return _token_error('invalid_grant', 'Code expired or invalid')
 
     # Verify PKCE when a challenge was stored with the auth code.
     # For public clients code_verifier is mandatory; for confidential clients it's optional.
     stored_challenge = record.get('code_challenge', '')
     if stored_challenge:
         if not code_verifier:
-            resp = jsonify({'error': 'invalid_grant',
-                            'error_description': 'code_verifier required (PKCE)'})
-            for k, v in _cors_headers().items():
-                resp.headers[k] = v
-            return resp, 400
+            return _token_error('invalid_grant', 'code_verifier required (PKCE)')
         import base64
         digest = hashlib.sha256(code_verifier.encode()).digest()
         computed = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
         if not hmac.compare_digest(computed, stored_challenge):
-            resp = jsonify({'error': 'invalid_grant', 'error_description': 'PKCE verification failed'})
-            for k, v in _cors_headers().items():
-                resp.headers[k] = v
-            return resp, 400
+            return _token_error('invalid_grant', 'PKCE verification failed')
 
-    return _issue_token_response(record['user_id'])
+    return _issue_token_response(record['user_id'], client_id)
 
 
 def _token_error(error: str, description: str, status: int = 400):
@@ -1022,12 +1101,12 @@ def _token_error(error: str, description: str, status: int = 400):
     return resp, status
 
 
-def _issue_token_response(user_id: int):
+def _issue_token_response(user_id: int, client_id: Optional[str] = None):
     """Issue a fresh access + refresh token pair (used by both grant types)."""
     access_token  = secrets.token_urlsafe(48)
     refresh_token = secrets.token_urlsafe(48)
-    _store_token_db(access_token, user_id, kind='access')
-    _store_token_db(refresh_token, user_id, kind='refresh')
+    _store_token_db(access_token, user_id, kind='access', client_id=client_id)
+    _store_token_db(refresh_token, user_id, kind='refresh', client_id=client_id)
     logger.info(f"MCP OAuth: token issued for user_id={user_id} "
                 f"token_prefix={access_token[:8]}...")
 
@@ -1060,12 +1139,7 @@ def oauth_register():
 
     body = request.get_json(silent=True) or {}
     client_id = secrets.token_urlsafe(16)
-    with _oauth_lock:
-        _registered_clients[client_id] = {
-            'redirect_uris': body.get('redirect_uris', []),
-            'client_name':   body.get('client_name', 'MCP Client'),
-            'registered_at': time.time(),
-        }
+    _store_client_db(client_id, body.get('client_name', 'MCP Client'), body.get('redirect_uris', []))
     logger.info(f"MCP: registered OAuth client {client_id!r} ({body.get('client_name', '?')})")
 
     # RFC 7591 §3.2.1: echo the registered metadata — strict clients validate

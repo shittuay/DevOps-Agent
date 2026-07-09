@@ -210,10 +210,16 @@ class TestOAuthFlowEndToEnd:
         db.session.commit()
 
     def test_refresh_token_grant_rotates_and_authenticates(self, client, test_user):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'refresh-test-client',
+            'redirect_uris': ['https://claude.ai/api/mcp/auth_callback'],
+        })
+        client_id = reg.get_json()['client_id']
+
         verifier, challenge = _pkce_pair()
         params = {
             'response_type': 'code',
-            'client_id': 'refresh-test-client',
+            'client_id': client_id,
             'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
             'state': 's',
             'code_challenge': challenge,
@@ -231,7 +237,7 @@ class TestOAuthFlowEndToEnd:
             'grant_type': 'authorization_code',
             'code': code,
             'code_verifier': verifier,
-            'client_id': 'refresh-test-client',
+            'client_id': client_id,
         })
         assert tok.status_code == 200
         assert tok.headers.get('Cache-Control') == 'no-store'
@@ -243,11 +249,21 @@ class TestOAuthFlowEndToEnd:
                            headers={'Authorization': f'Bearer {refresh1}'})
         assert resp.status_code == 401
 
+        # A refresh token is bound to the client_id it was issued to — a
+        # different client_id must not be able to redeem it.
+        wrong_client = client.post('/mcp/oauth/token', data={
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh1,
+            'client_id': 'some-other-client',
+        })
+        assert wrong_client.status_code == 400
+        assert wrong_client.get_json()['error'] == 'invalid_grant'
+
         # Exchange the refresh token for a new pair
         ref = client.post('/mcp/oauth/token', data={
             'grant_type': 'refresh_token',
             'refresh_token': refresh1,
-            'client_id': 'refresh-test-client',
+            'client_id': client_id,
         })
         assert ref.status_code == 200, ref.get_json()
         new = ref.get_json()
@@ -261,7 +277,7 @@ class TestOAuthFlowEndToEnd:
         replay = client.post('/mcp/oauth/token', data={
             'grant_type': 'refresh_token',
             'refresh_token': refresh1,
-            'client_id': 'refresh-test-client',
+            'client_id': client_id,
         })
         assert replay.status_code == 400
         assert replay.get_json()['error'] == 'invalid_grant'
@@ -284,9 +300,14 @@ class TestOAuthFlowEndToEnd:
         assert doc['client_name'] == 'strict-client'
 
     def test_non_https_redirect_uri_rejected_but_loopback_allowed(self, client):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'loopback-test-client',
+            'redirect_uris': ['http://localhost:33418/callback'],
+        })
+        client_id = reg.get_json()['client_id']
         base = {
             'response_type': 'code',
-            'client_id': 'c',
+            'client_id': client_id,
             'code_challenge': 'x' * 43,
             'code_challenge_method': 'S256',
         }
@@ -297,11 +318,46 @@ class TestOAuthFlowEndToEnd:
                         query_string={**base, 'redirect_uri': 'http://localhost:33418/callback'})
         assert ok.status_code == 200
 
+    def test_unregistered_client_id_rejected(self, client):
+        """A client_id that never went through /mcp/oauth/register must be rejected —
+        otherwise an attacker could reuse a known client_id with their own redirect_uri."""
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': 'never-registered-client',
+            'redirect_uri': 'https://attacker.example.com/cb',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'invalid_client'
+
+    def test_redirect_uri_must_match_registered_value(self, client):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'mismatch-test-client',
+            'redirect_uris': ['https://real-app.example.com/cb'],
+        })
+        client_id = reg.get_json()['client_id']
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': client_id,
+            'redirect_uri': 'https://attacker.example.com/cb',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'invalid_request'
+
     def test_wrong_pkce_verifier_rejected(self, client, test_user):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'any-public-client',
+            'redirect_uris': ['https://claude.ai/api/mcp/auth_callback'],
+        })
+        client_id = reg.get_json()['client_id']
+
         verifier, challenge = _pkce_pair()
         params = {
             'response_type': 'code',
-            'client_id': 'any-public-client',
+            'client_id': client_id,
             'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
             'state': 's',
             'code_challenge': challenge,
@@ -317,7 +373,7 @@ class TestOAuthFlowEndToEnd:
             'grant_type': 'authorization_code',
             'code': code,
             'code_verifier': 'wrong-verifier-wrong-verifier-wrong-verifier',
-            'client_id': 'any-public-client',
+            'client_id': client_id,
         })
         assert tok.status_code == 400
         assert tok.get_json()['error'] == 'invalid_grant'
