@@ -9,28 +9,17 @@ import logging
 from flask import jsonify, request, g, current_app
 from api.v1 import api_v1_bp
 from services.api_key_service import require_api_key
+from src.agent.safety import SafetyValidator
 
 logger = logging.getLogger(__name__)
 
-# Tools that require confirmation in the web UI are blocked here unless
-# the request includes "confirm": true. This mirrors safety.py risk levels.
-_HIGH_RISK_PREFIXES = ('delete_', 'terminate_', 'destroy_', 'remove_', 'drop_', 'purge_')
-_HIGH_RISK_TOOLS = {
-    'abort_jenkins_build', 'delete_jenkins_build', 'terraform_destroy',
-    'terraform_state_rm', 'delete_sonar_project', 'nexus_delete_repository',
-    'nexus_delete_component', 'nexus_delete_asset', 'git_reset_to_commit',
-    'git_clean_working_directory', 'git_force_push_branch', 'resize_ec2_instance',
-}
-
-
-def _is_high_risk(tool_name: str, params: dict) -> bool:
-    if tool_name in _HIGH_RISK_TOOLS:
-        return True
-    if any(tool_name.startswith(p) for p in _HIGH_RISK_PREFIXES):
-        return True
-    if tool_name == 'manage_ec2_instance' and params.get('action') == 'terminate':
-        return True
-    return False
+# One shared source of truth for tool risk. The REST API MUST classify tools
+# identically to the chat UI and the MCP server — all three route through
+# SafetyValidator.validate_tool_call() so a tool added to a risk set in
+# safety.py is automatically enforced here too. (A prior local re-implementation
+# only knew a 12-tool subset, letting write-scope keys run execute_command,
+# the *_api_write passthroughs, and the entire medium-risk set unconfirmed.)
+_safety_validator = SafetyValidator()
 
 
 @api_v1_bp.route('/tools/execute', methods=['POST'])
@@ -67,10 +56,24 @@ def execute_tool():
             'available_count': len(available),
         }), 404
 
-    if _is_high_risk(tool_name, params) and not confirmed:
+    # Shared safety gate — same classification the chat UI and MCP server use.
+    verdict = _safety_validator.validate_tool_call(tool_name, params)
+    if not verdict.is_safe:
+        logger.warning("Blocked unsafe tool %s for api_user=%s: %s",
+                       tool_name, getattr(g, 'api_user', None) and g.api_user.id, verdict.reason)
         return jsonify({
-            'error': 'This tool is high-risk. Re-send with "confirm": true to proceed.',
+            'error': verdict.reason or 'This tool is blocked by the safety validator.',
             'tool': tool_name,
+            'risk_level': verdict.risk_level,
+        }), 403
+
+    # High- and medium-risk tools both require confirmation in the UI; enforce
+    # the same here so a write-scope key can't run them silently.
+    if verdict.requires_confirmation and not confirmed:
+        return jsonify({
+            'error': 'This tool requires confirmation. Re-send with "confirm": true to proceed.',
+            'tool': tool_name,
+            'risk_level': verdict.risk_level,
             'requires_confirm': True,
         }), 409
 
