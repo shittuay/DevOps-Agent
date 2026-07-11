@@ -153,11 +153,14 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - Account lockout after 5 failed attempts
 
 ### Guardrails (Jailbreak / Prompt Injection Defense)
-Three-layer stack applied at both `/api/chat` and `/api/chat/stream` before any credit is deducted:
+Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer REST API
+(`/v1/agent`, `/v1/agent/stream` in `routes/api_gateway.py`) before any credit is deducted:
 
 1. **`validate_message()`** (`services/input_sanitizer.py`) — blocks messages with injection patterns (10 regex rules) and enforces a 10,000-char limit. Returns `(bool, reason)`.
-2. **`screen_message()`** (`src/agent/guardrails.py`) — Haiku pre-screen using structured tool output. Classifies: `prompt_injection`, `out_of_scope_attack`, `malware_request`, `data_exfiltration`, `social_engineering`. Fails open on error.
+2. **`screen_message()`** (`src/agent/guardrails.py`) — Haiku pre-screen using structured tool output. Classifies: `prompt_injection`, `out_of_scope_attack`, `malware_request`, `data_exfiltration`, `social_engineering`. Also runs crisis-language detection (fails closed) before the Haiku call. Fails open on error.
 3. **Hardened system prompt** (`src/agent/core.py`) — `SECURITY BOUNDARIES` section: fixed identity, no prompt disclosure, refuse malware generation, reject in-message operator impersonation.
+
+**Every guardrail-gated route MUST, in order:** `sanitize_input()` the raw message → check `current_user.is_guardrail_blocked()` (or the equivalent `User` row for API-key routes) → `validate_message()` → `screen_message()`, calling `record_guardrail_violation()` on any block. Skipping `screen_message()`/`sanitize_input()` on a new entry point (as `routes/api_gateway.py`'s developer API originally did) silently drops the Haiku jailbreak screen, crisis detection, and lockout enforcement for that surface — see `CLAUDE_RUNBOOK.md`.
 
 **Violation tracking on `User` model:**
 - `guardrail_violations` (Integer) + `guardrail_blocked_until` (DateTime)

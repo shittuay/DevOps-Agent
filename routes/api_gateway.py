@@ -668,17 +668,40 @@ def api_agent_stream():
         return Response(stream_with_context(_err()), mimetype='text/event-stream')
 
     data = request.get_json(silent=True) or {}
-    message = (data.get('message') or '').strip()
+    from services.input_sanitizer import sanitize_input, validate_message
+    from src.agent.guardrails import screen_message
+    from models import User
+
+    message = sanitize_input((data.get('message') or '').strip())
     if not message:
         def _err():
             yield f"data: {_json.dumps({'type': 'error', 'message': 'message is required'})}\n\n"
         return Response(stream_with_context(_err()), mimetype='text/event-stream')
 
-    from services.input_sanitizer import validate_message
+    api_user = User.query.get(user_id)
+
+    # Guardrail layer 1: check if account is locked out from repeated violations
+    if api_user.is_guardrail_blocked():
+        def _err():
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Account temporarily restricted due to repeated policy violations.'})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    # Guardrail layer 2: injection pattern check
     is_valid, reason = validate_message(message)
     if not is_valid:
+        api_user.record_guardrail_violation()
+        db.session.commit()
         def _err():
             yield f"data: {_json.dumps({'type': 'error', 'message': reason})}\n\n"
+        return Response(stream_with_context(_err()), mimetype='text/event-stream')
+
+    # Guardrail layer 3: Haiku harmlessness screen
+    guardrail_result = screen_message(message)
+    if guardrail_result.blocked:
+        api_user.record_guardrail_violation()
+        db.session.commit()
+        def _err():
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Message blocked by content policy. Repeated violations may result in account suspension.'})}\n\n"
         return Response(stream_with_context(_err()), mimetype='text/event-stream')
 
     raw_conv_id = data.get('conversation_id')
@@ -802,12 +825,36 @@ def api_agent():
     if not sub.has_credits():
         return jsonify({'error': 'insufficient_credits', 'credits_remaining': 0}), 402
 
+    from services.input_sanitizer import sanitize_input, validate_message
+    from src.agent.guardrails import screen_message
+    from models import User
+
     data = request.get_json(silent=True) or {}
-    message = (data.get('message') or '').strip()
+    message = sanitize_input((data.get('message') or '').strip())
     if not message:
         return jsonify({'error': 'message is required'}), 400
     if len(message) > 10000:
         return jsonify({'error': 'message exceeds 10000 character limit'}), 400
+
+    api_user = User.query.get(user_id)
+
+    # Guardrail layer 1: check if account is locked out from repeated violations
+    if api_user.is_guardrail_blocked():
+        return jsonify({'error': 'Account temporarily restricted due to repeated policy violations.'}), 403
+
+    # Guardrail layer 2: injection pattern check
+    is_valid, validation_reason = validate_message(message)
+    if not is_valid:
+        api_user.record_guardrail_violation()
+        db.session.commit()
+        return jsonify({'error': validation_reason}), 400
+
+    # Guardrail layer 3: Haiku harmlessness screen
+    guardrail_result = screen_message(message)
+    if guardrail_result.blocked:
+        api_user.record_guardrail_violation()
+        db.session.commit()
+        return jsonify({'error': 'Message blocked by content policy. Repeated violations may result in account suspension.'}), 400
 
     import re
     raw_conv_id = data.get('conversation_id')
@@ -831,11 +878,6 @@ def api_agent():
     # Run the agent
     from src.agent.core import DevOpsAgent
     from services.model_router import resolve_model_with_preference
-    from services.input_sanitizer import validate_message
-
-    is_valid, reason = validate_message(message)
-    if not is_valid:
-        return jsonify({'error': reason}), 400
 
     agent_instance = current_app.config.get('DEVOPS_AGENT')
     if agent_instance is None:
