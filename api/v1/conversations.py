@@ -76,7 +76,7 @@ def _get_conversation_history(user_id, conversation_id):
     return [{'role': m.role, 'content': m.content} for m in prior]
 
 
-def _process_message(agent, message, conversation_history, preferences_context, user_id, model_config, trial_context=None):
+def _process_message(agent, message, conversation_history, preferences_context, user_id, model_config, trial_context=None, sandbox_mode=False):
     """Process a message through the appropriate AI provider with failover."""
     from services.chat_service import process_free_tier_chat, is_anthropic_error
 
@@ -93,6 +93,7 @@ def _process_message(agent, message, conversation_history, preferences_context, 
             user_id=user_id,
             model_override=model_config.model,
             trial_context=trial_context,
+            sandbox_mode=sandbox_mode,
             provider=provider_arg
         )
     except Exception:
@@ -318,6 +319,25 @@ def send_message(conversation_id):
     db.session.commit()
 
     preferences_context = prefs.get_context_for_prompt() if prefs else None
+    sandbox_active = False
+    if prefs and prefs.learning_mode:
+        try:
+            from app import LEARNING_MODE_CONTEXT, SANDBOX_MODE_ADDENDUM
+            preferences_context = (preferences_context or '') + '\n\n' + LEARNING_MODE_CONTEXT
+            if prefs.sandbox_mode:
+                preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
+                sandbox_active = True
+        except ImportError:
+            pass
+
+    try:
+        from services.memory_service import get_context_for_conversation
+        from models import db
+        memory_ctx = get_context_for_conversation(db, user_id, message)
+        if memory_ctx:
+            preferences_context = (preferences_context or '') + '\n\n' + memory_ctx
+    except Exception:
+        pass
 
     agent = current_app.config.get('DEVOPS_AGENT')
 
@@ -339,7 +359,7 @@ def send_message(conversation_id):
     try:
         response, actual_mc = _process_message(
             agent, message, conversation_history, preferences_context, user_id, model_config,
-            trial_context=trial_context
+            trial_context=trial_context, sandbox_mode=sandbox_active
         )
         success = True
         error_msg = None
@@ -514,6 +534,16 @@ def api_v1_chat_stream():
 
     # Preferences
     preferences_context = prefs.get_context_for_prompt() if prefs else None
+    sandbox_active = False
+    if prefs and prefs.learning_mode:
+        try:
+            from app import LEARNING_MODE_CONTEXT, SANDBOX_MODE_ADDENDUM
+            preferences_context = (preferences_context or '') + '\n\n' + LEARNING_MODE_CONTEXT
+            if prefs.sandbox_mode:
+                preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
+                sandbox_active = True
+        except ImportError:
+            pass
 
     # Build trial context for free-tier users
     trial_context = None
@@ -537,6 +567,7 @@ def api_v1_chat_stream():
     msg_text = message
     mc = model_config
     tc = trial_context
+    sb = sandbox_active
     agent = current_app.config.get('DEVOPS_AGENT')
     app = current_app._get_current_object()
 
@@ -564,6 +595,7 @@ def api_v1_chat_stream():
                         user_id=uid,
                         model_override=mc.model,
                         trial_context=tc,
+                        sandbox_mode=sb,
                         provider=_provider_arg
                     )
                     # Buffer initial chunks to detect agent-swallowed errors
