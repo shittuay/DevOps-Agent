@@ -18,10 +18,13 @@ _ANTHROPIC_FAIL_PATTERNS = [
     'credit balance is too low',
     'Error communicating with Claude',
     'Error communicating with Kimi',
-    'Unexpected error',
+    '❌ Unexpected error',  # emoji-prefixed: matches the agent's own error (core.py) without
+                            # catching legitimate responses that mention "unexpected error"
     'Rate limit reached',
     'Temporary API issue',
-    'API error:',
+    # NOTE: 'API error:' removed — it false-matched legitimate tool results
+    # (e.g. PagerDuty/OpsGenie handlers return "API error: ...") and wrongly
+    # triggered Anthropic failover / the upgrade pitch.
     'overloaded_error',
     'insufficient balance',
 ]
