@@ -32,11 +32,33 @@ def agent_with_tools(app):
     class _FakeAgent:
         tools = {n: _make(n) for n in tool_names}
 
+    _prev = app.config.get('DEVOPS_AGENT')
     app.config['DEVOPS_AGENT'] = _FakeAgent()
     app.config['_test_tool_calls'] = calls
     yield calls
-    app.config.pop('DEVOPS_AGENT', None)
+    # Restore whatever was there (the real import-time agent), don't just drop it
+    app.config['DEVOPS_AGENT'] = _prev
     app.config.pop('_test_tool_calls', None)
+
+
+def test_initialize_agent_populates_config(app):
+    """Regression: initialize_agent() (called at import under gunicorn) must
+    populate app.config['DEVOPS_AGENT'] and be idempotent, so /api/v1 tool
+    endpoints don't 503 per-worker. Eager import-time init is skipped under
+    pytest, so invoke it explicitly here to exercise the same code path."""
+    import app as appmod
+    with app.app_context():
+        ok, err = appmod.initialize_agent()
+        assert ok, f"initialize_agent failed: {err}"
+        a = app.config.get('DEVOPS_AGENT')
+        assert a is not None, "DEVOPS_AGENT not set — REST tool endpoints would 503"
+        assert 'execute_command' in a.tools
+        # Idempotent: a second call is a no-op that still reports success
+        ok2, _ = appmod.initialize_agent()
+        assert ok2
+    # Clean up so the module-level agent doesn't leak into other tests
+    appmod.agent = None
+    app.config.pop('DEVOPS_AGENT', None)
 
 
 def _post(client, headers, tool, params=None, confirm=None):

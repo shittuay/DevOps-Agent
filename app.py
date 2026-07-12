@@ -963,8 +963,17 @@ def get_gcp_config_status():
     }
 
 def initialize_agent():
-    """Initialize the DevOps Agent."""
+    """Initialize the DevOps Agent.
+
+    Idempotent: if the agent is already built and attached to app.config, this
+    is a no-op. Safe to call at module import (so every gunicorn worker has the
+    agent for the /api/v1 REST endpoints) and again lazily from chat routes.
+    """
     global agent, config_manager
+
+    # Already initialized on this worker — don't rebuild the tool registry.
+    if agent is not None and app.config.get('DEVOPS_AGENT') is not None:
+        return True, None
 
     try:
         # Load configuration
@@ -5771,6 +5780,33 @@ def admin_crisis_statistics():
     except Exception as e:
         logger.error(f"Error getting crisis statistics: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Eager agent initialization for WSGI servers (gunicorn).
+# Under gunicorn the module is imported, not run as __main__, so the agent was
+# only ever built lazily by chat routes — and only on the worker that served
+# that request. The /api/v1 REST endpoints (e.g. /v1/tools/execute) read
+# app.config['DEVOPS_AGENT'] and 503'd on any worker that hadn't served a chat
+# request. Build it at import so every worker has it. Fail-soft: a bad/missing
+# Anthropic key does NOT crash the worker (the client is constructed lazily and
+# only errors when Claude is actually called); the endpoint keeps returning 503
+# exactly as before if init fails, so this is strictly an improvement.
+# Skip under pytest: the test harness configures its own in-memory DB engine
+# (StaticPool) in a fixture that runs after import, and eager init here would
+# bind the engine before those options apply. Tests exercise the endpoint with
+# their own agent fixture instead.
+_is_testing = os.environ.get('TESTING') == 'true' or os.environ.get('FLASK_ENV') == 'testing'
+if __name__ != '__main__' and not _is_testing:
+    try:
+        with app.app_context():
+            _ok, _err = initialize_agent()
+            if _ok:
+                logger.info("Agent initialized at import (WSGI) — /api/v1 tool endpoints ready")
+            else:
+                logger.warning(f"Agent not initialized at import: {_err} — /api/v1 tool endpoints will 503 until configured")
+    except Exception as _e:
+        logger.warning(f"Eager agent init skipped (non-fatal): {_e}")
 
 
 if __name__ == '__main__':
