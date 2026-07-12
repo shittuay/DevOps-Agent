@@ -3110,6 +3110,11 @@ class MCPOAuthToken(db.Model):
     # 'access' or 'refresh' — refresh tokens live longer and are exchanged
     # (with rotation) for new access tokens at the token endpoint.
     token_kind = db.Column(db.String(16), nullable=False, default='access', server_default='access')
+    # client_id the token was issued to (nullable — tokens issued before this
+    # column existed have none). Used to bind refresh_token redemption to the
+    # client that requested it, so a leaked refresh token can't be redeemed
+    # under a different client identity.
+    client_id  = db.Column(db.String(64), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     expires_at = db.Column(db.DateTime, nullable=False, index=True)
 
@@ -3149,3 +3154,25 @@ class MCPOAuthCode(db.Model):
 
     def __repr__(self):
         return f'<MCPOAuthCode user={self.user_id} expires={self.expires_at}>'
+
+
+class MCPOAuthClient(db.Model):
+    """Dynamically-registered OAuth clients (RFC 7591) for the MCP server.
+
+    Stored in the DB (not per-process memory) for the same reason as
+    MCPOAuthCode: DCR (POST /mcp/oauth/register) can land on a different
+    gunicorn worker than the later /authorize request, so a purely in-memory
+    registry would make a client that just registered look "unknown" to the
+    worker serving /authorize. redirect_uris is stored as a JSON list and is
+    the allowlist /authorize validates the requested redirect_uri against.
+    """
+    __tablename__ = 'mcp_oauth_clients'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    client_id     = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    client_name   = db.Column(db.String(200), nullable=True)
+    redirect_uris = db.Column(db.Text, nullable=False, default='[]')
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<MCPOAuthClient {self.client_id!r} ({self.client_name})>'
