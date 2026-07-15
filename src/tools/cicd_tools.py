@@ -5,7 +5,7 @@ import jenkins
 from github import Github, GithubException
 from urllib.parse import quote
 from typing import Dict, Any, List, Optional
-from ..utils import get_logger
+from ..utils import get_logger, assert_safe_url
 
 
 logger = get_logger(__name__)
@@ -38,6 +38,7 @@ def trigger_jenkins_job(
                 'error': 'Jenkins credentials not provided'
             }
 
+        assert_safe_url(jenkins_url)
         server = jenkins.Jenkins(jenkins_url, username=username, password=token)
 
         # Trigger build
@@ -95,6 +96,7 @@ def get_jenkins_job_status(
                 'error': 'Jenkins credentials not provided'
             }
 
+        assert_safe_url(jenkins_url)
         server = jenkins.Jenkins(jenkins_url, username=username, password=token)
 
         # Get build info
@@ -163,6 +165,7 @@ def get_jenkins_build_logs(
                 'error': 'Jenkins credentials not provided'
             }
 
+        assert_safe_url(jenkins_url)
         server = jenkins.Jenkins(jenkins_url, username=username, password=token)
 
         # Get console output
@@ -205,6 +208,7 @@ def _get_jenkins_server(
     tok = token or os.environ.get('JENKINS_TOKEN', '')
     if not all([url, user, tok]):
         raise ValueError('Jenkins credentials not provided and not found in environment (JENKINS_URL, JENKINS_USERNAME, JENKINS_TOKEN)')
+    assert_safe_url(url)
     return jenkins.Jenkins(url, username=user, password=tok)
 
 
@@ -1227,6 +1231,7 @@ def run_smoke_test(
 ) -> Dict[str, Any]:
     """Run a basic HTTP smoke test against a deployed service to verify it is healthy."""
     try:
+        assert_safe_url(url)
         resp = requests.get(url, headers=headers or {}, timeout=timeout, allow_redirects=True)
         success = resp.status_code == expected_status
         return {
@@ -1252,6 +1257,7 @@ def auto_rollback_deployment(
 ) -> Dict[str, Any]:
     """Run health check after deployment. Auto-rollback if it fails."""
     try:
+        assert_safe_url(health_check_url)
         # Run health check
         try:
             resp = requests.get(health_check_url, timeout=health_timeout)

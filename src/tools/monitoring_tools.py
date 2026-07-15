@@ -2,7 +2,7 @@
 import requests
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
-from ..utils import get_logger
+from ..utils import get_logger, assert_safe_url
 
 logger = get_logger(__name__)
 
@@ -28,6 +28,7 @@ def query_prometheus(
         Dictionary with query results
     """
     try:
+        assert_safe_url(prometheus_url)
         url = f"{prometheus_url.rstrip('/')}/api/v1/query"
 
         params = {'query': query}
@@ -76,6 +77,7 @@ def query_prometheus_range(
         Dictionary with query results
     """
     try:
+        assert_safe_url(prometheus_url)
         url = f"{prometheus_url.rstrip('/')}/api/v1/query_range"
 
         params = {
@@ -117,6 +119,7 @@ def get_prometheus_targets(prometheus_url: str) -> Dict[str, Any]:
         Dictionary with targets
     """
     try:
+        assert_safe_url(prometheus_url)
         url = f"{prometheus_url.rstrip('/')}/api/v1/targets"
 
         response = requests.get(url, timeout=30)
@@ -161,6 +164,7 @@ def get_prometheus_alerts(prometheus_url: str) -> Dict[str, Any]:
         Dictionary with alerts
     """
     try:
+        assert_safe_url(prometheus_url)
         url = f"{prometheus_url.rstrip('/')}/api/v1/alerts"
 
         response = requests.get(url, timeout=30)
@@ -502,6 +506,7 @@ def get_grafana_datasources(grafana_url: str, api_key: str) -> Dict[str, Any]:
         Dictionary with datasources
     """
     try:
+        assert_safe_url(grafana_url)
         url = f"{grafana_url.rstrip('/')}/api/datasources"
 
         headers = {
@@ -536,6 +541,7 @@ def get_grafana_dashboards(grafana_url: str, api_key: str) -> Dict[str, Any]:
         Dictionary with dashboards
     """
     try:
+        assert_safe_url(grafana_url)
         url = f"{grafana_url.rstrip('/')}/api/search"
 
         headers = {
@@ -572,6 +578,7 @@ def get_grafana_alerts(grafana_url: str, api_key: str) -> Dict[str, Any]:
         Dictionary with alerts
     """
     try:
+        assert_safe_url(grafana_url)
         url = f"{grafana_url.rstrip('/')}/api/alerts"
 
         headers = {

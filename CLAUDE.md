@@ -195,6 +195,26 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
   - `action='start'` → LOW RISK (no confirmation required)
   - This is implemented in `validate_tool_call()` with special-case logic that inspects the action param before returning the classification result
 
+### SSRF guard for tools that call a caller-supplied URL (`src/utils/network_safety.py`)
+
+`safety.py`'s risk classification gates *confirmation prompts* for DevOps actions — it does not
+validate URLs/hosts, so any tool that takes a `base_url`/`url`/`*_url` parameter and makes an
+outbound HTTP request is a potential SSRF vector (the param is ultimately driven by chat text).
+**When adding a new tool that accepts a caller-supplied URL/host and calls out to it**, call
+`assert_safe_url(url)` (raises `UnsafeUrlError`, a `ValueError` subclass — safe to let existing
+`except Exception` handlers catch it) before making the request. It blocks loopback/link-local/
+multicast/unspecified addresses (covers the cloud metadata endpoint `169.254.169.254` and the
+app server's own local-only services) but **deliberately allows RFC1918 private ranges** — these
+tools are designed to reach self-hosted internal infra (Jenkins/SonarQube/Nexus/Prometheus/K8s
+service IPs almost always sit on private IPs), so blocking `is_private` would break their
+intended use, not just close an attack path.
+
+Currently wired into: `sonarqube_tools._get_sonar_client`, `nexus_tools._get_nexus_client`,
+`cicd_tools._get_jenkins_server` (+ the 3 Jenkins functions that build `jenkins.Jenkins()`
+directly, plus `run_smoke_test`/`auto_rollback_deployment`), and every Prometheus/Grafana
+function in `monitoring_tools.py`. Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't
+need it.
+
 ## Context Management & Progressive Tool Loading
 
 Harness improvements that raise the agent's autonomy ceiling: Phase 1 (token-aware
