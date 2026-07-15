@@ -1,6 +1,6 @@
 # DevOps Agent MCP Server
 
-Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more from any MCP-compatible AI client. **730 tools across 17 modules** — all accessible via a single connection.
+Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more from any MCP-compatible AI client. **702 tools across 13 modules** — all accessible via a single connection.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more 
 
 **Step 4:** Fully quit and restart Claude Desktop.
 
-All 730 tools will appear automatically under the tools (hammer) icon in the chat input.
+All 702 tools will appear automatically under the tools (hammer) icon in the chat input.
 
 > The `npx` command downloads and runs the bridge automatically on first use — nothing else to install.
 
@@ -52,7 +52,7 @@ No Node.js needed for this method — Claude.ai connects directly to the hosted 
 1. Go to **Claude.ai → Settings → Connectors → Add Integration**
 2. Enter the Integration URL: `https://devopsagent.io/mcp/`
 3. Claude.ai will trigger OAuth automatically — log in with your devopsagent.io account to authorize
-4. All 730 tools become available immediately
+4. All 702 tools become available immediately
 
 ## Verifying the Connection
 
@@ -117,27 +117,26 @@ You should see the JSON response above. Press `Ctrl+C` to exit.
 - Keys are per-user — make sure you're logged into the right account when generating
 
 **`tools_loaded` shows an unexpected number**
-- The server exposes 730 tools across 17 modules — this is the correct count
+- The server exposes 702 tools across 13 modules — this is the correct count
 - If you see a different number, the server may be mid-deploy; retry after a minute
 
 ## Tools
 
 | Module | Count | What you can do |
 |--------|-------|-----------------|
-| AWS | 334 | EC2, S3, RDS, Lambda, ECS, EKS, IAM, VPC, CloudWatch, DynamoDB, and more |
+| AWS | 351 | EC2, S3, RDS, Lambda, ECS, EKS, IAM, VPC, CloudWatch, DynamoDB, and more |
 | Kubernetes | 76 | Pods, Deployments, Services, Namespaces, Ingress, Jobs, Nodes |
 | Azure | 38 | VMs, Storage, SQL, NSGs, Container Instances, VNets, Public IPs |
 | GCP | 42 | Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, BigQuery, Functions |
 | CI/CD | 35 | Jenkins + GitHub Actions |
 | Docker | 22 | Containers, images, volumes, networks, compose, build, push |
-| Terraform | 25 | init, plan, apply, destroy, state, workspaces, import |
+| Terraform | 26 | init, plan, apply, destroy, state, workspaces, import |
 | Ansible | 13 | Playbooks, ad-hoc, inventory, vault, galaxy |
 | Monitoring | 12 | Prometheus, Datadog, Grafana |
 | Alerting | 16 | PagerDuty + OpsGenie |
 | SonarQube | 12 | Projects, quality gates, issues, analysis |
 | Nexus | 12 | Repositories, components, assets |
 | Git | 47 | Clone, branch, commit, push, pull, merge, rebase, tags, stash, search |
-| GitHub | 19 | Repos, issues, PRs, branches, releases, workflows, collaborators |
 
 ## Environment Variables
 

@@ -28,7 +28,7 @@ Authentication:
 Supported JSON-RPC methods:
   initialize              Handshake — returns server info + capabilities
   notifications/initialized  Ack from client (no-op)
-  tools/list              Returns all 258 tools in MCP inputSchema format
+  tools/list              Returns all exposed tools in MCP inputSchema format
   tools/call              Executes a tool by name
   ping                    Keepalive
 """
