@@ -92,7 +92,7 @@ google-cloud-dataflow-client==0.14.0
 protobuf>=5.29.6  # security floor: PYSEC-2026-1805 (DoS)
 google-cloud-dataproc==5.12.0
 google-cloud-orchestration-airflow==1.15.0
-google-cloud-aiplatform==1.133.0
+google-cloud-aiplatform>=1.133.0  # security floor: PYSEC-2026-2500 (predictable bucket naming)
 google-cloud-vision==3.8.1
 google-cloud-language==2.15.1
 google-cloud-monitoring==2.23.1
@@ -111,16 +111,16 @@ stripe==11.3.0
 reportlab>=4.0
 
 # Utilities
-python-dotenv==1.2.2
+python-dotenv>=1.2.2  # security floor: PYSEC-2026-2270 (symlink following)
 psutil>=5.10.0
 PyYAML==6.0.2
-Werkzeug==3.1.6
-click==8.3.3
+Werkzeug>=3.1.6  # security floor: PYSEC-2026-2320 (safe_join device names)
+click>=8.3.3  # security floor: PYSEC-2026-2132 (command injection)
 Jinja2==3.1.6
 MarkupSafe==3.0.2
 itsdangerous==2.2.0
 blinker==1.9.0
-GitPython==3.1.50
+GitPython>=3.1.50  # security floor: PYSEC-2026-2161, GHSA-mv93-w799-cj2w
 
 # CI/CD & DevOps Tools
 PyGithub==2.5.0
@@ -131,7 +131,7 @@ python-dateutil==2.9.0.post0
 pytz==2025.1
 
 # XML/HTML Processing (for some AWS operations)
-lxml==6.1.0
+lxml>=6.1.0  # security floor: PYSEC-2026-87 (XXE via default config)
 
 # Penetration Testing & Security
 scapy>=2.6.1
