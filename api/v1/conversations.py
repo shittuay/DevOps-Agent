@@ -250,7 +250,7 @@ def send_message(conversation_id):
     from services.model_router import resolve_model_with_preference
 
     from models import db
-    from services.input_sanitizer import validate_message
+    from services.input_sanitizer import sanitize_input, validate_message
     from src.agent.guardrails import screen_message
 
     user_id = g.api_user.id
@@ -262,19 +262,26 @@ def send_message(conversation_id):
             'message': 'Message content is required'
         }), 400
 
+    content = sanitize_input(data['content'])
+    if not content:
+        return jsonify({
+            'error': 'Bad request',
+            'message': 'Message content is required'
+        }), 400
+
     # Guardrail layer 1: check if user is blocked
     if g.api_user.is_guardrail_blocked():
         return jsonify({'error': 'Account temporarily restricted due to repeated policy violations.'}), 403
 
     # Guardrail layer 2: injection pattern check
-    is_valid, validation_reason = validate_message(data['content'])
+    is_valid, validation_reason = validate_message(content)
     if not is_valid:
         g.api_user.record_guardrail_violation()
         db.session.commit()
         return jsonify({'error': validation_reason}), 400
 
     # Guardrail layer 3: Haiku harmlessness screen
-    guardrail_result = screen_message(data['content'])
+    guardrail_result = screen_message(content)
     if guardrail_result.blocked:
         g.api_user.record_guardrail_violation()
         db.session.commit()
@@ -304,7 +311,7 @@ def send_message(conversation_id):
     preferred_provider = prefs.preferred_model_provider if prefs else None
     model_config = resolve_model_with_preference(tier_name, preferred_provider)
 
-    message = data['content']
+    message = content
 
     # Query history BEFORE adding the new message to avoid autoflush bug
     conversation_history = _get_conversation_history(user_id, conversation_id)
@@ -442,12 +449,12 @@ def api_v1_chat_stream():
     from services.model_router import resolve_model_with_preference
     from services.chat_service import stream_free_tier_chat, is_anthropic_error
 
-    from services.input_sanitizer import validate_message
+    from services.input_sanitizer import sanitize_input, validate_message
     from src.agent.guardrails import screen_message
 
     user_id = g.api_user.id
     data = request.get_json() or {}
-    message = (data.get('message') or '').strip()
+    message = sanitize_input((data.get('message') or '').strip())
 
     if not message:
         return jsonify({'error': 'Message is required'}), 400

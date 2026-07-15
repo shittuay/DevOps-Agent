@@ -359,6 +359,7 @@ class SafetyValidator:
             'regenerate_storage_key',
             'restart_cloud_sql_instance',
             'create_firewall_rule',
+            'create_eventbridge_rule',
             'resize_gke_cluster',
             'create_pubsub_subscription',
             # Git medium risk
@@ -427,6 +428,7 @@ class SafetyValidator:
             'update_iam_role_trust_policy',
             'attach_iam_user_policy',
             'attach_iam_group_policy',
+            'add_iam_user_to_group',
             'detach_iam_policy',
             'put_iam_inline_policy',
             'assume_iam_role',
@@ -549,6 +551,30 @@ class SafetyValidator:
                 return ValidationResult(
                     is_safe=True,
                     reason=f"Medium-risk operation: {action} EC2 instance",
+                    requires_confirmation=True,
+                    risk_level='medium'
+                )
+            # action='start' falls through to low risk
+
+        # Special case: manage_vm (Azure) is action-aware
+        if tool_name == 'manage_vm':
+            action = tool_input.get('action', '').lower()
+            if action in ('stop', 'restart', 'deallocate'):
+                return ValidationResult(
+                    is_safe=True,
+                    reason=f"Medium-risk operation: {action} Azure VM" + (" on production" if targets_production else ""),
+                    requires_confirmation=True,
+                    risk_level='medium'
+                )
+            # action='start' falls through to low risk
+
+        # Special case: manage_compute_instance (GCP) is action-aware
+        if tool_name == 'manage_compute_instance':
+            action = tool_input.get('action', '').lower()
+            if action in ('stop', 'reset'):
+                return ValidationResult(
+                    is_safe=True,
+                    reason=f"Medium-risk operation: {action} GCE instance" + (" on production" if targets_production else ""),
                     requires_confirmation=True,
                     risk_level='medium'
                 )

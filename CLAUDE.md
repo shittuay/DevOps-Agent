@@ -160,7 +160,7 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 2. **`screen_message()`** (`src/agent/guardrails.py`) — Haiku pre-screen using structured tool output. Classifies: `prompt_injection`, `out_of_scope_attack`, `malware_request`, `data_exfiltration`, `social_engineering`. Also runs crisis-language detection (fails closed) before the Haiku call. Fails open on error.
 3. **Hardened system prompt** (`src/agent/core.py`) — `SECURITY BOUNDARIES` section: fixed identity, no prompt disclosure, refuse malware generation, reject in-message operator impersonation.
 
-**Every guardrail-gated route MUST, in order:** `sanitize_input()` the raw message → check `current_user.is_guardrail_blocked()` (or the equivalent `User` row for API-key routes) → `validate_message()` → `screen_message()`, calling `record_guardrail_violation()` on any block. Skipping `screen_message()`/`sanitize_input()` on a new entry point (as `routes/api_gateway.py`'s developer API originally did) silently drops the Haiku jailbreak screen, crisis detection, and lockout enforcement for that surface — see `CLAUDE_RUNBOOK.md`.
+**Every guardrail-gated route MUST, in order:** `sanitize_input()` the raw message → check `current_user.is_guardrail_blocked()` (or the equivalent `User` row for API-key routes) → `validate_message()` → `screen_message()`, calling `record_guardrail_violation()` on any block. Skipping `screen_message()`/`sanitize_input()` on a new entry point (as `routes/api_gateway.py`'s developer API originally did, and `api/v1/conversations.py`'s `send_message()`/`api_v1_chat_stream()` did later — both now fixed) silently drops the Haiku jailbreak screen, crisis detection, and lockout enforcement for that surface — see `CLAUDE_RUNBOOK.md`. Compliant chat-to-agent entry points today: `app.py` (`/api/chat`, `/api/chat/stream`), `routes/api_gateway.py` (`/v1/agent`, `/v1/agent/stream`), and `api/v1/conversations.py` (`/conversations/<id>/messages`, `/chat/stream`).
 
 **Violation tracking on `User` model:**
 - `guardrail_violations` (Integer) + `guardrail_blocked_until` (DateTime)
@@ -186,7 +186,7 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 `abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `resize_ec2_instance`
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -194,6 +194,8 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
   - `action in ('stop', 'reboot')` → MEDIUM RISK (requires confirmation)
   - `action='start'` → LOW RISK (no confirmation required)
   - This is implemented in `validate_tool_call()` with special-case logic that inspects the action param before returning the classification result
+- `manage_vm` (Azure) — same pattern: `action in ('stop', 'restart', 'deallocate')` → MEDIUM RISK, `action='start'` → LOW RISK
+- `manage_compute_instance` (GCP) — same pattern: `action in ('stop', 'reset')` → MEDIUM RISK, `action='start'` → LOW RISK
 
 ### SSRF guard for tools that call a caller-supplied URL (`src/utils/network_safety.py`)
 
