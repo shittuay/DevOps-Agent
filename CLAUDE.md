@@ -28,12 +28,12 @@ src/
     tool_selection.py # Progressive tool loading (classify_tool, select_tool_definitions)
     guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
-    aws_tools.py         # 155 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
-    kubernetes_tools.py  # 28 K8s tools (pods, deployments, services, namespaces, etc.)
-    azure_tools.py       # 36 Azure tools (VMs, storage, SQL, NSGs, containers, etc.)
-    gcp_tools.py         # 40 GCP tools (Compute, GCS, Cloud SQL, GKE, Cloud Run, etc.)
-    cicd_tools.py        # 21 CI/CD tools (Jenkins 11 + GitHub Actions 10)
-    terraform_tools.py   # 16 Terraform tools (init, plan, apply, destroy, state, workspace, import)
+    aws_tools.py         # 351 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
+    kubernetes_tools.py  # 76 K8s tools (pods, deployments, services, namespaces, etc.)
+    azure_tools.py       # 38 Azure tools (VMs, storage, SQL, NSGs, containers, etc.)
+    gcp_tools.py         # 42 GCP tools (Compute, GCS, Cloud SQL, GKE, Cloud Run, etc.)
+    cicd_tools.py        # 35 CI/CD tools (Jenkins + GitHub Actions + GitLab)
+    terraform_tools.py   # 26 Terraform tools (init, plan, apply, destroy, state, workspace, import)
     sonarqube_tools.py   # 12 SonarQube tools (projects, quality gates, issues, analysis)
     nexus_tools.py       # 12 Nexus tools (repositories, components, assets, users, cleanup)
     docker_tools.py      # 22 Docker tools (containers, images, volumes, networks, compose, prune)
@@ -76,7 +76,7 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (745 total, 19 modules)
+## Tool Inventory (745 total, 17 modules)
 
 > Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`.
 > Two modules below are not detailed in the per-provider sections:
@@ -102,7 +102,7 @@ Credentials: `JENKINS_URL`, `JENKINS_USERNAME`, `JENKINS_TOKEN` env vars.
 `trigger_github_workflow`, `get_github_workflow_runs`, `list_github_workflows`, `get_github_workflow_run`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `list_github_runners`, `list_github_secrets`, `list_github_environments`, `get_github_workflow_usage`.
 Credentials: `GITHUB_TOKEN` env var.
 
-### Terraform (25 tools)
+### Terraform (26 tools)
 `terraform_init`, `terraform_plan`, `terraform_apply`, `terraform_destroy`, `terraform_show`, `terraform_output`, `terraform_validate`, `terraform_fmt`, `terraform_workspace_list`, `terraform_workspace_select`, `terraform_workspace_new`, `terraform_state_list`, `terraform_import`, `terraform_state_move`, `terraform_state_rm`, `terraform_refresh`.
 All tools take `working_dir` as the primary param.
 
@@ -196,6 +196,26 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
   - This is implemented in `validate_tool_call()` with special-case logic that inspects the action param before returning the classification result
 - `manage_vm` (Azure) — same pattern: `action in ('stop', 'restart', 'deallocate')` → MEDIUM RISK, `action='start'` → LOW RISK
 - `manage_compute_instance` (GCP) — same pattern: `action in ('stop', 'reset')` → MEDIUM RISK, `action='start'` → LOW RISK
+
+### SSRF guard for tools that call a caller-supplied URL (`src/utils/network_safety.py`)
+
+`safety.py`'s risk classification gates *confirmation prompts* for DevOps actions — it does not
+validate URLs/hosts, so any tool that takes a `base_url`/`url`/`*_url` parameter and makes an
+outbound HTTP request is a potential SSRF vector (the param is ultimately driven by chat text).
+**When adding a new tool that accepts a caller-supplied URL/host and calls out to it**, call
+`assert_safe_url(url)` (raises `UnsafeUrlError`, a `ValueError` subclass — safe to let existing
+`except Exception` handlers catch it) before making the request. It blocks loopback/link-local/
+multicast/unspecified addresses (covers the cloud metadata endpoint `169.254.169.254` and the
+app server's own local-only services) but **deliberately allows RFC1918 private ranges** — these
+tools are designed to reach self-hosted internal infra (Jenkins/SonarQube/Nexus/Prometheus/K8s
+service IPs almost always sit on private IPs), so blocking `is_private` would break their
+intended use, not just close an attack path.
+
+Currently wired into: `sonarqube_tools._get_sonar_client`, `nexus_tools._get_nexus_client`,
+`cicd_tools._get_jenkins_server` (+ the 3 Jenkins functions that build `jenkins.Jenkins()`
+directly, plus `run_smoke_test`/`auto_rollback_deployment`), and every Prometheus/Grafana
+function in `monitoring_tools.py`. Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't
+need it.
 
 ## Context Management & Progressive Tool Loading
 
@@ -291,7 +311,7 @@ See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **745** across 19 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **745** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:

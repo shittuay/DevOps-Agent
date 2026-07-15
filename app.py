@@ -5154,6 +5154,9 @@ def use_template(template_id):
         if not template:
             return jsonify({'error': 'Template not found'}), 404
 
+        if template.user_id != current_user.id and not template.is_public:
+            return jsonify({'error': 'Unauthorized'}), 403
+
         # Increment use count
         template.increment_use_count()
 
