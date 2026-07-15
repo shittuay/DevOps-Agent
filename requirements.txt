@@ -88,7 +88,8 @@ google-cloud-tasks==2.17.1
 google-cloud-scheduler==2.15.1
 google-cloud-redis==2.16.1
 google-cloud-bigquery==3.27.0
-google-cloud-dataflow-client==0.8.9
+google-cloud-dataflow-client==0.14.0
+protobuf>=5.29.6  # security floor: PYSEC-2026-1805 (DoS)
 google-cloud-dataproc==5.12.0
 google-cloud-orchestration-airflow==1.15.0
 google-cloud-aiplatform==1.133.0
@@ -114,7 +115,7 @@ python-dotenv==1.2.2
 psutil>=5.10.0
 PyYAML==6.0.2
 Werkzeug==3.1.6
-click==8.3.0
+click==8.3.3
 Jinja2==3.1.6
 MarkupSafe==3.0.2
 itsdangerous==2.2.0
