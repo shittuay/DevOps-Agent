@@ -327,6 +327,13 @@ class SafetyValidator:
             'delete_cronjob',
             'delete_service_account',
             'drain_node',
+            # Arbitrary code/command execution — same risk class as execute_command
+            'ansible_playbook_run',
+            'ansible_adhoc_command',
+            'execute_script',
+            # Git destructive (git_ prefix defeats the delete_ auto-detect fallback)
+            'git_delete_branch',
+            'git_delete_tag',
         }
 
         medium_risk_tools = {
@@ -510,6 +517,35 @@ class SafetyValidator:
             'update_configmap',
             'update_k8s_secret',
             'apply_manifest',
+            # VPC/EC2 network-exposure gaps — sibling revoke/detach/disassociate ops are already medium
+            'authorize_security_group_ingress',
+            'attach_ebs_volume',
+            'attach_internet_gateway',
+            'associate_elastic_ip',
+            'associate_vpc_cidr',
+            'disassociate_vpc_cidr',
+            # S3 policy gaps — sibling delete_* ops are already high-risk
+            'put_s3_bucket_policy',
+            'put_s3_lifecycle_policy',
+            'put_s3_replication',
+            'ssm_put_parameter',
+            # K8s external-exposure / workload-launch gaps
+            'create_ingress',
+            'create_service',
+            'create_job',
+            # AWS workload-launch gaps
+            'run_ecs_task',
+            'start_step_function_execution',
+            # CI/CD gaps — sibling trigger_github_workflow/trigger_gitlab_pipeline are already medium
+            'trigger_jenkins_job',
+            'create_gitlab_pipeline_trigger',
+            # GCP gaps — sibling update_ecs_service/update_secret (AWS) are already medium
+            'deploy_cloud_run_service',
+            'add_secret_version',
+            # Ansible secret exposure / supply-chain gaps
+            'ansible_vault_decrypt',
+            'ansible_vault_view',
+            'ansible_galaxy_install',
         }
 
         # Check if tool is a pentest tool

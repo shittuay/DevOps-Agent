@@ -180,11 +180,12 @@ class User(UserMixin, db.Model):
     def verify_mfa_otp(self, code):
         """Verify a 6-digit OTP against stored hash. Returns True if valid."""
         import hashlib
+        import secrets
         if not self.mfa_otp_hash or not self.mfa_otp_expires:
             return False
         if datetime.utcnow() > self.mfa_otp_expires:
             return False
-        return hashlib.sha256(code.encode()).hexdigest() == self.mfa_otp_hash
+        return secrets.compare_digest(hashlib.sha256(code.encode()).hexdigest(), self.mfa_otp_hash)
 
     def clear_mfa_otp(self):
         """Clear OTP after successful verification or expiry."""
