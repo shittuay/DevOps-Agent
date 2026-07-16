@@ -196,6 +196,7 @@ class SafetyValidator:
         # Define tool risk levels
         high_risk_tools = {
             'execute_command',
+            'execute_script',  # runs through the same execute_command() code path
             'delete_resource',
             'terminate_instance',
             'delete_deployment',
@@ -279,6 +280,8 @@ class SafetyValidator:
             'git_reset_to_commit',
             'git_clean_working_directory',
             'git_force_push_branch',
+            'git_delete_branch',  # supports force=True (-D), discards unmerged commits
+            'git_delete_tag',
             # EC2 new destructive and high-impact modifications
             'delete_ec2_keypair',
             'delete_ebs_snapshot',
