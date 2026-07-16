@@ -298,6 +298,22 @@ different mechanism and is untouched. Pure helpers, unit-tested in
 
 See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved issues.
 
+## Knowledge Vault (`vault/`)
+
+`vault/` is an Obsidian vault used as long-term project memory — the *why* behind
+decisions and postmortems, complementing (never duplicating) CLAUDE.md (how things
+work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
+
+- **Reading:** at the start of nontrivial tasks, read `vault/INDEX.md` and follow
+  only the links relevant to the task. Never bulk-read the vault.
+- **Writing:** after making an architectural decision, solving a nonobvious bug, or
+  learning why something is the way it is, write one atomic note in
+  `vault/decisions/`, `vault/debugging/`, or `vault/architecture/` with YAML
+  frontmatter (`date` in YYYY-MM-DD, `type`: decision | postmortem | rationale,
+  `tags`), link related notes with `[[wikilinks]]`, and add a one-line entry to
+  `vault/INDEX.md`.
+- Notes are committed with the repo; `vault/.obsidian/` workspace state is gitignored.
+
 ## Adding a New Tool
 
 ### General Steps
