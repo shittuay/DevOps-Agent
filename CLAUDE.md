@@ -482,9 +482,20 @@ python -m pytest tests/ -v   # Verbose
 
 Tests run against **SQLite in-memory** (forced in `tests/conftest.py`, overriding
 `DATABASE_URL`) — Postgres is not required to run the suite. Current suite:
-**404 passing**. `tests/test_stripe.py` and `tests/test_secrets_manager.py` are
+**497 passing**. `tests/test_stripe.py` and `tests/test_secrets_manager.py` are
 diagnostic scripts that hit live Stripe/AWS APIs; they are excluded from pytest
 collection (`collect_ignore` in `conftest.py`) and run directly instead.
+
+## Dependency Pinning Policy
+
+`requirements.txt` is **fully `==`-pinned** (since 2026-07-15, PR #50). Never
+add or loosen an entry to `>=`: the EC2 deploy runs `pip install -r
+requirements.txt` on every push to main, so a loose floor means untested
+releases reach production unreviewed — a broken `coverage` release took CI down
+for 5 days this way (see CLAUDE_RUNBOOK.md). To upgrade a dependency: change
+the pin in a PR, let CI run the full suite against it, then merge. Security
+floors from `pip-audit` findings become exact pins at (or above) the fixed
+version, with the advisory ID in a trailing comment.
 
 ## CI / Security Scanning
 
@@ -492,6 +503,11 @@ GitHub Actions workflows live in `.github/workflows/`:
 
 - **`ci.yml`** — runs on `push`/`pull_request` to `main`/`develop`. Includes a
   `security` job (`pip-audit`, `safety`, `bandit`) that fires only on those events.
+  All security-job steps are `continue-on-error` — audit findings never fail the
+  pipeline; only `test` and `build-check` gate the merge/deploy (`status-check` job).
+  The test job installs `'coverage>=7.15.2'` explicitly — 7.15.1 crashed the HTML
+  coverage report on Jinja-traced templates and took CI down Jul 13–15 (see
+  CLAUDE_RUNBOOK.md).
   On push to `main`, also runs a `deploy` job (after all checks pass) that deploys
   to EC2 (instance `i-09af962714b13f9bc`) via **AWS SSM** (`AWS-RunShellScript`) —
   no inbound SSH / port 22 required. Git pull on the instance uses the read-only SSH
