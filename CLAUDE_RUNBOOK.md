@@ -123,3 +123,31 @@ for name, mod in [('AWS', aws_tools), ('K8s', kubernetes_tools), ('Azure', azure
     print(f'{name}: {len(tools)} tools OK')
 "
 ```
+
+## 2026-07-16: Health score 500s + Skills feature inert in production
+
+**Symptoms:** `/api/dashboard/health-score` returned 500 for every user
+("type object 'CostOptimization' has no attribute 'estimated_savings'");
+`/api/onboarding/scan` crashed at the savings step; the Skills page showed
+the empty state for all prod users and trigger-based skill injection never
+fired.
+
+**Root causes (two independent bugs found by a Playwright functional audit):**
+1. Four query sites referenced `CostOptimization.estimated_savings` and two
+   referenced `.detected_at` — the real columns are
+   `potential_monthly_savings` and `created_at`. Crash sites: health_score.py,
+   app.py onboarding scan, scheduler.py cost-scan + weekly-summary tasks.
+2. Built-in skills were loaded only inside app.py's `if __name__ == '__main__'`
+   block — production runs `gunicorn app:app`, which never executes it. On top,
+   no caller ever passed `app` to `get_skills_engine()`, so the engine's
+   list/context methods short-circuited to empty even when skills were loaded.
+
+**Fix:** renamed the attribute references; moved skills loading to module
+import time with `get_skills_engine(app)`. Regression-guarded in
+`tests/test_functional_regressions.py` (guards include asserting the invalid
+attribute names don't exist on the model).
+
+**Lesson:** SQLAlchemy attribute errors on models only explode at request
+time, not import time — endpoint smoke tests (status 200 for a logged-in
+user) catch this class cheaply. Anything registered only in `__main__` is
+invisible to gunicorn.
