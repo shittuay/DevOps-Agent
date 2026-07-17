@@ -1128,14 +1128,23 @@
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    .reveal {
-      opacity: 0;
-      transform: translateY(24px);
-      transition: opacity .65s ease, transform .65s ease;
+    /* Content is visible by default; the scroll-reveal animation is a JS
+       enhancement (html.js-reveal is stamped inline below) and is skipped
+       entirely for prefers-reduced-motion users, crawlers, and no-JS. */
+    @media (prefers-reduced-motion: no-preference) {
+      html.js-reveal .reveal {
+        opacity: 0;
+        transform: translateY(24px);
+        transition: opacity .65s ease, transform .65s ease;
+      }
+      html.js-reveal .reveal.visible {
+        opacity: 1;
+        transform: none;
+      }
     }
-    .reveal.visible {
-      opacity: 1;
-      transform: none;
+
+    @media print {
+      .reveal { opacity: 1 !important; transform: none !important; }
     }
 
     /* ── RESPONSIVE ──────────────────────────────────────── */
@@ -1179,6 +1188,7 @@
   </style>
 </head>
 <body>
+<script>document.documentElement.classList.add('js-reveal');</script>
 
 <!-- ── NAVIGATION ────────────────────────────────────────── -->
 <nav>
@@ -1844,16 +1854,21 @@
   });
 
   // ── Scroll reveal ───────────────────────────────────────
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry, i) => {
-      if (entry.isIntersecting) {
-        setTimeout(() => entry.target.classList.add('visible'), i * 80);
-        observer.unobserve(entry.target);
-      }
-    });
-  }, { threshold: 0.1 });
+  if (!('IntersectionObserver' in window)) {
+    // No observer support: undo the js-reveal opt-in so content stays visible
+    document.documentElement.classList.remove('js-reveal');
+  } else {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry, i) => {
+        if (entry.isIntersecting) {
+          setTimeout(() => entry.target.classList.add('visible'), i * 80);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
 
-  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  }
 
   // ── Counter animation ───────────────────────────────────
   const counterObserver = new IntersectionObserver((entries) => {
