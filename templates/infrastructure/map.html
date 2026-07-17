@@ -1,19 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Infrastructure Map — DevOps Agent</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+{% extends "base.html" %}
+{% block title %}Infrastructure Map — DevOps Agent{% endblock %}
+{% block main %}
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-
+/* Full-bleed page: lock the viewport, canvas fills the space under the header */
 html, body {
-    height: 100%;
-    font-family: 'Outfit', -apple-system, sans-serif;
-    background: var(--bg-primary);
-    color: var(--text-primary);
+    height: 100vh;
     overflow: hidden;
+}
+
+#mapShell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    position: relative;
+    z-index: 1;
 }
 
 /* ── Top bar ───────────────────────────────────────────────────────────── */
@@ -80,8 +81,9 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 #viewport {
     position: relative;
     overflow: hidden;
-    /* fills remaining height */
-    height: calc(100vh - 52px - 40px);
+    /* fills remaining height below the shell header + toolbar */
+    flex: 1;
+    min-height: 0;
     background: var(--bg-primary);
     cursor: grab;
 }
@@ -243,20 +245,18 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
     #legend { display: none; }
 }
 </style>
-</head>
-<body>
 
+<div id="mapShell">
 <!-- Top bar -->
 <div id="topbar">
     <div class="tb-left">
-        <a class="back-btn" href="/dashboard">← Dashboard</a>
         <h1>Infrastructure Map</h1>
     </div>
     <div class="tb-right">
-        <button class="tb-btn" onclick="fitView()">⊡ Fit</button>
-        <button class="tb-btn" onclick="zoom(1.25)">＋</button>
-        <button class="tb-btn" onclick="zoom(0.8)">－</button>
-        <button class="tb-btn primary" id="refreshBtn" onclick="syncAndRefresh()">↻ Refresh</button>
+        <button class="tb-btn" onclick="fitView()"><i class="fa-solid fa-expand"></i> Fit</button>
+        <button class="tb-btn" onclick="zoom(1.25)" title="Zoom in"><i class="fa-solid fa-plus"></i></button>
+        <button class="tb-btn" onclick="zoom(0.8)" title="Zoom out"><i class="fa-solid fa-minus"></i></button>
+        <button class="tb-btn primary" id="refreshBtn" onclick="syncAndRefresh()"><i class="fa-solid fa-rotate"></i> Refresh</button>
     </div>
 </div>
 
@@ -284,7 +284,7 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
         <div class="leg-r"><span class="leg-d" style="background:#ef4444"></span>Error / Failed</div>
     </div>
     <div id="emptyState">
-        <div class="es-icon">🗺️</div>
+        <div class="es-icon"><i class="fa-solid fa-map"></i></div>
         <p>No resources found</p>
         <a href="/">Ask the agent to scan your cloud</a>
     </div>
@@ -629,5 +629,5 @@ function esc(s){
 loadMap();
 window.addEventListener('resize', fitView);
 </script>
-</body>
-</html>
+</div>
+{% endblock %}
