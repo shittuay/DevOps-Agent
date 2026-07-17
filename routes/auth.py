@@ -222,7 +222,9 @@ def signup():
             verification_token = secrets.token_urlsafe(32)
             hashed_verification_token = hashlib.sha256(verification_token.encode()).hexdigest()
 
-            # First user ever = admin; every direct signup = admin of their own account.
+            # /admin/* is a platform-wide surface (no per-tenant scoping), so signup
+            # must never hand out 'admin' — see CLAUDE.md's Role Hierarchy ('user' is
+            # the documented default) and Admin Access ('no self-serve promotion').
             # Team members added via invite get user/approver role set by the inviting admin.
             user = User(
                 email=email,
@@ -232,7 +234,7 @@ def signup():
                 email_verified=False,
                 email_verification_token=hashed_verification_token,
                 email_verification_sent_at=datetime.utcnow(),
-                role='admin',
+                role='user',
             )
             user.set_password(password)
 

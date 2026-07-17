@@ -821,7 +821,9 @@ def _get_gitlab_token(gitlab_token: Optional[str] = None) -> str:
 
 
 def _get_gitlab_base_url(gitlab_url: Optional[str] = None) -> str:
-    return (gitlab_url or os.environ.get('GITLAB_URL', 'https://gitlab.com')).rstrip('/')
+    base = (gitlab_url or os.environ.get('GITLAB_URL', 'https://gitlab.com')).rstrip('/')
+    assert_safe_url(base)
+    return base
 
 
 def list_gitlab_pipelines(
