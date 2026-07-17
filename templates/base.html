@@ -607,9 +607,11 @@
         </div>
     </div>
 
+    {% block main %}
     <div class="main-content">
         {% block content %}{% endblock %}
     </div>
+    {% endblock %}
 
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script>
