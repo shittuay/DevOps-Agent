@@ -151,3 +151,47 @@ attribute names don't exist on the model).
 time, not import time — endpoint smoke tests (status 200 for a logged-in
 user) catch this class cheaply. Anything registered only in `__main__` is
 invisible to gunicorn.
+
+## 2026-07-17: Stripe key rotation didn't take effect — config/.env overrode Secrets Manager
+
+**Symptoms:** After rotating the Stripe API key and updating AWS Secrets
+Manager (`devops-agent/production`), payments stayed broken. No Stripe errors
+in logs; the app was silently using the old revoked key.
+
+**Root causes (three stacked):**
+1. `stripe_integration.py` read `config/.env` on the server FIRST and only
+   fell back to os.environ — the server's `config/.env` (untouched since
+   June 12) still held the old key and won over Secrets Manager. Prefix
+   comparison is useless here: `sk_live_51<account>` prefixes are identical
+   for every key in the account — compare sha256 hashes instead.
+2. The EC2 instance role (`devops-agent-ssm-role`) had no
+   `secretsmanager:GetSecretValue` — so `init_secrets()` had never actually
+   loaded Secrets Manager in production. Fixed with an inline policy scoped
+   to the one secret ARN.
+3. The AWS access key stored in GitHub Actions secrets had been deactivated
+   during the same key-rotation session, breaking all deploys
+   ("security token invalid"). Updated `AWS_ACCESS_KEY_ID` /
+   `AWS_SECRET_ACCESS_KEY` repo secrets.
+
+**Fixes:**
+- Server `config/.env` STRIPE_* values rewritten from Secrets Manager
+  on-instance (via venv boto3 + instance role — secret values must never go
+  through SSM command parameters; they land in CloudTrail).
+- Precedence inverted in `stripe_integration.py`: os.environ (Secrets
+  Manager) now wins; `config/.env` is the local-dev fallback. Guarded by
+  `tests/test_stripe_precedence.py`.
+
+**Quarterly Stripe rotation procedure (single source of truth = Secrets Manager):**
+1. In the Stripe dashboard, create/roll the key. Note: standard secret keys
+   do NOT auto-expire; only set an expiration on restricted keys if you
+   explicitly want one. Rolling a key lets you choose when the old one dies —
+   pick a window long enough to complete this procedure.
+2. Update `STRIPE_SECRET_KEY` (and only what changed) in the
+   `devops-agent/production` secret in AWS Secrets Manager.
+3. Restart the app (redeploy, or `sudo systemctl restart devops-agent` via
+   SSM) — `init_secrets()` loads the new values at startup.
+4. Verify: run a test checkout end-to-end including webhook credit grant.
+5. Only then let the old key expire / delete it.
+6. If rotating AWS keys at the same time: update the GitHub Actions
+   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets BEFORE deactivating
+   the old key, or deploys break.
