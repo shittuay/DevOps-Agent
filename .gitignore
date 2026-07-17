@@ -101,3 +101,7 @@ instance/
 
 # ElasticBeanstalk app version bundles (large binaries, never needed in git)
 .elasticbeanstalk/app_versions/
+
+# Obsidian UI state (vault/ notes ARE committed; this is per-machine workspace churn)
+vault/.obsidian/workspace*
+vault/.obsidian/cache/
