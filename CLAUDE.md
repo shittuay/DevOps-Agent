@@ -758,9 +758,14 @@ card/btn/badge/form components, Syne/IBM Plex Mono/Outfit type system). Pattern:
 page-specific `<style>` inside the content block. Do NOT build bespoke headers or
 load other fonts (JetBrains Mono/Comfortaa are legacy — replace on sight).
 Migrated 2026-07-16: `dashboard_live.html`, `incidents/dashboard.html`,
-`optimization/prevention.html`, `settings/skills.html`. Still legacy (planned):
-`index.html` (chat), `settings.html`, `infrastructure/map.html` (needs full-bleed
-variant). Full audit + PR sequence: `vault/architecture/ui-rebuild-plan-2026-07.md`.
+`optimization/prevention.html`, `settings/skills.html`, `settings.html` (hash-tab
+sections: #cloud/#notifications/#budgets/#learning/#api-keys),
+`infrastructure/map.html`. Full-bleed pages (canvas/app-frame) override
+`{% block main %}` instead of `content` — base wraps `.main-content` in that
+block; see map.html for the pattern (flex column shell, `flex:1` viewport).
+`index.html` (chat) keeps its own app-frame layout but its header nav and icons
+are aligned with the shell. Full audit + PR sequence:
+`vault/architecture/ui-rebuild-plan-2026-07.md`.
 Theme toggle: `static/js/theme.js` uses a delegated click handler; pages with an
 in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 

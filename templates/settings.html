@@ -1,164 +1,53 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings - DevOps Agent</title>
-
-    <!-- Terminal Luxury Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
-
+{% extends "base.html" %}
+{% block title %}Settings — DevOps Agent{% endblock %}
+{% block content %}
     <style>
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Outfit', -apple-system, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
-            position: relative;
-            overflow-x: hidden;
-        }
-
-        /* Animated Grid Background */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-image:
-                linear-gradient(var(--border-subtle) 1px, transparent 1px),
-                linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
-            background-size: 50px 50px;
-            opacity: 0.3;
-            pointer-events: none;
-            animation: gridMove 20s linear infinite;
-            z-index: 0;
-        }
-
-        @keyframes gridMove {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(50px, 50px); }
-        }
-
-        /* Gradient Mesh */
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
-                        radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        .page-container {
-            position: relative;
-            z-index: 1;
-        }
-
-        /* Header */
-        .header {
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--glass-border);
-            padding: 20px 32px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        .logo-section {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .logo-icon {
-            width: 40px;
-            height: 40px;
-            background: var(--gradient-primary);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 800;
-            font-size: 20px;
-            font-family: 'Syne', sans-serif;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .logo-icon::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            animation: shimmer 3s infinite;
-        }
-
-        @keyframes shimmer {
-            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-        }
-
-        .logo-text {
-            font-size: 20px;
-            font-weight: 700;
-            font-family: 'Syne', sans-serif;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .back-button {
-            padding: 10px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-primary);
-            border: 1px solid var(--glass-border);
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: 'IBM Plex Mono', monospace;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-block;
-        }
-
-        .back-button:hover {
-            background: rgba(255, 255, 255, 0.1);
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        /* Main Container */
+        /* Main Container (base.html's .main-content already pads the page) */
         .container {
             max-width: 1000px;
             margin: 0 auto;
-            padding: 60px 32px;
+            padding: 0;
         }
+
+        /* Section tabs */
+        .settings-tabs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin: 28px 0 32px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .settings-tab {
+            padding: 9px 16px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .settings-tab i { font-size: 12px; opacity: 0.75; }
+
+        .settings-tab:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        .settings-tab.active {
+            background: rgba(255, 107, 53, 0.12);
+            border-color: rgba(255, 107, 53, 0.3);
+            color: var(--accent-primary);
+        }
+
+        .settings-section[data-tab-panel] { display: none; }
+        .settings-section.tab-visible { display: block; }
 
         .page-title {
             font-size: 48px;
@@ -565,30 +454,29 @@
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
-<body class="animated-bg">
-    <div class="page-container page-content">
-        <!-- Header -->
-        <div class="header">
-            <div class="logo-section">
-                <div class="logo-icon">>_</div>
-                <span class="logo-text">DevOps Agent</span>
-            </div>
-            <div style="display:flex;gap:10px;align-items:center;">
-                <a href="/teams" class="back-button" style="font-size:13px;">👥 Team</a>
-                <a href="/chat" class="back-button">← Back to Chat</a>
-            </div>
-        </div>
-
-        <!-- Main Content -->
+    <div class="settings-page">
         <div class="container">
-            <h1 class="page-title">Cloud Settings</h1>
-            <p class="page-subtitle">Configure your cloud provider credentials to enable DevOps automation across AWS, Azure, and GCP.</p>
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+                <div>
+                    <h1 class="page-title">Settings</h1>
+                    <p class="page-subtitle">Cloud credentials, alerts, learning, and API access.</p>
+                </div>
+                <a href="/teams" class="btn btn-secondary" style="margin-top:12px;"><i class="fa-solid fa-users"></i> Team</a>
+            </div>
+
+            <nav class="settings-tabs" id="settingsTabs">
+                <a href="#cloud" class="settings-tab active" data-tab="cloud"><i class="fa-solid fa-cloud"></i> Cloud Credentials</a>
+                <a href="#notifications" class="settings-tab" data-tab="notifications"><i class="fa-solid fa-bell"></i> Notifications</a>
+                <a href="#budgets" class="settings-tab" data-tab="budgets"><i class="fa-solid fa-coins"></i> Budgets</a>
+                <a href="#learning" class="settings-tab" data-tab="learning"><i class="fa-solid fa-graduation-cap"></i> Learning</a>
+                <a href="#api-keys" class="settings-tab" data-tab="api-keys"><i class="fa-solid fa-key"></i> API Keys</a>
+            </nav>
 
             <!-- AWS Configuration -->
-            <div class="settings-section">
+            <div class="settings-section" data-tab-panel="cloud">
                 <div class="section-header">
                     <h2>
-                        <span class="cloud-icon aws-icon">☁️</span>
+                        <span class="cloud-icon aws-icon"><i class="fa-brands fa-aws"></i></span>
                         AWS Configuration
                     </h2>
                     <span id="awsStatusBadge" class="status-badge not-configured">Not Configured</span>
@@ -729,10 +617,10 @@
             </div>
 
             <!-- Azure Configuration -->
-            <div class="settings-section">
+            <div class="settings-section" data-tab-panel="cloud">
                 <div class="section-header">
                     <h2>
-                        <span class="cloud-icon azure-icon">⚡</span>
+                        <span class="cloud-icon azure-icon"><i class="fa-brands fa-microsoft"></i></span>
                         Azure Configuration
                     </h2>
                     <span id="azureStatusBadge" class="status-badge not-configured">Not Configured</span>
@@ -842,10 +730,10 @@
             </div>
 
             <!-- GCP Configuration -->
-            <div class="settings-section">
+            <div class="settings-section" data-tab-panel="cloud">
                 <div class="section-header">
                     <h2>
-                        <span class="cloud-icon gcp-icon">🔷</span>
+                        <span class="cloud-icon gcp-icon"><i class="fa-brands fa-google"></i></span>
                         GCP Configuration
                     </h2>
                     <span id="gcpStatusBadge" class="status-badge not-configured">Not Configured</span>
@@ -930,7 +818,7 @@
             </div>
 
             <!-- Notification Channels -->
-            <div class="settings-section">
+            <div class="settings-section" data-tab-panel="notifications">
                 <div class="section-header">
                     <div>
                         <h2>Notification Channels</h2>
@@ -985,7 +873,7 @@
             </div>
 
             <!-- Budget Alerts -->
-            <div class="settings-section">
+            <div class="settings-section" data-tab-panel="budgets">
                 <div class="section-header">
                     <div>
                         <h2>Budget Alerts</h2>
@@ -1027,7 +915,7 @@
             </div>
 
             <!-- Learning Mode -->
-            <div class="settings-section">
+            <div class="settings-section" data-tab-panel="learning">
                 <div class="section-header">
                     <div>
                         <h2>Learning Mode</h2>
@@ -1123,7 +1011,7 @@
             </div>
 
             <!-- API Keys -->
-            <div class="settings-section">
+            <div class="settings-section" data-tab-panel="api-keys">
                 <div class="section-header">
                     <div>
                         <h2>API Keys</h2>
@@ -2011,7 +1899,20 @@
         });
     }
     </script>
-    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
-</body>
-</html>
+    <script>
+    // Section tabs: hash-driven show/hide of settings sections
+    (function() {
+        const validTabs = ['cloud', 'notifications', 'budgets', 'learning', 'api-keys'];
+        function activateTab(tab) {
+            if (!validTabs.includes(tab)) tab = 'cloud';
+            document.querySelectorAll('.settings-tab').forEach(t =>
+                t.classList.toggle('active', t.dataset.tab === tab));
+            document.querySelectorAll('.settings-section[data-tab-panel]').forEach(s =>
+                s.classList.toggle('tab-visible', s.dataset.tabPanel === tab));
+        }
+        window.addEventListener('hashchange', () => activateTab(location.hash.slice(1)));
+        activateTab(location.hash.slice(1));
+    })();
+    </script>
+{% endblock %}
