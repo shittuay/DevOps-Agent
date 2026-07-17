@@ -186,6 +186,18 @@
             box-shadow: 0 6px 24px rgba(255, 107, 53, 0.5);
         }
 
+        .header-theme-toggle {
+            position: static;
+            padding: 4px;
+            box-shadow: none;
+        }
+
+        .header-theme-toggle .theme-toggle-btn {
+            width: 32px;
+            height: 32px;
+            font-size: 14px;
+        }
+
         .main-content {
             flex: 1;
             max-width: 1400px;
@@ -563,13 +575,13 @@
             </div>
             <button class="mobile-nav-toggle" id="mobileNavToggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
             <div class="header-right">
-                <a href="/chat" class="header-button"><span>💬</span> Chat</a>
-                <a href="/dashboard" class="header-button"><span>📊</span> Dashboard</a>
-                <a href="/workflows" class="header-button"><span>▶</span> Workflows</a>
-                <a href="/monitoring" class="header-button"><span>📡</span> Monitoring</a>
-                <a href="/incidents" class="header-button"><span>🚨</span> Incidents</a>
-                <a href="/optimization" class="header-button"><span>⚡</span> Optimize</a>
-                <a href="/settings" class="header-button"><span>⚙️</span> Settings</a>
+                <a href="/chat" class="header-button{% if request.path.startswith('/chat') %} active{% endif %}"><i class="fa-solid fa-terminal"></i> Chat</a>
+                <a href="/dashboard" class="header-button{% if request.path.startswith('/dashboard') %} active{% endif %}"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+                <a href="/workflows" class="header-button{% if request.path.startswith('/workflows') %} active{% endif %}"><i class="fa-solid fa-diagram-project"></i> Workflows</a>
+                <a href="/monitoring" class="header-button{% if request.path.startswith('/monitoring') %} active{% endif %}"><i class="fa-solid fa-wave-square"></i> Monitoring</a>
+                <a href="/incidents" class="header-button{% if request.path.startswith('/incidents') %} active{% endif %}"><i class="fa-solid fa-triangle-exclamation"></i> Incidents</a>
+                <a href="/optimization" class="header-button{% if request.path.startswith('/optimization') %} active{% endif %}"><i class="fa-solid fa-bolt"></i> Optimize</a>
+                <a href="/settings" class="header-button{% if request.path.startswith('/settings') %} active{% endif %}"><i class="fa-solid fa-gear"></i> Settings</a>
                 {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
                 <a href="/approvals" class="header-button" id="approvalsNavBtn" style="position:relative;">
                     <span>&#9203;</span> Approvals
@@ -586,7 +598,11 @@
                 })();
                 </script>
                 {% endif %}
-                <a href="/profile" class="profile-button" title="Profile">👤</a>
+                <div class="theme-toggle header-theme-toggle">
+                    <button class="theme-toggle-btn" data-theme="dark" title="Dark mode"><i class="fa-solid fa-moon"></i></button>
+                    <button class="theme-toggle-btn" data-theme="light" title="Light mode"><i class="fa-solid fa-sun"></i></button>
+                </div>
+                <a href="/profile" class="profile-button" title="Profile"><i class="fa-solid fa-user"></i></a>
             </div>
         </div>
     </div>

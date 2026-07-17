@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "/Users/abiolashittu/Library/Application Support/fnm/aliases/default/bin/npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "env": {
+        "PATH": "/Users/abiolashittu/Library/Application Support/fnm/aliases/default/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}

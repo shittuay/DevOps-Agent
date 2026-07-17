@@ -48,15 +48,13 @@ function addThemeToggle() {
         </button>
     `;
     document.body.appendChild(toggle);
-
-    // Add click handlers
-    toggle.querySelectorAll('.theme-toggle-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const theme = btn.getAttribute('data-theme');
-            setTheme(theme);
-        });
-    });
 }
+
+// Delegated click handler — works for injected and pre-existing toggles alike
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.theme-toggle-btn');
+    if (btn) setTheme(btn.getAttribute('data-theme'));
+});
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {

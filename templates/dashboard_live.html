@@ -1,96 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Infrastructure Dashboard - DevOps Agent</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+{% extends "base.html" %}
+{% block title %}Infrastructure Dashboard — DevOps Agent{% endblock %}
+{% block content %}
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-
-        /* ── Header ── */
-        .dash-header {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-subtle);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        .dash-header-inner {
-            max-width: 1360px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 28px;
-            height: 56px;
-        }
-
-        .dash-logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            text-decoration: none;
-            color: var(--text-primary);
-        }
-
-        .dash-logo-mark {
-            width: 28px;
-            height: 28px;
-            background: var(--gradient-primary);
-            border-radius: 7px;
-            display: grid;
-            place-items: center;
-            font-family: 'IBM Plex Mono', monospace;
-            font-weight: 700;
-            font-size: 13px;
-            color: #fff;
-        }
-
-        .dash-logo-text {
-            font-weight: 600;
-            font-size: 15px;
-            letter-spacing: -0.3px;
-        }
-
-        .dash-nav {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .dash-nav a {
-            padding: 7px 14px;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-tertiary);
-            text-decoration: none;
-            transition: all 0.15s;
-        }
-
-        .dash-nav a:hover { color: var(--text-primary); background: var(--bg-tertiary); }
-        .dash-nav a.active { color: var(--accent-primary); background: rgba(255, 107, 53, 0.1); }
-
-        /* ── Main ── */
         .dash-main {
-            max-width: 1360px;
-            margin: 0 auto;
-            padding: 24px 28px 60px;
             position: relative;
-            z-index: 1;
         }
 
         /* ── Page Title Row ── */
@@ -102,6 +15,7 @@
         }
 
         .dash-title {
+            font-family: 'Syne', sans-serif;
             font-size: 22px;
             font-weight: 700;
             letter-spacing: -0.5px;
@@ -165,7 +79,7 @@
         }
 
         .stat-value {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 28px;
             font-weight: 700;
             color: var(--text-primary);
@@ -297,7 +211,7 @@
         .cost-bar-row:nth-child(n+6) .cost-bar-fill { background: var(--text-muted); }
 
         .cost-bar-amount {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 14px;
             font-weight: 600;
             color: var(--text-secondary);
@@ -336,7 +250,7 @@
         }
 
         .trend-label {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 13px;
             fill: var(--text-muted);
         }
@@ -353,7 +267,7 @@
             opacity: 0;
             transition: opacity 0.15s;
             z-index: 10;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             white-space: nowrap;
         }
 
@@ -397,7 +311,7 @@
         }
 
         .rec-savings {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 20px;
             font-weight: 700;
             color: var(--accent-success);
@@ -509,7 +423,7 @@
         }
 
         .cloud-group-header .provider-badge {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 13px;
             font-weight: 700;
             padding: 2px 8px;
@@ -523,7 +437,7 @@
         .provider-badge.azure { background: rgba(0, 120, 212, 0.15); color: #0078d4; }
 
         .cloud-group-count {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 14px;
             color: var(--text-muted);
             margin-left: auto;
@@ -557,7 +471,7 @@
 
         .res-table td:last-child {
             text-align: right;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-weight: 600;
         }
 
@@ -575,7 +489,7 @@
         }
 
         .res-type-tag {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 13px;
             font-weight: 500;
             padding: 2px 6px;
@@ -637,7 +551,7 @@
         }
 
         .util-val {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'IBM Plex Mono', monospace;
             font-size: 22px;
             font-weight: 700;
             color: var(--text-primary);
@@ -917,31 +831,12 @@
 
         @media (max-width: 640px) {
             .stat-row { grid-template-columns: 1fr; }
-            .dash-header-inner { padding: 0 16px; }
             .dash-main { padding: 16px; }
-            .dash-logo-text { display: none; }
             .util-grid { grid-template-columns: repeat(2, 1fr); }
             .rec-card { flex-direction: column; }
             .rec-savings { min-width: 0; }
         }
     </style>
-</head>
-<body>
-    <div class="dash-header">
-        <div class="dash-header-inner">
-            <a href="/chat" class="dash-logo">
-                <div class="dash-logo-mark">>_</div>
-                <span class="dash-logo-text">DevOps Agent</span>
-            </a>
-            <nav class="dash-nav">
-                <a href="/chat">Chat</a>
-                <a href="/dashboard" class="active">Dashboard</a>
-                <a href="/changes">Changes</a>
-                <a href="/compliance/">Compliance</a>
-                <a href="/settings">Settings</a>
-            </nav>
-        </div>
-    </div>
 
     <div class="dash-main" id="dashMain">
         <!-- Loading (Skeleton) -->
@@ -1565,6 +1460,4 @@
         setTimeout(startAutoRefresh, 5000);
     })();
     </script>
-    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
-</body>
-</html>
+{% endblock %}

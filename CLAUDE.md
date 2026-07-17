@@ -733,6 +733,20 @@ POST   /api/skills/refresh-learned       → regenerate from latest infrastructu
 
 ---
 
+### App Shell — `templates/base.html`
+All logged-in pages MUST extend `templates/base.html` (unified branded header with
+Font Awesome icon nav + active states, in-header theme toggle, mobile nav, shared
+card/btn/badge/form components, Syne/IBM Plex Mono/Outfit type system). Pattern:
+`{% extends "base.html" %}` + `{% block title %}` + `{% block content %}` with
+page-specific `<style>` inside the content block. Do NOT build bespoke headers or
+load other fonts (JetBrains Mono/Comfortaa are legacy — replace on sight).
+Migrated 2026-07-16: `dashboard_live.html`, `incidents/dashboard.html`,
+`optimization/prevention.html`, `settings/skills.html`. Still legacy (planned):
+`index.html` (chat), `settings.html`, `infrastructure/map.html` (needs full-bleed
+variant). Full audit + PR sequence: `vault/architecture/ui-rebuild-plan-2026-07.md`.
+Theme toggle: `static/js/theme.js` uses a delegated click handler; pages with an
+in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
+
 ### Chat UI — Terminal Aesthetic
 **Fonts:** Syne 800 (headings), IBM Plex Mono (code/mono), Outfit (body)
 **Theme:** Dark terminal with animated grid background, orange accent `#ff6b35`

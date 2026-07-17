@@ -1,211 +1,175 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proactive Prevention - DevOps Agent</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
-        .header {
-            background: var(--bg-secondary);
-            padding: 1rem 2rem;
-            border-bottom: 1px solid var(--border-subtle);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .header h1 { font-size: 1.25rem; font-weight: 600; }
-        .header nav a { color: var(--text-secondary); text-decoration: none; margin-left: 1.5rem; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-        .toolbar {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
-        }
-        .btn {
-            padding: 0.6rem 1.25rem;
-            border-radius: 6px;
-            border: none;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .btn-primary { background: var(--accent-primary); color: white; }
-        .btn-primary:hover { opacity: 0.85; }
-        .btn-secondary { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-subtle); }
-        .stats-bar {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
-        }
-        .stat-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 10px;
-            padding: 1rem 1.5rem;
-            min-width: 140px;
-        }
-        .stat-card .num { font-size: 2rem; font-weight: 700; line-height: 1; }
-        .stat-card .label { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.25rem; }
-        .category-section { margin-bottom: 2.5rem; }
-        .category-title {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .category-icon { font-size: 1.1rem; }
-        .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
-        .rec-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 10px;
-            padding: 1.25rem;
-            transition: border-color 0.2s;
-        }
-        .rec-card:hover { border-color: var(--accent-primary); }
-        .rec-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
-        .rec-title { font-size: 0.9rem; font-weight: 600; flex: 1; line-height: 1.35; }
-        .severity-badge {
-            display: inline-block;
-            padding: 0.2rem 0.6rem;
-            border-radius: 50px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            white-space: nowrap;
-            margin-left: 0.5rem;
-        }
-        .sev-critical { background: rgba(239,68,68,0.2); color: #ef4444; }
-        .sev-high { background: rgba(251,191,36,0.2); color: #fbbf24; }
-        .sev-medium { background: rgba(59,130,246,0.2); color: #3b82f6; }
-        .sev-low { background: rgba(100,116,139,0.2); color: #94a3b8; }
-        .rec-desc { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.75rem; }
-        .rec-meta { display: flex; gap: 0.75rem; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
-        .rec-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-        .rec-actions button {
-            padding: 0.35rem 0.85rem;
-            border-radius: 5px;
-            border: 1px solid var(--border-subtle);
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            cursor: pointer;
-            font-size: 0.78rem;
-            transition: all 0.2s;
-        }
-        .rec-actions button:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
-        .rec-actions button.gen-spec { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
-        .empty-state { text-align: center; padding: 3rem; color: var(--text-secondary); }
-        .spec-modal {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.6);
-            z-index: 9999;
-            align-items: center;
-            justify-content: center;
-        }
-        .spec-modal.open { display: flex; }
-        .spec-box {
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            padding: 1.5rem;
-            max-width: 700px;
-            width: 95%;
-            max-height: 80vh;
-            overflow-y: auto;
-            position: relative;
-        }
-        .spec-box h3 { margin-bottom: 1rem; font-size: 1rem; }
-        .spec-content { font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; font-family: monospace; background: var(--bg-primary); padding: 1rem; border-radius: 8px; }
-        .spec-close { position: absolute; top: 1rem; right: 1rem; background: none; border: none; cursor: pointer; font-size: 1.25rem; color: var(--text-secondary); }
-        .loading-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
-</head>
-<body>
-<header class="header">
+{% extends "base.html" %}
+{% block title %}Proactive Prevention — DevOps Agent{% endblock %}
+{% block content %}
+<style>
+    .toolbar {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 2rem;
+        flex-wrap: wrap;
+    }
+    .stats-bar {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 2rem;
+        flex-wrap: wrap;
+    }
+    .stat-card {
+        background: var(--glass-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: 16px;
+        padding: 1rem 1.5rem;
+        min-width: 140px;
+    }
+    .stat-card .num { font-size: 2rem; font-weight: 700; line-height: 1; font-family: 'IBM Plex Mono', monospace; }
+    .stat-card .label { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.25rem; }
+    .category-section { margin-bottom: 2.5rem; }
+    .category-title {
+        font-family: 'Syne', sans-serif;
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .category-icon { color: var(--accent-primary); font-size: 1rem; width: 20px; text-align: center; }
+    .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
+    .rec-card {
+        background: var(--glass-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: 16px;
+        padding: 1.25rem;
+        transition: border-color 0.2s;
+    }
+    .rec-card:hover { border-color: var(--accent-primary); }
+    .rec-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+    .rec-title { font-size: 0.9rem; font-weight: 600; flex: 1; line-height: 1.35; }
+    .severity-badge {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 50px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        white-space: nowrap;
+        margin-left: 0.5rem;
+    }
+    .sev-critical { background: rgba(239,68,68,0.2); color: #ef4444; }
+    .sev-high { background: rgba(251,191,36,0.2); color: #fbbf24; }
+    .sev-medium { background: rgba(59,130,246,0.2); color: #3b82f6; }
+    .sev-low { background: rgba(100,116,139,0.2); color: #94a3b8; }
+    .rec-desc { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.75rem; }
+    .rec-meta { display: flex; gap: 0.75rem; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
+    .rec-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .rec-actions button {
+        padding: 0.35rem 0.85rem;
+        border-radius: 5px;
+        border: 1px solid var(--border-subtle);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 0.78rem;
+        transition: all 0.2s;
+    }
+    .rec-actions button:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+    .rec-actions button.gen-spec { background: var(--gradient-primary); color: white; border-color: transparent; }
+    .spec-modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+    }
+    .spec-modal.open { display: flex; }
+    .spec-box {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        border-radius: 16px;
+        padding: 1.5rem;
+        max-width: 700px;
+        width: 95%;
+        max-height: 80vh;
+        overflow-y: auto;
+        position: relative;
+    }
+    .spec-box h3 { margin-bottom: 1rem; font-size: 1rem; font-family: 'Syne', sans-serif; }
+    .spec-content { font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; font-family: 'IBM Plex Mono', monospace; background: rgba(0, 0, 0, 0.3); padding: 1rem; border-radius: 8px; }
+    .spec-close { position: absolute; top: 1rem; right: 1rem; background: none; border: none; cursor: pointer; font-size: 1.25rem; color: var(--text-secondary); }
+    .loading-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<div class="page-header">
     <h1>Proactive Prevention</h1>
-    <nav>
-        <a href="/optimization/">Optimization</a>
-        <a href="/incidents/">Incidents</a>
-        <a href="/">Chat</a>
-    </nav>
-</header>
+    <a href="/optimization/" class="btn btn-secondary">Optimization</a>
+</div>
 
-<div class="container">
-    <div class="toolbar">
-        <button class="btn btn-primary" onclick="runAnalysis()">Run Analysis</button>
-        <span style="color:var(--text-secondary);font-size:0.85rem">{{ total }} recommendation{{ 's' if total != 1 else '' }} found</span>
+<div class="toolbar">
+    <button class="btn btn-primary" onclick="runAnalysis()">Run Analysis</button>
+    <span style="color:var(--text-secondary);font-size:0.85rem">{{ total }} recommendation{{ 's' if total != 1 else '' }} found</span>
+</div>
+
+<div class="stats-bar">
+    {% set cats = {'observability': 'Observability', 'infrastructure': 'Infrastructure', 'governance': 'Governance', 'code_optimization': 'Code Optimization'} %}
+    {% for cat_key, cat_label in cats.items() %}
+    <div class="stat-card">
+        <div class="num">{{ by_category.get(cat_key, [])|length }}</div>
+        <div class="label">{{ cat_label }}</div>
     </div>
+    {% endfor %}
+</div>
 
-    <div class="stats-bar">
-        {% set cats = {'observability': 'Observability', 'infrastructure': 'Infrastructure', 'governance': 'Governance', 'code_optimization': 'Code Optimization'} %}
-        {% for cat_key, cat_label in cats.items() %}
-        <div class="stat-card">
-            <div class="num">{{ by_category.get(cat_key, [])|length }}</div>
-            <div class="label">{{ cat_label }}</div>
+{% set category_icons = {'observability': 'fa-chart-line', 'infrastructure': 'fa-cubes', 'governance': 'fa-shield-halved', 'code_optimization': 'fa-bolt'} %}
+{% set category_labels = {'observability': 'Observability', 'infrastructure': 'Infrastructure', 'governance': 'Governance', 'code_optimization': 'Code Optimization'} %}
+
+{% for cat_key in ['observability', 'infrastructure', 'governance', 'code_optimization'] %}
+{% if by_category.get(cat_key) %}
+<div class="category-section">
+    <div class="category-title">
+        <i class="fa-solid {{ category_icons[cat_key] }} category-icon"></i>
+        {{ category_labels[cat_key] }}
+        <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400">({{ by_category[cat_key]|length }})</span>
+    </div>
+    <div class="rec-grid">
+        {% for rec in by_category[cat_key] %}
+        <div class="rec-card" id="rec-{{ rec.id }}">
+            <div class="rec-card-header">
+                <div class="rec-title">{{ rec.title }}</div>
+                <span class="severity-badge sev-{{ rec.severity }}">{{ rec.severity }}</span>
+            </div>
+            <div class="rec-desc">{{ rec.description }}</div>
+            <div class="rec-meta">
+                <span>Effort: {{ rec.estimated_effort or '?' }}</span>
+                <span>Status: {{ rec.status }}</span>
+                {% if rec.affected_resource_ids %}
+                <span>{{ rec.affected_resource_ids|length }} resource(s)</span>
+                {% endif %}
+            </div>
+            <div class="rec-actions">
+                <button class="gen-spec" onclick="generateSpec({{ rec.id }}, this)">
+                    {{ 'View Spec' if rec.has_agent_spec else 'Generate Spec' }}
+                </button>
+                <button onclick="copyToChat({{ rec.id }})">Copy to Chat</button>
+                <button onclick="updateStatus({{ rec.id }}, 'resolved')">Mark Resolved</button>
+                <button onclick="updateStatus({{ rec.id }}, 'dismissed')">Dismiss</button>
+            </div>
         </div>
         {% endfor %}
     </div>
-
-    {% set category_icons = {'observability': '📊', 'infrastructure': '🏗️', 'governance': '🛡️', 'code_optimization': '⚡'} %}
-    {% set category_labels = {'observability': 'Observability', 'infrastructure': 'Infrastructure', 'governance': 'Governance', 'code_optimization': 'Code Optimization'} %}
-
-    {% for cat_key in ['observability', 'infrastructure', 'governance', 'code_optimization'] %}
-    {% if by_category.get(cat_key) %}
-    <div class="category-section">
-        <div class="category-title">
-            <span class="category-icon">{{ category_icons[cat_key] }}</span>
-            {{ category_labels[cat_key] }}
-            <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400">({{ by_category[cat_key]|length }})</span>
-        </div>
-        <div class="rec-grid">
-            {% for rec in by_category[cat_key] %}
-            <div class="rec-card" id="rec-{{ rec.id }}">
-                <div class="rec-card-header">
-                    <div class="rec-title">{{ rec.title }}</div>
-                    <span class="severity-badge sev-{{ rec.severity }}">{{ rec.severity }}</span>
-                </div>
-                <div class="rec-desc">{{ rec.description }}</div>
-                <div class="rec-meta">
-                    <span>Effort: {{ rec.estimated_effort or '?' }}</span>
-                    <span>Status: {{ rec.status }}</span>
-                    {% if rec.affected_resource_ids %}
-                    <span>{{ rec.affected_resource_ids|length }} resource(s)</span>
-                    {% endif %}
-                </div>
-                <div class="rec-actions">
-                    <button class="gen-spec" onclick="generateSpec({{ rec.id }}, this)">
-                        {{ 'View Spec' if rec.has_agent_spec else 'Generate Spec' }}
-                    </button>
-                    <button onclick="copyToChat({{ rec.id }})">Copy to Chat</button>
-                    <button onclick="updateStatus({{ rec.id }}, 'resolved')">Mark Resolved</button>
-                    <button onclick="updateStatus({{ rec.id }}, 'dismissed')">Dismiss</button>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-    {% endfor %}
-
-    {% if total == 0 %}
-    <div class="empty-state">
-        <p style="font-size:1.1rem;margin-bottom:0.5rem">No recommendations yet</p>
-        <p>Click "Run Analysis" to scan your infrastructure for potential issues.</p>
-    </div>
-    {% endif %}
 </div>
+{% endif %}
+{% endfor %}
+
+{% if total == 0 %}
+<div class="empty-state">
+    <p style="font-size:1.1rem;margin-bottom:0.5rem">No recommendations yet</p>
+    <p>Click "Run Analysis" to scan your infrastructure for potential issues.</p>
+</div>
+{% endif %}
 
 <!-- Spec Modal -->
 <div class="spec-modal" id="spec-modal">
@@ -320,5 +284,4 @@ document.getElementById('spec-modal').addEventListener('click', function(e) {
     if (e.target === this) closeSpecModal();
 });
 </script>
-</body>
-</html>
+{% endblock %}
