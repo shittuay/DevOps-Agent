@@ -2295,9 +2295,11 @@
                             <div class="dropdown-item" onclick="window.location.href='/analysis'">
                                 <i class="fa-solid fa-magnifying-glass-chart"></i> Root Cause Analysis
                             </div>
+                            {% if current_user.is_authenticated and current_user.role == 'admin' %}
                             <div class="dropdown-item" onclick="window.location.href='/webhooks'">
                                 <i class="fa-solid fa-link"></i> Webhooks
                             </div>
+                            {% endif %}
                             <div class="dropdown-item" onclick="window.location.href='/chatops'">
                                 <i class="fa-solid fa-comments"></i> ChatOps
                             </div>
@@ -3864,7 +3866,9 @@
         // Init learning mode on page load
         document.addEventListener('DOMContentLoaded', initLearningMode);
 
-        // Approvals nav badge — only shown to admins/approvers
+        // Approvals nav badge — polled only for approvers/admins (fetching for
+        // everyone produced a 403 console error every 30s for regular users)
+        {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
         (function() {
             function refreshApprovalsBadge() {
                 fetch('/api/approvals/count')
@@ -3886,6 +3890,7 @@
             document.addEventListener('DOMContentLoaded', refreshApprovalsBadge);
             setInterval(refreshApprovalsBadge, 30000);
         })();
+        {% endif %}
 
         // If navigated from Settings with a "Start Lesson" link, pre-fill and send the starter prompt
         document.addEventListener('DOMContentLoaded', function() {

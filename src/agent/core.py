@@ -1240,7 +1240,8 @@ class DevOpsAgent:
 
         api_key = os.environ.get('MOONSHOT_API_KEY', '')
         if not api_key:
-            return "❌ Kimi API key not configured. Set MOONSHOT_API_KEY in config/.env"
+            self.logger.error("MOONSHOT_API_KEY is not configured — Kimi requests cannot be served")
+            return "The AI service is temporarily unavailable. Please try again in a few minutes — if this keeps happening, contact support@devopsagent.io."
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k2.7-code')
@@ -1443,7 +1444,8 @@ class DevOpsAgent:
 
         api_key = os.environ.get('MOONSHOT_API_KEY', '')
         if not api_key:
-            yield "Kimi API key not configured. Please set MOONSHOT_API_KEY."
+            self.logger.error("MOONSHOT_API_KEY is not configured — Kimi requests cannot be served")
+            yield "The AI service is temporarily unavailable. Please try again in a few minutes — if this keeps happening, contact support@devopsagent.io."
             return
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")

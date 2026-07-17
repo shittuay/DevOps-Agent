@@ -314,6 +314,16 @@ csrf.exempt(artifacts_bp)
 from routes.skills import skills_bp
 app.register_blueprint(skills_bp)
 
+# Load built-in skills at import time — gunicorn never runs the __main__ block,
+# so loading there left the Skills feature empty in production. Passing `app`
+# is required: the engine's list/context methods no-op without an app handle.
+try:
+    from services.skills_engine import get_skills_engine as _get_skills_engine
+    _get_skills_engine(app).load_skills_from_disk(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skills'))
+except Exception as _skills_load_err:
+    print(f"Skills loading warning: {_skills_load_err}")
+
 # MCP server (Model Context Protocol — remote tool access for Claude Desktop)
 from routes.mcp import (mcp_bp, mcp_oauth_alias_bp, mcp_base_url,
                         OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET)
@@ -1622,7 +1632,7 @@ def onboarding_scan():
             status='pending'
         ).count()
         potential_savings = db.session.query(
-            db.func.sum(CostOptimization.estimated_savings)
+            db.func.sum(CostOptimization.potential_monthly_savings)
         ).filter_by(user_id=current_user.id, status='pending').scalar() or 0.0
 
         security_findings = SecurityFinding.query.filter_by(
@@ -5817,14 +5827,8 @@ if __name__ == '__main__':
     print("DevOps Automation Agent - Web Interface")
     print("=" * 60)
 
-    # Load skills from disk
-    try:
-        import os as _os
-        from services.skills_engine import get_skills_engine as _gse
-        _skills_dir = _os.path.join(_os.path.dirname(__file__), 'skills')
-        _gse().load_skills_from_disk(_skills_dir)
-    except Exception as _se:
-        print(f"Skills loading warning: {_se}")
+    # (Built-in skills are loaded at module import time — see the block after
+    # the skills blueprint registration.)
 
     # Initialize database
     with app.app_context():

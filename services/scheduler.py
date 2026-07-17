@@ -295,13 +295,13 @@ def _check_user_costs(db, user):
     recent = (
         CostOptimization.query
         .filter_by(user_id=user.id)
-        .order_by(CostOptimization.detected_at.desc())
+        .order_by(CostOptimization.created_at.desc())
         .limit(10)
         .all()
     )
 
     if len(recent) >= 2:
-        latest_savings = sum(r.estimated_savings or 0 for r in recent[:5])
+        latest_savings = sum(r.potential_monthly_savings or 0 for r in recent[:5])
         if latest_savings > 100:
             logger.info(f"User {user.id}: ${latest_savings:.0f} potential savings detected")
 
@@ -377,10 +377,10 @@ def _run_weekly_digest(db):
             ).count()
 
             savings_identified = db.session.query(
-                db.func.sum(CostOptimization.estimated_savings)
+                db.func.sum(CostOptimization.potential_monthly_savings)
             ).filter(
                 CostOptimization.user_id == user.id,
-                CostOptimization.detected_at >= week_ago
+                CostOptimization.created_at >= week_ago
             ).scalar() or 0.0
 
             critical_sec = SecurityFinding.query.filter_by(

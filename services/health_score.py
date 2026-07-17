@@ -68,7 +68,7 @@ def calculate_health_score(user_id: int) -> Dict[str, Any]:
     # ── Cost waste ───────────────────────────────────────────────────────────
     from models import db
     total_waste = db.session.query(
-        db.func.sum(CostOptimization.estimated_savings)
+        db.func.sum(CostOptimization.potential_monthly_savings)
     ).filter_by(user_id=user_id, status='pending').scalar() or 0.0
 
     waste_deduction = min(int(total_waste / 100) * 10, 30)
