@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Epilogue:wght@300;400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -138,6 +139,10 @@
     }
 
     .btn-primary:hover { background: var(--orange2); transform: translateY(-1px); }
+
+    /* .nav-right a outranks .btn-primary — keep the CTA text white */
+    .nav-right a.btn-primary { color: #fff; }
+    .nav-right a.btn-primary:hover { color: #fff; }
 
     .theme-toggle {
       background: none;
@@ -303,8 +308,9 @@
     .card:hover { border-color: var(--border2); transform: translateY(-2px); }
 
     .card-icon {
-      font-size: 22px;
+      font-size: 20px;
       margin-bottom: 10px;
+      color: var(--orange);
     }
 
     .card-title {
@@ -592,22 +598,22 @@
 
       <div class="card-grid">
         <div class="card">
-          <div class="card-icon">💬</div>
+          <div class="card-icon"><i class="fa-solid fa-comments"></i></div>
           <div class="card-title">Chat with your infrastructure</div>
           <div class="card-desc">Ask questions, run commands, and get insights in plain English — no CLI required.</div>
         </div>
         <div class="card">
-          <div class="card-icon">☁️</div>
+          <div class="card-icon"><i class="fa-solid fa-cloud"></i></div>
           <div class="card-title">745 cloud tools</div>
           <div class="card-desc">AWS, Azure, GCP, and Kubernetes — full lifecycle management from a single interface.</div>
         </div>
         <div class="card">
-          <div class="card-icon">🔐</div>
+          <div class="card-icon"><i class="fa-solid fa-shield-halved"></i></div>
           <div class="card-title">Safe by default</div>
           <div class="card-desc">Destructive operations require explicit confirmation. All credentials are encrypted at rest.</div>
         </div>
         <div class="card">
-          <div class="card-icon">📚</div>
+          <div class="card-icon"><i class="fa-solid fa-book-open"></i></div>
           <div class="card-title">Learn as you go</div>
           <div class="card-desc">Learning Mode explains every action inline so you build knowledge while getting work done.</div>
         </div>
