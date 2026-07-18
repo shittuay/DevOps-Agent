@@ -556,9 +556,14 @@ do). The scheduled scan is the only timer-based scan.
 | Secret | Used by | Purpose |
 |--------|---------|---------|
 | `EC2_SSH_KEY` | ~~none~~ | No longer needed — both deploy paths use SSM, not SSH |
-| `AWS_ACCESS_KEY_ID` | `ci.yml`, `deploy.yml` | IAM credentials for AWS API calls |
-| `AWS_SECRET_ACCESS_KEY` | `ci.yml`, `deploy.yml` | IAM credentials for AWS API calls |
+| `AWS_ACCESS_KEY_ID` | ~~none~~ | No longer needed — deploys authenticate via GitHub OIDC (2026-07-18) |
+| `AWS_SECRET_ACCESS_KEY` | ~~none~~ | No longer needed — deploys authenticate via GitHub OIDC (2026-07-18) |
 | `EC2_INSTANCE_ID` | `ci.yml`, `deploy.yml` | EC2 instance ID for SSM targeting |
+
+Deploy jobs assume `arn:aws:iam::188046727805:role/github-actions-deploy` via
+GitHub OIDC (`token.actions.githubusercontent.com` provider; trust scoped to
+`repo:shittuay/DevOps-Agent:*`; permissions = SSM SendCommand on the app
+instance + GetCommandInvocation only). No long-lived AWS keys exist in GitHub.
 
 ## Adding a New Model
 
