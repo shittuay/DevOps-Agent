@@ -549,6 +549,12 @@ class SafetyValidator:
             'ansible_vault_decrypt',
             'ansible_vault_view',
             'ansible_galaxy_install',
+            # Alerting gaps — provider_verb_noun shape defeats update_/acknowledge_/close_/escalate_
+            # prefix auto-detection; can silently resolve/close a live incident or alert
+            'pagerduty_update_incident',
+            'opsgenie_acknowledge_alert',
+            'opsgenie_close_alert',
+            'opsgenie_escalate_alert',
         }
 
         # Check if tool is a pentest tool

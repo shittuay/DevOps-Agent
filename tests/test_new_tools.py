@@ -317,6 +317,19 @@ class TestSafetyClassifications:
     def test_docker_create_container_is_medium_risk(self):
         assert self._classify('docker_create_container') == 'medium'
 
+    # --- medium-risk: Alerting (provider_verb_noun shape defeats prefix auto-detection) ---
+    def test_pagerduty_update_incident_is_medium_risk(self):
+        assert self._classify('pagerduty_update_incident') == 'medium'
+
+    def test_opsgenie_acknowledge_alert_is_medium_risk(self):
+        assert self._classify('opsgenie_acknowledge_alert') == 'medium'
+
+    def test_opsgenie_close_alert_is_medium_risk(self):
+        assert self._classify('opsgenie_close_alert') == 'medium'
+
+    def test_opsgenie_escalate_alert_is_medium_risk(self):
+        assert self._classify('opsgenie_escalate_alert') == 'medium'
+
     # --- production escalation ---
     def test_high_risk_on_production_escalates_to_critical(self):
         from src.agent.safety import SafetyValidator
