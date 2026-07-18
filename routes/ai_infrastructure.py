@@ -181,6 +181,16 @@ def api_deploy():
     return jsonify(result)
 
 
+@ai_infrastructure_bp.route('/api/deployments')
+@login_required
+def api_deployments():
+    """List the user's AI-assisted deployments (JSON for the deployments page)."""
+    from services.ai_infrastructure import AIInfrastructureService
+    service = AIInfrastructureService(current_user.id)
+    deployments = service.get_user_deployments(current_user.id)
+    return jsonify({'deployments': deployments})
+
+
 @ai_infrastructure_bp.route('/api/recommendations')
 @login_required
 def api_recommendations():
