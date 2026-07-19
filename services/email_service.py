@@ -36,7 +36,32 @@ class EmailService:
         self.base_url = os.getenv('BASE_URL', 'https://devopsagent.io')
 
     def send_email(self, to_email, subject, html_content, text_content=None):
-        """Send email via configured provider. Returns bool."""
+        """Send email via configured provider. Returns bool.
+
+        A False return (delivery failure) is logged at ERROR and reported to
+        Sentry so it can't go unnoticed — an invalid Brevo key silently broke
+        ALL transactional email (verification, password reset, MFA, support)
+        for ~3 weeks in Jul 2026 because callers treated 'sent' as success.
+        """
+        ok = self._dispatch(to_email, subject, html_content, text_content)
+        if not ok:
+            logger.error(
+                "EMAIL DELIVERY FAILED — provider=%s to=%s subject=%r. "
+                "Check provider credentials (BREVO_API_KEY / SMTP_*).",
+                self.provider, to_email, subject,
+            )
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_message(
+                    f"Email delivery failed via {self.provider} to {to_email}: {subject}",
+                    level="error",
+                )
+            except Exception:
+                pass  # Sentry optional; never let alerting break the caller
+        return ok
+
+    def _dispatch(self, to_email, subject, html_content, text_content=None):
+        """Route to the configured provider. Returns bool."""
         if self.provider == 'brevo' and self.brevo_key:
             return self._send_brevo(to_email, subject, html_content, text_content)
         if self.provider == 'sendgrid' and self.sendgrid_key:
