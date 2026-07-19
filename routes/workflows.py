@@ -71,6 +71,7 @@ def execute_workflow(template_id: int):
     # Seed with user message so chat stream picks it up
     msg = ChatMessage(
         conversation_id=conv_id,
+        user_id=current_user.id,   # NOT NULL — omitting it 500'd every execute
         role='user',
         content=prompt,
     )
