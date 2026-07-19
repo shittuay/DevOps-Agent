@@ -854,6 +854,8 @@
       background: var(--bg);
       padding: 36px 28px;
       position: relative;
+      display: flex;
+      flex-direction: column;
     }
 
     .price-card.featured {
@@ -862,6 +864,7 @@
 
     .price-badge {
       display: inline-block;
+      align-self: flex-start;   /* don't stretch full-width in the flex column */
       padding: 3px 10px;
       background: var(--orange);
       border-radius: 4px;
@@ -930,6 +933,8 @@
       flex-direction: column;
       gap: 10px;
       margin-bottom: 28px;
+      /* absorb slack so all cards' CTAs align at the bottom edge */
+      flex: 1 0 auto;
     }
 
     .price-features li {
