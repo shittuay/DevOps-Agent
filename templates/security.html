@@ -393,7 +393,7 @@
                     <li>No <code>secretsmanager:GetSecretValue</code>, no <code>ssm:GetParameter</code> &mdash; secret values stay unreadable</li>
                     <li>No <code>lambda:GetFunction</code> &mdash; we read function configuration, never your code</li>
                     <li><strong><a href="/static/iam/devops-agent-management.json" target="_blank">Management policy</a></strong>: full agent capability, but IAM stays read-only (no privilege escalation) and secret values stay excluded</li>
-                    <li>Automated tests in our <a href="https://github.com/shittuay/DevOps-Agent" target="_blank" rel="noopener">public repository</a> fail if any release weakens these guarantees</li>
+                    <li>Automated tests in our CI pipeline fail the release if any change weakens these guarantees</li>
                 </ul>
             </div>
 
