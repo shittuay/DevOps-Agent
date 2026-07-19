@@ -5826,6 +5826,28 @@ if __name__ != '__main__' and not _is_testing:
         logger.warning(f"Eager agent init skipped (non-fatal): {_e}")
 
 
+# ---------------------------------------------------------------------------
+# Start the background scheduler under gunicorn.
+# Like the agent init above, start_scheduler() was only ever called from the
+# __main__ block (dev `python app.py`) — so under gunicorn in production it
+# NEVER ran, leaving proactive monitoring, cost/security scans, drip + digest
+# emails, infra auto-sync, and DB backups all dead. Start it here so gunicorn
+# runs it; the scheduler's PID-file lock ensures exactly one worker owns it.
+# Gated to gunicorn specifically (not migration scripts, shells, or tests):
+# the loop runs every task immediately on its first tick, so an accidental
+# start in a short-lived import could fire emails mid-process. Opt out with
+# DISABLE_SCHEDULER=1.
+import sys as _sys
+_under_gunicorn = 'gunicorn' in os.path.basename(_sys.argv[0] if _sys.argv else '').lower()
+if _under_gunicorn and not _is_testing and os.environ.get('DISABLE_SCHEDULER') != '1':
+    try:
+        from services.scheduler import start_scheduler
+        start_scheduler(app, db)
+        logger.info("Background scheduler started at import (WSGI)")
+    except Exception as _e:
+        logger.warning(f"Scheduler autostart skipped (non-fatal): {_e}")
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("DevOps Automation Agent - Web Interface")
