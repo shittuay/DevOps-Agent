@@ -102,7 +102,11 @@ def edit_playbook(playbook_id):
     if not playbook:
         return jsonify({'error': 'Playbook not found'}), 404
 
-    # Serialize actions so tojson doesn't choke on ActionType enum values
+    # Serialize actions so tojson doesn't choke on ActionType enum values.
+    # NOTE: render on a shallow COPY — get_playbook() returns the shared cached
+    # object, and overwriting its .actions with dicts here previously corrupted
+    # it in place, 500ing any later toggle/save of that playbook until restart.
+    import copy
     serialized_actions = [
         {
             'action_type': a.action_type.value if hasattr(a.action_type, 'value') else a.action_type,
@@ -116,9 +120,10 @@ def edit_playbook(playbook_id):
         }
         for a in (playbook.actions or [])
     ]
-    playbook.actions = serialized_actions
+    render_playbook = copy.copy(playbook)
+    render_playbook.actions = serialized_actions
 
-    return render_template('incidents/playbook_builder.html', playbook=playbook)
+    return render_template('incidents/playbook_builder.html', playbook=render_playbook)
 
 
 # ==================== API ROUTES ====================

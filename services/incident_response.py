@@ -561,14 +561,30 @@ class IncidentResponseEngine:
         with self._app.app_context():
             from models import db, PlaybookModel
             row = PlaybookModel.query.filter_by(user_id=user_id, playbook_key=playbook.id).first()
-            actions_list = [{
-                'action_type': a.action_type.value,
-                'name': a.name,
-                'description': a.description,
-                'parameters': a.parameters,
-                'requires_approval': a.requires_approval,
-                'timeout_seconds': a.timeout_seconds,
-            } for a in playbook.actions]
+
+            def _action_to_dict(a):
+                # Tolerate both RemediationAction objects and already-serialized
+                # dicts, so a stray dict can never crash the write-through.
+                if isinstance(a, dict):
+                    at = a.get('action_type')
+                    return {
+                        'action_type': at.value if hasattr(at, 'value') else at,
+                        'name': a.get('name'),
+                        'description': a.get('description', ''),
+                        'parameters': a.get('parameters', {}),
+                        'requires_approval': a.get('requires_approval', False),
+                        'timeout_seconds': a.get('timeout_seconds', 300),
+                    }
+                return {
+                    'action_type': a.action_type.value if hasattr(a.action_type, 'value') else a.action_type,
+                    'name': a.name,
+                    'description': a.description,
+                    'parameters': a.parameters,
+                    'requires_approval': a.requires_approval,
+                    'timeout_seconds': a.timeout_seconds,
+                }
+
+            actions_list = [_action_to_dict(a) for a in playbook.actions]
 
             if not row:
                 row = PlaybookModel(
