@@ -2922,9 +2922,11 @@ def api_chat():
             preferences_context = prefs.get_context_for_prompt()
             if prefs.learning_mode:
                 preferences_context = (preferences_context or '') + '\n\n' + LEARNING_MODE_CONTEXT
-                if prefs.sandbox_mode:
-                    preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
-                    sandbox_active = True
+            # Sandbox is independent of learning mode — enabling it alone must
+            # simulate every tool (the safety promise "nothing touches real infra").
+            if prefs.sandbox_mode:
+                preferences_context = (preferences_context or '') + '\n' + SANDBOX_MODE_ADDENDUM
+                sandbox_active = True
 
         # Inject relevant memory context
         try:
@@ -3432,9 +3434,11 @@ def api_chat_stream():
         sandbox_active = False
         if prefs and prefs.learning_mode:
             preferences_context = (preferences_context or '') + '\n\n' + LEARNING_MODE_CONTEXT
-            if prefs.sandbox_mode:
-                preferences_context += '\n' + SANDBOX_MODE_ADDENDUM
-                sandbox_active = True
+        # Sandbox is independent of learning mode — enabling it alone must
+        # simulate every tool (the safety promise "nothing touches real infra").
+        if prefs and prefs.sandbox_mode:
+            preferences_context = (preferences_context or '') + '\n' + SANDBOX_MODE_ADDENDUM
+            sandbox_active = True
 
         # Inject page and resource context (sent by frontend when user is on a specific page/resource)
         _page_ctx = data.get('page_context', '')
