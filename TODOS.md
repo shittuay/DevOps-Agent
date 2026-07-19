@@ -1,6 +1,14 @@
 # TODOS
 
-Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review). Last updated 2026-06-10 (no-bs project analysis).
+Tracked from CEO plan review — 2026-03-15. Updated 2026-03-24 (EXPANSION mode review). Updated 2026-06-10 (no-bs project analysis). **Last updated 2026-07-18.**
+
+**July 2026 status:** the runway for P0 #2 (customer acquisition) is clear —
+payments verified working (Stripe key rotated 2026-07-17, test checkout incl.
+webhook confirmed), UI unified onto one app shell (PRs #55–#59), two full
+Playwright functional audits pass clean across all 46 pages (3 production bugs
+found+fixed: health-score/onboarding-scan crash, dead Skills feature, missing
+deployments endpoint), and P0 #3 (trust) is complete. Distribution remains the
+gap — execute MARKETING_PLAN.md.
 
 ---
 
@@ -15,10 +23,16 @@ April's post-hack scan flagged all API keys for rotation (manual). Confirm it ha
 - [x] `CREDENTIAL_ENCRYPTION_KEY` set in prod — DONE 2026-06-12. Set to the PBKDF2-derived Fernet key the SECRET_KEY fallback was already producing (NOT the raw SECRET_KEY — the two code paths derive differently), so existing encrypted credentials stay decryptable and SECRET_KEY can now be rotated freely. Verified key-equality before writing, added to `.env` + the `devops-agent/production` secret (25 keys), live decrypt + AssumeRole confirmed via `/api/aws/test`, no more fallback warnings.
 - Platform AWS auth is now the EC2 instance profile (`devops-agent-ssm-role`, new inline policy `devops-agent-assume-customer-roles` for `sts:AssumeRole`) — no static platform keys should exist anywhere.
 
+**Progress 2026-07-17/18:**
+- [x] Stripe keys rotated (all 10 STRIPE_* values). Root-caused why the rotation initially didn't take: server `config/.env` overrode Secrets Manager — precedence inverted in `stripe_integration.py` (PR #61), instance role granted `GetSecretValue` on the production secret, and **Secrets Manager is now authoritative for Stripe**. Quarterly rotation procedure documented in CLAUDE_RUNBOOK.md; a scheduled routine creates a calendar reminder every quarter (next: 2026-10-15).
+- [x] AWS deploy credentials: old key deactivated during rotation broke deploys (GitHub secrets held it); replaced, then eliminated entirely via GitHub OIDC (see checked item below).
+- [ ] STILL TO VERIFY: ages of Anthropic, Moonshot, Groq, Brevo, Sentry keys and SECRET_KEY / CREDENTIAL_ENCRYPTION_KEY against the April incident date.
+
 ### [ ] 2. Customer acquisition — first 20 paying users
 Distribution, not code, is the gap. Execute MARKETING_PLAN.md + March Brevo campaign: launch email to contact list, Product Hunt / HN / r/devops posts, daily outreach, pricing page review. **Feature freeze until 20 paying users.**
+**2026-07-18: fully unblocked** — payments verified end-to-end, onboarding scan crash fixed (was breaking the first-run experience), trust page + role-ARN + sandbox all live, app audits clean. This is now the only open P0 besides the key-age verification sub-item of #1.
 
-### [ ] 3. Trust/social proof to overcome the credential barrier
+### [x] 3. Trust/social proof to overcome the credential barrier — DONE (last sub-item, CI OIDC, closed 2026-07-18)
 Biggest conversion blocker: handing an unknown vendor cloud credentials. Build a public `/security` page (encryption, role-ARN mode, guardrails stack), promote "start in sandbox — no credentials needed" onboarding, publish auditable least-privilege IAM policy JSON for role-ARN setup.
 
 **Role ARN over access keys (expanded):** Access-key mode means storing long-lived secrets that can do anything the IAM user can until manually rotated — the same failure mode as the April incident. Role ARN + External ID (the Datadog/Vanta model) means the customer creates a role in their own account that trusts ours, scoped by External ID against confused-deputy attacks; `get_user_boto_client()` already does STS AssumeRole with 1-hour temp creds, and the customer can revoke instantly by deleting the role. Code support exists (`credential_service.py` dual-mode) — the work is:
