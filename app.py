@@ -4287,7 +4287,7 @@ def download_compliance_pdf(framework):
     """Download compliance report as PDF."""
     from services.tier_enforcement import check_feature
     if not check_feature(current_user.id, 'has_pdf_export'):
-        return jsonify({'error': 'PDF export is available on Pro and Enterprise plans.', 'upgrade_url': '/billing'}), 403
+        return jsonify({'error': 'PDF export is available on Professional and Business plans.', 'upgrade_url': '/billing'}), 403
 
     try:
         from models import ComplianceReport
@@ -5525,14 +5525,14 @@ def init_database():
                  features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
                  max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
                  compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='professional', display_name='Pro', monthly_credits=1000, monthly_price=99.0,
+            dict(name='professional', display_name='Professional', monthly_credits=1000, monthly_price=99.0,
                  description='For growing teams with multi-cloud needs',
                  features=['1,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
                            'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
                            'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
                  max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
                  compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
-            dict(name='business', display_name='Enterprise', monthly_credits=3000, monthly_price=299.0,
+            dict(name='business', display_name='Business', monthly_credits=3000, monthly_price=299.0,
                  description='Full-scale automation for large organizations',
                  features=['3,000 AI messages per month', 'Unlimited cloud accounts', 'Unlimited resources',
                            'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
@@ -5917,14 +5917,14 @@ if __name__ == '__main__':
                  features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
                  max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
                  compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='professional', display_name='Pro', monthly_credits=1000, monthly_price=99.0,
+            dict(name='professional', display_name='Professional', monthly_credits=1000, monthly_price=99.0,
                  description='For growing teams with multi-cloud needs',
                  features=['1,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
                            'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
                            'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
                  max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
                  compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
-            dict(name='business', display_name='Enterprise', monthly_credits=3000, monthly_price=299.0,
+            dict(name='business', display_name='Business', monthly_credits=3000, monthly_price=299.0,
                  description='Full-scale automation for large organizations',
                  features=['3,000 AI messages per month', 'Unlimited cloud accounts', 'Unlimited resources',
                            'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
