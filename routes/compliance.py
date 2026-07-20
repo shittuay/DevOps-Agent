@@ -363,17 +363,29 @@ def api_dashboard():
     return jsonify(data)
 
 
+SUPPORTED_FRAMEWORKS = ('soc2', 'hipaa', 'pci_dss')
+
+
 @compliance_bp.route('/api/run-check', methods=['POST'])
 @login_required
 def api_run_check():
-    """Run compliance check"""
+    """Run a compliance check for a single framework."""
     from services.compliance_service import ComplianceService
     service = ComplianceService(current_user.id)
 
-    framework_id = request.json.get('framework_id')
-    result = service.run_compliance_check(current_user.id, framework_id)
+    data = request.get_json(silent=True) or {}
+    framework_id = data.get('framework_id')
+    if not framework_id:
+        return jsonify({'error': 'framework_id is required',
+                        'supported': list(SUPPORTED_FRAMEWORKS)}), 400
+    if framework_id not in SUPPORTED_FRAMEWORKS:
+        return jsonify({'error': f'Unsupported framework: {framework_id}',
+                        'supported': list(SUPPORTED_FRAMEWORKS)}), 400
 
-    return jsonify(result)
+    report = service.run_compliance_check(current_user.id, framework_id)
+    # run_compliance_check returns a ComplianceReport model instance, which is
+    # not itself JSON-serializable — serialize via its to_dict().
+    return jsonify(report.to_dict() if hasattr(report, 'to_dict') else report)
 
 
 @compliance_bp.route('/api/audit-log')

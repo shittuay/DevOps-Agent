@@ -235,3 +235,48 @@ data-loss exposure — instance death = DB gone.)
   (`/var/www/devops-agent/.env`) and restarted the service.
 - Verified: manual backup produces a local `.gz` and uploads to S3; error storm
   stopped. pg_dump 14.23 matches local server 14.23.
+
+---
+
+## Two non-blocker bug fixes: compliance run-check + AI Templates feature (2026-07-20)
+
+Found during the pre-launch end-to-end audit.
+
+### `/compliance/api/run-check` 500'd for every input
+The route (`routes/compliance.py`) passed `request.json.get('framework_id')`
+(None when omitted) straight into `run_compliance_check -> enable_framework ->
+None.upper()`. Even a valid framework 500'd because the route did
+`jsonify(result)` on a `ComplianceReport` model instance (not serializable). No
+UI referenced the endpoint, so it had never worked. Fixed: validate framework_id
+(400 for missing/unsupported, against `('soc2','hipaa','pci_dss')`), serialize
+via `report.to_dict()`, and guard `enable_framework` against a falsy name.
+Guarded by `tests/test_compliance_run_check.py`.
+
+### AI Infrastructure Templates was non-functional scaffolding
+The feature only *looked* fine because no template had ever existed. Bugs fixed:
+- `create_template()` wrote to a `specification=` column that doesn't exist
+  (model has `template_content` + `variables`).
+- `api_templates` read `t.provider` / `t.complexity` / `t.estimated_cost` — none
+  are model attributes; it would 500 the moment any template existed. It also
+  only returned the user's own templates, never public ones.
+- `preview_template()` was called by a route but did not exist in the service.
+- The "Use Template" button called an **undefined** `useTemplate()`.
+- No starter catalog was ever seeded.
+
+Rebuilt around a single canonical serialization (`AIInfrastructureService.
+template_to_dict`) used by the API, the grid, and the detail page, so model
+column names never leak as mismatched attributes again. Added
+`services/starter_templates.py` (6 curated public Terraform templates) +
+`seed_public_templates()` (idempotent, owned by a `system@devopsagent.io` user,
+seeded at startup like skills — the __main__ block never runs under gunicorn).
+New: `get_visible_templates`, `preview_template` (substitutes only declared
+`${var}` tokens, leaving Terraform's own `${...}` intact), `clone_template`, and
+a `/ai/api/templates/<id>/clone` endpoint. Rewrote `templates.html` (starter/
+your sections, working `useTemplate`) and `template_detail.html` (variables +
+live preview + copy + save). Guarded by `tests/test_ai_infrastructure_templates.py`.
+
+**Test-isolation note:** the suite uses a session-scoped shared in-memory SQLite;
+tests that commit rows tied to `test_user` (compliance frameworks, infra
+templates) MUST delete those child rows in a fixture that finalizes *before* the
+user fixture — else deleting the user nulls a NOT NULL FK and poisons the session
+for the rest of the suite (same trap documented in `test_template_isolation.py`).
