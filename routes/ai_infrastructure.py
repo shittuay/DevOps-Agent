@@ -25,26 +25,37 @@ def provision():
 @ai_infrastructure_bp.route('/templates')
 @login_required
 def templates():
-    """Infrastructure templates"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-    all_templates = service.get_user_templates(current_user.id)
-    return render_template('ai_infrastructure/templates.html', templates=all_templates)
+    """Infrastructure templates catalog (grid is populated client-side via API)."""
+    return render_template('ai_infrastructure/templates.html')
 
 
-@ai_infrastructure_bp.route('/templates/<template_id>')
+@ai_infrastructure_bp.route('/templates/<int:template_id>')
 @login_required
 def template_detail(template_id):
-    """Template detail"""
+    """Template detail — visible if public or owned by the user."""
     from services.ai_infrastructure import AIInfrastructureService
     service = AIInfrastructureService(current_user.id)
     template = service.get_template(template_id)
 
-    if not template:
+    if not template or not (template.is_public or template.user_id == current_user.id):
         flash('Template not found.', 'error')
         return redirect(url_for('ai_infrastructure.templates'))
 
-    return render_template('ai_infrastructure/template_detail.html', template=template)
+    return render_template('ai_infrastructure/template_detail.html',
+                           template=service.template_to_dict(template))
+
+
+@ai_infrastructure_bp.route('/api/templates/<int:template_id>/clone', methods=['POST'])
+@login_required
+def api_template_clone(template_id):
+    """Save a copy of a template into the user's own templates."""
+    from services.ai_infrastructure import AIInfrastructureService
+    service = AIInfrastructureService(current_user.id)
+    source = service.get_template(template_id)
+    if not source or not (source.is_public or source.user_id == current_user.id):
+        return jsonify({'error': 'Template not found'}), 404
+    clone = service.clone_template(template_id, current_user.id)
+    return jsonify({'success': True, 'template': service.template_to_dict(clone)})
 
 
 @ai_infrastructure_bp.route('/recommendations')
@@ -248,22 +259,18 @@ def api_templates():
 
     category = request.args.get('category')
     provider = request.args.get('provider')
-    templates = service.get_user_templates(current_user.id)
+    templates = service.get_visible_templates(current_user.id)
+
+    def matches(t):
+        return ((not category or t.category == category) and
+                (not provider or t.cloud_provider == provider))
 
     return jsonify({
-        'templates': [{
-            'id': t.id,
-            'name': t.name,
-            'description': t.description,
-            'category': t.category,
-            'provider': t.provider,
-            'complexity': t.complexity,
-            'estimated_cost': t.estimated_cost
-        } for t in templates]
+        'templates': [service.template_to_dict(t) for t in templates if matches(t)]
     })
 
 
-@ai_infrastructure_bp.route('/api/templates/<template_id>/preview', methods=['POST'])
+@ai_infrastructure_bp.route('/api/templates/<int:template_id>/preview', methods=['POST'])
 @login_required
 def api_template_preview(template_id):
     """Preview template with parameters"""

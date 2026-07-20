@@ -1,57 +1,119 @@
 {% extends "base.html" %}
-{% block title %}Template Detail - DevOps Agent{% endblock %}
+{% block title %}{{ template.name }} - Template - DevOps Agent{% endblock %}
 {% block content %}
 <div class="container">
     <div class="page-header">
-        <h1>{{ template.name if template else 'Template Detail' }}</h1>
+        <div>
+            <h1>{{ template.name }}</h1>
+            <div class="tpl-badges">
+                {% if template.cloud_provider %}<span class="tpl-badge">{{ template.cloud_provider }}</span>{% endif %}
+                {% if template.category %}<span class="tpl-badge">{{ template.category }}</span>{% endif %}
+                {% if template.template_type %}<span class="tpl-badge">{{ template.template_type }}</span>{% endif %}
+                <span class="tpl-badge cost">${{ '%.2f'|format(template.estimated_cost or 0) }}/mo</span>
+            </div>
+        </div>
         <a href="{{ url_for('ai_infrastructure.templates') }}" class="btn btn-secondary">Back to Templates</a>
     </div>
-    {% if template %}
+
+    <p class="lead">{{ template.description or 'No description' }}</p>
+
     <div class="detail-grid">
+        {% if template.variables %}
         <div class="card">
-            <h3>Overview</h3>
-            <div class="detail-row"><strong>Name:</strong> {{ template.name }}</div>
-            <div class="detail-row"><strong>Description:</strong> {{ template.description or 'No description' }}</div>
-            <div class="detail-row"><strong>Category:</strong> {{ template.category or '-' }}</div>
-            <div class="detail-row"><strong>Provider:</strong> {{ template.provider or template.cloud_provider or '-' }}</div>
-            <div class="detail-row"><strong>Complexity:</strong> {{ template.complexity or '-' }}</div>
-            <div class="detail-row"><strong>Estimated Cost:</strong> ${{ template.estimated_cost or 0 }}/mo</div>
+            <h3>Variables</h3>
+            <p class="text-muted small">Adjust values, then Preview to render the template.</p>
+            <div class="vars">
+                {% for v in template.variables %}
+                <div class="var-row">
+                    <label for="var-{{ v.name }}">{{ v.name }}</label>
+                    <input id="var-{{ v.name }}" data-var="{{ v.name }}" value="{{ v.default }}" />
+                    <span class="var-desc">{{ v.description or '' }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            <button class="btn btn-secondary mt-2" onclick="previewTemplate()">Preview with these values</button>
         </div>
+        {% endif %}
+
         <div class="card">
-            <h3>Configuration</h3>
-            <pre class="code-block">{{ template.config | tojson(indent=2) if template.config else 'No configuration data' }}</pre>
+            <div class="card-head">
+                <h3>{{ template.template_type|capitalize }}</h3>
+                <button class="btn btn-sm btn-secondary" onclick="copyContent()">Copy</button>
+            </div>
+            <pre class="code-block" id="codeBlock">{{ template.template_content }}</pre>
         </div>
+
         <div class="card">
             <h3>Actions</h3>
-            <button class="btn btn-primary" onclick="deployTemplate('{{ template.id }}')">Deploy This Template</button>
-            <button class="btn btn-secondary" onclick="previewTemplate('{{ template.id }}')">Preview</button>
+            <button class="btn btn-primary" onclick="saveTemplate()">Save to My Templates</button>
+            <span id="actionMsg" class="action-msg"></span>
         </div>
     </div>
-    {% else %}
-    <p class="text-muted">Template not found.</p>
-    {% endif %}
 </div>
+
 <style>
-.container { padding: 20px; max-width: 1200px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.container { padding: 20px; max-width: 1000px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 16px; }
+.page-header h1 { margin: 0 0 8px 0; }
+.lead { color: var(--text-muted); margin-bottom: 24px; line-height: 1.6; }
+.tpl-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.tpl-badge { font-size: .72rem; padding: 2px 9px; border-radius: 20px; border: 1px solid var(--border-color); color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.tpl-badge.cost { color: var(--text-color); font-weight: 600; }
 .detail-grid { display: grid; gap: 20px; }
-.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
-.card h3 { margin: 0 0 16px 0; font-size: 1.1rem; }
-.detail-row { padding: 8px 0; border-bottom: 1px solid var(--border-color); }
-.detail-row:last-child { border-bottom: none; }
-.code-block { background: var(--bg-primary); padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; }
+.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 20px; }
+.card h3 { margin: 0 0 12px 0; font-size: 1.05rem; }
+.card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.card-head h3 { margin: 0; }
+.small { font-size: .85rem; }
+.vars { display: flex; flex-direction: column; gap: 12px; }
+.var-row { display: grid; grid-template-columns: 160px 1fr; gap: 6px 12px; align-items: center; }
+.var-row label { font-family: var(--font-mono, monospace); font-size: .85rem; }
+.var-row input { padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-color); }
+.var-desc { grid-column: 2; font-size: .8rem; color: var(--text-muted); }
+.code-block { background: var(--bg-primary); padding: 16px; border-radius: 6px; overflow-x: auto; font-size: .82rem; line-height: 1.55; white-space: pre; font-family: var(--font-mono, monospace); }
+.action-msg { margin-left: 12px; font-size: .88rem; color: var(--accent, #ff6b35); }
+.btn-sm { padding: 4px 12px; font-size: .8rem; }
+.mt-2 { margin-top: 12px; }
 </style>
+
 <script>
-function deployTemplate(id) {
-    if (confirm('Deploy this template?')) {
-        fetch('/ai/api/templates/' + id + '/preview', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
-        .then(r => r.json()).then(data => alert('Preview generated. Check the console.')).catch(e => alert('Error: ' + e.message));
-    }
+const TEMPLATE_ID = {{ template.id }};
+
+function collectParams() {
+    const params = {};
+    document.querySelectorAll('[data-var]').forEach(el => { params[el.dataset.var] = el.value; });
+    return params;
 }
-function previewTemplate(id) {
-    fetch('/ai/api/templates/' + id + '/preview', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
-    .then(r => r.json()).then(data => { document.querySelector('.code-block').textContent = JSON.stringify(data, null, 2); })
-    .catch(e => alert('Error: ' + e.message));
+
+async function previewTemplate() {
+    try {
+        const r = await fetch('/ai/api/templates/' + TEMPLATE_ID + '/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(collectParams())
+        });
+        const data = await r.json();
+        if (data.rendered != null) document.getElementById('codeBlock').textContent = data.rendered;
+    } catch (e) { showMsg('Preview failed'); }
+}
+
+function copyContent() {
+    const text = document.getElementById('codeBlock').textContent;
+    navigator.clipboard.writeText(text).then(() => showMsg('Copied to clipboard')).catch(() => showMsg('Copy failed'));
+}
+
+async function saveTemplate() {
+    try {
+        const r = await fetch('/ai/api/templates/' + TEMPLATE_ID + '/clone', { method: 'POST' });
+        const data = await r.json();
+        if (data.success) showMsg('Saved to your templates ✓');
+        else showMsg(data.error || 'Save failed');
+    } catch (e) { showMsg('Save failed'); }
+}
+
+function showMsg(msg) {
+    const el = document.getElementById('actionMsg');
+    el.textContent = msg;
+    setTimeout(() => { el.textContent = ''; }, 4000);
 }
 </script>
 {% endblock %}

@@ -462,9 +462,37 @@ class AIInfrastructureService:
 
     # Template Management
 
-    def create_template(self, user_id: int, name: str, description: str,
-                       template_type: str, spec: Dict) -> Any:
-        """Create an infrastructure template."""
+    @staticmethod
+    def template_to_dict(t: Any) -> Dict[str, Any]:
+        """Canonical, JSON-safe shape for an InfrastructureTemplate.
+
+        This is the single source of truth for template field names — the API,
+        the templates grid, and the detail page all consume this shape, so model
+        column names (cloud_provider, estimated_monthly_cost) never leak into
+        templates as mismatched attributes.
+        """
+        variables = t.variables if isinstance(t.variables, list) else []
+        return {
+            'id': t.id,
+            'name': t.name,
+            'description': t.description,
+            'category': t.category,
+            'cloud_provider': t.cloud_provider,
+            'template_type': t.template_type,
+            'template_content': t.template_content or '',
+            'variables': variables,
+            'estimated_cost': t.estimated_monthly_cost or 0,
+            'is_public': bool(t.is_public),
+            'use_count': t.use_count or 0,
+        }
+
+    def create_template(self, user_id: int, name: str, description: str = '',
+                        category: Optional[str] = None, cloud_provider: str = 'aws',
+                        template_type: str = 'terraform', template_content: str = '',
+                        variables: Optional[List[Dict]] = None,
+                        estimated_monthly_cost: Optional[float] = None,
+                        is_public: bool = False) -> Any:
+        """Create an infrastructure template with the real model columns."""
         InfrastructureTemplate = self._get_template_model()
         db = self._get_db()
 
@@ -472,29 +500,98 @@ class AIInfrastructureService:
             user_id=user_id,
             name=name,
             description=description,
+            category=category,
+            cloud_provider=cloud_provider,
             template_type=template_type,
-            specification=spec,
-            is_public=False
+            template_content=template_content,
+            variables=variables or [],
+            estimated_monthly_cost=estimated_monthly_cost,
+            is_public=is_public,
         )
-
         db.session.add(template)
         db.session.commit()
         return template
 
     def get_template(self, template_id: int) -> Optional[Any]:
-        """Get a template by ID."""
+        """Get a template by ID (public or owned)."""
         InfrastructureTemplate = self._get_template_model()
         return InfrastructureTemplate.query.get(template_id)
 
     def get_user_templates(self, user_id: int) -> List[Any]:
-        """Get all templates for a user."""
+        """Get all templates owned by a user."""
         InfrastructureTemplate = self._get_template_model()
         return InfrastructureTemplate.query.filter_by(user_id=user_id).all()
 
     def get_public_templates(self) -> List[Any]:
-        """Get all public templates."""
+        """Get all public (starter) templates."""
         InfrastructureTemplate = self._get_template_model()
         return InfrastructureTemplate.query.filter_by(is_public=True).all()
+
+    def get_visible_templates(self, user_id: int) -> List[Any]:
+        """Public starter templates plus the user's own, starters first."""
+        InfrastructureTemplate = self._get_template_model()
+        return (InfrastructureTemplate.query
+                .filter((InfrastructureTemplate.is_public == True) |  # noqa: E712
+                        (InfrastructureTemplate.user_id == user_id))
+                .order_by(InfrastructureTemplate.is_public.desc(),
+                          InfrastructureTemplate.name.asc())
+                .all())
+
+    def preview_template(self, template_id: int, params: Optional[Dict] = None) -> Dict[str, Any]:
+        """Render a template's content with the given (or default) variables.
+
+        Only tokens that match a declared variable name are substituted, so
+        Terraform's own ${...} interpolations (e.g. ${count.index}) are left
+        intact.
+        """
+        template = self.get_template(template_id)
+        if not template:
+            return {'error': 'Template not found'}
+
+        params = params or {}
+        content = template.template_content or ''
+        declared = template.variables if isinstance(template.variables, list) else []
+        resolved = {}
+        for var in declared:
+            name = var.get('name')
+            if not name:
+                continue
+            value = params.get(name, var.get('default', ''))
+            resolved[name] = value
+            content = content.replace('${' + name + '}', str(value))
+
+        return {
+            'id': template.id,
+            'name': template.name,
+            'template_type': template.template_type,
+            'variables': resolved,
+            'rendered': content,
+        }
+
+    def clone_template(self, template_id: int, user_id: int) -> Optional[Any]:
+        """Copy a template into a private, user-owned template."""
+        source = self.get_template(template_id)
+        if not source:
+            return None
+        clone = self.create_template(
+            user_id=user_id,
+            name=f"{source.name} (copy)",
+            description=source.description,
+            category=source.category,
+            cloud_provider=source.cloud_provider,
+            template_type=source.template_type,
+            template_content=source.template_content,
+            variables=source.variables,
+            estimated_monthly_cost=source.estimated_monthly_cost,
+            is_public=False,
+        )
+        # Bump the source's popularity counter.
+        try:
+            source.use_count = (source.use_count or 0) + 1
+            self._get_db().session.commit()
+        except Exception:
+            self._get_db().session.rollback()
+        return clone
 
     def delete_template(self, template_id: int) -> bool:
         """Delete a template."""
@@ -600,3 +697,64 @@ class AIInfrastructureService:
 def get_ai_infrastructure_service(user_id: Optional[int] = None) -> AIInfrastructureService:
     """Get AI infrastructure service instance."""
     return AIInfrastructureService(user_id)
+
+
+SYSTEM_TEMPLATE_OWNER_EMAIL = 'system@devopsagent.io'
+
+
+def _get_or_create_system_user():
+    """Owner for public starter templates (user_id is NOT NULL on the model)."""
+    from models import db, User
+    user = User.query.filter_by(email=SYSTEM_TEMPLATE_OWNER_EMAIL).first()
+    if user:
+        return user
+    user = User(
+        email=SYSTEM_TEMPLATE_OWNER_EMAIL,
+        username='system',
+        full_name='DevOps Agent',
+        role='viewer',
+    )
+    # Unusable password — this account can never log in.
+    user.set_password(secrets.token_urlsafe(32))
+    if hasattr(user, 'email_verified'):
+        user.email_verified = True
+    db.session.add(user)
+    db.session.commit()
+    return user
+
+
+def seed_public_templates() -> int:
+    """Idempotently seed the curated public starter templates.
+
+    Safe to call on every startup: existing public templates (matched by name)
+    are skipped, so it never duplicates. Returns the number of templates added.
+    """
+    from models import db, InfrastructureTemplate
+    from services.starter_templates import STARTER_TEMPLATES
+
+    existing_names = {
+        t.name for t in InfrastructureTemplate.query.filter_by(is_public=True).all()
+    }
+    to_add = [tpl for tpl in STARTER_TEMPLATES if tpl['name'] not in existing_names]
+    if not to_add:
+        return 0
+
+    owner = _get_or_create_system_user()
+    added = 0
+    for tpl in to_add:
+        db.session.add(InfrastructureTemplate(
+            user_id=owner.id,
+            name=tpl['name'],
+            description=tpl['description'],
+            category=tpl['category'],
+            cloud_provider=tpl['cloud_provider'],
+            template_type=tpl['template_type'],
+            template_content=tpl['template_content'],
+            variables=tpl['variables'],
+            estimated_monthly_cost=tpl['estimated_monthly_cost'],
+            is_public=True,
+        ))
+        added += 1
+    db.session.commit()
+    logger.info(f"Seeded {added} public infrastructure template(s)")
+    return added

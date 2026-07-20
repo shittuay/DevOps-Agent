@@ -3,55 +3,106 @@
 {% block content %}
 <div class="container">
     <div class="page-header">
-        <h1>Infrastructure Templates</h1>
+        <div>
+            <h1>Infrastructure Templates</h1>
+            <p class="text-muted">Start from a curated, production-ready template — or save your own.</p>
+        </div>
         <a href="{{ url_for('ai_infrastructure.dashboard') }}" class="btn btn-secondary">Back</a>
     </div>
-    <div class="templates-grid" id="templatesGrid">
-        <p class="text-muted">Loading templates...</p>
+
+    <section id="starterSection" class="tpl-section" hidden>
+        <h2 class="section-title">Starter Templates</h2>
+        <div class="templates-grid" id="starterGrid"></div>
+    </section>
+
+    <section id="yoursSection" class="tpl-section" hidden>
+        <h2 class="section-title">Your Templates</h2>
+        <div class="templates-grid" id="yoursGrid"></div>
+    </section>
+
+    <div id="emptyState" class="empty-state" hidden>
+        <p class="text-muted">No templates yet.</p>
     </div>
+    <div id="loadingState"><p class="text-muted">Loading templates…</p></div>
+    <div id="errorState" hidden><p class="text-muted">Couldn't load templates. Please refresh.</p></div>
 </div>
+
 <style>
 .container { padding: 20px; max-width: 1400px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px; }
+.page-header h1 { margin: 0 0 4px 0; }
+.tpl-section { margin-bottom: 32px; }
+.section-title { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 14px 0; }
 .templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
-.template-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; }
-.template-card h4 { margin: 0 0 10px 0; }
-.template-card p { color: var(--text-muted); margin-bottom: 15px; }
+.template-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; }
+.template-card h4 { margin: 0 0 8px 0; }
+.template-card .desc { color: var(--text-muted); margin-bottom: 14px; flex: 1; font-size: .92rem; line-height: 1.5; }
+.tpl-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.tpl-badge { font-size: .72rem; padding: 2px 9px; border-radius: 20px; border: 1px solid var(--border-color); color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.tpl-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; font-size: .85rem; color: var(--text-muted); }
+.tpl-cost { font-weight: 600; color: var(--text-color); }
 </style>
+
 <script>
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', loadTemplates);
+
+async function loadTemplates() {
     try {
         const response = await fetch('/ai/api/templates');
-        if (response.ok) {
-            const data = await response.json();
-            renderTemplates(data.templates || []);
-        }
-    } catch (error) {
-        document.getElementById('templatesGrid').innerHTML = '<p>Error loading templates</p>';
+        if (!response.ok) throw new Error('bad status ' + response.status);
+        const data = await response.json();
+        renderTemplates(data.templates || []);
+    } catch (e) {
+        document.getElementById('loadingState').hidden = true;
+        document.getElementById('errorState').hidden = false;
     }
-});
+}
 
 function escHtml(str) {
     const d = document.createElement('div');
-    d.textContent = String(str);
+    d.textContent = String(str == null ? '' : str);
     return d.innerHTML;
 }
 
-function renderTemplates(templates) {
-    const grid = document.getElementById('templatesGrid');
-    if (templates.length === 0) {
-        grid.innerHTML = '<p class="text-muted">No templates available</p>';
-        return;
-    }
-    grid.innerHTML = templates.map(t => `
+function cardHtml(t) {
+    const cost = Number(t.estimated_cost || 0);
+    const badges = [t.cloud_provider, t.category, t.template_type]
+        .filter(Boolean)
+        .map(b => `<span class="tpl-badge">${escHtml(b)}</span>`).join('');
+    return `
         <div class="template-card">
             <h4>${escHtml(t.name)}</h4>
-            <p>${escHtml(t.description || 'No description')}</p>
-            <div><strong>Provider:</strong> ${escHtml(t.cloud_provider)}</div>
-            <div><strong>Est. Cost:</strong> $${escHtml(t.estimated_cost || 0)}/mo</div>
-            <button class="btn btn-primary mt-3" onclick="useTemplate('${escHtml(t.id)}')">Use Template</button>
-        </div>
-    `).join('');
+            <div class="tpl-badges">${badges}</div>
+            <p class="desc">${escHtml(t.description || 'No description')}</p>
+            <div class="tpl-meta">
+                <span>Est. cost</span>
+                <span class="tpl-cost">$${cost.toFixed(2)}/mo</span>
+            </div>
+            <button class="btn btn-primary" onclick="useTemplate(${Number(t.id)})">View &amp; use</button>
+        </div>`;
+}
+
+function renderTemplates(templates) {
+    document.getElementById('loadingState').hidden = true;
+    const starters = templates.filter(t => t.is_public);
+    const yours = templates.filter(t => !t.is_public);
+
+    if (!templates.length) {
+        document.getElementById('emptyState').hidden = false;
+        return;
+    }
+    if (starters.length) {
+        document.getElementById('starterGrid').innerHTML = starters.map(cardHtml).join('');
+        document.getElementById('starterSection').hidden = false;
+    }
+    if (yours.length) {
+        document.getElementById('yoursGrid').innerHTML = yours.map(cardHtml).join('');
+        document.getElementById('yoursSection').hidden = false;
+    }
+}
+
+function useTemplate(id) {
+    window.location.href = '/ai/templates/' + id;
 }
 </script>
 {% endblock %}

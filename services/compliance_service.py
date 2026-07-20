@@ -141,6 +141,8 @@ class ComplianceService:
 
     def enable_framework(self, user_id: int, framework_name: str) -> Any:
         """Enable a compliance framework for a user."""
+        if not framework_name:
+            raise ValueError("framework_name is required")
         ComplianceFrameworkModel = self._get_framework_model()
         db = self._get_db()
 

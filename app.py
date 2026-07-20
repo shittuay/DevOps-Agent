@@ -5825,6 +5825,16 @@ if __name__ != '__main__' and not _is_testing:
     except Exception as _e:
         logger.warning(f"Eager agent init skipped (non-fatal): {_e}")
 
+    # Seed the public starter infrastructure templates (idempotent). Like the
+    # agent init above this must run at import for gunicorn — the __main__ block
+    # never executes under WSGI, so the templates catalog stayed empty in prod.
+    try:
+        with app.app_context():
+            from services.ai_infrastructure import seed_public_templates
+            seed_public_templates()
+    except Exception as _e:
+        logger.warning(f"Public template seeding skipped (non-fatal): {_e}")
+
 
 # ---------------------------------------------------------------------------
 # Start the background scheduler under gunicorn.
@@ -5922,6 +5932,15 @@ if __name__ == '__main__':
                     print(f"Backfilled mfa_method='totp' for {_result.rowcount} existing TOTP user(s)")
         except Exception as _e:
             print(f"mfa_method backfill skipped: {_e}")
+
+        # Seed public starter infrastructure templates (idempotent).
+        try:
+            from services.ai_infrastructure import seed_public_templates
+            _seeded = seed_public_templates()
+            if _seeded:
+                print(f"Seeded {_seeded} public infrastructure template(s)")
+        except Exception as _e:
+            print(f"Public template seeding skipped: {_e}")
 
         print("\nDatabase initialized")
         _db_safe = _re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', database_url)
