@@ -124,10 +124,15 @@ def _scheduler_loop(app, db):
 
         for task_name, interval in intervals.items():
             if now - last_run[task_name] >= interval:
+                # Record the attempt BEFORE running so a task that raises backs
+                # off to its full interval instead of retrying every loop (30s).
+                # Previously last_run was only set on success, so a persistently
+                # failing task (e.g. db_backup hitting a bad BACKUP_DIR) spammed
+                # an error every 30s indefinitely.
+                last_run[task_name] = now
                 try:
                     with app.app_context():
                         _run_task(task_name, app, db)
-                    last_run[task_name] = now
                 except Exception as e:
                     logger.error(f"Scheduler task '{task_name}' failed: {e}", exc_info=True)
 
@@ -523,13 +528,16 @@ def _run_db_backup():
     from datetime import datetime as _dt
 
     backup_dir = os.environ.get('BACKUP_DIR', '/backups')
-    os.makedirs(backup_dir, exist_ok=True)
     timestamp = _dt.utcnow().strftime('%Y%m%d_%H%M%S')
     db_url = os.environ.get('DATABASE_URL', '')
     backup_file = None
     s3_key = None
 
     try:
+        # Inside the try so a non-writable BACKUP_DIR is handled here (logged)
+        # rather than propagating out and tripping the scheduler retry loop.
+        os.makedirs(backup_dir, exist_ok=True)
+
         if 'postgresql' in db_url or 'postgres' in db_url:
             raw_file = os.path.join(backup_dir, f"devops_agent_full_{timestamp}.dump")
             backup_file = raw_file + '.gz'
