@@ -178,6 +178,31 @@ def _run_health_check(app, db):
         logger.debug("Health check passed")
 
 
+def _users_with_credentials_query(db):
+    """Active users who have at least one cloud credential.
+
+    Uses a DISTINCT subquery on user_id rather than `SELECT DISTINCT users.*` —
+    Postgres can't apply DISTINCT to a row containing a `json` column (e.g.
+    users.backup_codes), which raised
+    `could not identify an equality operator for type json` and failed the
+    monitoring/infra-sync/digest tasks every tick. Returns a query so callers
+    can chain extra filters. Portable across Postgres and SQLite.
+    """
+    from sqlalchemy import select
+    from models import User, UserCloudCredential
+    # NB: User has NO is_active COLUMN — it's UserMixin's property, so the old
+    # `.filter(User.is_active == True)` evaluated to Python False and rendered
+    # `WHERE false`, matching nobody. Scope to users with an ACTIVE credential
+    # (UserCloudCredential does have that column) via an IN subquery — never
+    # `SELECT DISTINCT users.*`, which chokes on Postgres json columns.
+    cred_user_ids = (
+        select(UserCloudCredential.user_id)
+        .where(UserCloudCredential.is_active == True)  # noqa: E712
+        .distinct()
+    )
+    return db.session.query(User).filter(User.id.in_(cred_user_ids))
+
+
 def _run_monitoring_tick(db):
     """
     Fire a proactive monitoring evaluation for every active user.
@@ -195,13 +220,7 @@ def _run_monitoring_tick(db):
     monitoring_service = get_monitoring_service()
 
     # Only process users who have at least one cloud credential configured
-    users_with_creds = (
-        db.session.query(User)
-        .join(UserCloudCredential, UserCloudCredential.user_id == User.id)
-        .filter(User.is_active == True)
-        .distinct()
-        .all()
-    )
+    users_with_creds = _users_with_credentials_query(db).all()
 
     if not users_with_creds:
         return
@@ -229,13 +248,7 @@ def _run_infra_sync(db):
     stale_threshold = datetime.utcnow() - timedelta(hours=2)
 
     # Only users with at least one credential
-    users_with_creds = (
-        db.session.query(User)
-        .join(UserCloudCredential, UserCloudCredential.user_id == User.id)
-        .filter(User.is_active == True)
-        .distinct()
-        .all()
-    )
+    users_with_creds = _users_with_credentials_query(db).all()
 
     for user in users_with_creds:
         try:
@@ -353,13 +366,7 @@ def _run_weekly_digest(db):
     email_svc = EmailService()
     week_ago = _dt.utcnow() - timedelta(days=7)
 
-    users = (
-        db.session.query(User)
-        .join(UserCloudCredential, UserCloudCredential.user_id == User.id)
-        .filter(User.is_active == True, User.email != None)
-        .distinct()
-        .all()
-    )
+    users = _users_with_credentials_query(db).filter(User.email != None).all()  # noqa: E711
 
     sent = skipped = 0
     for user in users:
