@@ -196,3 +196,42 @@ in logs; the app was silently using the old revoked key.
 6. If rotating AWS keys at the same time: update the GitHub Actions
    `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets BEFORE deactivating
    the old key, or deploys break.
+
+---
+
+## Scheduler retry-storm + DB backups never ran in prod (2026-07-20)
+
+**Symptom:** After #71 made the background scheduler run under gunicorn, the DB
+backup task started firing every ~30s and logged 645 errors:
+`OSError: [Errno 30] Read-only file system: '/backups'`. No database backups
+existed. (Postgres runs *locally* on the EC2 instance, so this was a real
+data-loss exposure — instance death = DB gone.)
+
+**Two root causes:**
+1. `_run_db_backup()` defaulted `BACKUP_DIR` to `/backups` (not writable by the
+   `ubuntu` service user) and called `os.makedirs()` *before* its try block, so
+   the failure propagated out of the function.
+2. `_scheduler_loop()` only advanced `last_run[task]` on success. A task that
+   raised kept `last_run` at `datetime.min`, so `now - last_run >= interval` was
+   always true → the failing task retried on every 30s tick instead of backing
+   off to its interval. (Same shape as the monitoring_tick json bug, which also
+   fired every 30s.)
+
+**Fixes (code, `services/scheduler.py`):**
+- Advance `last_run[task] = now` *before* running the task, so a raising task
+  backs off to its full interval. Guarded by `tests/test_scheduler_retry_backoff.py`.
+- Moved `os.makedirs(backup_dir)` inside `_run_db_backup`'s try so a bad dir is
+  logged, not propagated.
+
+**Fixes (prod ops, one-time):**
+- Created writable `/var/www/devops-agent/backups` (owned by `ubuntu`).
+- Created hardened S3 bucket `s3://devopsagent-db-backups` (us-east-1): public
+  access blocked, SSE-S3 default encryption, lifecycle expiring
+  `database-backups/` objects after 35 days.
+- Attached least-privilege inline policy `devops-agent-db-backup-s3` to role
+  `devops-agent-ssm-role` (PutObject/GetObject on `database-backups/*` +
+  scoped ListBucket).
+- Set `BACKUP_DIR` + `BACKUP_S3_BUCKET` in the root `.env`
+  (`/var/www/devops-agent/.env`) and restarted the service.
+- Verified: manual backup produces a local `.gz` and uploads to S3; error storm
+  stopped. pg_dump 14.23 matches local server 14.23.
