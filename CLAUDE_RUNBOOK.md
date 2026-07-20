@@ -280,3 +280,20 @@ tests that commit rows tied to `test_user` (compliance frameworks, infra
 templates) MUST delete those child rows in a fixture that finalizes *before* the
 user fixture — else deleting the user nulls a NOT NULL FK and poisons the session
 for the rest of the suite (same trap documented in `test_template_isolation.py`).
+
+## Scheduled monitoring check found an untracked gevent CVE hiding behind `continue-on-error` (FIXED 2026-07-20)
+
+A routine automated health-check pass (not a push/PR-triggered CI run) inspected
+the daily `security-scan.yml` results and found the job reporting `success`
+while `safety check` had actually flagged `gevent==24.11.1` (Safety DB ID
+**76839** / **PVE-2025-76839**: HTTP request smuggling in pywsgi, fixed in
+`>=25.4.2`). The job stayed green because every security-scan step is
+`continue-on-error` by design (see CI / Security Scanning section) — a real,
+unignored finding can pass silently indefinitely unless someone reads the logs.
+`pip-audit` did not catch this one (different advisory source than `safety`),
+which is why both tools run. Fixed by pinning the exact fixed release,
+`gevent==25.4.2`, with the advisory ID in a trailing comment per the
+Dependency Pinning Policy. **Lesson:** `continue-on-error` on the security job
+means CI green is not proof of a clean scan — treat the scheduled scan logs
+(or the `scheduled-bandit-report` artifact) as something that needs an
+occasional human/agent read, not just a status-check glance.
