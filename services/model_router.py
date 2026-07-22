@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelConfig:
     provider: str       # 'anthropic', 'kimi', or 'groq'
-    model: str          # e.g. 'kimi-k2.7-code', 'claude-sonnet-4-6'
+    model: str          # e.g. 'kimi-k3', 'claude-sonnet-4-6'
     display_name: str   # Human-readable name for UI
     supports_tools: bool
     max_tokens: int = 4096
@@ -30,7 +30,7 @@ class ModelConfig:
 # Kimi model config constant
 KIMI_MODEL_CONFIG = ModelConfig(
     provider='kimi',
-    model='kimi-k2.7-code',
+    model='kimi-k3',
     display_name='Kimi K2.7',
     supports_tools=True,
     max_tokens=4096,
@@ -84,7 +84,7 @@ CLAUDE_OVERRIDE_CONFIGS = {
 DEFAULT_TIER_MODELS = {
     'free': ModelConfig(
         provider='kimi',
-        model='kimi-k2.7-code',
+        model='kimi-k3',
         display_name='Kimi K2.7 (Trial)',
         supports_tools=True,
         max_tokens=4096,
@@ -94,7 +94,7 @@ DEFAULT_TIER_MODELS = {
     ),
     'starter': ModelConfig(
         provider='kimi',
-        model='kimi-k2.7-code',
+        model='kimi-k3',
         display_name='Kimi K2.7',
         supports_tools=True,
         max_tokens=4096,
@@ -190,7 +190,7 @@ def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[s
     tier_name = (tier_name or 'free').lower()
 
     if preferred_provider == 'kimi':
-        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k2.7-code')
+        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k3')
         tier_defaults = DEFAULT_TIER_MODELS.get(tier_name, DEFAULT_TIER_MODELS['free'])
         return ModelConfig(
             provider='kimi',

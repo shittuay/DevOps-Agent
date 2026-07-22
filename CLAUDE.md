@@ -10,7 +10,7 @@
 
 - **Backend:** Flask + SQLAlchemy (PostgreSQL default via `DATABASE_URL`; SQLite in-memory for tests)
 - **Frontend:** Jinja2 templates + vanilla JavaScript
-- **AI:** Kimi K2.5 (default, free/starter) + Anthropic Claude (professional/business)
+- **AI:** Kimi K3 (default, free/starter) + Anthropic Claude (professional/business)
 - **Auth:** Flask-Login with bcrypt password hashing
 - **Cloud:** boto3 (AWS), azure-sdk, google-cloud
 
@@ -415,14 +415,14 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 
 ## Free Trial System
 
-Free-tier users get **20 credits/month** with full agent experience — Kimi K2.5 with real tool execution.
+Free-tier users get **20 credits/month** with full agent experience — Kimi K3 with real tool execution.
 
 ### Model Tier Mapping
 
 | Tier | Provider | Model | Tools | Max Tokens |
 |------|----------|-------|-------|------------|
-| free | Kimi | `kimi-k2.7-code` | Yes | 4096 |
-| starter ($29/mo) | Kimi | `kimi-k2.7-code` | Yes | 4096 |
+| free | Kimi | `kimi-k3` | Yes | 4096 |
+| starter ($29/mo) | Kimi | `kimi-k3` | Yes | 4096 |
 | professional ($99/mo) | Anthropic | `claude-sonnet-4-6` | Yes | 8192 |
 | business ($299/mo) | Anthropic | `claude-opus-4-6` | Yes | 8192 |
 
@@ -430,7 +430,7 @@ Users can override tier default via chat toolbar toggle (`/api/model/switch`).
 
 ### Key Implementation Points
 
-- **Kimi K2.5**: OpenAI-compatible API at `https://api.moonshot.ai/v1`. Requires `MOONSHOT_API_KEY`.
+- **Kimi K3**: OpenAI-compatible API at `https://api.moonshot.ai/v1`. Requires `MOONSHOT_API_KEY`. Like the k2.7 line, it is a reasoning model — responses carry a `reasoning_content` field alongside `content` (the app reads `content`); it spends more completion tokens on reasoning, so keep `max_tokens` generous.
 - **Tool format**: `_convert_tools_to_openai_format()` converts Anthropic format to OpenAI function-calling format.
 - **Credit exhaustion**: Free users get 200 response with `trial_ended: true`, not 402.
 - **Groq fallback**: Used when both Anthropic and Kimi are down. See `GROQ_FALLBACK_MODEL` in `chat_service.py`.
@@ -461,8 +461,8 @@ Optional:
 - `DATABASE_URL` - Database connection string
 - `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
-- `MOONSHOT_API_KEY` - Kimi K2.5 API key (required for Kimi model provider)
-- `KIMI_MODEL` - Kimi model override (default: `kimi-k2.7-code`). Valid Moonshot ids: `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed` (no bare `kimi-k2.7`).
+- `MOONSHOT_API_KEY` - Kimi API key (required for Kimi model provider)
+- `KIMI_MODEL` - Kimi model override (default: `kimi-k3`, the latest). Valid Moonshot ids (verified live via `/v1/models` 2026-07-22): `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5` (no bare `kimi-k2.7`).
 
 ### Email / SMS MFA delivery (`email`/`sms` mfa_method)
 
