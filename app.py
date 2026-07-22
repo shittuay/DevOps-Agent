@@ -55,6 +55,7 @@ _validate_stripe_config()
 # --- End startup validation ---
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, make_response, send_file, g, stream_with_context
+from werkzeug.exceptions import HTTPException
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 import secrets
@@ -4003,12 +4004,14 @@ def get_cost_data():
 @login_required
 def get_resource_utilization(resource_db_id):
     """Get real CloudWatch utilization metrics for a resource."""
+    resource = InfrastructureResource.query.get(resource_db_id)
+    if resource is None:
+        return jsonify({'error': 'Resource not found'}), 404
+    if resource.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         from services.cost_explorer import get_instance_utilization, get_rds_utilization
-
-        resource = InfrastructureResource.query.get_or_404(resource_db_id)
-        if resource.user_id != current_user.id:
-            return jsonify({'error': 'Unauthorized'}), 403
 
         days = request.args.get('days', 14, type=int)
 
@@ -4105,6 +4108,8 @@ def apply_recommendation(rec_id):
             'message': f'Optimization applied successfully',
             'savings': recommendation.potential_monthly_savings
         })
+    except HTTPException:
+        raise  # let get_or_404's 404 (and other HTTP errors) pass through
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -4129,6 +4134,8 @@ def dismiss_recommendation(rec_id):
         db.session.commit()
 
         return jsonify({'success': True})
+    except HTTPException:
+        raise  # let get_or_404's 404 (and other HTTP errors) pass through
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -4343,6 +4350,8 @@ def resolve_finding(finding_id):
         db.session.commit()
 
         return jsonify({'success': True})
+    except HTTPException:
+        raise  # let get_or_404's 404 (and other HTTP errors) pass through
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

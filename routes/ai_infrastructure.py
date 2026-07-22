@@ -233,7 +233,7 @@ def api_apply_recommendation(rec_id):
     from services.ai_infrastructure import AIInfrastructureService
     service = AIInfrastructureService(current_user.id)
 
-    result = service.apply_recommendation(rec_id)
+    result = service.apply_recommendation(rec_id, current_user.id)
     return jsonify(result)
 
 
@@ -343,8 +343,10 @@ def api_analyze_drift():
     from services.ai_infrastructure import AIInfrastructureService
     service = AIInfrastructureService(current_user.id)
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     resource_ids = data.get('resource_ids')
+    if not resource_ids:
+        return jsonify({'error': 'resource_ids is required'}), 400
 
     drift_report = service.analyze_drift(resource_ids)
     return jsonify(drift_report)

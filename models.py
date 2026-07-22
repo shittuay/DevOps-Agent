@@ -232,7 +232,7 @@ class Conversation(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
     # Relationship
-    user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         """Convert conversation to dictionary — no extra queries."""
@@ -262,7 +262,7 @@ class ChatMessage(db.Model):
     page_context = db.Column(db.String(100), nullable=True)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('messages', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('messages', lazy='dynamic', cascade='all, delete-orphan'))
     conversation = db.relationship('Conversation', backref=db.backref('messages', lazy='dynamic'))
 
     __table_args__ = (
@@ -340,7 +340,7 @@ class UserPreferences(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationship
-    user = db.relationship('User', backref=db.backref('preferences', uselist=False))
+    user = db.relationship('User', backref=db.backref('preferences', uselist=False, cascade='all, delete-orphan'))
 
     def to_dict(self):
         """Convert preferences to dictionary"""
@@ -479,7 +479,7 @@ class CommandTemplate(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationship
-    user = db.relationship('User', backref=db.backref('templates', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('templates', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         """Convert template to dictionary"""
@@ -516,7 +516,7 @@ class ResponseFeedback(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('feedback', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('feedback', lazy='dynamic', cascade='all, delete-orphan'))
     message = db.relationship('ChatMessage', backref=db.backref('feedback', uselist=False))
 
     def to_dict(self):
@@ -617,7 +617,7 @@ class UserSubscription(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('subscription', uselist=False))
+    user = db.relationship('User', backref=db.backref('subscription', uselist=False, cascade='all, delete-orphan'))
     tier = db.relationship('SubscriptionTier', backref=db.backref('subscriptions', lazy='dynamic'))
 
     def has_credits(self) -> bool:
@@ -735,7 +735,7 @@ class CreditPurchase(db.Model):
     completed_at = db.Column(db.DateTime)
 
     # Relationship
-    user = db.relationship('User', backref=db.backref('credit_purchases', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('credit_purchases', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         """Convert purchase to dictionary"""
@@ -774,7 +774,7 @@ class UsageLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('usage_logs', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('usage_logs', lazy='dynamic', cascade='all, delete-orphan'))
     conversation = db.relationship('Conversation', backref=db.backref('usage_logs', lazy='dynamic'))
 
     __table_args__ = (
@@ -850,7 +850,7 @@ class InfrastructureResource(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('infrastructure_resources', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('infrastructure_resources', lazy='dynamic', cascade='all, delete-orphan'))
 
     __table_args__ = (
         db.Index('idx_infra_user_type', 'user_id', 'resource_type'),
@@ -904,7 +904,7 @@ class CostOptimization(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('cost_optimizations', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('cost_optimizations', lazy='dynamic', cascade='all, delete-orphan'))
     resource = db.relationship('InfrastructureResource', backref=db.backref('optimizations', lazy='dynamic'))
 
     def to_dict(self):
@@ -960,7 +960,7 @@ class InfrastructureChange(db.Model):
     approved_at = db.Column(db.DateTime)
 
     # Relationships
-    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('initiated_changes', lazy='dynamic'))
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('initiated_changes', lazy='dynamic', cascade='all, delete-orphan'))
     approver = db.relationship('User', foreign_keys=[approver_id], backref=db.backref('approved_changes', lazy='dynamic'))
 
     def to_dict(self):
@@ -1034,7 +1034,7 @@ class SecurityFinding(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('security_findings', lazy='dynamic'))
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('security_findings', lazy='dynamic', cascade='all, delete-orphan'))
     resolver = db.relationship('User', foreign_keys=[resolved_by], backref=db.backref('resolved_findings', lazy='dynamic'))
     resource = db.relationship('InfrastructureResource', backref=db.backref('security_findings', lazy='dynamic'))
 
@@ -1117,7 +1117,7 @@ class Alert(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('alerts', lazy='dynamic'))
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('alerts', lazy='dynamic', cascade='all, delete-orphan'))
     acknowledger = db.relationship('User', foreign_keys=[acknowledged_by], backref=db.backref('acknowledged_alerts', lazy='dynamic'))
     resource = db.relationship('InfrastructureResource', backref=db.backref('alerts', lazy='dynamic'))
 
@@ -1176,7 +1176,7 @@ class MonitoringRuleModel(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user = db.relationship('User', backref=db.backref('monitoring_rules', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('monitoring_rules', lazy='dynamic', cascade='all, delete-orphan'))
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'rule_key', name='uq_user_rule_key'),
@@ -1230,7 +1230,7 @@ class MonitoringAlertModel(db.Model):
     incident_id = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    user = db.relationship('User', backref=db.backref('monitoring_alerts', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('monitoring_alerts', lazy='dynamic', cascade='all, delete-orphan'))
     rule = db.relationship('MonitoringRuleModel', backref=db.backref('alerts', lazy='dynamic'))
 
     def to_dict(self):
@@ -1280,7 +1280,7 @@ class IncidentModel(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user = db.relationship('User', backref=db.backref('incidents', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('incidents', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -1326,7 +1326,7 @@ class PlaybookModel(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user = db.relationship('User', backref=db.backref('playbooks', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('playbooks', lazy='dynamic', cascade='all, delete-orphan'))
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'playbook_key', name='uq_user_playbook_key'),
@@ -1418,7 +1418,7 @@ class UserCloudCredential(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('cloud_credentials', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('cloud_credentials', lazy='dynamic', cascade='all, delete-orphan'))
 
     # Unique constraint: one credential set per user per provider
     __table_args__ = (
@@ -1849,7 +1849,7 @@ class OrganizationMember(db.Model):
 
     # Relationships
     organization = db.relationship('Organization', back_populates='members')
-    user = db.relationship('User', foreign_keys=[user_id], backref='organization_memberships')
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('organization_memberships', cascade='all, delete-orphan'))
     inviter = db.relationship('User', foreign_keys=[invited_by])
 
     __table_args__ = (
@@ -1914,7 +1914,7 @@ class TeamMember(db.Model):
 
     # Relationships
     team = db.relationship('Team', back_populates='members')
-    user = db.relationship('User', backref='team_memberships')
+    user = db.relationship('User', backref=db.backref('team_memberships', cascade='all, delete-orphan'))
 
     __table_args__ = (
         db.UniqueConstraint('team_id', 'user_id', name='unique_team_member'),
@@ -1959,7 +1959,7 @@ class WebhookEndpoint(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('webhook_endpoints', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('webhook_endpoints', lazy='dynamic', cascade='all, delete-orphan'))
     deliveries = db.relationship('WebhookDelivery', back_populates='endpoint', cascade='all, delete-orphan')
 
     def to_dict(self):
@@ -2051,7 +2051,9 @@ class ComplianceFrameworkModel(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('compliance_frameworks', lazy='dynamic'))
+    # cascade: user_id is NOT NULL, so deleting a user must delete these rows
+    # (without it, SQLAlchemy nulls the FK and the delete 500s)
+    user = db.relationship('User', backref=db.backref('compliance_frameworks', lazy='dynamic', cascade='all, delete-orphan'))
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'name', name='unique_user_framework'),
@@ -2098,7 +2100,7 @@ class CompliancePolicy(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('compliance_policies', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('compliance_policies', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -2147,7 +2149,7 @@ class ComplianceReport(db.Model):
     period_end = db.Column(db.DateTime)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('compliance_reports', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('compliance_reports', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -2199,7 +2201,7 @@ class InfrastructureTemplate(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('infrastructure_templates', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('infrastructure_templates', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -2257,7 +2259,7 @@ class ProvisioningRequestModel(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('provisioning_requests', lazy='dynamic'))
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('provisioning_requests', lazy='dynamic', cascade='all, delete-orphan'))
     approver = db.relationship('User', foreign_keys=[approved_by])
 
     def to_dict(self):
@@ -2302,7 +2304,7 @@ class AnalyticsDashboard(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref=db.backref('analytics_dashboards', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('analytics_dashboards', lazy='dynamic', cascade='all, delete-orphan'))
     widgets = db.relationship('AnalyticsWidget', back_populates='dashboard', cascade='all, delete-orphan')
 
     def to_dict(self):
@@ -2427,7 +2429,7 @@ class UserNotificationChannel(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user = db.relationship('User', backref=db.backref('notification_channels', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('notification_channels', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -2461,7 +2463,7 @@ class BudgetAlert(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user = db.relationship('User', backref=db.backref('budget_alerts', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('budget_alerts', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -2490,7 +2492,7 @@ class UserMemory(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
 
-    user = db.relationship('User', backref=db.backref('memories', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('memories', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -2523,7 +2525,7 @@ class LearningSession(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    user = db.relationship('User', backref=db.backref('learning_sessions', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('learning_sessions', lazy='dynamic', cascade='all, delete-orphan'))
     conversation = db.relationship('Conversation', backref=db.backref('learning_session', uselist=False))
 
     def to_dict(self):
@@ -3031,7 +3033,7 @@ class CrisisIncident(db.Model):
     resolved_at = db.Column(db.DateTime, nullable=True)
     support_notes = db.Column(db.Text, nullable=True)
 
-    user = db.relationship('User', backref=db.backref('crisis_incidents', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('crisis_incidents', lazy='dynamic', cascade='all, delete-orphan'))
 
     def to_dict(self):
         """Convert to dictionary for logging/auditing."""
@@ -3069,7 +3071,7 @@ class ApprovalRequest(db.Model):
     executed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    requester = db.relationship('User', foreign_keys=[requester_id], backref='approval_requests_made')
+    requester = db.relationship('User', foreign_keys=[requester_id], backref=db.backref('approval_requests_made', cascade='all, delete-orphan'))
     approver_user = db.relationship('User', foreign_keys=[approver_id], backref='approval_requests_decided')
 
     def to_dict(self):
@@ -3119,7 +3121,7 @@ class MCPOAuthToken(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     expires_at = db.Column(db.DateTime, nullable=False, index=True)
 
-    user = db.relationship('User', backref=db.backref('mcp_oauth_tokens', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('mcp_oauth_tokens', lazy='dynamic', cascade='all, delete-orphan'))
 
     def is_expired(self) -> bool:
         return datetime.utcnow() >= self.expires_at
@@ -3148,7 +3150,7 @@ class MCPOAuthCode(db.Model):
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
     expires_at     = db.Column(db.DateTime, nullable=False, index=True)
 
-    user = db.relationship('User', backref=db.backref('mcp_oauth_codes', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('mcp_oauth_codes', lazy='dynamic', cascade='all, delete-orphan'))
 
     def is_expired(self) -> bool:
         return datetime.utcnow() >= self.expires_at
