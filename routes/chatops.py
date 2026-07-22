@@ -60,7 +60,7 @@ def slack_events():
         if not _verify_slack_signature(slack_signing_secret, timestamp, signature, request.get_data()):
             return jsonify({'error': 'Invalid signature'}), 401
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     # Handle URL verification challenge
     if data.get('type') == 'url_verification':
@@ -186,7 +186,7 @@ def teams_messages():
 
     Handles incoming messages from Teams.
     """
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     activity_type = data.get('type')
 
@@ -229,9 +229,11 @@ def teams_commands():
     """
     Microsoft Teams messaging extension commands.
     """
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     command_id = data.get('name')
+    if not command_id:
+        return jsonify({'error': 'Missing command name'}), 400
     parameters = data.get('parameters', [])
 
     # Build command text from parameters

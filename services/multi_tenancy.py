@@ -82,7 +82,21 @@ class MultiTenancyService:
     # Organization Management
 
     def create_organization(self, name: str, owner_id: int, description: str = None) -> Any:
-        """Create a new organization."""
+        """Create a new organization.
+
+        Returns None on invalid input (missing owner or blank name) rather than
+        attempting an insert that violates the NOT NULL owner_id / name columns —
+        a failed insert raises inside the request and leaves the session in a
+        broken (PendingRollback) state.
+        """
+        if not owner_id:
+            logger.warning("create_organization called without an owner_id; refusing")
+            return None
+        name = (name or '').strip()
+        if not name:
+            logger.warning("create_organization called with a blank name; refusing")
+            return None
+
         Organization = self._get_org_model()
         OrganizationMember = self._get_member_model()
         db = self._get_db()

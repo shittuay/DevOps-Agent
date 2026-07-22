@@ -43,17 +43,22 @@ def create_organization():
         service = MultiTenancyService()
 
         data = request.form.to_dict()
+        name = (data.get('name') or '').strip()
+        if not name:
+            flash('Organization name is required.', 'error')
+            return render_template('organizations/create.html'), 400
 
         org = service.create_organization(
-            name=data.get('name', ''),
+            name=name,
             owner_id=current_user.id,
             description=data.get('description'),
         )
         if org:
             flash('Organization created successfully!', 'success')
             return redirect(url_for('organizations.view_organization', org_id=org.id))
-        else:
-            flash('Failed to create organization.', 'error')
+
+        flash('Failed to create organization.', 'error')
+        return render_template('organizations/create.html'), 400
 
     return render_template('organizations/create.html')
 

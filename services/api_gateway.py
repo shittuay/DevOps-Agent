@@ -289,25 +289,25 @@ class APIGatewayService:
         db.session.commit()
         return webhook
 
-    def delete_webhook(self, webhook_id: int) -> bool:
-        """Delete a webhook."""
+    def delete_webhook(self, webhook_id: int, user_id: Optional[int] = None) -> bool:
+        """Delete a webhook. When user_id is given, only the owner may delete it."""
         db = self._get_db()
         webhook = self.get_webhook(webhook_id)
-        if webhook:
-            db.session.delete(webhook)
-            db.session.commit()
-            return True
-        return False
+        if not webhook or (user_id is not None and webhook.user_id != user_id):
+            return False
+        db.session.delete(webhook)
+        db.session.commit()
+        return True
 
-    def toggle_webhook(self, webhook_id: int) -> Optional[Any]:
-        """Toggle webhook active state."""
+    def toggle_webhook(self, webhook_id: int, user_id: Optional[int] = None) -> Optional[Any]:
+        """Toggle webhook active state. When user_id is given, owner-only."""
         db = self._get_db()
         webhook = self.get_webhook(webhook_id)
-        if webhook:
-            webhook.is_active = not webhook.is_active
-            db.session.commit()
-            return webhook
-        return None
+        if not webhook or (user_id is not None and webhook.user_id != user_id):
+            return None
+        webhook.is_active = not webhook.is_active
+        db.session.commit()
+        return webhook
 
     def trigger_webhook(self, event: str, payload: Dict, user_id: Optional[int] = None):
         """Trigger webhooks for an event."""
@@ -384,10 +384,10 @@ class APIGatewayService:
 
             db.session.commit()
 
-    def test_webhook(self, webhook_id: int) -> Dict:
-        """Send a test event to a webhook."""
+    def test_webhook(self, webhook_id: int, user_id: Optional[int] = None) -> Dict:
+        """Send a test event to a webhook. When user_id is given, owner-only."""
         webhook = self.get_webhook(webhook_id)
-        if not webhook:
+        if not webhook or (user_id is not None and webhook.user_id != user_id):
             return {'success': False, 'error': 'Webhook not found'}
 
         test_payload = {

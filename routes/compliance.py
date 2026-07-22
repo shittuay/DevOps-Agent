@@ -8,6 +8,10 @@ import json
 
 compliance_bp = Blueprint('compliance', __name__, url_prefix='/compliance')
 
+_POLICY_TYPES = ['access_control', 'data_retention', 'encryption', 'network',
+                 'resource_tagging', 'cost_limit']
+_POLICY_RESOURCE_TYPES = ['ec2', 's3', 'rds', 'lambda', 'vpc', 'iam', 'kubernetes', 'all']
+
 
 @compliance_bp.route('/')
 @login_required
@@ -221,36 +225,33 @@ def create_policy():
                     'value': cond_values[i] if i < len(cond_values) else ''
                 })
 
-        data = {
-            'name': request.form.get('name'),
-            'description': request.form.get('description'),
-            'policy_type': request.form.get('policy_type'),
-            'resource_types': request.form.getlist('resource_types'),
-            'conditions': conditions,
-            'enforcement': request.form.get('enforcement', 'warn'),
-            'created_by': current_user.id
-        }
+        name = (request.form.get('name') or '').strip()
+        policy_type = (request.form.get('policy_type') or '').strip()
+        if not name or not policy_type:
+            flash('Policy name and type are required.', 'error')
+            return render_template('compliance/create_policy.html',
+                                   policy_types=_POLICY_TYPES,
+                                   resource_types=_POLICY_RESOURCE_TYPES), 400
 
         policy = service.create_policy(
             user_id=current_user.id,
-            name=data.get('name'),
-            policy_type=data.get('policy_type'),
-            rules=data.get('conditions', []),
-            enforcement=data.get('enforcement', 'warn'),
-            description=data.get('description')
+            name=name,
+            policy_type=policy_type,
+            rules=conditions,
+            enforcement=request.form.get('enforcement', 'warn'),
+            description=request.form.get('description')
         )
         if policy:
             flash('Policy created successfully!', 'success')
             return redirect(url_for('compliance.policies'))
-        else:
-            flash('Failed to create policy.', 'error')
-
-    policy_types = ['access_control', 'data_retention', 'encryption', 'network', 'resource_tagging', 'cost_limit']
-    resource_types = ['ec2', 's3', 'rds', 'lambda', 'vpc', 'iam', 'kubernetes', 'all']
+        flash('Failed to create policy.', 'error')
+        return render_template('compliance/create_policy.html',
+                               policy_types=_POLICY_TYPES,
+                               resource_types=_POLICY_RESOURCE_TYPES), 400
 
     return render_template('compliance/create_policy.html',
-                         policy_types=policy_types,
-                         resource_types=resource_types)
+                         policy_types=_POLICY_TYPES,
+                         resource_types=_POLICY_RESOURCE_TYPES)
 
 
 @compliance_bp.route('/policies/<int:policy_id>/toggle', methods=['POST'])

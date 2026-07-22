@@ -9,6 +9,19 @@ from services.credit_service import CreditService
 
 api_gateway_bp = Blueprint('api_gateway', __name__, url_prefix='/api-gateway')
 
+_WEBHOOK_EVENTS = [
+    {'id': 'resource.created', 'name': 'Resource Created'},
+    {'id': 'resource.updated', 'name': 'Resource Updated'},
+    {'id': 'resource.deleted', 'name': 'Resource Deleted'},
+    {'id': 'incident.created', 'name': 'Incident Created'},
+    {'id': 'incident.resolved', 'name': 'Incident Resolved'},
+    {'id': 'alert.triggered', 'name': 'Alert Triggered'},
+    {'id': 'deployment.started', 'name': 'Deployment Started'},
+    {'id': 'deployment.completed', 'name': 'Deployment Completed'},
+    {'id': 'deployment.failed', 'name': 'Deployment Failed'},
+    {'id': 'cost.threshold', 'name': 'Cost Threshold Exceeded'},
+]
+
 
 def api_key_required(f):
     """Decorator to validate API key and inject X-RateLimit-* headers."""
@@ -146,43 +159,25 @@ def create_webhook():
         from services.api_gateway import APIGatewayService
         service = APIGatewayService()
 
-        data = {
-            'user_id': current_user.id,
-            'name': request.form.get('name'),
-            'url': request.form.get('url'),
-            'events': request.form.getlist('events'),
-            'secret': request.form.get('secret'),
-            'headers': {}
-        }
+        name = (request.form.get('name') or '').strip()
+        url = (request.form.get('url') or '').strip()
+        if not name or not url:
+            flash('Webhook name and URL are required.', 'error')
+            return render_template('api_gateway/create_webhook.html', events=_WEBHOOK_EVENTS), 400
 
-        custom_headers = request.form.get('custom_headers')
-        if custom_headers:
-            import json
-            try:
-                data['headers'] = json.loads(custom_headers)
-            except (ValueError, TypeError):
-                pass
-
-        webhook = service.create_webhook(data)
+        webhook = service.create_webhook(
+            user_id=current_user.id,
+            name=name,
+            url=url,
+            events=request.form.getlist('events'),
+        )
         if webhook:
             flash('Webhook created successfully!', 'success')
             return redirect(url_for('api_gateway.list_webhooks'))
-        else:
-            flash('Failed to create webhook.', 'error')
+        flash('Failed to create webhook.', 'error')
+        return render_template('api_gateway/create_webhook.html', events=_WEBHOOK_EVENTS), 400
 
-    events = [
-        {'id': 'resource.created', 'name': 'Resource Created'},
-        {'id': 'resource.updated', 'name': 'Resource Updated'},
-        {'id': 'resource.deleted', 'name': 'Resource Deleted'},
-        {'id': 'incident.created', 'name': 'Incident Created'},
-        {'id': 'incident.resolved', 'name': 'Incident Resolved'},
-        {'id': 'alert.triggered', 'name': 'Alert Triggered'},
-        {'id': 'deployment.started', 'name': 'Deployment Started'},
-        {'id': 'deployment.completed', 'name': 'Deployment Completed'},
-        {'id': 'deployment.failed', 'name': 'Deployment Failed'},
-        {'id': 'cost.threshold', 'name': 'Cost Threshold Exceeded'},
-    ]
-    return render_template('api_gateway/create_webhook.html', events=events)
+    return render_template('api_gateway/create_webhook.html', events=_WEBHOOK_EVENTS)
 
 
 @api_gateway_bp.route('/webhooks/<int:webhook_id>/toggle', methods=['POST'])

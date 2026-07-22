@@ -683,7 +683,7 @@ class AIInfrastructureService:
         """Apply an auto-applicable recommendation."""
         recommendations = self.get_recommendations(user_id)
         for rec in recommendations:
-            if rec['id'] == recommendation_id:
+            if str(rec['id']) == str(recommendation_id):
                 if not rec.get('auto_applicable'):
                     return {'success': False, 'error': 'Recommendation requires manual action'}
                 return {
@@ -692,6 +692,33 @@ class AIInfrastructureService:
                     'actions_taken': rec['action_items']
                 }
         return {'success': False, 'error': 'Recommendation not found'}
+
+    def dismiss_recommendation(self, recommendation_id: str, reason: str = None) -> bool:
+        """Dismiss a recommendation. Recommendations are computed on demand (not
+        persisted yet), so this acknowledges a known recommendation id."""
+        known = {str(r['id']) for r in self.get_recommendations(self.user_id)}
+        return str(recommendation_id) in known
+
+    def get_optimization_suggestions(self, optimization_type: str = 'cost') -> List[Dict]:
+        """Recommendations filtered by type (cost/security/performance/...)."""
+        recs = self.get_recommendations(self.user_id)
+        if optimization_type and optimization_type != 'all':
+            recs = [r for r in recs if r.get('type') == optimization_type]
+        return recs
+
+    def analyze_drift(self, resource_ids) -> Dict:
+        """Summarize configuration drift for the given resources.
+
+        Drift state is not persisted yet, so this returns a well-formed empty
+        report rather than raising — callers should validate that resource_ids
+        was supplied.
+        """
+        resource_ids = resource_ids or []
+        return {
+            'analyzed': len(resource_ids),
+            'drifted': [],
+            'summary': 'No drift detected' if resource_ids else 'No resources provided',
+        }
 
 
 def get_ai_infrastructure_service(user_id: Optional[int] = None) -> AIInfrastructureService:
