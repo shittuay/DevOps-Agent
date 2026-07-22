@@ -349,7 +349,7 @@ class KimiProvider(ModelProvider):
 
     @property
     def model(self):
-        return os.environ.get('KIMI_MODEL', 'kimi-k2.7-code')
+        return os.environ.get('KIMI_MODEL', 'kimi-k3')
 
     def is_available(self) -> bool:
         return bool(self.api_key) and super().is_available()
