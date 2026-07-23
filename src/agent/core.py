@@ -1287,7 +1287,7 @@ class DevOpsAgent:
                     'messages': messages,
                     'max_tokens': self.config.claude_max_tokens,
                 }
-                if 'k2' not in model:
+                if model.startswith('moonshot-v1'):
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
@@ -1488,7 +1488,7 @@ class DevOpsAgent:
                     # guarded below in case a provider rejects stream_options
                     'stream_options': {'include_usage': True},
                 }
-                if 'k2' not in model:
+                if model.startswith('moonshot-v1'):
                     params['temperature'] = self.config.claude_temperature
                 if oai_tools:
                     params['tools'] = oai_tools
