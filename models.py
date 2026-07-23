@@ -932,6 +932,9 @@ class InfrastructureChange(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    # Requester's active organization at creation time (null for solo/non-team accounts).
+    # Scopes non-admin approver visibility/actions to their own organization.
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=True, index=True)
 
     # Change details
     action_type = db.Column(db.String(50), nullable=False)  # create, update, delete, start, stop, terminate
@@ -968,6 +971,7 @@ class InfrastructureChange(db.Model):
         return {
             'id': self.id,
             'user_id': self.user_id,
+            'organization_id': self.organization_id,
             'action_type': self.action_type,
             'resource_type': self.resource_type,
             'resource_id': self.resource_id,
