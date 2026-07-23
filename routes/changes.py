@@ -7,14 +7,34 @@ Manages infrastructure change requests with risk-based approval routing:
 - High risk (delete production, modify IAM) -> requires approval
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from flask_login import login_required, current_user
-from models import db, InfrastructureChange, InfrastructureResource
+from models import db, InfrastructureChange, InfrastructureResource, OrganizationMember
 from services.rbac import require_permission, Permission, approver_required, user_is_admin
 from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _user_active_org_ids(user) -> set:
+    """Organization IDs the user is an active member of (any org role).
+
+    Used to scope non-admin approvers to their own organization(s) — changes
+    belonging to an organization the approver isn't a member of, or with no
+    organization at all (solo/non-team accounts), are outside their reach.
+    """
+    rows = OrganizationMember.query.filter_by(
+        user_id=user.id, is_active=True
+    ).with_entities(OrganizationMember.organization_id).all()
+    return {r[0] for r in rows}
+
+
+def _change_visible_to_approver(change, user) -> bool:
+    """Whether a non-admin approver may view/act on this change."""
+    if change.organization_id is None:
+        return False
+    return change.organization_id in _user_active_org_ids(user)
 
 
 def _notify_change(change, event):
@@ -126,8 +146,19 @@ def create_change_request():
     risk_level = classify_risk(action_type, resource_type, change_details)
     change_details['risk_level'] = risk_level
 
+    # Stamp the requester's active organization, if any, so non-admin approvers
+    # in that org can see/act on it later. Validated against real membership —
+    # a stale/tampered session value can't assign the change to a foreign org.
+    organization_id = None
+    active_org_id = session.get('active_organization_id')
+    if active_org_id and OrganizationMember.query.filter_by(
+        organization_id=active_org_id, user_id=current_user.id, is_active=True
+    ).first():
+        organization_id = active_org_id
+
     change = InfrastructureChange(
         user_id=current_user.id,
+        organization_id=organization_id,
         action_type=action_type,
         resource_type=resource_type,
         resource_id=resource_id,
@@ -168,10 +199,21 @@ def list_changes():
 
     query = InfrastructureChange.query
 
-    # Check if user has approve permission - if so, show all team changes
+    # Admins see everything platform-wide. Approvers see their own changes plus
+    # any change stamped with an organization they belong to — never every
+    # tenant's changes just because they hold the approver role.
     user_role = getattr(current_user, 'role', 'viewer')
-    if user_role in ('admin', 'approver', 'operator'):
+    if user_role == 'admin':
         pass  # See all changes
+    elif user_role in ('approver', 'operator'):
+        org_ids = _user_active_org_ids(current_user)
+        if org_ids:
+            query = query.filter(db.or_(
+                InfrastructureChange.user_id == current_user.id,
+                InfrastructureChange.organization_id.in_(org_ids)
+            ))
+        else:
+            query = query.filter_by(user_id=current_user.id)
     else:
         query = query.filter_by(user_id=current_user.id)
 
@@ -197,7 +239,11 @@ def get_change(change_id):
     change = InfrastructureChange.query.get_or_404(change_id)
 
     user_role = getattr(current_user, 'role', 'viewer')
-    if change.user_id != current_user.id and user_role not in ('admin', 'approver', 'operator'):
+    authorized = change.user_id == current_user.id or user_role == 'admin'
+    if not authorized and user_role in ('approver', 'operator'):
+        authorized = _change_visible_to_approver(change, current_user)
+
+    if not authorized:
         return jsonify({'error': 'Unauthorized'}), 403
 
     return jsonify(change.to_dict())
@@ -207,11 +253,14 @@ def get_change(change_id):
 @login_required
 @approver_required
 def list_pending_approvals():
-    """List changes awaiting approval. Admins see all; approvers/operators see their own."""
+    """List changes awaiting approval. Admins see all; approvers see their organization's."""
     user_role = getattr(current_user, 'role', 'viewer')
     query = InfrastructureChange.query.filter_by(status='pending')
     if user_role != 'admin':
-        query = query.filter_by(user_id=current_user.id)
+        org_ids = _user_active_org_ids(current_user)
+        if not org_ids:
+            return jsonify({'pending': [], 'count': 0})
+        query = query.filter(InfrastructureChange.organization_id.in_(org_ids))
     changes = query.order_by(InfrastructureChange.created_at.asc()).all()
 
     return jsonify({
@@ -229,6 +278,10 @@ def approve_change(change_id):
 
     if change.status != 'pending':
         return jsonify({'error': f'Change is already {change.status}'}), 400
+
+    # Non-admin approvers may only act on changes within their own organization
+    if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
+        return jsonify({'error': 'This change is outside your organization'}), 403
 
     # Non-admin users can't approve their own high-risk changes
     risk_level = (change.change_details or {}).get('risk_level', 'medium')
@@ -261,6 +314,10 @@ def reject_change(change_id):
 
     if change.status != 'pending':
         return jsonify({'error': f'Change is already {change.status}'}), 400
+
+    # Non-admin approvers may only act on changes within their own organization
+    if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
+        return jsonify({'error': 'This change is outside your organization'}), 403
 
     data = request.get_json() or {}
     reason = data.get('reason', '')
@@ -377,6 +434,10 @@ def execute_change(change_id):
 def rollback_change(change_id):
     """Rollback an executed change using saved rollback data."""
     change = InfrastructureChange.query.get_or_404(change_id)
+
+    # Non-admin approvers may only act on changes within their own organization
+    if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
+        return jsonify({'error': 'This change is outside your organization'}), 403
 
     if change.status != 'executed':
         return jsonify({'error': 'Only executed changes can be rolled back'}), 400

@@ -592,6 +592,8 @@ instance + GetCommandInvocation only). No long-lived AWS keys exist in GitHub.
 
 Enforced by `@admin_required` / `@approver_required` decorators in `services/rbac.py`.
 
+**This is a platform-wide role, distinct from `OrganizationMember.role`** (`owner`/`admin`/`member`, used by `organizations.py`/`services/multi_tenancy.py` for team management) — the two never cross-check each other. A route gated only by `@approver_required` has no tenant boundary by default: it must add an explicit org-membership check (see `routes/changes.py`'s `_user_active_org_ids()`/`_change_visible_to_approver()`) if it touches data that isn't already scoped by `user_id`, or any `role='approver'` account can act on every organization's data platform-wide (see CLAUDE_RUNBOOK.md, change-governance org-scope fix).
+
 ### Admin Pages
 
 | URL | Description |
