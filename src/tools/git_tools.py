@@ -5,6 +5,8 @@ from git import Repo, GitCommandError
 from github import Github, GithubException
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
+from ..utils.network_safety import assert_safe_url, UnsafeUrlError, _is_blocked_ip
+import socket
 
 
 logger = get_logger(__name__)
@@ -21,12 +23,34 @@ def _get_repo(repo_path: str) -> Repo:
 
 
 def _validate_git_url(url: str) -> bool:
-    """Whitelist https:// and git@... URLs. Block file://, local paths, and suspicious patterns."""
-    if re.match(r'^https?://', url):
+    """Whitelist https:// and git@... URLs, blocking file://, local paths, and
+    hosts that resolve to loopback/link-local/metadata addresses (SSRF guard —
+    git's HTTP transport issues a real outbound GET to /info/refs before
+    failing, which would otherwise leak responses from internal services like
+    the cloud metadata endpoint)."""
+    https_match = re.match(r'^https?://', url)
+    ssh_match = re.match(r'^git@([\w.\-]+):', url)
+    if not https_match and not ssh_match:
+        return False
+
+    if https_match:
+        try:
+            assert_safe_url(url)
+        except UnsafeUrlError as e:
+            logger.warning(f"Blocked git URL to unsafe host: {e}")
+            return False
         return True
-    if re.match(r'^git@[\w.\-]+:', url):
-        return True
-    return False
+
+    hostname = ssh_match.group(1)
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        logger.warning(f"Could not resolve git SSH host {hostname!r}: {e}")
+        return False
+    if any(_is_blocked_ip(sockaddr[0]) for _, _, _, _, sockaddr in addr_infos):
+        logger.warning(f"Blocked git SSH URL to unsafe host: {hostname}")
+        return False
+    return True
 
 
 def get_repository_status(repo_path: str) -> Dict[str, Any]:

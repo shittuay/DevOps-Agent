@@ -160,7 +160,7 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 2. **`screen_message()`** (`src/agent/guardrails.py`) — Haiku pre-screen using structured tool output. Classifies: `prompt_injection`, `out_of_scope_attack`, `malware_request`, `data_exfiltration`, `social_engineering`. Also runs crisis-language detection (fails closed) before the Haiku call. Fails open on error.
 3. **Hardened system prompt** (`src/agent/core.py`) — `SECURITY BOUNDARIES` section: fixed identity, no prompt disclosure, refuse malware generation, reject in-message operator impersonation.
 
-**Every guardrail-gated route MUST, in order:** `sanitize_input()` the raw message → check `current_user.is_guardrail_blocked()` (or the equivalent `User` row for API-key routes) → `validate_message()` → `screen_message()`, calling `record_guardrail_violation()` on any block. Skipping `screen_message()`/`sanitize_input()` on a new entry point (as `routes/api_gateway.py`'s developer API originally did, and `api/v1/conversations.py`'s `send_message()`/`api_v1_chat_stream()` did later — both now fixed) silently drops the Haiku jailbreak screen, crisis detection, and lockout enforcement for that surface — see `CLAUDE_RUNBOOK.md`. Compliant chat-to-agent entry points today: `app.py` (`/api/chat`, `/api/chat/stream`), `routes/api_gateway.py` (`/v1/agent`, `/v1/agent/stream`), and `api/v1/conversations.py` (`/conversations/<id>/messages`, `/chat/stream`).
+**Every guardrail-gated route MUST, in order:** `sanitize_input()` the raw message → check `current_user.is_guardrail_blocked()` (or the equivalent `User` row for API-key routes) → `validate_message()` → `screen_message()`, calling `record_guardrail_violation()` on any block. Skipping `screen_message()`/`sanitize_input()` on a new entry point (as `routes/api_gateway.py`'s developer API originally did, `api/v1/conversations.py`'s `send_message()`/`api_v1_chat_stream()` did later, and `routes/curriculum.py`'s `/curriculum/api/ai-guide` did after that — all now fixed) silently drops the Haiku jailbreak screen, crisis detection, and lockout enforcement for that surface — see `CLAUDE_RUNBOOK.md`. Compliant chat-to-agent entry points today: `app.py` (`/api/chat`, `/api/chat/stream`), `routes/api_gateway.py` (`/v1/agent`, `/v1/agent/stream`), `api/v1/conversations.py` (`/conversations/<id>/messages`, `/chat/stream`), and `routes/curriculum.py` (`/curriculum/api/ai-guide`).
 
 **Violation tracking on `User` model:**
 - `guardrail_violations` (Integer) + `guardrail_blocked_until` (DateTime)
@@ -214,9 +214,16 @@ intended use, not just close an attack path.
 
 Currently wired into: `sonarqube_tools._get_sonar_client`, `nexus_tools._get_nexus_client`,
 `cicd_tools._get_jenkins_server` (+ the 3 Jenkins functions that build `jenkins.Jenkins()`
-directly, plus `run_smoke_test`/`auto_rollback_deployment`), and every Prometheus/Grafana
-function in `monitoring_tools.py`. Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't
-need it.
+directly, plus `run_smoke_test`/`auto_rollback_deployment`), every Prometheus/Grafana
+function in `monitoring_tools.py`, `git_tools._validate_git_url` (resolves both `https://` and
+`git@host:` forms before `git_clone_repository`/`git_add_remote` will use them — git's HTTP
+transport otherwise issues a real outbound GET to `/info/refs` against whatever host it's given),
+`services/notification_service.py`'s `SlackClient.send_webhook`/`TeamsClient.send` (the
+`webhook_url` is user-configured via `routes/notifications.py`), and
+`services/api_gateway.py`'s `test_webhook()` (now matches the same `_is_safe_webhook_url()` guard
+`trigger_webhook()` already had — `test_webhook()` had been skipping it and echoing the raw
+response body back to the caller, which made it an SSRF response oracle). Datadog/PagerDuty/
+OpsGenie tools hit hardcoded hosts and don't need it.
 
 ## Context Management & Progressive Tool Loading
 

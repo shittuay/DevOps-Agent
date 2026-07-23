@@ -401,6 +401,10 @@ class APIGatewayService:
 
         import requests as http_requests
 
+        if not _is_safe_webhook_url(webhook.url):
+            logger.warning(f"Blocked SSRF attempt in test_webhook to {webhook.url}")
+            return {'success': False, 'error': 'Webhook URL targets a private/internal network (blocked by SSRF protection)'}
+
         try:
             signature_payload = json.dumps(test_payload, sort_keys=True)
             signature = hmac.new(
