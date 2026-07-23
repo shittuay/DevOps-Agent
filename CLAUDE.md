@@ -225,6 +225,35 @@ transport otherwise issues a real outbound GET to `/info/refs` against whatever 
 response body back to the caller, which made it an SSRF response oracle). Datadog/PagerDuty/
 OpsGenie tools hit hardcoded hosts and don't need it.
 
+## Concurrency Model: the shared `agent` singleton
+
+Production runs a **single gunicorn worker** (`Procfile`: `--worker-class gevent
+--workers 1 --worker-connections 1000`), so the one `DevOpsAgent` instance
+(`app.py`'s global `agent`) is shared by every concurrent request in the process.
+Gevent's cooperative scheduling switches to another request's greenlet on every
+I/O wait — including the entire duration of a Claude/Kimi API call, which is most
+of a request's wall-clock time.
+
+**Any per-request state on `DevOpsAgent` must be a `@property` backed by
+`self._local` (a `threading.local()`, see `_greenlet_local_property()` in
+`core.py`), never a plain instance attribute.** Gunicorn's gevent worker
+monkey-patches `threading.local` to be greenlet-local, so this gives genuine
+per-request isolation without touching any of the method bodies that read/write
+`self.attr` — the same mechanism already used for per-user AWS/Azure/GCP
+credential context (`_set_cloud_user_context`). A "save the original value,
+restore it in `finally`" pattern is **not** sufficient — it looks like isolation
+but does nothing to stop a different concurrent request from reading or
+overwriting the value while the first request is waiting on I/O. See
+CLAUDE_RUNBOOK.md's "Shared `agent` singleton leaked per-request state" entry for
+the incident this pattern was built to prevent (a sandboxed/simulated destructive
+action could execute for real if a concurrent non-sandbox request's flag won the
+race). Current properties: `conversation`, `pending_download`,
+`_current_user_id`, `_tools_override`, `_trust_tool_results`, `_sandbox_mode`,
+`_current_conversation_id`, `_pending_approval`, `_last_tools_used`. Use
+`default_factory` (not `default`) for any new mutable-valued property, or an
+unset thread/greenlet's shared default becomes its own cross-request leak the
+first time something mutates it in place.
+
 ## Context Management & Progressive Tool Loading
 
 Harness improvements that raise the agent's autonomy ceiling: Phase 1 (token-aware
