@@ -15,6 +15,8 @@ from enum import Enum
 from typing import Any, Optional
 from dataclasses import dataclass, field
 
+from src.utils.network_safety import assert_safe_url, UnsafeUrlError
+
 logger = logging.getLogger(__name__)
 
 
@@ -226,6 +228,12 @@ class SlackClient:
             logger.error("Slack webhook URL not configured")
             return False
 
+        try:
+            assert_safe_url(self.webhook_url)
+        except UnsafeUrlError as e:
+            logger.error(f"Blocked Slack webhook to unsafe URL: {e}")
+            return False
+
         # Use blocks-only payload. Slack requires a top-level `text` as a
         # notification fallback when blocks are present. Sending `attachments`
         # alongside `blocks` can cause silent delivery failures.
@@ -302,6 +310,12 @@ class TeamsClient:
         """Send notification to Teams."""
         if not self.webhook_url:
             logger.error("Teams webhook URL not configured")
+            return False
+
+        try:
+            assert_safe_url(self.webhook_url)
+        except UnsafeUrlError as e:
+            logger.error(f"Blocked Teams webhook to unsafe URL: {e}")
             return False
 
         payload = notification.to_teams_card()

@@ -165,12 +165,63 @@ def api_progress_summary():
 @limiter.limit("15 per minute", key_func=lambda: str(current_user.id))
 def api_ai_guide():
     """Stream Claude's study guidance for a specific module."""
+    from services.input_sanitizer import sanitize_input, validate_message
+    from src.agent.guardrails import screen_message
+
     data = request.get_json() or {}
     module_id = data.get('module_id', '').strip()
-    question = data.get('question', '').strip()
+    question = sanitize_input(data.get('question', '').strip())
 
     if not module_id or not question:
         return jsonify({'error': 'module_id and question are required'}), 400
+
+    # Guardrail layer 1: check if user is blocked for repeated policy violations
+    if current_user.is_guardrail_blocked():
+        return jsonify({'error': 'Your account has been temporarily restricted due to repeated policy violations. Please contact support.'}), 403
+
+    # Guardrail layer 2: injection pattern check
+    is_valid, validation_reason = validate_message(question)
+    if not is_valid:
+        current_user.record_guardrail_violation()
+        db.session.commit()
+        return jsonify({'error': validation_reason}), 400
+
+    # Guardrail layer 3: Haiku harmlessness + crisis-language screen
+    guardrail_result = screen_message(question)
+    if guardrail_result.blocked:
+        if guardrail_result.is_crisis:
+            from services.crisis_resources import get_crisis_resources, get_user_country_from_request
+            from models import CrisisIncident
+
+            country_code = get_user_country_from_request(request)
+            resources = get_crisis_resources(country_code)
+
+            crisis_incident = CrisisIncident(
+                user_id=current_user.id,
+                conversation_id=f'curriculum:{module_id}',
+                message_snippet=question[:500],
+                severity=guardrail_result.crisis_severity,
+                crisis_keywords=guardrail_result.crisis_keywords or {},
+                action='banner_shown',
+                resources_provided=resources,
+                user_country=country_code,
+                user_ip=request.remote_addr,
+                user_agent=request.headers.get('User-Agent', '')[:500],
+            )
+            db.session.add(crisis_incident)
+            db.session.commit()
+            logger.warning(f"Crisis incident logged. user_id={current_user.id} severity={guardrail_result.crisis_severity}")
+
+            return jsonify({
+                'crisis_response': True,
+                'message': 'If you\'re in crisis, please reach out for help.',
+                'resources': resources,
+                'incident_id': crisis_incident.id,
+            }), 200
+
+        current_user.record_guardrail_violation()
+        db.session.commit()
+        return jsonify({'error': 'Message blocked by content policy. Repeated violations may result in account suspension.'}), 400
 
     # Find module context
     module_ctx = None
