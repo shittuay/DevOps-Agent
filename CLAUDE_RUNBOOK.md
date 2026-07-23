@@ -297,3 +297,14 @@ Dependency Pinning Policy. **Lesson:** `continue-on-error` on the security job
 means CI green is not proof of a clean scan — treat the scheduled scan logs
 (or the `scheduled-bandit-report` artifact) as something that needs an
 occasional human/agent read, not just a status-check glance.
+
+---
+
+## rotate_api_key ownership hardening (2026-07-23)
+
+Post-#80 IDOR sweep found `APIGatewayService.rotate_api_key(key_id)` shared the
+webhook bug's shape: no `user_id` (no ownership enforcement) and it called the
+now-2-arg `revoke_api_key(key_id)` with one arg (would crash). It was dead code
+(no route/caller), so not exploitable — hardened defensively: added an optional
+`user_id` owner check and fixed the revoke call to pass the owner.
+Guarded by `tests/test_api_key_rotate_ownership.py`.

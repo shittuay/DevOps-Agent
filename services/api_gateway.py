@@ -151,10 +151,13 @@ class APIGatewayService:
             return True
         return False
 
-    def rotate_api_key(self, key_id: int) -> Optional[tuple]:
-        """Rotate an API key (create new, revoke old)."""
+    def rotate_api_key(self, key_id: int, user_id: Optional[int] = None) -> Optional[tuple]:
+        """Rotate an API key (create new, revoke old).
+
+        When user_id is given, only the owner may rotate the key.
+        """
         old_key = self.get_api_key(key_id)
-        if not old_key:
+        if not old_key or (user_id is not None and old_key.user_id != user_id):
             return None
 
         # Create new key with same settings
@@ -165,8 +168,8 @@ class APIGatewayService:
         )
         new_key.rate_limit = old_key.rate_limit
 
-        # Revoke old key
-        self.revoke_api_key(key_id)
+        # Revoke old key (scoped to the owner — revoke_api_key requires user_id)
+        self.revoke_api_key(key_id, old_key.user_id)
 
         return new_key, plain_key
 
