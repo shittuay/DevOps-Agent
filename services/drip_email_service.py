@@ -353,8 +353,8 @@ def _html_day25(username: str, base_url: str, unsub_url: str) -> str:
             <!-- Model -->
             <tr>
               <td style="padding:10px 16px;font-size:13px;color:#94a3b8;border-top:1px solid rgba(255,255,255,0.06)">AI model</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Kimi K2.5</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Kimi K2.5</td>
+              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Kimi K3</td>
+              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Kimi K3</td>
               <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Claude Sonnet</td>
             </tr>
             <!-- Price -->

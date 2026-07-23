@@ -338,7 +338,7 @@ class GroqProvider(ModelProvider):
 
 
 class KimiProvider(ModelProvider):
-    """Moonshot Kimi K2.5 adapter (OpenAI-compatible API)."""
+    """Moonshot Kimi K3 adapter (OpenAI-compatible API)."""
 
     def __init__(self):
         super().__init__('kimi')

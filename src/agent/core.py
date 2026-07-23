@@ -1222,7 +1222,7 @@ class DevOpsAgent:
 
     def _call_kimi_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None, swarm_max_agents: int = 0) -> str:
         """
-        Call Kimi K2.5 API with tool support (OpenAI-compatible format).
+        Call Kimi K3 API with tool support (OpenAI-compatible format).
 
         Args:
             user_preferences_context: Optional context string with user preferences
@@ -1312,7 +1312,7 @@ class DevOpsAgent:
                 if msg.tool_calls:
                     tools_called_this_turn = True
                     # Append assistant message with tool calls
-                    # Include reasoning_content for Kimi K2.5 (reasoning model requirement)
+                    # Include reasoning_content for Kimi K3 (reasoning model requirement)
                     assistant_dict = msg.model_dump()
                     if hasattr(msg, 'reasoning_content') and msg.reasoning_content:
                         assistant_dict['reasoning_content'] = msg.reasoning_content
@@ -1430,7 +1430,7 @@ class DevOpsAgent:
 
     def _call_kimi_api_streaming(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None, swarm_max_agents: int = 0):
         """
-        Call Kimi K2.5 API with streaming and tool support.
+        Call Kimi K3 API with streaming and tool support.
 
         Yields:
             str: Text chunks as they arrive from the Kimi API
@@ -1518,7 +1518,7 @@ class DevOpsAgent:
                         continue
                     delta = chunk.choices[0].delta
 
-                    # Reasoning content (Kimi K2.5 thinking — collect but don't yield)
+                    # Reasoning content (Kimi K3 thinking — collect but don't yield)
                     if getattr(delta, 'reasoning_content', None):
                         collected_reasoning += delta.reasoning_content
 

@@ -2,7 +2,7 @@
 Tiered AI Model Router
 
 Maps subscription tiers to AI providers and models.
-Free and Starter users default to Kimi K2.7 (cheaper, with tools).
+Free and Starter users default to Kimi K3 (cheaper, with tools).
 Professional and Business users default to Claude (premium).
 Users can override their tier default via preferred_model_provider.
 """
@@ -31,7 +31,7 @@ class ModelConfig:
 KIMI_MODEL_CONFIG = ModelConfig(
     provider='kimi',
     model='kimi-k3',
-    display_name='Kimi K2.7',
+    display_name='Kimi K3',
     supports_tools=True,
     max_tokens=4096,
     max_tools=100,
@@ -85,7 +85,7 @@ DEFAULT_TIER_MODELS = {
     'free': ModelConfig(
         provider='kimi',
         model='kimi-k3',
-        display_name='Kimi K2.7 (Trial)',
+        display_name='Kimi K3 (Trial)',
         supports_tools=True,
         max_tokens=4096,
         max_tools=100,
@@ -95,7 +95,7 @@ DEFAULT_TIER_MODELS = {
     'starter': ModelConfig(
         provider='kimi',
         model='kimi-k3',
-        display_name='Kimi K2.7',
+        display_name='Kimi K3',
         supports_tools=True,
         max_tokens=4096,
         max_tools=100,
@@ -195,7 +195,7 @@ def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[s
         return ModelConfig(
             provider='kimi',
             model=kimi_model,
-            display_name='Kimi K2.7',
+            display_name='Kimi K3',
             supports_tools=True,
             max_tokens=tier_defaults.max_tokens,
             max_tools=tier_defaults.max_tools,

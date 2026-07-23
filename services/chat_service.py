@@ -52,7 +52,7 @@ You've used all **20 trial credits** -- and you got the full experience: the sam
 
 Here's what you accomplished during your trial:
 - **Real tool execution** -- not just chat, actual cloud operations
-- **AI-powered DevOps automation** with Kimi K2.5
+- **AI-powered DevOps automation** with Kimi K3
 - **Security scans, cost analysis, infrastructure management** -- all hands-free
 
 ### Ready to keep going?

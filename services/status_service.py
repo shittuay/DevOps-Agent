@@ -16,7 +16,7 @@ _SERVICES = [
     {'key': 'api',     'name': 'API',            'description': 'Core REST API and chat endpoints'},
     {'key': 'auth',    'name': 'Authentication', 'description': 'Login, 2FA, session management'},
     {'key': 'db',      'name': 'Database',       'description': 'Data storage and queries'},
-    {'key': 'ai',      'name': 'AI / Chat',      'description': 'Kimi K2.5 and Claude inference'},
+    {'key': 'ai',      'name': 'AI / Chat',      'description': 'Kimi K3 and Claude inference'},
     {'key': 'billing', 'name': 'Billing',        'description': 'Stripe payments and subscriptions'},
     {'key': 'email',   'name': 'Email',          'description': 'Brevo transactional email delivery'},
 ]
