@@ -20,11 +20,19 @@ from functools import wraps
 
 from flask import request, jsonify, g
 
+from src.utils.network_safety import safe_request, UnsafeUrlError
+
 logger = logging.getLogger(__name__)
 
 
 def _is_safe_webhook_url(url: str) -> bool:
-    """Block webhook URLs targeting internal/private networks (SSRF protection)."""
+    """Block webhook URLs targeting internal/private networks (SSRF protection).
+
+    Deliberately stricter than src.utils.network_safety.assert_safe_url — these
+    are arbitrary user-configured external endpoints, not the self-hosted
+    internal-tool trust model (Jenkins/SonarQube/Nexus/etc.) assert_safe_url is
+    designed for, so RFC1918/reserved ranges are blocked here too.
+    """
     try:
         parsed = urlparse(url)
         if parsed.scheme not in ('http', 'https'):
@@ -40,6 +48,13 @@ def _is_safe_webhook_url(url: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _raise_if_unsafe_webhook_url(url: str) -> None:
+    """Adapts the bool-returning _is_safe_webhook_url to safe_request()'s
+    raise-on-rejection validator contract."""
+    if not _is_safe_webhook_url(url):
+        raise UnsafeUrlError(f"Webhook URL {url!r} targets a disallowed network")
 
 
 class APIKeyScope(Enum):
@@ -314,7 +329,6 @@ class APIGatewayService:
 
     def trigger_webhook(self, event: str, payload: Dict, user_id: Optional[int] = None):
         """Trigger webhooks for an event."""
-        import requests as http_requests
         WebhookDelivery = self._get_delivery_model()
         db = self._get_db()
 
@@ -357,8 +371,10 @@ class APIGatewayService:
                     logger.warning(f"Blocked SSRF attempt to {webhook.url}")
                     return delivery
                 start_time = datetime.utcnow()
-                response = http_requests.post(
+                response = safe_request(
+                    'POST',
                     webhook.url,
+                    validator=_raise_if_unsafe_webhook_url,
                     json=payload,
                     headers=headers,
                     timeout=webhook.timeout_seconds or 30
@@ -399,8 +415,6 @@ class APIGatewayService:
             'message': 'This is a test webhook delivery'
         }
 
-        import requests as http_requests
-
         if not _is_safe_webhook_url(webhook.url):
             logger.warning(f"Blocked SSRF attempt in test_webhook to {webhook.url}")
             return {'success': False, 'error': 'Webhook URL targets a private/internal network (blocked by SSRF protection)'}
@@ -413,8 +427,10 @@ class APIGatewayService:
                 hashlib.sha256
             ).hexdigest()
 
-            response = http_requests.post(
+            response = safe_request(
+                'POST',
                 webhook.url,
+                validator=_raise_if_unsafe_webhook_url,
                 json=test_payload,
                 headers={
                     'Content-Type': 'application/json',

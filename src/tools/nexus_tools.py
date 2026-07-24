@@ -2,7 +2,7 @@
 import os
 import requests
 from typing import Dict, Any, Optional, List
-from ..utils import get_logger, assert_safe_url
+from ..utils import get_logger, assert_safe_url, safe_request
 
 logger = get_logger(__name__)
 
@@ -30,11 +30,11 @@ def nexus_get_system_status(
     """Check Nexus system health and version information."""
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.get(f'{url}/service/rest/v1/status', auth=auth, timeout=15)
+        response = safe_request('GET', f'{url}/service/rest/v1/status', auth=auth, timeout=15)
         if response.status_code == 200:
             return {'success': True, 'status': 'healthy', 'message': 'Nexus is running and healthy'}
         # Try /status/check for more detail
-        check = requests.get(f'{url}/service/rest/v1/status/check', auth=auth, timeout=15)
+        check = safe_request('GET', f'{url}/service/rest/v1/status/check', auth=auth, timeout=15)
         check.raise_for_status()
         return {'success': True, 'status': 'healthy', 'checks': check.json()}
     except Exception as e:
@@ -50,7 +50,7 @@ def nexus_list_repositories(
     """List all repositories in Nexus (hosted, proxy, and group)."""
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.get(f'{url}/service/rest/v1/repositories', auth=auth, timeout=30)
+        response = safe_request('GET', f'{url}/service/rest/v1/repositories', auth=auth, timeout=30)
         response.raise_for_status()
         repos = response.json()
         return {
@@ -81,7 +81,7 @@ def nexus_get_repository(
     """Get configuration details for a specific Nexus repository."""
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/service/rest/v1/repositories/{repository_name}',
             auth=auth,
             timeout=30
@@ -123,7 +123,7 @@ def nexus_create_repository(
         if format == 'maven2':
             payload['maven'] = {'versionPolicy': 'MIXED', 'layoutPolicy': 'STRICT'}
 
-        response = requests.post(
+        response = safe_request('POST', 
             f'{url}/service/rest/v1/repositories/{format}/{type}',
             auth=auth,
             json=payload,
@@ -156,7 +156,7 @@ def nexus_delete_repository(
     """
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.delete(
+        response = safe_request('DELETE', 
             f'{url}/service/rest/v1/repositories/{repository_name}',
             auth=auth,
             timeout=30
@@ -202,7 +202,7 @@ def nexus_search_components(
         if format:
             params['format'] = format
 
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/service/rest/v1/search',
             auth=auth,
             params=params,
@@ -242,7 +242,7 @@ def nexus_get_component(
     """Get details for a specific component by its Nexus component ID."""
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/service/rest/v1/components/{component_id}',
             auth=auth,
             timeout=30
@@ -263,7 +263,7 @@ def nexus_delete_component(
     """Delete a specific component (and all its assets) from Nexus by component ID."""
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.delete(
+        response = safe_request('DELETE', 
             f'{url}/service/rest/v1/components/{component_id}',
             auth=auth,
             timeout=30
@@ -296,7 +296,7 @@ def nexus_list_assets(
         params = {'repository': repository}
         if continuation_token:
             params['continuationToken'] = continuation_token
-        response = requests.get(f'{url}/service/rest/v1/assets', auth=auth, params=params, timeout=30)
+        response = safe_request('GET', f'{url}/service/rest/v1/assets', auth=auth, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         items = data.get('items', [])
@@ -333,7 +333,7 @@ def nexus_delete_asset(
     """Delete a specific asset (file) from Nexus by asset ID."""
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.delete(
+        response = safe_request('DELETE', 
             f'{url}/service/rest/v1/assets/{asset_id}',
             auth=auth,
             timeout=30
@@ -355,7 +355,7 @@ def nexus_list_users(
     """List Nexus users. source='default' for local users, 'LDAP' for LDAP-sourced users."""
     try:
         url, auth = _get_nexus_client(base_url, username, password)
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/service/rest/v1/security/users',
             auth=auth,
             params={'source': source},
@@ -396,7 +396,7 @@ def nexus_run_cleanup_task(
     try:
         url, auth = _get_nexus_client(base_url, username, password)
         # List all tasks to find the target
-        tasks_resp = requests.get(f'{url}/service/rest/v1/tasks', auth=auth, timeout=30)
+        tasks_resp = safe_request('GET', f'{url}/service/rest/v1/tasks', auth=auth, timeout=30)
         tasks_resp.raise_for_status()
         tasks = tasks_resp.json().get('items', [])
 
@@ -414,7 +414,7 @@ def nexus_run_cleanup_task(
             available = [t.get('name') for t in tasks]
             return {'success': False, 'error': f'Task "{task_name}" not found. Available: {available}'}
 
-        run_resp = requests.post(
+        run_resp = safe_request('POST', 
             f'{url}/service/rest/v1/tasks/{task["id"]}/run',
             auth=auth,
             timeout=30

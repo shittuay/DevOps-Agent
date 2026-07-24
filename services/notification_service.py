@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Any, Optional
 from dataclasses import dataclass, field
 
-from src.utils.network_safety import assert_safe_url, UnsafeUrlError
+from src.utils.network_safety import assert_safe_url, safe_request, UnsafeUrlError
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +246,8 @@ class SlackClient:
             payload["channel"] = channel
 
         try:
-            response = requests.post(
+            response = safe_request(
+                'POST',
                 self.webhook_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
@@ -260,7 +261,7 @@ class SlackClient:
                 return False
             logger.info(f"Slack notification sent: {notification.title}")
             return True
-        except requests.RequestException as e:
+        except (requests.RequestException, UnsafeUrlError) as e:
             logger.error(f"Failed to send Slack notification: {e}")
             return False
 
@@ -321,7 +322,8 @@ class TeamsClient:
         payload = notification.to_teams_card()
 
         try:
-            response = requests.post(
+            response = safe_request(
+                'POST',
                 self.webhook_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
@@ -330,7 +332,7 @@ class TeamsClient:
             response.raise_for_status()
             logger.info(f"Teams notification sent: {notification.title}")
             return True
-        except requests.RequestException as e:
+        except (requests.RequestException, UnsafeUrlError) as e:
             logger.error(f"Failed to send Teams notification: {e}")
             return False
 

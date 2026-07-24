@@ -2,7 +2,7 @@
 import requests
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
-from ..utils import get_logger, assert_safe_url
+from ..utils import get_logger, assert_safe_url, safe_request
 
 logger = get_logger(__name__)
 
@@ -35,7 +35,7 @@ def query_prometheus(
         if time:
             params['time'] = time
 
-        response = requests.get(url, params=params, timeout=30)
+        response = safe_request('GET', url, params=params, timeout=30)
         response.raise_for_status()
 
         data = response.json()
@@ -87,7 +87,7 @@ def query_prometheus_range(
             'step': step
         }
 
-        response = requests.get(url, params=params, timeout=30)
+        response = safe_request('GET', url, params=params, timeout=30)
         response.raise_for_status()
 
         data = response.json()
@@ -122,7 +122,7 @@ def get_prometheus_targets(prometheus_url: str) -> Dict[str, Any]:
         assert_safe_url(prometheus_url)
         url = f"{prometheus_url.rstrip('/')}/api/v1/targets"
 
-        response = requests.get(url, timeout=30)
+        response = safe_request('GET', url, timeout=30)
         response.raise_for_status()
 
         data = response.json()
@@ -167,7 +167,7 @@ def get_prometheus_alerts(prometheus_url: str) -> Dict[str, Any]:
         assert_safe_url(prometheus_url)
         url = f"{prometheus_url.rstrip('/')}/api/v1/alerts"
 
-        response = requests.get(url, timeout=30)
+        response = safe_request('GET', url, timeout=30)
         response.raise_for_status()
 
         data = response.json()
@@ -514,7 +514,7 @@ def get_grafana_datasources(grafana_url: str, api_key: str) -> Dict[str, Any]:
             'Content-Type': 'application/json'
         }
 
-        response = requests.get(url, headers=headers, timeout=30)
+        response = safe_request('GET', url, headers=headers, timeout=30)
         response.raise_for_status()
 
         datasources = response.json()
@@ -551,7 +551,7 @@ def get_grafana_dashboards(grafana_url: str, api_key: str) -> Dict[str, Any]:
 
         params = {'type': 'dash-db'}
 
-        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response = safe_request('GET', url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
 
         dashboards = response.json()
@@ -586,7 +586,7 @@ def get_grafana_alerts(grafana_url: str, api_key: str) -> Dict[str, Any]:
             'Content-Type': 'application/json'
         }
 
-        response = requests.get(url, headers=headers, timeout=30)
+        response = safe_request('GET', url, headers=headers, timeout=30)
         response.raise_for_status()
 
         alerts = response.json()
