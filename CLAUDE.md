@@ -624,8 +624,8 @@ GitHub Actions workflows live in `.github/workflows/`:
 - **`deploy.yml`** — **manual/backup** deploy-only workflow (`workflow_dispatch`
   only — no longer push-triggered, so it doesn't race ci.yml's auto-deploy). Uses
   AWS SSM to run the deploy script on EC2 (no inbound SSH / public IP needed).
-  Requires `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `EC2_INSTANCE_ID`
-  GitHub secrets. SSM setup is in place in the current account (`188046727805`):
+  Authenticates via GitHub OIDC (see below) + requires the `EC2_INSTANCE_ID`
+  GitHub secret. SSM setup is in place in the current account (`188046727805`):
   IAM role `devops-agent-ssm-role` (`AmazonSSMManagedInstanceCore`) attached to the
   instance via profile `devops-agent-ssm-profile`, agent Online. The private-repo
   pull uses a **read-only SSH deploy key** on the box
@@ -638,6 +638,14 @@ GitHub Actions workflows live in `.github/workflows/`:
   Runs `pip-audit` + `safety` (dependency CVEs) and `bandit` (source linter);
   uploads `scheduled-bandit-report` artifact (30-day retention). Steps use
   `continue-on-error` so one tool failing doesn't abort the others.
+- **`check-errors.yml`** — on-demand (`workflow_dispatch`) production log/error
+  report: pulls `journalctl` errors/warnings, tool-call failure counts, guardrail
+  violations, and 7-day usage stats off the EC2 instance via SSM. Authenticates
+  via the same GitHub OIDC role as `ci.yml`/`deploy.yml` (migrated 2026-07-24 —
+  it was missed by the #64 OIDC migration below, so it kept referencing
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` after those secrets were deleted and
+  broke with "Could not load credentials from any providers" on every run from
+  2026-07-23 onward).
 
 Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
 do). The scheduled scan is the only timer-based scan.
