@@ -4,6 +4,8 @@ Authentication Tests
 Tests for user registration, login, and authentication flows.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 
@@ -112,6 +114,52 @@ class TestLogin:
             'password': 'AnyPassword123!'
         }, follow_redirects=True)
         assert response.status_code == 200
+
+
+class TestLoginTimingSideChannel:
+    """A nonexistent account and a wrong password must be indistinguishable
+    by response time, not just error text — login() previously returned
+    immediately for an unknown email/username, skipping User.check_password()
+    (bcrypt, deliberately slow) entirely, while a wrong password on a real
+    account paid that cost. Asserting on the mechanism (bcrypt always invoked)
+    rather than wall-clock time, since real timing assertions are flaky under
+    CI load.
+    """
+
+    def test_nonexistent_user_still_invokes_bcrypt(self, client):
+        with patch('routes.auth.bcrypt.checkpw', return_value=False) as mock_checkpw:
+            client.post('/login', data={
+                'email': 'nonexistent@example.com',
+                'password': 'AnyPassword123!'
+            })
+
+        mock_checkpw.assert_called_once()
+        args = mock_checkpw.call_args.args
+        assert args[0] == b'AnyPassword123!'
+        assert args[1] == b'$2b$12$9kf93ejgP7rGjtdLIjO4neb2MCGNWpSDYDBFDRKjxcwn4BlHraYDm'
+
+    def test_existing_user_wrong_password_invokes_bcrypt_against_real_hash(self, client, test_user):
+        with patch('routes.auth.bcrypt.checkpw', return_value=False) as mock_checkpw:
+            client.post('/login', data={
+                'email': 'test@example.com',
+                'password': 'WrongPassword123!'
+            })
+
+        mock_checkpw.assert_called_once()
+        args = mock_checkpw.call_args.args
+        assert args[0] == b'WrongPassword123!'
+        assert args[1] == test_user.password_hash.encode('utf-8')
+
+    def test_run_timing_safe_password_check_dummy_path_never_matches(self, app):
+        from routes.auth import _run_timing_safe_password_check
+        with app.app_context():
+            assert _run_timing_safe_password_check(None, 'whatever-password') is False
+
+    def test_run_timing_safe_password_check_real_user_path(self, app, test_user):
+        from routes.auth import _run_timing_safe_password_check
+        with app.app_context():
+            assert _run_timing_safe_password_check(test_user, 'TestPassword123!') is True
+            assert _run_timing_safe_password_check(test_user, 'WrongPassword123!') is False
 
 
 class TestLogout:

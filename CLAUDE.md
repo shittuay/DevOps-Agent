@@ -151,6 +151,12 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - `@login_required` decorator on all API routes
 - Email verification required for new accounts
 - Account lockout after 5 failed attempts
+- `routes/auth.py`'s `login()` always runs a bcrypt comparison before returning, even for an
+  unknown email/username — `_run_timing_safe_password_check()` checks against a fixed dummy hash
+  (`_DUMMY_PASSWORD_HASH`) when no account is found, so response time can't be used to enumerate
+  valid accounts (bcrypt's cost, not the identical error text, was the actual signal). Any new
+  early-return added before the password check in this route reopens that timing side channel —
+  route it through `_run_timing_safe_password_check()` instead of `user.check_password()` directly.
 
 ### Guardrails (Jailbreak / Prompt Injection Defense)
 Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer REST API
