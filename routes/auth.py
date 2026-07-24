@@ -6,6 +6,7 @@ import hashlib
 import re
 import secrets
 import threading
+import bcrypt
 from datetime import datetime, timedelta
 
 from flask import (
@@ -22,6 +23,30 @@ from extensions import limiter, security_logger
 from models import db, SubscriptionTier, User, UserSubscription
 
 auth_bp = Blueprint('auth', __name__)
+
+# Not a real account's hash — a fixed bcrypt digest (same cost factor as
+# User.set_password's bcrypt.gensalt() default, 12 rounds) used only to burn
+# equivalent CPU time when no matching account exists. See _run_timing_safe_password_check.
+_DUMMY_PASSWORD_HASH = b'$2b$12$9kf93ejgP7rGjtdLIjO4neb2MCGNWpSDYDBFDRKjxcwn4BlHraYDm'
+
+
+def _run_timing_safe_password_check(user: 'User | None', password: str) -> bool:
+    """Check `password` against `user`, always paying bcrypt's cost either way.
+
+    User.check_password() was previously only called when a matching account
+    was found — the login route returned immediately for an unknown
+    email/username, skipping bcrypt entirely. bcrypt.checkpw is deliberately
+    slow (~tens of ms), so that asymmetry is a measurable timing side channel:
+    an attacker can distinguish "no such account" (fast) from "account exists,
+    wrong password" (slow) purely from response time, regardless of the error
+    message text being identical. Always doing an equivalent-cost bcrypt
+    comparison — against a real hash when the account exists, against a fixed
+    dummy hash when it doesn't — keeps both paths' dominant cost the same.
+    """
+    if user is not None:
+        return user.check_password(password)
+    bcrypt.checkpw(password.encode('utf-8'), _DUMMY_PASSWORD_HASH)
+    return False
 
 
 def _is_safe_redirect(target: str) -> bool:
@@ -94,6 +119,11 @@ def login():
             (User.email == email_or_username) | (User.username == email_or_username)
         ).first()
 
+        # Always pay bcrypt's cost here, before the early return below, so a
+        # nonexistent account isn't distinguishable from a wrong password by
+        # response time (see _run_timing_safe_password_check).
+        password_matches = _run_timing_safe_password_check(user, password)
+
         if not user:
             security_logger.warning(f"Failed login attempt from {ip_address}: User not found - {email_or_username}")
             return render_template('login.html', error='Invalid email/username or password')
@@ -108,7 +138,7 @@ def login():
             security_logger.warning(f"Login attempt for locked account: {user.email} from {ip_address}")
             return render_template('login.html', error='Account temporarily locked due to multiple failed login attempts. Try again in 15 minutes.')
 
-        if user.check_password(password):
+        if password_matches:
             if user.has_mfa_enabled():
                 session['2fa_pending_user'] = user.id
                 session['2fa_pending_time'] = datetime.utcnow().isoformat()
