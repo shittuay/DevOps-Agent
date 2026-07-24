@@ -88,6 +88,7 @@ def pagerduty_create_incident(
         if incident_key:
             incident_data['incident']['incident_key'] = incident_key
 
+        # ssrf-safe: hardcoded api.pagerduty.com
         response = requests.post(
             'https://api.pagerduty.com/incidents',
             headers=headers,
@@ -156,6 +157,7 @@ def pagerduty_list_incidents(
         if until:
             params['until'] = until
 
+        # ssrf-safe: hardcoded api.pagerduty.com
         response = requests.get(
             'https://api.pagerduty.com/incidents',
             headers=headers,
@@ -206,6 +208,7 @@ def pagerduty_get_incident(
     try:
         headers = _get_pagerduty_headers(api_key)
 
+        # ssrf-safe: hardcoded api.pagerduty.com
         response = requests.get(
             f'https://api.pagerduty.com/incidents/{incident_id}',
             headers=headers,
@@ -284,6 +287,7 @@ def pagerduty_update_incident(
         if escalation_level is not None:
             incident_data['incident']['escalation_level'] = escalation_level
 
+        # ssrf-safe: hardcoded api.pagerduty.com
         response = requests.put(
             f'https://api.pagerduty.com/incidents/{incident_id}',
             headers=headers,
@@ -337,6 +341,7 @@ def pagerduty_add_note(
             }
         }
 
+        # ssrf-safe: hardcoded api.pagerduty.com
         response = requests.post(
             f'https://api.pagerduty.com/incidents/{incident_id}/notes',
             headers=headers,
@@ -376,6 +381,7 @@ def pagerduty_list_services(
     try:
         headers = _get_pagerduty_headers(api_key)
 
+        # ssrf-safe: hardcoded api.pagerduty.com
         response = requests.get(
             'https://api.pagerduty.com/services',
             headers=headers,
@@ -426,6 +432,7 @@ def pagerduty_list_oncalls(
         if schedule_ids:
             params['schedule_ids[]'] = schedule_ids
 
+        # ssrf-safe: hardcoded api.pagerduty.com
         response = requests.get(
             'https://api.pagerduty.com/oncalls',
             headers=headers,
@@ -536,6 +543,7 @@ def opsgenie_create_alert(
         if details:
             alert_data['details'] = details
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.post(
             f'{base_url}/alerts',
             headers=headers,
@@ -599,6 +607,7 @@ def opsgenie_list_alerts(
         elif status:
             params['query'] = f'status={status}'
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.get(
             f'{base_url}/alerts',
             headers=headers,
@@ -654,6 +663,7 @@ def opsgenie_get_alert(
         headers = _get_opsgenie_headers(api_key)
         base_url = _get_opsgenie_base_url()
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.get(
             f'{base_url}/alerts/{alert_id}',
             headers=headers,
@@ -721,6 +731,7 @@ def opsgenie_acknowledge_alert(
         if note:
             ack_data['note'] = note
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/acknowledge',
             headers=headers,
@@ -773,6 +784,7 @@ def opsgenie_close_alert(
         if note:
             close_data['note'] = note
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/close',
             headers=headers,
@@ -823,6 +835,7 @@ def opsgenie_add_note(
         if user:
             note_data['user'] = user
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/notes',
             headers=headers,
@@ -861,6 +874,7 @@ def opsgenie_list_schedules(
         headers = _get_opsgenie_headers(api_key)
         base_url = _get_opsgenie_base_url()
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.get(
             f'{base_url}/schedules',
             headers=headers,
@@ -909,6 +923,7 @@ def opsgenie_get_oncall(
         headers = _get_opsgenie_headers(api_key)
         base_url = _get_opsgenie_base_url()
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.get(
             f'{base_url}/schedules/{schedule_id}/on-calls',
             headers=headers,
@@ -971,6 +986,7 @@ def opsgenie_escalate_alert(
         if note:
             escalate_data['note'] = note
 
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/escalate',
             headers=headers,

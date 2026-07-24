@@ -2510,19 +2510,27 @@ def test_notification_channel(channel_id):
         if channel.channel_type != 'slack':
             return jsonify({'success': False, 'error': f"Channel type '{channel.channel_type}' not supported for test"}), 400
 
-        # Call Slack directly so we can surface the exact response body in the UI
-        import requests as _requests
+        # Call Slack directly so we can surface the response status in the UI.
+        # webhook_url is user-configured (UserNotificationChannel) — must go
+        # through safe_request(), not a raw requests.post(), or a validated-safe
+        # URL could 302 to an internal target (see src/utils/network_safety.py).
+        from src.utils.network_safety import safe_request
         payload = {
             'text': notification.title,
             'blocks': notification.to_slack_blocks(),
         }
-        resp = _requests.post(
+        resp = safe_request(
+            'POST',
             channel.webhook_url,
             json=payload,
             headers={'Content-Type': 'application/json'},
             timeout=10,
         )
-        slack_body = resp.text.strip()
+        # Truncated, like every other webhook-test response body in this app —
+        # this endpoint is owner-only, but the body is still attacker-influenced
+        # (the response of whatever host webhook_url points at), so don't let it
+        # become an unbounded SSRF response oracle.
+        slack_body = resp.text.strip()[:500]
         if resp.status_code == 200 and slack_body == 'ok':
             return jsonify({'success': True, 'message': 'Test notification sent'})
         return jsonify({

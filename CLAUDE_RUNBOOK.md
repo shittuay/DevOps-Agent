@@ -410,3 +410,80 @@ non-streaming tool-handling is copy-pasted rather than shared (the Claude
 paths share `_handle_tool_uses`, Kimi's two paths don't); `routes/changes.py`'s
 `_user_active_org_ids()` duplicates `MultiTenancyService.get_user_organizations()`
 instead of calling it.
+
+---
+
+## SSRF and login-timing bugs kept recurring in new locations — added a structural check instead of another one-off fix (2026-07-24)
+
+By this point SSRF gaps and login-timing side channels had each been found
+and fixed **independently, in a different file, on four separate occasions**
+(curriculum/notification/git_tools/api_gateway → the redirect-following gap
+across 7 more files → `services/sso_service.py` → `routes/mcp.py`'s OAuth
+login form). None of these were the same bug regressing — each was a
+*different* piece of code that either never got the guard in the first
+place or reimplemented its own copy of the logic instead of calling the
+shared helper. The guard (`assert_safe_url`/`safe_request`) and the shared
+timing-safe password check are both **opt-in per call site** — nothing
+structurally stops a new integration, or an old one nobody's checked yet,
+from skipping them.
+
+**While cataloging every remaining raw `requests.*` call site to build the
+checker below (see next paragraph), found a fifth, previously-undiscovered
+instance:** `app.py`'s `POST /api/notification-channels/<id>/test` made a
+raw `requests.post(channel.webhook_url, ...)` call with **zero** SSRF
+validation and echoed the **full, untruncated** response body back to the
+caller in the JSON error field — an SSRF + unbounded-response-oracle combo
+worse than the `api_gateway.py test_webhook()` bug fixed earlier (that one
+was capped at 500 chars). `channel.webhook_url` is user-configured
+(`UserNotificationChannel`, same field `notification_service.py`'s
+`SlackClient.send_webhook` already protects) and reachable by any
+authenticated user testing their own channel — confirmed live by writing a
+regression test against the *pre-fix* code: it didn't return an error, it
+actually spent the full 10-second timeout trying to connect to
+`169.254.169.254` before failing on this sandbox's lack of route to it. On a
+real AWS EC2 instance that connection would have succeeded and returned live
+IAM credentials. Fixed by routing through `safe_request()` and truncating the
+echoed body to 500 chars, matching every other webhook-test endpoint.
+Regression tests: `tests/test_notification_channel_test_ssrf.py`.
+
+**The actual fix — `scripts/check_security_invariants.py` — a structural
+check instead of another one-off patch.** An AST-based scanner run as part of
+the pytest suite (`tests/test_security_invariants.py`, so it's already gated
+by `ci.yml`'s `test` job with zero workflow changes needed) that fails the
+build if either pattern reappears:
+
+1. A raw `requests.get/post/put/patch/delete/request(...)` call (handles
+   import aliases, e.g. `import requests as http_requests`) anywhere in
+   `src/tools/`, `services/`, `routes/`, `api/`, or `app.py`, outside
+   `src/utils/network_safety.py` itself.
+2. A direct `.check_password(...)` call anywhere in those same locations
+   outside `routes/auth.py`.
+
+Cataloged and exempted every genuinely safe existing call site with an
+inline `# ssrf-safe: <reason>` comment (37 of them — Datadog/PagerDuty/
+OpsGenie/GitHub's own hardcoded API hosts, Brevo/SendGrid, a
+geolocation API where only the URL *path* is caller-supplied, and
+`services/proactive_monitoring.py`'s Prometheus/Datadog collectors, which
+read from an env var / a `config` dict that's never actually populated by
+any real instantiation today) — each with a reviewed, specific reason, not a
+blanket bypass. Verified the checker actually works by injecting a fake
+violation into a real scanned file and confirming it's caught, then
+reverting. Unit-tested the detection logic itself against synthetic source
+(`tests/test_check_security_invariants.py`) — including the exact
+false-positive shape that would otherwise trip a naive grep-based version:
+`container.resources.requests.get('cpu')` (a Kubernetes resource dict
+`.get()`, unrelated to the `requests` HTTP library) is correctly ignored
+because the AST check requires the call's base to resolve to an actual
+`import requests` binding, not just contain the substring `requests`.
+
+**Why a test instead of a CI workflow step:** it runs identically locally
+(`pytest`) and in CI, needs no `ci.yml` changes, and can't be silently
+skipped the way a `continue-on-error` step (like this same file's
+`security` job) can. **Why not just document the convention harder:** that's
+what CLAUDE.md's SSRF section and login-timing note already did, and it kept
+getting missed anyway — a structural check doesn't rely on anyone (human or
+agent) remembering to check the docs. **Lesson:** when the *same review
+finding* the same shape of gap in a new place three-plus times in one
+project history, that is itself a signal to stop fixing instances and go
+build the guardrail; see CLAUDE.md's "Security invariants" section for how
+to add a new check or exemption.

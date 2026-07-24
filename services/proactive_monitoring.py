@@ -155,6 +155,7 @@ class MetricCollector:
     def _collect_prometheus(self, query: str) -> Optional[float]:
         prometheus_url = os.environ.get('PROMETHEUS_URL', self.config.get("prometheus_url", "http://localhost:9090"))
         try:
+            # ssrf-safe: prometheus_url/Datadog: operator env var / hardcoded host — monitoring_service is instantiated with no config dict, so this is never end-user-reachable input
             response = requests.get(
                 f"{prometheus_url}/api/v1/query",
                 params={"query": query},
@@ -213,6 +214,7 @@ class MetricCollector:
             return None
         try:
             now = int(time.time())
+            # ssrf-safe: prometheus_url/Datadog: operator env var / hardcoded host — monitoring_service is instantiated with no config dict, so this is never end-user-reachable input
             response = requests.get(
                 "https://api.datadoghq.com/api/v1/query",
                 params={"query": query, "from": now - 300, "to": now},

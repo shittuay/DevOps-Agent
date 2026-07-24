@@ -296,6 +296,7 @@ def _github_identity(ep: Dict, access_token: str) -> Identity:
     # Primary verified email comes from the dedicated emails endpoint.
     email, verified = info.get('email'), False
     try:
+        # ssrf-safe: hardcoded api.github.com (GitHub OAuth email lookup) — distinct from the org-configurable OIDC endpoints, which already go through safe_request()
         er = requests.get(
             'https://api.github.com/user/emails',
             headers={'Authorization': f"Bearer {access_token}", 'Accept': 'application/json'},

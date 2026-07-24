@@ -277,6 +277,35 @@ response body back to the caller, which made it an SSRF response oracle), and
 fetched with raw `requests.get/post`, reachable on every login attempt including against the
 cloud metadata endpoint). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
 
+## Security invariants (`scripts/check_security_invariants.py`)
+
+SSRF gaps and login-timing side channels each got found and fixed independently, in a different
+file, on four separate occasions before this existed — not the same bug regressing, but a
+different piece of code each time that never got the guard (or reimplemented its own copy instead
+of calling the shared helper). Both guards are opt-in per call site, so nothing structurally
+stopped that from recurring. `scripts/check_security_invariants.py` is an AST-based scanner, run as
+a pytest test (`tests/test_security_invariants.py`) so it's already gated by `ci.yml`'s `test` job
+with no workflow changes, that fails the build if either pattern reappears:
+
+1. A raw `requests.get/post/put/patch/delete/request(...)` call (handles import aliases) in
+   `src/tools/`, `services/`, `routes/`, `api/`, or `app.py` — use `safe_request()` instead.
+2. A direct `.check_password(...)` call in those same locations outside `routes/auth.py` — route
+   through `routes.auth._run_timing_safe_password_check()` instead.
+
+**If this test fails on code you're adding:** first try to route the call through `safe_request()`
+/ `_run_timing_safe_password_check()`. **Only if the host is genuinely hardcoded (not
+caller-influenced) or the check is in an already-authenticated context**, add an exemption comment
+on the violating line or the line directly above it — `# ssrf-safe: <reason>` or
+`# check-password-safe: <reason>` — with a specific, reviewed reason, not a blanket bypass. See the
+37 existing exemptions across the codebase for the pattern (Datadog/PagerDuty/OpsGenie/GitHub's own
+hardcoded API hosts, etc.).
+
+**When adding a new recurring-pattern check to this file:** extract the core AST-walking logic into
+a `_scan_source_for_<name>(rel_path, source)` function that takes source as a plain string, so it
+stays unit-testable with synthetic strings independent of the real repo tree (see
+`tests/test_check_security_invariants.py`) — the file-walking wrapper (`check_<name>()`) is a thin
+layer on top that reads real files and applies the file-level exemption list.
+
 ## Concurrency Model: the shared `agent` singleton
 
 Production runs a **single gunicorn worker** (`Procfile`: `--worker-class gevent

@@ -35,6 +35,7 @@ class SMSService:
             return False
 
         try:
+            # ssrf-safe: hardcoded Brevo SMS API host
             resp = requests.post(
                 BREVO_SMS_URL,
                 json={
