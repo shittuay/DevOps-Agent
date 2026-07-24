@@ -303,6 +303,18 @@ class TestSafetyClassifications:
     def test_create_sonar_project_is_medium_risk(self):
         assert self._classify('create_sonar_project') == 'medium'
 
+    def test_trigger_sonar_analysis_is_medium_risk(self):
+        # Sibling to trigger_jenkins_job/trigger_github_workflow/
+        # create_gitlab_pipeline_trigger — same "kick off a remote job" shape,
+        # and its trigger_ prefix isn't caught by auto-detection.
+        assert self._classify('trigger_sonar_analysis') == 'medium'
+
+    # --- medium-risk: Ansible ---
+    def test_ansible_vault_encrypt_is_medium_risk(self):
+        # Sibling to ansible_vault_decrypt/ansible_vault_view — in-place
+        # mutates a file via the ansible-vault CLI with no confirmation gate.
+        assert self._classify('ansible_vault_encrypt') == 'medium'
+
     # --- medium-risk: Nexus ---
     def test_nexus_create_repository_is_medium_risk(self):
         assert self._classify('nexus_create_repository') == 'medium'

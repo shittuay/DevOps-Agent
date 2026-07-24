@@ -474,6 +474,7 @@ class DevOpsAgent:
     _current_conversation_id = _greenlet_local_property('_current_conversation_id')
     _pending_approval = _greenlet_local_property('_pending_approval')
     _last_tools_used = _greenlet_local_property('_last_tools_used', default_factory=list)
+    _tool_event_callback = _greenlet_local_property('_tool_event_callback')
 
     def __init__(self, config: ConfigManager):
         """
@@ -540,8 +541,8 @@ class DevOpsAgent:
         # Track tools used in the most recent process_message_isolated call
         self._last_tools_used: List[str] = []
 
-        # Optional callback for streaming tool events to the UI
-        # Signature: callback(event_type: str, tool_name: str, data: dict)
+        # Optional callback for streaming tool events to the UI - per request
+        # (see _greenlet_local_property). Signature: callback(event_type, tool_name, data)
         self._tool_event_callback: Optional[Callable] = None
 
         self.logger.info("DevOps Agent initialized")

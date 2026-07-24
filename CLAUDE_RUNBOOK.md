@@ -313,3 +313,99 @@ now-2-arg `revoke_api_key(key_id)` with one arg (would crash). It was dead code
 (no route/caller), so not exploitable — hardened defensively: added an optional
 `user_id` owner check and fixed the revoke call to pass the owner.
 Guarded by `tests/test_api_key_rotate_ownership.py`.
+
+---
+
+## Scheduled audit: 5 confirmed vulnerabilities across concurrency, timing, SSRF, and IDOR (2026-07-24)
+
+A routine scheduled review (parallel agents each auditing routes/, services/,
+src/tools/+safety.py, src/agent/, and code smells/duplication) found and fixed
+five real, independently-confirmed bugs. None were caught by the daily
+`security-scan.yml` cron (pip-audit/safety/bandit) — all five needed semantic
+understanding of the app's own invariants, not a dependency-CVE or lint scan.
+
+1. **`_tool_event_callback` cross-request leak (`src/agent/core.py`).** Every
+   other per-request field on `DevOpsAgent` was converted to a
+   `_greenlet_local_property` after the agent-singleton race fix (see below),
+   but this one — the SSE tool-start/tool-done callback `app.py`'s streaming
+   route installs for the whole tool loop (up to 50 iterations, each with a
+   long I/O-yielding Claude/Kimi call) — was added as a plain instance
+   attribute and never migrated. On the single gevent worker, a second
+   concurrent request's `set_tool_event_callback()` could overwrite the first
+   request's callback mid-loop, delivering one user's tool_start/tool_done
+   events (and the `ChatMessage.tool_trace` built from them) to a different
+   user's stream. Fixed by adding it to the `_greenlet_local_property` list.
+   Guarded by `test_tool_event_callback_isolated_across_threads` in
+   `tests/test_agent_request_isolation.py`.
+
+2. **`routes/mcp.py` OAuth login reopened the login-timing side channel.** The
+   MCP connector's own login form (`oauth_authorize()`) implemented an
+   independent `if not user or not user.check_password(password)` check —
+   `or` short-circuits, so an unknown email skips bcrypt entirely while a
+   wrong password on a real account pays bcrypt's cost, making account
+   existence distinguishable by response time. This is the exact bug
+   `_run_timing_safe_password_check()` was built to close in the main `/login`
+   route (PR #86) — the MCP route just never got wired to it. Fixed by
+   importing and calling the shared helper. Guarded by
+   `TestOAuthAuthorizeLoginTimingSideChannel` in `tests/test_mcp_oauth.py`.
+
+3. **`trigger_sonar_analysis` and `ansible_vault_encrypt` were unclassified
+   (silently low-risk, no confirmation prompt).** Same shape as prior
+   `provider_verb_noun` gaps: `trigger_sonar_analysis`'s prefix isn't in the
+   medium-risk auto-detect list even though its sibling triggers
+   (`trigger_jenkins_job`, `trigger_github_workflow`,
+   `create_gitlab_pipeline_trigger`) are; `ansible_vault_encrypt` mutates a
+   file in place like its already-medium `ansible_vault_decrypt`/
+   `ansible_vault_view` siblings. Added both to `medium_risk_tools`. Guarded
+   by new tests in `tests/test_new_tools.py`.
+
+4. **`services/sso_service.py` SSRF gap — org-admin-controlled OIDC endpoints
+   fetched with raw `requests`, bypassing the SSRF guard.** `_discover()`,
+   `_exchange_code()`, `_validate_id_token()`, and `_fetch_userinfo()` all
+   called `requests.get`/`requests.post` directly on a `metadata_url` an org
+   owner sets via `routes/organizations.py`'s `sso_settings` (gated only by
+   `@org_admin_required`) and on the `token_endpoint`/`jwks_uri`/
+   `userinfo_endpoint` the resulting discovery document supplies — none of it
+   went through `assert_safe_url()`/`safe_request()`, unlike every other
+   caller-supplied-URL tool in the app. An org owner could point
+   `metadata_url` at the cloud metadata endpoint or an internal service, and
+   it would be fetched server-side on every login attempt. Fixed by routing
+   all four functions through `safe_request()`, catching `UnsafeUrlError` and
+   re-raising as `SSOError` (routes catch `SSOError` specifically, not
+   `ValueError`, so the raw exception type would have 500'd instead of
+   showing the generic login-failure message). Updating this broke
+   `tests/test_sso.py`'s existing mocks (they patched `requests.get`/`.post`
+   directly, which `safe_request()` doesn't call) — fixed by monkeypatching
+   `sso_service.safe_request` instead.
+
+5. **`services/approval_service.py._execute_tool()` never set the requester's
+   cloud credential context.** Unlike `process_message_isolated`/
+   `process_message_streaming` (which always call
+   `agent._set_cloud_user_context(user_id)` before running a tool), the
+   approve-and-execute path called `agent.tools[tool_name](**...)` directly.
+   Since `aws_tools._get_boto_client` hard-requires a user context, approving
+   an AWS action either failed closed with "Authentication required"
+   (silently no-opping a safety-critical action the requester thought had
+   run) or could run under whatever context a previous request left on the
+   greenlet. Fixed by setting `req.requester_id` as the context before the
+   tool call and clearing it in a `finally`. Guarded by
+   `tests/test_approval_credential_context.py`.
+
+**Also hardened defensively (not independently exploitable today):**
+`APIGatewayService.update_webhook()` was the one webhook method missing the
+`user_id` ownership check its siblings (`delete_webhook`, `toggle_webhook`,
+`test_webhook`) already had — same shape as the `rotate_api_key` fix above.
+Currently dead code (no route calls it), but hardened before it becomes live.
+Guarded by `tests/test_webhook_update_ownership.py`.
+
+**Not fixed — noted for a future pass, lower priority / higher risk to change
+under a routine audit:** `services/websocket_service.py` (428 lines) has zero
+call sites; `services/incident_response.py`'s `_handle_kubernetes_action`/
+`_handle_aws_action` repeat a 4-5-branch dispatch pattern that could collapse
+into one helper; `app.py`'s `api_chat`/`api_chat_stream` (461/618 lines) mix
+several concerns and duplicate guardrail/attachment logic between the
+streaming and non-streaming paths; `src/agent/core.py`'s Kimi streaming vs.
+non-streaming tool-handling is copy-pasted rather than shared (the Claude
+paths share `_handle_tool_uses`, Kimi's two paths don't); `routes/changes.py`'s
+`_user_active_org_ids()` duplicates `MultiTenancyService.get_user_organizations()`
+instead of calling it.

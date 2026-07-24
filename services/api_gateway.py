@@ -288,11 +288,11 @@ class APIGatewayService:
         WebhookEndpoint = self._get_webhook_model()
         return WebhookEndpoint.query.filter_by(user_id=user_id).all()
 
-    def update_webhook(self, webhook_id: int, updates: Dict) -> Optional[Any]:
-        """Update a webhook."""
+    def update_webhook(self, webhook_id: int, updates: Dict, user_id: Optional[int] = None) -> Optional[Any]:
+        """Update a webhook. When user_id is given, only the owner may update it."""
         db = self._get_db()
         webhook = self.get_webhook(webhook_id)
-        if not webhook:
+        if not webhook or (user_id is not None and webhook.user_id != user_id):
             return None
 
         if 'url' in updates:

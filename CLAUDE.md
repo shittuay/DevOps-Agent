@@ -157,6 +157,11 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
   valid accounts (bcrypt's cost, not the identical error text, was the actual signal). Any new
   early-return added before the password check in this route reopens that timing side channel —
   route it through `_run_timing_safe_password_check()` instead of `user.check_password()` directly.
+  `routes/mcp.py`'s MCP OAuth `oauth_authorize()` POST handler reimplemented its own
+  `if not user or not user.check_password(password)` check (independent login form for the MCP
+  connector flow) and reopened the same side channel — fixed by importing and routing through
+  `routes.auth._run_timing_safe_password_check()` there too. Any other route that authenticates a
+  user with a password must use this helper, not a direct `check_password()` call.
 
 ### Guardrails (Jailbreak / Prompt Injection Defense)
 Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer REST API
@@ -193,7 +198,12 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 `abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`
+
+`trigger_sonar_analysis` is the same "kick off a remote job" shape as
+`trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
+prefix isn't in the auto-detect list either); `ansible_vault_encrypt` joins its `ansible_vault_decrypt`/
+`ansible_vault_view` siblings since it also mutates a file in place via the `ansible-vault` CLI.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -248,8 +258,13 @@ transport otherwise issues a real outbound GET to `/info/refs` against whatever 
 `webhook_url` is user-configured via `routes/notifications.py`), and
 `services/api_gateway.py`'s `test_webhook()` (now matches the same `_is_safe_webhook_url()` guard
 `trigger_webhook()` already had — `test_webhook()` had been skipping it and echoing the raw
-response body back to the caller, which made it an SSRF response oracle). Datadog/PagerDuty/
-OpsGenie tools hit hardcoded hosts and don't need it.
+response body back to the caller, which made it an SSRF response oracle), and
+`services/sso_service.py`'s `_discover()`/`_exchange_code()`/`_validate_id_token()`/
+`_fetch_userinfo()` (an org admin sets `metadata_url` for the `generic_oidc` provider via
+`routes/organizations.py`'s `sso_settings`, and the discovery document itself supplies
+`token_endpoint`/`jwks_uri`/`userinfo_endpoint` — all of it caller-controlled and previously
+fetched with raw `requests.get/post`, reachable on every login attempt including against the
+cloud metadata endpoint). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
 
 ## Concurrency Model: the shared `agent` singleton
 
@@ -275,10 +290,24 @@ the incident this pattern was built to prevent (a sandboxed/simulated destructiv
 action could execute for real if a concurrent non-sandbox request's flag won the
 race). Current properties: `conversation`, `pending_download`,
 `_current_user_id`, `_tools_override`, `_trust_tool_results`, `_sandbox_mode`,
-`_current_conversation_id`, `_pending_approval`, `_last_tools_used`. Use
-`default_factory` (not `default`) for any new mutable-valued property, or an
-unset thread/greenlet's shared default becomes its own cross-request leak the
-first time something mutates it in place.
+`_current_conversation_id`, `_pending_approval`, `_last_tools_used`,
+`_tool_event_callback` (the SSE tool-start/tool-done callback `app.py`'s streaming
+route installs via `set_tool_event_callback()` for the duration of the tool loop —
+found as a plain instance attribute during a routine audit, since it predated the
+other properties; converting it closed a cross-request leak where one user's
+tool events/`tool_trace` could be delivered to a different concurrent user's
+stream). Use `default_factory` (not `default`) for any new mutable-valued
+property, or an unset thread/greenlet's shared default becomes its own
+cross-request leak the first time something mutates it in place.
+
+**Any code path that runs a tool outside `process_message_isolated`/`process_message_streaming`
+must call `agent._set_cloud_user_context(user_id)` itself** — those two entry points are the only
+places that do it automatically. `services/approval_service.py`'s `_execute_tool()` (the
+approve-and-run path for a previously-deferred high-risk tool call) was missing this call
+entirely: `aws_tools._get_boto_client` hard-requires a user context, so an approved AWS action
+either failed closed with "Authentication required" or could pick up whatever context a prior
+request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
+the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
 
 ## Context Management & Progressive Tool Loading
 

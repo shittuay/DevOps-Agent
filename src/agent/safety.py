@@ -542,12 +542,14 @@ class SafetyValidator:
             # CI/CD gaps — sibling trigger_github_workflow/trigger_gitlab_pipeline are already medium
             'trigger_jenkins_job',
             'create_gitlab_pipeline_trigger',
+            'trigger_sonar_analysis',
             # GCP gaps — sibling update_ecs_service/update_secret (AWS) are already medium
             'deploy_cloud_run_service',
             'add_secret_version',
             # Ansible secret exposure / supply-chain gaps
             'ansible_vault_decrypt',
             'ansible_vault_view',
+            'ansible_vault_encrypt',
             'ansible_galaxy_install',
             # Alerting gaps — provider_verb_noun shape defeats update_/acknowledge_/close_/escalate_
             # prefix auto-detection; can silently resolve/close a live incident or alert

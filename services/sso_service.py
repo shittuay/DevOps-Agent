@@ -31,6 +31,8 @@ from urllib.parse import urlencode
 
 import requests
 
+from src.utils.network_safety import safe_request, UnsafeUrlError
+
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = 10
@@ -113,7 +115,10 @@ def _discover(metadata_url: str) -> Dict:
     cached = _DISCOVERY_CACHE.get(metadata_url)
     if cached and (now - cached[0]) < _DISCOVERY_TTL:
         return cached[1]
-    resp = requests.get(metadata_url, timeout=_HTTP_TIMEOUT)
+    try:
+        resp = safe_request('GET', metadata_url, timeout=_HTTP_TIMEOUT)
+    except UnsafeUrlError as e:
+        raise SSOError(f"OIDC discovery URL is not allowed: {e}")
     resp.raise_for_status()
     doc = resp.json()
     _DISCOVERY_CACHE[metadata_url] = (now, doc)
@@ -220,7 +225,10 @@ def _exchange_code(ep: Dict, code: str, redirect_uri: str) -> Dict:
         'client_secret': ep['client_secret'],
     }
     headers = {'Accept': 'application/json'}
-    resp = requests.post(ep['token_endpoint'], data=data, headers=headers, timeout=_HTTP_TIMEOUT)
+    try:
+        resp = safe_request('POST', ep['token_endpoint'], data=data, headers=headers, timeout=_HTTP_TIMEOUT)
+    except UnsafeUrlError as e:
+        raise SSOError(f"OIDC token endpoint is not allowed: {e}")
     if resp.status_code != 200:
         logger.error("SSO token exchange failed: %s %s", resp.status_code, resp.text[:300])
         raise SSOError("Token exchange with identity provider failed")
@@ -236,7 +244,10 @@ def _validate_id_token(ep: Dict, id_token: str, nonce: str) -> Dict:
     from joserfc import jwt
     from joserfc.jwk import KeySet
 
-    jwks = requests.get(ep['jwks_uri'], timeout=_HTTP_TIMEOUT).json()
+    try:
+        jwks = safe_request('GET', ep['jwks_uri'], timeout=_HTTP_TIMEOUT).json()
+    except UnsafeUrlError as e:
+        raise SSOError(f"OIDC jwks_uri is not allowed: {e}")
     key_set = KeySet.import_key_set(jwks)
     try:
         token = jwt.decode(id_token, key_set)
@@ -264,11 +275,15 @@ def _validate_id_token(ep: Dict, id_token: str, nonce: str) -> Dict:
 def _fetch_userinfo(ep: Dict, access_token: str) -> Dict:
     if not ep.get('userinfo_endpoint'):
         return {}
-    resp = requests.get(
-        ep['userinfo_endpoint'],
-        headers={'Authorization': f"Bearer {access_token}", 'Accept': 'application/json'},
-        timeout=_HTTP_TIMEOUT,
-    )
+    try:
+        resp = safe_request(
+            'GET',
+            ep['userinfo_endpoint'],
+            headers={'Authorization': f"Bearer {access_token}", 'Accept': 'application/json'},
+            timeout=_HTTP_TIMEOUT,
+        )
+    except UnsafeUrlError as e:
+        raise SSOError(f"OIDC userinfo endpoint is not allowed: {e}")
     if resp.status_code != 200:
         return {}
     return resp.json()

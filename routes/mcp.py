@@ -990,8 +990,12 @@ def oauth_authorize():
 
     try:
         from models import User
+        from routes.auth import _run_timing_safe_password_check
         user = User.query.filter_by(email=email).first()
-        if not user or not user.check_password(password):
+        # Always pay bcrypt's cost, even for an unknown email, so response time
+        # can't be used to enumerate valid accounts (see _run_timing_safe_password_check).
+        password_matches = _run_timing_safe_password_check(user, password)
+        if not user or not password_matches:
             raise ValueError('Invalid email or password')
     except ValueError as e:
         return render_template_string(_AUTHORIZE_HTML,
