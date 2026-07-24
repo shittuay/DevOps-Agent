@@ -636,3 +636,72 @@ def get_user_configured_providers(user_id: int) -> Dict[str, bool]:
             configured[cred.cloud_provider] = True
 
     return configured
+
+
+# Policy grants that appeared in published policy versions before 2026-07-24
+# but are not real IAM action prefixes (AWS uses elasticfilesystem: and es:),
+# so a role still carrying them predates the fixed template.
+STALE_ACTION_PREFIXES = ('efs:', 'opensearch:')
+
+
+def _stale_policy_actions(policy_document: Dict[str, Any]) -> list:
+    statements = policy_document.get('Statement', [])
+    if isinstance(statements, dict):
+        statements = [statements]
+    stale = []
+    for stmt in statements:
+        actions = stmt.get('Action', [])
+        if isinstance(actions, str):
+            actions = [actions]
+        for action in actions:
+            if action.lower().startswith(STALE_ACTION_PREFIXES):
+                stale.append(action)
+    return stale
+
+
+def check_aws_policy_freshness(user_id: int) -> Dict[str, Any]:
+    """Check whether the user's connected IAM role still carries dead policy
+    grants that the published policies fixed on 2026-07-24 (efs:*/opensearch:*
+    granted nothing, breaking the EFS and OpenSearch tools).
+
+    Inspects the role's inline policies and customer-managed attached policies
+    using the role's own iam:Get*/List* permissions. Returns:
+      - {'applicable': False} for access-key mode or unconfigured AWS
+      - {'applicable': True, 'outdated': True/False, 'stale_actions': [...]}
+      - {'applicable': True, 'outdated': None, 'error': ...} when the role
+        cannot read its own policies (custom setups without IAM read)
+    """
+    creds = get_user_aws_credentials(user_id)
+    if not creds or creds.get('auth_mode') != 'role_arn':
+        return {'applicable': False}
+
+    role_name = creds['role_arn'].rsplit('/', 1)[-1]
+    try:
+        iam = get_user_boto_client(user_id, 'iam')
+        stale = []
+        checked = []
+        for policy_name in iam.list_role_policies(RoleName=role_name)['PolicyNames']:
+            doc = iam.get_role_policy(RoleName=role_name, PolicyName=policy_name)['PolicyDocument']
+            checked.append(policy_name)
+            stale.extend(_stale_policy_actions(doc))
+        for attached in iam.list_attached_role_policies(RoleName=role_name)['AttachedPolicies']:
+            if attached['PolicyArn'].startswith('arn:aws:iam::aws:'):
+                continue  # AWS-managed policies can't carry the stale grants
+            policy = iam.get_policy(PolicyArn=attached['PolicyArn'])['Policy']
+            version = iam.get_policy_version(
+                PolicyArn=attached['PolicyArn'],
+                VersionId=policy['DefaultVersionId']
+            )
+            checked.append(attached['PolicyName'])
+            stale.extend(_stale_policy_actions(version['PolicyVersion']['Document']))
+        return {
+            'applicable': True,
+            'outdated': bool(stale),
+            'stale_actions': sorted(set(stale)),
+            'checked_policies': checked,
+        }
+    except ClientError as e:
+        return {'applicable': True, 'outdated': None,
+                'error': e.response['Error']['Code']}
+    except Exception as e:
+        return {'applicable': True, 'outdated': None, 'error': str(e)}

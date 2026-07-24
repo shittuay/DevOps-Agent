@@ -73,6 +73,32 @@ the app when the stack completes.
 - After editing a policy file: re-run the build script, then
   `aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates/devops-agent-role.json --content-type application/json`.
 
+### Updating an existing role (policy freshness check)
+
+Policy versions published before 2026-07-24 carried dead grants (`efs:*` /
+`opensearch:*` — not real IAM action prefixes; AWS uses `elasticfilesystem:`
+and `es:`), so roles created from them silently fail on the EFS and OpenSearch
+tools. The app detects this automatically: `GET /api/aws/policy-check`
+(`check_aws_policy_freshness()` in `services/credential_service.py`) assumes
+the connected role, reads its inline + customer-managed attached policies via
+the role's own `iam:Get*/List*` grant, and flags any action matching
+`STALE_ACTION_PREFIXES`. Settings → AWS Configuration shows a warning banner
+with fix instructions when the role is outdated (role-ARN mode only;
+AWS-managed attached policies are skipped; roles that can't read their own
+policies report `outdated: null` rather than failing).
+
+To fix an outdated quick-create stack (preserves External ID and policy level):
+
+```bash
+aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
+  --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \
+  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+Manually created roles: re-paste the current policy JSON from the published
+URLs at the top of this document.
+
 ### Manual
 
 1. IAM → Policies → Create policy → JSON → paste the policy file.
