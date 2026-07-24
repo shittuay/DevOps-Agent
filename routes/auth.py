@@ -49,6 +49,47 @@ def _run_timing_safe_password_check(user: 'User | None', password: str) -> bool:
     return False
 
 
+def _dispatch_password_reset_email(user_id: int) -> None:
+    """Generate the reset token, persist it, and send the email in a
+    background thread — decoupled from the HTTP response.
+
+    forgot_password() renders the identical generic success message whether
+    or not the account exists, but before this fix the *response time*
+    differed: an existing account paid for a DB write plus a synchronous
+    outbound call to the email provider (send_email — a real HTTP request,
+    up to a 10s timeout), while a nonexistent email just logged and returned.
+    That's a much larger, more variable timing side channel than login's
+    bcrypt cost. Firing the slow work in a background thread (same pattern as
+    services/notification_service.py's async Slack dispatch) means both
+    branches return in about the same, fast time regardless of whether an
+    email actually gets sent. Re-queries the user by id inside the thread's
+    own app context rather than passing the live ORM object across the
+    thread boundary — SQLAlchemy sessions aren't safe to share across threads.
+    """
+    try:
+        flask_app = current_app._get_current_object()
+    except RuntimeError:
+        return
+
+    def _run():
+        with flask_app.app_context():
+            try:
+                user = User.query.get(user_id)
+                if not user:
+                    return
+                raw_token = secrets.token_urlsafe(32)
+                user.password_reset_token = hashlib.sha256(raw_token.encode()).hexdigest()
+                user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+                db.session.commit()
+
+                from services.email_service import email_service
+                email_service.send_password_reset_email(user, token=raw_token)
+            except Exception:
+                security_logger.exception(f"Password reset email dispatch failed for user {user_id}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def _is_safe_redirect(target: str) -> bool:
     """Reject absolute URLs and protocol-relative URLs to prevent open redirects."""
     if not target:
@@ -358,19 +399,8 @@ def forgot_password():
 
         user = User.query.filter_by(email=email).first()
         if user:
-            raw_token = secrets.token_urlsafe(32)
-            hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-
-            user.password_reset_token = hashed_token
-            user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
-            db.session.commit()
-
-            try:
-                from services.email_service import email_service
-                email_service.send_password_reset_email(user, token=raw_token)
-                security_logger.info(f"Password reset email sent to {email} from {ip_address}")
-            except Exception as e:
-                current_app.logger.warning(f"Failed to send password reset email to {email}: {e}")
+            security_logger.info(f"Password reset requested for {email} from {ip_address}")
+            _dispatch_password_reset_email(user.id)
         else:
             security_logger.info(f"Password reset requested for non-existent email: {email} from {ip_address}")
 
