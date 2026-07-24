@@ -379,14 +379,19 @@ def test_handle_callback_github(sso_app, monkeypatch):
     config = {'provider': 'github', 'client_id': 'ghid',
               'client_secret_encrypted': sso_service.encrypt_secret('ghsecret')}
 
-    monkeypatch.setattr(sso_service.requests, 'post',
-                        lambda *a, **k: _Resp({'access_token': 'gho_token'}))
+    # Token exchange and userinfo now go through safe_request (SSRF guard);
+    # only the hardcoded /user/emails lookup still uses raw requests.get.
+    def fake_safe_request(method, url, *a, **k):
+        if method == 'POST':
+            return _Resp({'access_token': 'gho_token'})
+        if url.endswith('/user'):
+            return _Resp({'id': 42, 'login': 'dev', 'name': 'Dev User'})
+        return _Resp({}, 404)
+    monkeypatch.setattr(sso_service, 'safe_request', fake_safe_request)
 
     def fake_get(url, *a, **k):
         if url.endswith('/user/emails'):
             return _Resp([{'email': 'dev@acme.com', 'primary': True, 'verified': True}])
-        if url.endswith('/user'):
-            return _Resp({'id': 42, 'login': 'dev', 'name': 'Dev User'})
         return _Resp({}, 404)
     monkeypatch.setattr(sso_service.requests, 'get', fake_get)
 
@@ -418,14 +423,15 @@ def _signed_oidc(monkeypatch, nonce_in_token='NONCE1'):
         'jwks_uri': 'https://idp.test/jwks',
         'issuer': 'https://idp.test',
     })
-    monkeypatch.setattr(sso_service.requests, 'post',
-                        lambda *a, **k: _Resp({'id_token': id_token, 'access_token': 'at'}))
-
-    def fake_get(url, *a, **k):
+    # Token exchange, jwks fetch, and userinfo now go through safe_request
+    # (SSRF guard) instead of raw requests.post/get.
+    def fake_safe_request(method, url, *a, **k):
+        if method == 'POST':
+            return _Resp({'id_token': id_token, 'access_token': 'at'})
         if url == 'https://idp.test/jwks':
             return _Resp(pub_jwks)
         return _Resp({})  # userinfo
-    monkeypatch.setattr(sso_service.requests, 'get', fake_get)
+    monkeypatch.setattr(sso_service, 'safe_request', fake_safe_request)
 
     return {'provider': 'generic_oidc', 'client_id': 'client123',
             'client_secret_encrypted': sso_service.encrypt_secret('s3cr3t'),

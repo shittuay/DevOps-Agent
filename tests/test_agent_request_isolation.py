@@ -162,6 +162,44 @@ def test_last_tools_used_isolated_across_threads():
     )
 
 
+def test_tool_event_callback_isolated_across_threads():
+    """The SSE tool-event callback set by app.py's streaming route for the
+    duration of the tool loop must not leak to a concurrent request — otherwise
+    one user's tool_start/tool_done events (and thus their ChatMessage.tool_trace)
+    could be delivered to a different user's stream."""
+    agent = _agent()
+    step1_done = threading.Event()
+    step2_done = threading.Event()
+    results = {}
+
+    cb_a = MagicMock()
+    cb_b = MagicMock()
+
+    def request_a():
+        agent.set_tool_event_callback(cb_a)
+        step1_done.set()
+        step2_done.wait(timeout=5)
+        results['a_callback'] = agent._tool_event_callback
+
+    def request_b():
+        step1_done.wait(timeout=5)
+        agent.set_tool_event_callback(cb_b)
+        step2_done.set()
+
+    ta = threading.Thread(target=request_a)
+    tb = threading.Thread(target=request_b)
+    ta.start()
+    tb.start()
+    ta.join(timeout=5)
+    tb.join(timeout=5)
+
+    assert results['a_callback'] is cb_a, (
+        "request B's tool-event callback clobbered request A's — request A's "
+        "tool_start/tool_done events (and tool_trace) would be delivered to "
+        "the wrong user's stream"
+    )
+
+
 def test_fresh_thread_gets_safe_defaults_not_a_shared_mutable():
     """Unset greenlets/threads must get their own default, not a shared mutable
     object that a later .append() from a different thread would contaminate."""

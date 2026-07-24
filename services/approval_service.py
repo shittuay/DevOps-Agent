@@ -260,13 +260,24 @@ def get_pending_for_approver() -> list:
 
 
 def _execute_tool(req) -> dict:
-    """Execute the stored tool call by looking it up in the agent's tool registry."""
+    """Execute the stored tool call by looking it up in the agent's tool registry.
+
+    Must set the requester's cloud credential context before running the tool —
+    without it, aws_tools._get_boto_client has no user to look up credentials for
+    (see _set_cloud_user_context's callers in src/agent/core.py), which either
+    fails closed with "Authentication required" or, worse, runs against whatever
+    user context a previous request left behind on this greenlet.
+    """
     try:
         from app import agent
         tool_name = req.tool_name
         if tool_name not in agent.tools:
             return {'success': False, 'error': f'Unknown tool: {tool_name}'}
-        return agent.tools[tool_name](**(req.tool_input or {}))
+        agent._set_cloud_user_context(req.requester_id)
+        try:
+            return agent.tools[tool_name](**(req.tool_input or {}))
+        finally:
+            agent._clear_cloud_user_context()
     except Exception as e:
         logger.error(f"_execute_tool failed for {req.tool_name}: {e}", exc_info=True)
         return {'success': False, 'error': str(e)}

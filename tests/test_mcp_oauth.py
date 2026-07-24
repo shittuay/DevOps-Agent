@@ -22,6 +22,7 @@ import base64
 import hashlib
 import secrets
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -80,6 +81,60 @@ def test_consume_code_db_returns_none_for_unknown_code(app, db_session):
     from routes import mcp as mcp_module
 
     assert mcp_module._consume_code_db('does-not-exist') is None
+
+
+# ── Login-timing side channel on the OAuth authorize form ────────────────────
+
+class TestOAuthAuthorizeLoginTimingSideChannel:
+    """The OAuth authorize POST implemented its own `if not user or not
+    user.check_password(password)` check — the same short-circuit-on-`or`
+    shape the main /login route was fixed for (see TestLoginTimingSideChannel
+    in test_auth.py): an unknown email skipped bcrypt entirely, making account
+    existence distinguishable by response time. Fixed by routing through the
+    same `_run_timing_safe_password_check()` helper. Asserting on the
+    mechanism (bcrypt always invoked), not wall-clock time, since real timing
+    assertions are flaky under CI load.
+    """
+
+    def _authorize_params(self, client):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'pytest-timing-connector',
+            'redirect_uris': ['https://claude.ai/api/mcp/auth_callback'],
+        })
+        client_id = reg.get_json()['client_id']
+        verifier, challenge = _pkce_pair()
+        return {
+            'client_id': client_id,
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'state': 'st4te',
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+        }
+
+    def test_nonexistent_email_still_invokes_bcrypt(self, client):
+        params = self._authorize_params(client)
+        with patch('routes.auth.bcrypt.checkpw', return_value=False) as mock_checkpw:
+            resp = client.post('/mcp/oauth/authorize', query_string=params, data={
+                **params,
+                'email': 'no-such-user@example.com',
+                'password': 'whatever-password',
+            })
+        assert resp.status_code == 200  # re-renders the form with an error, no redirect
+        mock_checkpw.assert_called_once()
+
+    def test_wrong_password_invokes_bcrypt_against_real_hash(self, client, test_user):
+        params = self._authorize_params(client)
+        with patch('routes.auth.bcrypt.checkpw', return_value=False) as mock_checkpw:
+            resp = client.post('/mcp/oauth/authorize', query_string=params, data={
+                **params,
+                'email': 'test@example.com',
+                'password': 'WrongPassword123!',
+            })
+        assert resp.status_code == 200
+        mock_checkpw.assert_called_once()
+        args = mock_checkpw.call_args.args
+        assert args[0] == b'WrongPassword123!'
+        assert args[1] == test_user.password_hash.encode('utf-8')
 
 
 # ── Transport paths ──────────────────────────────────────────────────────────
