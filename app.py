@@ -2152,6 +2152,14 @@ def test_aws_connection():
         return jsonify({'success': False, 'error': str(e)}), 502
 
 
+@app.route('/api/aws/policy-check', methods=['GET'])
+@login_required
+def aws_policy_check():
+    """Check whether the connected IAM role predates the 2026-07-24 policy fixes."""
+    from services.credential_service import check_aws_policy_freshness
+    return jsonify(check_aws_policy_freshness(current_user.id))
+
+
 @app.route('/api/azure/test', methods=['GET'])
 @login_required
 def test_azure_connection():

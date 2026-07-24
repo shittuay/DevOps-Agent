@@ -283,6 +283,24 @@
             border: 1px solid rgba(0, 212, 255, 0.3);
         }
 
+        .alert-warning {
+            background: rgba(255, 107, 53, 0.08);
+            color: var(--accent-warning, #ff6b35);
+            border: 1px solid rgba(255, 107, 53, 0.35);
+        }
+
+        .alert-warning code {
+            display: block;
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.25);
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            user-select: all;
+        }
+
         /* Buttons */
         .button-group {
             display: flex;
@@ -492,6 +510,7 @@
 
                 <div id="errorMessage" class="alert alert-error"></div>
                 <div id="successMessage" class="alert alert-success"></div>
+                <div id="awsPolicyNudge" class="alert alert-warning"></div>
 
                 <!-- Auth mode toggle -->
                 <div class="form-group" style="margin-bottom: 16px;">
@@ -1156,6 +1175,7 @@
                             document.getElementById('currentAuthMode').textContent = 'IAM Role ARN';
                             document.getElementById('currentIdentity').textContent = data.role_arn || 'Not set';
                             switchAwsMode('role_arn');
+                            checkAwsPolicyFreshness();
                         } else {
                             document.getElementById('currentAuthMode').textContent = 'Access Keys';
                             document.getElementById('currentIdentity').textContent = data.access_key || 'Not set';
@@ -1164,6 +1184,35 @@
                     }
                 })
                 .catch(error => console.error('Error loading config:', error));
+        }
+
+        function checkAwsPolicyFreshness() {
+            fetch('/api/aws/policy-check')
+                .then(response => response.json())
+                .then(data => {
+                    const nudge = document.getElementById('awsPolicyNudge');
+                    if (!data.applicable || !data.outdated) {
+                        nudge.style.display = 'none';
+                        return;
+                    }
+                    const staleList = (data.stale_actions || []).join(', ');
+                    nudge.innerHTML =
+                        '<strong>Your IAM role’s policy is outdated.</strong> It still grants ' +
+                        '<code style="display:inline;padding:1px 5px;margin:0;">' + staleList + '</code>' +
+                        ' — these are not real IAM action prefixes, so the EFS and OpenSearch tools ' +
+                        'fail with permission errors. The published policies were fixed on 2026-07-24.' +
+                        '<br><br><strong>If you used the CloudFormation quick-create:</strong> update your stack ' +
+                        'with the same template URL (keeps your External ID and policy level):' +
+                        '<code>aws cloudformation update-stack --stack-name YOUR_STACK_NAME \\\n' +
+                        '  --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \\\n' +
+                        '  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true \\\n' +
+                        '  --capabilities CAPABILITY_NAMED_IAM</code>' +
+                        '<br><strong>If you created the role manually:</strong> replace the policy JSON with the current version from ' +
+                        '<a href="/static/iam/devops-agent-readonly.json" target="_blank">devops-agent-readonly.json</a> or ' +
+                        '<a href="/static/iam/devops-agent-management.json" target="_blank">devops-agent-management.json</a>.';
+                    nudge.style.display = 'block';
+                })
+                .catch(() => { /* freshness check is best-effort */ });
         }
 
         function saveAwsConfig(event) {
