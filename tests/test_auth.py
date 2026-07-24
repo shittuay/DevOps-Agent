@@ -4,9 +4,21 @@ Authentication Tests
 Tests for user registration, login, and authentication flows.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+class _ImmediateThread:
+    """Stand-in for threading.Thread that runs its target synchronously on
+    .start() instead of spawning a real thread — lets tests exercise the
+    background closure's own logic deterministically."""
+
+    def __init__(self, target=None, daemon=None):
+        self._target = target
+
+    def start(self):
+        self._target()
 
 
 class TestRegistration:
@@ -160,6 +172,103 @@ class TestLoginTimingSideChannel:
         with app.app_context():
             assert _run_timing_safe_password_check(test_user, 'TestPassword123!') is True
             assert _run_timing_safe_password_check(test_user, 'WrongPassword123!') is False
+
+
+class TestForgotPasswordTimingSideChannel:
+    """The email dispatch for an existing account must not block the HTTP
+    response — forgot_password() previously did a DB write plus a
+    synchronous, network-variable email API call (up to a 10s timeout) only
+    when the account existed, while a nonexistent email returned immediately.
+    Both render the identical generic success message, so response *time*
+    was the leak. Asserting on the mechanism (background thread dispatched,
+    request itself does no DB write) rather than wall-clock timing, which
+    would be flaky under CI load.
+    """
+
+    def test_existing_user_dispatches_background_thread(self, client, test_user):
+        with patch('routes.auth.threading.Thread') as MockThread:
+            response = client.post('/forgot-password', data={'email': 'test@example.com'})
+
+        assert response.status_code == 200
+        MockThread.assert_called_once()
+        _, kwargs = MockThread.call_args
+        assert kwargs['daemon'] is True
+        assert callable(kwargs['target'])
+        MockThread.return_value.start.assert_called_once()
+
+    def test_existing_user_request_itself_does_no_db_write(self, client, test_user, db_session):
+        """The token generation/DB write must happen in the background
+        thread, not inline in the request — otherwise the timing gap
+        this fix closes would just move from "email send" to "DB write".
+        threading.Thread is mocked out entirely here, so its .start() is a
+        no-op that never actually runs the closure — if the route wrote to
+        the DB directly (not inside the closure), it would show up here."""
+        with patch('routes.auth.threading.Thread'):
+            client.post('/forgot-password', data={'email': 'test@example.com'})
+
+        db_session.refresh(test_user)
+        assert test_user.password_reset_token is None
+
+    def test_nonexistent_user_does_not_dispatch_any_work(self, client):
+        with patch('routes.auth.threading.Thread') as MockThread:
+            response = client.post('/forgot-password', data={'email': 'nobody-here@example.com'})
+
+        assert response.status_code == 200
+        MockThread.assert_not_called()
+
+    def test_both_cases_return_identical_success_message(self, client, test_user):
+        with patch('routes.auth.threading.Thread'):
+            existing_resp = client.post('/forgot-password', data={'email': 'test@example.com'}, follow_redirects=True)
+        nonexistent_resp = client.post('/forgot-password', data={'email': 'nobody-here@example.com'}, follow_redirects=True)
+
+        assert existing_resp.status_code == nonexistent_resp.status_code == 200
+        assert b'If an account with that email exists' in existing_resp.data
+        assert b'If an account with that email exists' in nonexistent_resp.data
+
+    def test_dispatch_helper_generates_token_and_sends_email(self, app, test_user):
+        """Runs the background closure's own logic synchronously (via
+        _ImmediateThread) to verify token generation, persistence, and the
+        email call all happen correctly — independent of the route test
+        above, which only checks that dispatch was attempted.
+
+        The closure's own `with flask_app.app_context()` pops (and tears
+        down Flask-SQLAlchemy's scoped session) before this function
+        continues, so `test_user` and the mock's captured argument may be
+        detached by then — capture the plain id upfront and re-query fresh
+        afterward rather than touching either ORM object post-dispatch."""
+        from routes.auth import _dispatch_password_reset_email
+        from models import db, User
+
+        expected_user_id = test_user.id
+
+        with app.test_request_context():
+            with patch('routes.auth.threading.Thread', _ImmediateThread), \
+                 patch('services.email_service.email_service.send_password_reset_email') as mock_send:
+                _dispatch_password_reset_email(expected_user_id)
+
+        mock_send.assert_called_once()
+
+        # The commit happened on a different (nested-app-context) session —
+        # this test's ambient session may still have `test_user` cached from
+        # before the dispatch, so force a real re-read instead of trusting
+        # the identity map.
+        db.session.expire_all()
+        refreshed = User.query.get(expected_user_id)
+        assert refreshed.password_reset_token is not None
+        assert refreshed.password_reset_expires is not None
+
+    def test_dispatch_helper_handles_deleted_user_gracefully(self, app, db_session):
+        """user_id captured at request time could be stale by the time the
+        background thread runs (e.g. account deleted in between) — must not
+        raise inside the thread."""
+        from routes.auth import _dispatch_password_reset_email
+
+        with app.test_request_context():
+            with patch('routes.auth.threading.Thread', _ImmediateThread), \
+                 patch('services.email_service.email_service.send_password_reset_email') as mock_send:
+                _dispatch_password_reset_email(user_id=999999999)
+
+        mock_send.assert_not_called()
 
 
 class TestLogout:

@@ -162,6 +162,17 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
   connector flow) and reopened the same side channel — fixed by importing and routing through
   `routes.auth._run_timing_safe_password_check()` there too. Any other route that authenticates a
   user with a password must use this helper, not a direct `check_password()` call.
+- `forgot_password()` dispatches token generation, persistence, and the password-reset email send
+  through `_dispatch_password_reset_email()` on a background daemon thread, rather than doing that
+  work inline before responding — an existing account's token write + synchronous outbound email
+  API call (up to a 10s timeout) is a much larger and more network-variable timing signal than
+  login's bcrypt cost would have been, and both branches already render the identical generic
+  success message. **Any route that conditionally does slow work (DB write, outbound API/email
+  call) only when a resource/account exists is a timing side channel** even if the response text
+  never reveals which branch ran — dispatch the slow part asynchronously (same pattern as
+  `services/notification_service.py`'s async Slack dispatch: re-enter the app context and re-query
+  by id inside the thread, never pass a live ORM object across the thread boundary) so response
+  time stays uniform.
 
 ### Guardrails (Jailbreak / Prompt Injection Defense)
 Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer REST API
