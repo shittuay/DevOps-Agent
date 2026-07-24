@@ -82,6 +82,7 @@ class EmailService:
             if text_content:
                 payload["textContent"] = text_content
 
+            # ssrf-safe: hardcoded Brevo/SendGrid transactional email API host
             resp = requests.post(
                 BREVO_EMAIL_URL,
                 json=payload,
@@ -147,6 +148,7 @@ class EmailService:
                 payload["content"].append({"type": "text/plain", "value": text_content})
             payload["content"].append({"type": "text/html", "value": html_content})
 
+            # ssrf-safe: hardcoded Brevo/SendGrid transactional email API host
             resp = requests.post(
                 "https://api.sendgrid.com/v3/mail/send",
                 json=payload,

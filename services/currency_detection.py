@@ -73,6 +73,7 @@ def _detect_from_ip(request) -> Optional[str]:
 
     # Query free geolocation API
     try:
+        # ssrf-safe: hardcoded ip-api.com host; caller-supplied `ip` is a URL path segment for geolocation, not the target host
         resp = requests.get(
             f'http://ip-api.com/json/{ip}',
             params={'fields': 'countryCode'},

@@ -532,6 +532,7 @@ def get_provider_health() -> Dict[str, Any]:
             results['kimi'] = {'reachable': False, 'connectivity_error': 'MOONSHOT_API_KEY not set in config/.env'}
             return
         try:
+            # ssrf-safe: hardcoded api.moonshot.ai connectivity check
             resp = requests.get(
                 'https://api.moonshot.ai/v1/models',
                 headers={'Authorization': f'Bearer {api_key}'},

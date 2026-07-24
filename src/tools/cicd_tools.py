@@ -662,6 +662,7 @@ def cancel_github_workflow_run(
     """Cancel an in-progress GitHub Actions workflow run."""
     try:
         tok = _get_github_token(github_token)
+        # ssrf-safe: hardcoded api.github.com
         resp = requests.post(
             f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/runs/{run_id}/cancel',
             headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
@@ -683,6 +684,7 @@ def rerun_failed_github_jobs(
     """Re-run only the failed jobs in a completed GitHub Actions workflow run."""
     try:
         tok = _get_github_token(github_token)
+        # ssrf-safe: hardcoded api.github.com
         resp = requests.post(
             f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/runs/{run_id}/rerun-failed-jobs',
             headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
@@ -703,6 +705,7 @@ def list_github_runners(
     """List self-hosted runners registered to a repository."""
     try:
         tok = _get_github_token(github_token)
+        # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
             f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/runners',
             headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
@@ -741,6 +744,7 @@ def list_github_secrets(
     """
     try:
         tok = _get_github_token(github_token)
+        # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
             f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets',
             headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
@@ -770,6 +774,7 @@ def list_github_environments(
     """List deployment environments configured in a GitHub repository."""
     try:
         tok = _get_github_token(github_token)
+        # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
             f'https://api.github.com/repos/{repo_owner}/{repo_name}/environments',
             headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
@@ -806,6 +811,7 @@ def get_github_workflow_usage(
     """Get billable minutes and run totals for a GitHub Actions workflow."""
     try:
         tok = _get_github_token(github_token)
+        # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
             f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/workflows/{workflow_id}/timing',
             headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}

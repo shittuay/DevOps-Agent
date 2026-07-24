@@ -278,6 +278,7 @@ class SlackClient:
         }
 
         try:
+            # ssrf-safe: hardcoded slack.com/api (Slack API token path, distinct from the user-configured webhook_url path above)
             response = requests.post(
                 "https://slack.com/api/chat.postMessage",
                 json=payload,

@@ -253,6 +253,7 @@ def query_datadog_metrics(
             'to': end
         }
 
+        # ssrf-safe: hardcoded Datadog API host
         response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
 
@@ -294,6 +295,7 @@ def get_datadog_monitors(
         if tags:
             params['tags'] = ','.join(tags)
 
+        # ssrf-safe: hardcoded Datadog API host
         response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
 
@@ -346,6 +348,7 @@ def get_datadog_hosts(
         if filter:
             params['filter'] = filter
 
+        # ssrf-safe: hardcoded Datadog API host
         response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
 
@@ -410,6 +413,7 @@ def get_datadog_events(
         if tags:
             params['tags'] = ','.join(tags)
 
+        # ssrf-safe: hardcoded Datadog API host
         response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
 
@@ -476,6 +480,7 @@ def create_datadog_event(
         if tags:
             payload['tags'] = tags
 
+        # ssrf-safe: hardcoded Datadog API host
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
 

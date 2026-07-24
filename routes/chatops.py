@@ -347,6 +347,7 @@ def _post_slack_message(channel_id: str, response, ephemeral: bool = False, user
         payload['user'] = user_id
 
     try:
+        # ssrf-safe: hardcoded slack.com/api (ChatOps reply path, distinct from any user-configured webhook)
         requests.post(
             url,
             headers={
