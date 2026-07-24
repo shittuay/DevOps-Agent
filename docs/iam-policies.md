@@ -35,7 +35,9 @@ reading logs is core to the agent's troubleshooting value. Remove the
 
 ## What the management policy deliberately excludes
 
-- **IAM writes** — read-only IAM (`iam:Get*`, `iam:List*`). The agent's IAM
+- **IAM writes** — read-only IAM (`iam:Get*`, `iam:List*`, plus the
+  `iam:GenerateCredentialReport` / `iam:GenerateServiceLastAccessedDetails`
+  reporting actions that the security-audit tools need). The agent's IAM
   management tools (create user, attach policy, etc.) will not work unless
   you explicitly grant more; this prevents privilege escalation by default.
   `iam:PassRole` is allowed only when passing to AWS service principals

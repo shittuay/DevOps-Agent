@@ -89,7 +89,9 @@ def test_management_policy_keeps_iam_and_secret_values_locked_down():
     for action in actions:
         service, _, verb = action.partition(':')
         if service == 'iam':
-            assert verb.startswith(('Get', 'List')) or action == 'iam:PassRole', \
+            # Generate* covers only the credential/last-accessed reports —
+            # reporting, not writes (the reports are read back via iam:Get*).
+            assert verb.startswith(('Get', 'List', 'Generate')) or action == 'iam:PassRole', \
                 f'management policy must not grant IAM writes: {action}'
         if service == 'secretsmanager':
             assert 'GetSecretValue' not in verb and verb != '*' and not verb.startswith('Get'), \
