@@ -5,10 +5,21 @@ import jenkins
 from github import Github, GithubException
 from urllib.parse import quote
 from typing import Dict, Any, List, Optional
-from ..utils import get_logger, assert_safe_url
+from ..utils import get_logger, assert_safe_url, safe_request
 
 
 logger = get_logger(__name__)
+
+
+def _disable_jenkins_redirects(server: jenkins.Jenkins) -> jenkins.Jenkins:
+    """python-jenkins uses its own requests.Session internally and auto-follows
+    redirects with no SSRF re-validation — assert_safe_url() only checked
+    jenkins_url itself, so a validated-safe Jenkins host that 302s (e.g. a
+    compromised/misconfigured instance) would otherwise be silently followed
+    straight to a blocked target. There's no `allow_redirects` param exposed
+    on the library's request methods, so disable it directly on the session."""
+    server._session.resolve_redirects = lambda *args, **kwargs: iter(())
+    return server
 
 
 def trigger_jenkins_job(
@@ -39,7 +50,7 @@ def trigger_jenkins_job(
             }
 
         assert_safe_url(jenkins_url)
-        server = jenkins.Jenkins(jenkins_url, username=username, password=token)
+        server = _disable_jenkins_redirects(jenkins.Jenkins(jenkins_url, username=username, password=token))
 
         # Trigger build
         if parameters:
@@ -97,7 +108,7 @@ def get_jenkins_job_status(
             }
 
         assert_safe_url(jenkins_url)
-        server = jenkins.Jenkins(jenkins_url, username=username, password=token)
+        server = _disable_jenkins_redirects(jenkins.Jenkins(jenkins_url, username=username, password=token))
 
         # Get build info
         if build_number:
@@ -166,7 +177,7 @@ def get_jenkins_build_logs(
             }
 
         assert_safe_url(jenkins_url)
-        server = jenkins.Jenkins(jenkins_url, username=username, password=token)
+        server = _disable_jenkins_redirects(jenkins.Jenkins(jenkins_url, username=username, password=token))
 
         # Get console output
         logs = server.get_build_console_output(job_name, build_number)
@@ -209,7 +220,7 @@ def _get_jenkins_server(
     if not all([url, user, tok]):
         raise ValueError('Jenkins credentials not provided and not found in environment (JENKINS_URL, JENKINS_USERNAME, JENKINS_TOKEN)')
     assert_safe_url(url)
-    return jenkins.Jenkins(url, username=user, password=tok)
+    return _disable_jenkins_redirects(jenkins.Jenkins(url, username=user, password=tok))
 
 
 def list_jenkins_jobs(
@@ -844,7 +855,7 @@ def list_gitlab_pipelines(
             params['ref'] = ref
         if status:
             params['status'] = status
-        response = requests.get(
+        response = safe_request('GET', 
             f'{base}/api/v4/projects/{pid}/pipelines',
             headers={'PRIVATE-TOKEN': token},
             params=params,
@@ -875,7 +886,7 @@ def get_gitlab_pipeline(
         token = _get_gitlab_token(gitlab_token)
         base = _get_gitlab_base_url(gitlab_url)
         pid = quote(str(project_id), safe='')
-        response = requests.get(
+        response = safe_request('GET', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}',
             headers={'PRIVATE-TOKEN': token},
             timeout=30
@@ -914,7 +925,7 @@ def trigger_gitlab_pipeline(
         payload: Dict[str, Any] = {'ref': ref}
         if variables:
             payload['variables'] = [{'key': k, 'value': v} for k, v in variables.items()]
-        response = requests.post(
+        response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/pipeline',
             headers={'PRIVATE-TOKEN': token},
             json=payload,
@@ -946,7 +957,7 @@ def retry_gitlab_pipeline(
         token = _get_gitlab_token(gitlab_token)
         base = _get_gitlab_base_url(gitlab_url)
         pid = quote(str(project_id), safe='')
-        response = requests.post(
+        response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/retry',
             headers={'PRIVATE-TOKEN': token},
             timeout=30
@@ -975,7 +986,7 @@ def cancel_gitlab_pipeline(
         token = _get_gitlab_token(gitlab_token)
         base = _get_gitlab_base_url(gitlab_url)
         pid = quote(str(project_id), safe='')
-        response = requests.post(
+        response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/cancel',
             headers={'PRIVATE-TOKEN': token},
             timeout=30
@@ -1002,7 +1013,7 @@ def list_gitlab_jobs(
         token = _get_gitlab_token(gitlab_token)
         base = _get_gitlab_base_url(gitlab_url)
         pid = quote(str(project_id), safe='')
-        response = requests.get(
+        response = safe_request('GET', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs',
             headers={'PRIVATE-TOKEN': token},
             timeout=30
@@ -1033,7 +1044,7 @@ def get_gitlab_job_log(
         token = _get_gitlab_token(gitlab_token)
         base = _get_gitlab_base_url(gitlab_url)
         pid = quote(str(project_id), safe='')
-        response = requests.get(
+        response = safe_request('GET', 
             f'{base}/api/v4/projects/{pid}/jobs/{job_id}/trace',
             headers={'PRIVATE-TOKEN': token},
             timeout=60
@@ -1066,7 +1077,7 @@ def approve_gitlab_deployment(
         payload: Dict[str, Any] = {'status': status}
         if comment:
             payload['comment'] = comment
-        response = requests.post(
+        response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/deployments/{deployment_id}/approval',
             headers={'PRIVATE-TOKEN': token},
             json=payload,
@@ -1095,7 +1106,7 @@ def create_gitlab_pipeline_trigger(
         token = _get_gitlab_token(gitlab_token)
         base = _get_gitlab_base_url(gitlab_url)
         pid = quote(str(project_id), safe='')
-        response = requests.post(
+        response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/triggers',
             headers={'PRIVATE-TOKEN': token},
             json={'description': description},
@@ -1234,7 +1245,7 @@ def run_smoke_test(
     """Run a basic HTTP smoke test against a deployed service to verify it is healthy."""
     try:
         assert_safe_url(url)
-        resp = requests.get(url, headers=headers or {}, timeout=timeout, allow_redirects=True)
+        resp = safe_request('GET', url, headers=headers or {}, timeout=timeout)
         success = resp.status_code == expected_status
         return {
             'success': success,
@@ -1262,7 +1273,7 @@ def auto_rollback_deployment(
         assert_safe_url(health_check_url)
         # Run health check
         try:
-            resp = requests.get(health_check_url, timeout=health_timeout)
+            resp = safe_request('GET', health_check_url, timeout=health_timeout)
             healthy = resp.status_code == expected_status
         except Exception:
             healthy = False

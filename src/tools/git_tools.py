@@ -410,7 +410,20 @@ def git_clone_repository(url: str, dest_path: str, branch: Optional[str] = None,
         if depth:
             kwargs['depth'] = depth
 
-        repo = Repo.clone_from(url, dest_path, **kwargs)
+        # _validate_git_url() only checked the URL itself — git's HTTP transport
+        # auto-follows redirects with no SSRF re-validation, so a validated-safe
+        # host that 302s could otherwise land the clone on a blocked target
+        # (e.g. the cloud metadata endpoint). -c/--config is normally blocked by
+        # GitPython (arbitrary config injection risk) unless allow_unsafe_options
+        # is set — safe here because multi_options is a fixed, code-controlled
+        # value, never derived from caller input (branch/depth are the only
+        # user-influenced kwargs, and they aren't config/upload-pack options).
+        repo = Repo.clone_from(
+            url, dest_path,
+            multi_options=['-c', 'http.followRedirects=false'],
+            allow_unsafe_options=True,
+            **kwargs
+        )
         return {
             'success': True,
             'repo_path': dest_path,

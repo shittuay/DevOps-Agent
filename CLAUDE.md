@@ -212,6 +212,26 @@ tools are designed to reach self-hosted internal infra (Jenkins/SonarQube/Nexus/
 service IPs almost always sit on private IPs), so blocking `is_private` would break their
 intended use, not just close an attack path.
 
+**`assert_safe_url()` only validates the URL you hand it — it has no say over what happens
+next.** If the actual request then lets `requests` auto-follow redirects (the default), a server
+that passed validation can 302 straight to a blocked target and `requests` will silently follow
+it, since redirect-following happens inside urllib3 with zero knowledge of this app's SSRF
+policy. **For any `requests`-based call, use `safe_request(method, url, **kwargs)`** (same
+module) instead of `requests.get/post/etc.` directly — it re-validates every redirect hop before
+following it, raises `UnsafeUrlError` on rejection, caps the chain at 5 hops, and strips
+`Authorization`/`Cookie`/`auth=` on any cross-origin hop so a redirected base_url can't leak a
+live credential to whatever responded with the redirect. Pass `validator=` if the call site needs
+a stricter policy than `assert_safe_url` (see `api_gateway.py`'s `_raise_if_unsafe_webhook_url`
+adapter, which also blocks RFC1918 — arbitrary external endpoints, not the self-hosted-tool trust
+model). For clients that don't go through `requests` at all, disable redirects at that client's
+own level instead: `cicd_tools._disable_jenkins_redirects()` monkeypatches `python-jenkins`'s
+wrapped session (no `allow_redirects` param exposed by the library); `git_clone_repository` passes
+`multi_options=['-c', 'http.followRedirects=false']` to `Repo.clone_from()` (needs
+`allow_unsafe_options=True` since `-c`/`--config` is normally blocked by GitPython — only safe
+because the value is fixed and code-controlled, never derived from caller input). **Not addressed
+by any of this:** DNS-rebinding (the IP validated vs. the IP actually connected to a moment later)
+— a deliberately deferred, lower-priority residual gap; see CLAUDE_RUNBOOK.md.
+
 Currently wired into: `sonarqube_tools._get_sonar_client`, `nexus_tools._get_nexus_client`,
 `cicd_tools._get_jenkins_server` (+ the 3 Jenkins functions that build `jenkins.Jenkins()`
 directly, plus `run_smoke_test`/`auto_rollback_deployment`), every Prometheus/Grafana

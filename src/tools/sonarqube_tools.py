@@ -1,7 +1,7 @@
 """SonarQube tools for DevOps Agent."""
 import requests
 from typing import Dict, Any, Optional, List
-from ..utils import get_logger, assert_safe_url
+from ..utils import get_logger, assert_safe_url, safe_request
 
 logger = get_logger(__name__)
 
@@ -53,7 +53,7 @@ def get_sonar_projects(
     try:
         url, headers = _get_sonar_client(base_url, token)
 
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/api/projects/search',
             headers=headers,
             params={'ps': page_size},
@@ -103,7 +103,7 @@ def get_sonar_project_quality(
     try:
         url, headers = _get_sonar_client(base_url, token)
 
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/api/qualitygates/project_status',
             headers=headers,
             params={'projectKey': project_key},
@@ -156,7 +156,7 @@ def get_sonar_measures(
                 'security_rating'
             ]
 
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/api/measures/component',
             headers=headers,
             params={
@@ -219,7 +219,7 @@ def get_sonar_issues(
         if types:
             params['types'] = ','.join(types)
 
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/api/issues/search',
             headers=headers,
             params=params,
@@ -278,7 +278,7 @@ def trigger_sonar_analysis(
 
         # Note: This typically requires scanner execution, not just an API call
         # This endpoint may vary by SonarQube version
-        response = requests.post(
+        response = safe_request('POST', 
             f'{url}/api/ce/submit',
             headers=headers,
             params={'projectKey': project_key},
@@ -315,7 +315,7 @@ def get_sonar_hotspots(
         params = {'projectKey': project_key}
         if status:
             params['status'] = status
-        response = requests.get(f'{url}/api/hotspots/search', headers=headers, params=params, timeout=30)
+        response = safe_request('GET', f'{url}/api/hotspots/search', headers=headers, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         hotspots = []
@@ -352,7 +352,7 @@ def create_sonar_project(
     """Create a new SonarQube project."""
     try:
         url, headers = _get_sonar_client(base_url, token)
-        response = requests.post(
+        response = safe_request('POST', 
             f'{url}/api/projects/create',
             headers=headers,
             params={'project': project_key, 'name': project_name, 'visibility': visibility},
@@ -378,7 +378,7 @@ def delete_sonar_project(
     """Delete a SonarQube project and all its data."""
     try:
         url, headers = _get_sonar_client(base_url, token)
-        response = requests.post(
+        response = safe_request('POST', 
             f'{url}/api/projects/delete',
             headers=headers,
             params={'project': project_key},
@@ -409,7 +409,7 @@ def update_sonar_issue(
     """
     try:
         url, headers = _get_sonar_client(base_url, token)
-        response = requests.post(
+        response = safe_request('POST', 
             f'{url}/api/issues/do_transition',
             headers=headers,
             params={'issue': issue_key, 'transition': status},
@@ -417,7 +417,7 @@ def update_sonar_issue(
         )
         response.raise_for_status()
         if comment:
-            requests.post(
+            safe_request('POST', 
                 f'{url}/api/issues/add_comment',
                 headers=headers,
                 params={'issue': issue_key, 'text': comment},
@@ -441,7 +441,7 @@ def list_sonar_quality_gates(
     """List all quality gates defined in SonarQube."""
     try:
         url, headers = _get_sonar_client(base_url, token)
-        response = requests.get(f'{url}/api/qualitygates/list', headers=headers, timeout=30)
+        response = safe_request('GET', f'{url}/api/qualitygates/list', headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
         return {
@@ -465,13 +465,13 @@ def assign_sonar_quality_gate(
     try:
         url, headers = _get_sonar_client(base_url, token)
         # First resolve gate name to ID
-        list_resp = requests.get(f'{url}/api/qualitygates/list', headers=headers, timeout=30)
+        list_resp = safe_request('GET', f'{url}/api/qualitygates/list', headers=headers, timeout=30)
         list_resp.raise_for_status()
         gates = list_resp.json().get('qualygates', list_resp.json().get('qualitygates', []))
         gate_id = next((g['id'] for g in gates if g.get('name') == gate_name), None)
         if not gate_id:
             return {'success': False, 'error': f'Quality gate "{gate_name}" not found'}
-        response = requests.post(
+        response = safe_request('POST', 
             f'{url}/api/qualitygates/select',
             headers=headers,
             params={'projectKey': project_key, 'gateId': gate_id},
@@ -498,7 +498,7 @@ def get_sonar_analysis_history(
     """Get analysis history (past scans) for a project."""
     try:
         url, headers = _get_sonar_client(base_url, token)
-        response = requests.get(
+        response = safe_request('GET', 
             f'{url}/api/project_analyses/search',
             headers=headers,
             params={'project': project_key, 'ps': page_size},
