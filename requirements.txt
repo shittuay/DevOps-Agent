@@ -124,7 +124,7 @@ Jinja2==3.1.6
 MarkupSafe==3.0.2
 itsdangerous==2.2.0
 blinker==1.9.0
-GitPython==3.1.50  # security floor: PYSEC-2026-2161, GHSA-mv93-w799-cj2w
+GitPython==3.1.54  # security floor: PYSEC-2026-2161, GHSA-mv93-w799-cj2w
 
 # CI/CD & DevOps Tools
 PyGithub==2.5.0
