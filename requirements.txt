@@ -100,6 +100,10 @@ google-cloud-logging==3.11.3
 google-cloud-build==3.28.0
 google-cloud-artifact-registry==1.12.0
 google-cloud-resource-manager==1.13.1
+google-api-python-client==2.198.0  # googleapiclient.discovery — used by the GCP credential test endpoint
+google-auth-httplib2==0.4.0
+httplib2==0.32.0
+uritemplate==4.2.0
 
 # Kubernetes
 kubernetes==31.0.0

@@ -2207,7 +2207,7 @@ def test_gcp_connection():
         import json
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
-        credentials_json = creds.get('credentials_json', '')
+        credentials_json = creds.get('service_account_json', '')
         if isinstance(credentials_json, str):
             sa_info = json.loads(credentials_json)
         else:
