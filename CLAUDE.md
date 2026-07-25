@@ -248,9 +248,17 @@ module) instead of `requests.get/post/etc.` directly — it re-validates every r
 following it, raises `UnsafeUrlError` on rejection, caps the chain at 5 hops, and strips
 `Authorization`/`Cookie`/`auth=` on any cross-origin hop so a redirected base_url can't leak a
 live credential to whatever responded with the redirect. Pass `validator=` if the call site needs
-a stricter policy than `assert_safe_url` (see `api_gateway.py`'s `_raise_if_unsafe_webhook_url`
-adapter, which also blocks RFC1918 — arbitrary external endpoints, not the self-hosted-tool trust
-model). For clients that don't go through `requests` at all, disable redirects at that client's
+a stricter policy than `assert_safe_url` — **`assert_safe_external_webhook_url()`** (same module)
+is the shared stricter policy for arbitrary user-configured *external* webhook endpoints
+(Slack/Teams/generic outbound webhooks): it also blocks RFC1918/reserved/multicast ranges, since
+there's no legitimate reason for a notification webhook to target private address space, unlike
+the self-hosted-internal-tool trust model `assert_safe_url` is designed for. `api_gateway.py`'s
+`_is_safe_webhook_url`/`_raise_if_unsafe_webhook_url` now delegate to it instead of duplicating the
+ipaddress/socket logic; `services/notification_service.py`'s `SlackClient`/`TeamsClient` and
+`app.py`'s `test_notification_channel` route were fixed to use it too (2026-07-25 — they were
+still using plain `assert_safe_url`/its default `safe_request()` validator, which let a
+user-configured Slack/Teams webhook or notification-channel-test URL reach RFC1918 addresses
+inside the app's own network — see CLAUDE_RUNBOOK.md). For clients that don't go through `requests` at all, disable redirects at that client's
 own level instead: `cicd_tools._disable_jenkins_redirects()` monkeypatches `python-jenkins`'s
 wrapped session (no `allow_redirects` param exposed by the library); `git_clone_repository` passes
 `multi_options=['-c', 'http.followRedirects=false']` to `Repo.clone_from()` (needs

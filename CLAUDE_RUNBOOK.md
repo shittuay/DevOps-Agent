@@ -487,3 +487,101 @@ finding* the same shape of gap in a new place three-plus times in one
 project history, that is itself a signal to stop fixing instances and go
 build the guardrail; see CLAUDE.md's "Security invariants" section for how
 to add a new check or exemption.
+
+---
+
+## Scheduled audit: org role-escalation, unauthenticated Teams bot endpoint, webhook SSRF gap, GCP credential leak (2026-07-25)
+
+A routine scheduled review (parallel agents auditing `routes/`+`api/`,
+`services/`, and `src/tools/`+`src/agent/`) found and fixed four issues, none
+of which were the SSRF/login-timing shape already covered by
+`scripts/check_security_invariants.py` — a reminder that the structural
+checker only closes the two specific patterns it scans for, not every
+security bug shape.
+
+1. **Org `admin` could self-promote to `owner` (`routes/organizations.py`
+   `update_member_role`).** The route took `role = request.form.get('role')`
+   and passed it straight to `MultiTenancyService.update_member_role()`
+   (`services/multi_tenancy.py`), which just sets `member.role = new_role` and
+   commits — no allow-list, no check that the caller was already an `owner`.
+   The route is gated only by `@org_admin_required`, which accepts both
+   `'owner'` and `'admin'`. Since `'owner'` is the only role with owner-only
+   powers (org deletion/billing, gated via
+   `user_has_org_permission(..., ['owner'])`), any org `admin` could
+   `POST /organizations/<org_id>/members/<own_user_id>/role` with
+   `role=owner` and grant themselves full ownership — a straightforward
+   vertical privilege escalation within a tenant. Fixed by validating
+   `new_role` against the known role set (`owner`/`admin`/`member`/
+   `billing`/`viewer`) and requiring the caller to already be an `owner`
+   before granting or changing `owner` access. Regression tests:
+   `tests/test_org_role_escalation.py`.
+
+2. **Microsoft Teams ChatOps endpoints had zero authentication
+   (`routes/chatops.py`).** `teams_messages`/`teams_commands` had no
+   `@login_required` and — unlike the Slack endpoints, which verify an HMAC
+   signature when `SLACK_SIGNING_SECRET` is set — performed no verification
+   of the caller at all, despite the ChatOps dashboard UI instructing admins
+   to set `TEAMS_APP_ID`/`TEAMS_APP_PASSWORD` for exactly this purpose; those
+   env vars were never actually read anywhere in the code. Any anonymous POST
+   with a crafted Bot Framework-shaped body was processed as a legitimate
+   Teams message and dispatched into `ChatOpsService.process_message()`.
+   Fixed by validating the inbound Bot Framework JWT
+   (`Authorization: Bearer <token>`) against Microsoft's JWKS
+   (`https://login.botframework.com/v1/.well-known/openidconfiguration`),
+   checking `iss`/`aud` (against `TEAMS_APP_ID`)/`exp` via `joserfc` — the
+   same JWT/JWKS validation pattern already used for OIDC SSO in
+   `services/sso_service.py._validate_id_token()`. The endpoint now fails
+   closed (401) if `TEAMS_APP_ID` isn't configured at all, rather than
+   accepting unauthenticated traffic when the integration is unset up.
+   Regression tests: `tests/test_chatops_teams_auth.py`. **Separately noted,
+   not fixed (low severity, pre-existing dead code):** `ChatOpsService`'s
+   `_cmd_status`/`_cmd_incident_detail`/`_cmd_acknowledge`/`_cmd_resolve` call
+   `IncidentResponseEngine` methods positionally without the required leading
+   `user_id` argument, so every one of those commands raises `TypeError`,
+   silently swallowed by `process_message()`'s generic `except Exception`.
+   These have apparently never worked since the incident engine moved to
+   per-user isolation, and there's no existing design for mapping a Slack/
+   Teams identity to an app `user_id` — real access-control design work, not
+   a one-line signature fix, so left for a future pass.
+
+3. **Slack/Teams notification webhooks could reach internal RFC1918 hosts
+   (`services/notification_service.py`, `app.py`).** `SlackClient.send_webhook`/
+   `TeamsClient.send`, and `app.py`'s `POST /api/notification-channels/<id>/test`
+   route, validated the user-supplied `webhook_url` with `assert_safe_url()`/
+   `safe_request()`'s default validator — which only blocks loopback/
+   link-local/multicast by design, since most callers of that default (Jenkins/
+   SonarQube/Nexus/Prometheus) are self-hosted internal tools that legitimately
+   live on private IPs. But a notification webhook is a different trust
+   model: an arbitrary user-configured *external* endpoint, exactly like
+   `services/api_gateway.py`'s outbound platform webhooks, which already had a
+   stricter validator (`_is_safe_webhook_url`/`_raise_if_unsafe_webhook_url`,
+   blocking RFC1918/reserved ranges too) for this exact reason — it just
+   was never reused by the Slack/Teams code. Any user could set their Slack
+   webhook URL to `http://10.x.x.x/...` and every subsequent alert/incident
+   notification would POST to that internal address — blind SSRF into the
+   app's own network. Fixed by moving the stricter check into
+   `src/utils/network_safety.py` as a shared
+   `assert_safe_external_webhook_url()`, having `api_gateway.py`'s two
+   functions delegate to it (removing the duplicated ipaddress/socket logic),
+   and wiring `notification_service.py`'s Slack/Teams clients plus `app.py`'s
+   notification-channel-test route to use it as their `validator=`. Regression
+   tests added to `tests/test_network_safety.py`.
+
+4. **GCP service-account private key left on disk when credential loading
+   failed (`services/credential_service.py` callers).**
+   `get_user_gcp_credentials_file()` writes the decrypted service-account JSON
+   (including the RSA private key) to a `tempfile.mkstemp()` path; all four
+   callers (`src/tools/gcp_tools.py._get_user_gcp_credentials`,
+   `services/infrastructure_sync.py`'s `sync_gcp_compute_instances`/
+   `sync_gcp_storage_buckets`/`sync_gcp_sql_instances`) only deleted that file
+   *after* successfully constructing
+   `service_account.Credentials.from_service_account_file(creds_path)`, with
+   no `try/finally`. A malformed/invalid/revoked key left the plaintext
+   private key on disk indefinitely — worse under repeated failed sync
+   attempts, since each one leaks another file into the shared temp
+   directory. Fixed by wrapping the `from_service_account_file(...)` call in
+   `try/finally: os.remove(creds_path)` at all four call sites. Regression
+   tests: `tests/test_gcp_credentials_file_cleanup.py`.
+
+**Also verified clean in this pass:** `scripts/check_security_invariants.py`
+reports zero violations after all the above edits.

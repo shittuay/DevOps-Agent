@@ -1725,13 +1725,15 @@ def sync_gcp_compute_instances(user_id: int) -> int:
         import json
 
         creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
-        credentials = service_account.Credentials.from_service_account_file(creds_path)
-
-        # Clean up temp file
         try:
-            os.remove(creds_path)
-        except OSError:
-            pass
+            credentials = service_account.Credentials.from_service_account_file(creds_path)
+        finally:
+            # Always clean up the temp file (contains a plaintext private key),
+            # even if loading it fails partway through.
+            try:
+                os.remove(creds_path)
+            except OSError:
+                pass
 
         client = compute_v1.InstancesClient(credentials=credentials)
         agg_list = client.aggregated_list(project=project_id)
@@ -1794,12 +1796,15 @@ def sync_gcp_storage_buckets(user_id: int) -> int:
         import json
 
         creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
-        credentials = service_account.Credentials.from_service_account_file(creds_path)
-
         try:
-            os.remove(creds_path)
-        except OSError:
-            pass
+            credentials = service_account.Credentials.from_service_account_file(creds_path)
+        finally:
+            # Always clean up the temp file (contains a plaintext private key),
+            # even if loading it fails partway through.
+            try:
+                os.remove(creds_path)
+            except OSError:
+                pass
 
         client = storage.Client(project=project_id, credentials=credentials)
 
@@ -1849,15 +1854,18 @@ def sync_gcp_sql_instances(user_id: int) -> int:
         import json
 
         creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
-        credentials = service_account.Credentials.from_service_account_file(
-            creds_path,
-            scopes=['https://www.googleapis.com/auth/sqlservice.admin']
-        )
-
         try:
-            os.remove(creds_path)
-        except OSError:
-            pass
+            credentials = service_account.Credentials.from_service_account_file(
+                creds_path,
+                scopes=['https://www.googleapis.com/auth/sqlservice.admin']
+            )
+        finally:
+            # Always clean up the temp file (contains a plaintext private key),
+            # even if loading it fails partway through.
+            try:
+                os.remove(creds_path)
+            except OSError:
+                pass
 
         sqladmin = discovery.build('sqladmin', 'v1beta4', credentials=credentials)
         response = sqladmin.instances().list(project=project_id).execute()

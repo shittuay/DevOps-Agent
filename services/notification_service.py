@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Any, Optional
 from dataclasses import dataclass, field
 
-from src.utils.network_safety import assert_safe_url, safe_request, UnsafeUrlError
+from src.utils.network_safety import assert_safe_external_webhook_url, safe_request, UnsafeUrlError
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +229,7 @@ class SlackClient:
             return False
 
         try:
-            assert_safe_url(self.webhook_url)
+            assert_safe_external_webhook_url(self.webhook_url)
         except UnsafeUrlError as e:
             logger.error(f"Blocked Slack webhook to unsafe URL: {e}")
             return False
@@ -251,7 +251,8 @@ class SlackClient:
                 self.webhook_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=10
+                timeout=10,
+                validator=assert_safe_external_webhook_url,
             )
             response.raise_for_status()
             # Slack returns HTTP 200 for both success ("ok") and some payload
@@ -315,7 +316,7 @@ class TeamsClient:
             return False
 
         try:
-            assert_safe_url(self.webhook_url)
+            assert_safe_external_webhook_url(self.webhook_url)
         except UnsafeUrlError as e:
             logger.error(f"Blocked Teams webhook to unsafe URL: {e}")
             return False
@@ -328,7 +329,8 @@ class TeamsClient:
                 self.webhook_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=10
+                timeout=10,
+                validator=assert_safe_external_webhook_url,
             )
             response.raise_for_status()
             logger.info(f"Teams notification sent: {notification.title}")

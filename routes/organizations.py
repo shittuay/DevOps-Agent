@@ -7,6 +7,10 @@ from functools import wraps
 
 organizations_bp = Blueprint('organizations', __name__, url_prefix='/organizations')
 
+# Roles assignable via update_member_role(); 'owner' is handled separately below
+# since it must never be self-granted by a non-owner admin.
+_ORG_ROLES = {'owner', 'admin', 'member', 'billing', 'viewer'}
+
 
 def org_admin_required(f):
     """Decorator to require organization admin role"""
@@ -176,6 +180,21 @@ def update_member_role(org_id, user_id):
     service = MultiTenancyService()
 
     new_role = request.form.get('role')
+    if new_role not in _ORG_ROLES:
+        flash('Invalid role.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
+    caller_membership = service.get_membership(org_id, current_user.id)
+    caller_is_owner = bool(caller_membership) and caller_membership.role == 'owner'
+    target_membership = service.get_membership(org_id, user_id)
+
+    # Only an existing owner may grant owner access or change another owner's role —
+    # otherwise an org 'admin' could self-promote to 'owner' via this endpoint.
+    if (new_role == 'owner' or (target_membership and target_membership.role == 'owner')) \
+            and not caller_is_owner:
+        flash('Only an organization owner can grant or change owner access.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
     if service.update_member_role(org_id, user_id, new_role):
         flash('Member role updated!', 'success')
     else:
