@@ -19,13 +19,17 @@ if _flask_env == 'production' or _use_aws:
             if os.path.exists(_env_path):
                 load_dotenv(_env_path)
                 break
-else:
+elif _flask_env != 'testing':
     from dotenv import load_dotenv
     # config/.env is authoritative — override=True ensures it always wins over shell env vars
     if os.path.exists('config/.env'):
         load_dotenv('config/.env', override=True)
     elif os.path.exists('.env'):
         load_dotenv('.env', override=True)
+# FLASK_ENV=='testing' (set by tests/conftest.py before importing this module) intentionally
+# skips both branches above — dotenv files must never override the forced in-memory SQLite
+# DATABASE_URL, or the test suite's db.create_all()/drop_all() lifecycle runs against whatever
+# real database happens to be configured in .env / config/.env.
 # --- End early secrets initialization ---
 
 # --- Startup validation: fail fast if critical Stripe config is missing/wrong ---
@@ -2203,7 +2207,7 @@ def test_gcp_connection():
         import json
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
-        credentials_json = creds.get('credentials_json', '')
+        credentials_json = creds.get('service_account_json', '')
         if isinstance(credentials_json, str):
             sa_info = json.loads(credentials_json)
         else:

@@ -786,6 +786,26 @@ class DevOpsAgent:
         except (ImportError, Exception):
             pass
 
+        try:
+            # Set Azure user context
+            from ..tools.azure_tools import set_user_context as set_azure_context
+            set_azure_context(user_id)
+            self.logger.debug(f"Set Azure user context for user {user_id}")
+        except ImportError:
+            self.logger.warning("Failed to import Azure user context setter")
+        except Exception as e:
+            self.logger.warning(f"Failed to set Azure user context: {str(e)}")
+
+        try:
+            # Set GCP user context
+            from ..tools.gcp_tools import set_user_context as set_gcp_context
+            set_gcp_context(user_id)
+            self.logger.debug(f"Set GCP user context for user {user_id}")
+        except ImportError:
+            self.logger.warning("Failed to import GCP user context setter")
+        except Exception as e:
+            self.logger.warning(f"Failed to set GCP user context: {str(e)}")
+
     def _clear_cloud_user_context(self):
         """Clear user context for cloud operations."""
         try:
@@ -797,6 +817,26 @@ class DevOpsAgent:
             self.logger.warning("Failed to import AWS user context clearer")
         except Exception as e:
             self.logger.warning(f"Failed to clear AWS user context: {str(e)}")
+
+        try:
+            # Clear Azure user context
+            from ..tools.azure_tools import clear_user_context as clear_azure_context
+            clear_azure_context()
+            self.logger.debug("Cleared Azure user context")
+        except ImportError:
+            self.logger.warning("Failed to import Azure user context clearer")
+        except Exception as e:
+            self.logger.warning(f"Failed to clear Azure user context: {str(e)}")
+
+        try:
+            # Clear GCP user context
+            from ..tools.gcp_tools import clear_user_context as clear_gcp_context
+            clear_gcp_context()
+            self.logger.debug("Cleared GCP user context")
+        except ImportError:
+            self.logger.warning("Failed to import GCP user context clearer")
+        except Exception as e:
+            self.logger.warning(f"Failed to clear GCP user context: {str(e)}")
 
     @log_operation("process_user_message")
     def process_message(self, user_message: str, user_preferences_context: Optional[str] = None) -> str:
