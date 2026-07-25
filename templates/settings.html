@@ -656,6 +656,23 @@
                 <div id="azureSuccessMessage" class="alert alert-success"></div>
 
                 <form id="azureConfigForm" onsubmit="saveAzureConfig(event)">
+                    <div style="padding:12px 14px;margin-bottom:16px;background:rgba(37,99,235,0.06);border:1px solid #bfdbfe;border-radius:8px;">
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                            <label for="azurePolicyLevel" style="margin:0;font-size:0.85em;">Access level:</label>
+                            <select id="azurePolicyLevel" style="padding:6px 10px;border-radius:6px;border:1px solid #d1d5db;font-size:0.85em;">
+                                <option value="reader">Reader (read-only, recommended)</option>
+                                <option value="contributor">Contributor (create/modify/delete, no access management)</option>
+                            </select>
+                            <button type="button" class="btn-primary" onclick="generateAzureSetupScript()" style="white-space:nowrap;">
+                                &#9889; Get setup script
+                            </button>
+                        </div>
+                        <small style="display:block;margin-top:8px;">No app registration yet? Generates an Azure CLI script that creates a service principal scoped to just this subscription and role &mdash; run it once, then paste the printed values into the fields below.</small>
+                        <div id="azureSetupScriptBox" style="display:none;margin-top:10px;">
+                            <pre id="azureSetupScriptText" style="padding:10px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.78em;overflow-x:auto;white-space:pre-wrap;"></pre>
+                            <button type="button" class="btn-secondary" onclick="copyAzureSetupScript()">Copy script</button>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label for="azureSubscriptionId">Azure Subscription ID *</label>
                         <input
@@ -769,6 +786,23 @@
                 <div id="gcpSuccessMessage" class="alert alert-success"></div>
 
                 <form id="gcpConfigForm" onsubmit="saveGcpConfig(event)">
+                    <div style="padding:12px 14px;margin-bottom:16px;background:rgba(37,99,235,0.06);border:1px solid #bfdbfe;border-radius:8px;">
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                            <label for="gcpPolicyLevel" style="margin:0;font-size:0.85em;">Access level:</label>
+                            <select id="gcpPolicyLevel" style="padding:6px 10px;border-radius:6px;border:1px solid #d1d5db;font-size:0.85em;">
+                                <option value="viewer">Viewer (read-only, recommended)</option>
+                                <option value="editor">Editor (create/modify/delete, no access management)</option>
+                            </select>
+                            <button type="button" class="btn-primary" onclick="generateGcpSetupScript()" style="white-space:nowrap;">
+                                &#9889; Get setup script
+                            </button>
+                        </div>
+                        <small style="display:block;margin-top:8px;">No service account yet? Generates a gcloud script that creates one scoped to just this project and role &mdash; run it once, then paste the downloaded key JSON below.</small>
+                        <div id="gcpSetupScriptBox" style="display:none;margin-top:10px;">
+                            <pre id="gcpSetupScriptText" style="padding:10px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.78em;overflow-x:auto;white-space:pre-wrap;"></pre>
+                            <button type="button" class="btn-secondary" onclick="copyGcpSetupScript()">Copy script</button>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label for="gcpProjectId">GCP Project ID *</label>
                         <input
@@ -1363,6 +1397,41 @@
                 });
         }
 
+        function buildAzureSetupScript(policyLevel, subscriptionId) {
+            var role = policyLevel === 'contributor' ? 'Contributor' : 'Reader';
+            var sub = subscriptionId || '<YOUR_SUBSCRIPTION_ID>';
+            return '#!/bin/bash\n' +
+                '# DevOps Agent Azure setup — creates a service principal scoped to one subscription.\n' +
+                '# Requires: az login (Azure CLI), with permission to create app registrations.\n\n' +
+                'SUBSCRIPTION_ID="' + sub + '"\n' +
+                'az account set --subscription "$SUBSCRIPTION_ID"\n\n' +
+                'az ad sp create-for-rbac \\\n' +
+                '  --name "devopsagent-' + role.toLowerCase() + '" \\\n' +
+                '  --role "' + role + '" \\\n' +
+                '  --scopes "/subscriptions/$SUBSCRIPTION_ID" \\\n' +
+                '  --output json\n\n' +
+                '# Paste the output fields into the form below:\n' +
+                '#   appId      -> Azure Client ID\n' +
+                '#   password   -> Azure Client Secret\n' +
+                '#   tenant     -> Azure Tenant ID\n' +
+                '# Subscription ID is the one set above.';
+        }
+
+        function generateAzureSetupScript() {
+            var policyLevel = document.getElementById('azurePolicyLevel').value;
+            var subscriptionId = document.getElementById('azureSubscriptionId').value.trim();
+            var script = buildAzureSetupScript(policyLevel, subscriptionId);
+            document.getElementById('azureSetupScriptText').textContent = script;
+            document.getElementById('azureSetupScriptBox').style.display = 'block';
+        }
+
+        function copyAzureSetupScript() {
+            var text = document.getElementById('azureSetupScriptText').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                if (typeof showToast === 'function') showToast('Script copied to clipboard', 'success');
+            });
+        }
+
         // GCP Functions
         function loadCurrentGcpConfig() {
             fetch('/api/gcp/config')
@@ -1441,6 +1510,42 @@
                     resultDiv.className = 'test-result error';
                     resultDiv.textContent = '✗ Error: ' + error.message;
                 });
+        }
+
+        function buildGcpSetupScript(policyLevel, projectId) {
+            var role = policyLevel === 'editor' ? 'roles/editor' : 'roles/viewer';
+            var proj = projectId || '<YOUR_PROJECT_ID>';
+            var saName = 'devopsagent';
+            return '#!/bin/bash\n' +
+                '# DevOps Agent GCP setup — creates a service account + JSON key scoped to one project.\n' +
+                '# Requires: gcloud auth login, with permission to manage IAM in this project.\n\n' +
+                'PROJECT_ID="' + proj + '"\n' +
+                'SA_NAME="' + saName + '"\n' +
+                'SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"\n\n' +
+                'gcloud config set project "$PROJECT_ID"\n\n' +
+                'gcloud iam service-accounts create "$SA_NAME" \\\n' +
+                '  --display-name="DevOps Agent"\n\n' +
+                'gcloud projects add-iam-policy-binding "$PROJECT_ID" \\\n' +
+                '  --member="serviceAccount:$SA_EMAIL" \\\n' +
+                '  --role="' + role + '"\n\n' +
+                'gcloud iam service-accounts keys create devopsagent-key.json \\\n' +
+                '  --iam-account="$SA_EMAIL"\n\n' +
+                'echo "Paste the contents of devopsagent-key.json into the Service Account Key field below."';
+        }
+
+        function generateGcpSetupScript() {
+            var policyLevel = document.getElementById('gcpPolicyLevel').value;
+            var projectId = document.getElementById('gcpProjectId').value.trim();
+            var script = buildGcpSetupScript(policyLevel, projectId);
+            document.getElementById('gcpSetupScriptText').textContent = script;
+            document.getElementById('gcpSetupScriptBox').style.display = 'block';
+        }
+
+        function copyGcpSetupScript() {
+            var text = document.getElementById('gcpSetupScriptText').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                if (typeof showToast === 'function') showToast('Script copied to clipboard', 'success');
+            });
         }
 
         // Utility function to show messages

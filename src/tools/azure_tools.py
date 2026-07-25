@@ -1,12 +1,29 @@
 """Azure tools for DevOps Agent."""
+import threading
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
 
 logger = get_logger(__name__)
 
+# Thread-local storage for user context (mirrors aws_tools.py's pattern)
+_user_context = threading.local()
+
+
+def set_user_context(user_id: Optional[int] = None):
+    """Set user context for Azure operations in this thread."""
+    _user_context.user_id = user_id
+
+
+def clear_user_context():
+    """Clear user context from this thread."""
+    _user_context.user_id = None
+
 
 def _get_current_user_id() -> Optional[int]:
-    """Get current user ID from Flask context if available."""
+    """Get current user ID: thread-local context first, then Flask request context."""
+    user_id = getattr(_user_context, 'user_id', None)
+    if user_id is not None:
+        return user_id
     try:
         from flask import g, has_request_context
         if has_request_context() and hasattr(g, 'current_user_id'):
