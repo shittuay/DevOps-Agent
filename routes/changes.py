@@ -10,7 +10,7 @@ Manages infrastructure change requests with risk-based approval routing:
 from flask import Blueprint, request, jsonify, session
 from flask_login import login_required, current_user
 from models import db, InfrastructureChange, InfrastructureResource, OrganizationMember
-from services.rbac import require_permission, Permission, approver_required, user_is_admin
+from services.rbac import require_permission, Permission, approver_required, user_is_admin, user_active_org_ids
 from datetime import datetime
 import logging
 
@@ -24,10 +24,7 @@ def _user_active_org_ids(user) -> set:
     belonging to an organization the approver isn't a member of, or with no
     organization at all (solo/non-team accounts), are outside their reach.
     """
-    rows = OrganizationMember.query.filter_by(
-        user_id=user.id, is_active=True
-    ).with_entities(OrganizationMember.organization_id).all()
-    return {r[0] for r in rows}
+    return user_active_org_ids(user.id)
 
 
 def _change_visible_to_approver(change, user) -> bool:

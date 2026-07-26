@@ -33,6 +33,24 @@ def build_risk_reason(tool_name: str, tool_input: dict) -> str:
     return f"This will execute: {action}"
 
 
+def is_visible_to_approver(req, approver) -> bool:
+    """Whether a non-admin approver may view/act on this ApprovalRequest.
+
+    ApprovalRequest has no organization_id of its own (unlike InfrastructureChange),
+    so visibility is derived from whether the approver shares an active organization
+    membership with the request's requester — mirrors routes/changes.py's
+    _change_visible_to_approver. A requester with no active org membership (solo
+    account) is only visible to admins, same convention as changes.py.
+    """
+    from services.rbac import user_is_admin, user_active_org_ids
+    if user_is_admin(approver):
+        return True
+    requester_orgs = user_active_org_ids(req.requester_id)
+    if not requester_orgs:
+        return False
+    return bool(requester_orgs & user_active_org_ids(approver.id))
+
+
 def create_request(tool_name: str, tool_input: dict, risk_level: str,
                    risk_reason: str, requester_id: int,
                    conversation_id: Optional[str] = None):
@@ -63,11 +81,12 @@ def create_request(tool_name: str, tool_input: dict, risk_level: str,
 
 
 def _notify_approvers(req):
-    """Create in-app notifications and send email to all approvers/admins."""
+    """Create in-app notifications and send email to approvers who can act on this request."""
     from models import User, AppNotification, db
     from services.email_service import EmailService
 
-    approvers = User.query.filter(User.role.in_(['approver', 'admin'])).all()
+    candidates = User.query.filter(User.role.in_(['approver', 'admin'])).all()
+    approvers = [a for a in candidates if is_visible_to_approver(req, a)]
     if not approvers:
         logger.warning("No approvers configured to notify")
         return
@@ -115,6 +134,9 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
 
     approver = User.query.get(approver_id)
     if not approver or approver.role not in ('approver', 'admin'):
+        return {'success': False, 'error': 'Unauthorized'}
+
+    if not is_visible_to_approver(req, approver):
         return {'success': False, 'error': 'Unauthorized'}
 
     if approver_id == req.requester_id:
@@ -202,6 +224,9 @@ def reject(approval_id: int, approver_id: int, note: Optional[str] = None) -> di
     if not approver or approver.role not in ('approver', 'admin'):
         return {'success': False, 'error': 'Unauthorized'}
 
+    if not is_visible_to_approver(req, approver):
+        return {'success': False, 'error': 'Unauthorized'}
+
     if approver_id == req.requester_id:
         return {'success': False, 'error': 'Cannot reject your own request'}
 
@@ -245,18 +270,33 @@ def reject(approval_id: int, approver_id: int, note: Optional[str] = None) -> di
     return {'success': True}
 
 
-def get_pending_for_approver() -> list:
-    """Return all non-expired pending requests, newest first."""
-    from models import ApprovalRequest
+def get_pending_for_approver(approver_id: int) -> list:
+    """Return non-expired pending requests visible to this approver, newest first.
+
+    Admins see every pending request; other approvers only see requests from
+    requesters who share an active organization with them (see
+    is_visible_to_approver) — without this filter any role='approver' account could
+    see (and, before the approve()/reject() checks above, act on) every
+    organization's pending requests platform-wide.
+    """
+    from models import ApprovalRequest, User
 
     _expire_stale()
     now = datetime.utcnow()
-    return (
+    reqs = (
         ApprovalRequest.query
         .filter(ApprovalRequest.status == 'pending', ApprovalRequest.expires_at > now)
         .order_by(ApprovalRequest.created_at.desc())
         .all()
     )
+
+    approver = User.query.get(approver_id)
+    if not approver:
+        return []
+    from services.rbac import user_is_admin
+    if user_is_admin(approver):
+        return reqs
+    return [r for r in reqs if is_visible_to_approver(r, approver)]
 
 
 def _execute_tool(req) -> dict:
