@@ -230,6 +230,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [status-check]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Serialize deploys so two overlapping runs can never race each other's
+    # SSM script on the same box — see the reset target below for why this
+    # matters together with pinning to a specific commit.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     permissions:
       id-token: write   # OIDC token for AssumeRoleWithWebIdentity
       contents: read
@@ -259,7 +265,19 @@ jobs:
             sudo -u ubuntu git -C "$CODE" remote set-url origin git@github.com:shittuay/DevOps-Agent.git
             sudo -u ubuntu git -C "$CODE" config core.sshCommand "ssh -i /home/ubuntu/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
             sudo -u ubuntu git -C "$CODE" fetch origin main
-            sudo -u ubuntu git -C "$CODE" reset --hard origin/main
+            # Reset to the exact commit THIS workflow run tested (github.sha),
+            # never "origin/main" (its current tip). A prior incident: this
+            # step used to reset to origin/main, so a deploy job that started
+            # before a later, failing push landed could still finish its git
+            # reset/fetch after that push arrived and deploy the untested,
+            # broken tip anyway — the failing push's own CI correctly failed
+            # and skipped ITS deploy, but a different, already-green run's
+            # deploy raced past it and shipped it regardless. Pinning to the
+            # SHA this run actually built/tested closes that race; the
+            # concurrency group above stops two deploy runs from overlapping
+            # in the first place.
+            echo "Deploying tested commit: ${{ github.sha }}"
+            sudo -u ubuntu git -C "$CODE" reset --hard ${{ github.sha }}
             echo "Deployed: $(sudo -u ubuntu git -C $CODE rev-parse --short HEAD)"
 
             echo "=== Installing dependencies ==="
