@@ -311,7 +311,10 @@ class ComplianceService:
 
     def get_compliance_report(self, report_id: int) -> Optional[Any]:
         ComplianceReport = self._get_report_model()
-        return ComplianceReport.query.get(report_id)
+        query = ComplianceReport.query.filter_by(id=report_id)
+        if self.user_id is not None:
+            query = query.filter_by(user_id=self.user_id)
+        return query.first()
 
     def get_user_reports(self, user_id: int, framework_name: str = None) -> List[Any]:
         ComplianceReport = self._get_report_model()
@@ -356,7 +359,10 @@ class ComplianceService:
 
     def get_policy(self, policy_id: int) -> Optional[Any]:
         CompliancePolicy = self._get_policy_model()
-        return CompliancePolicy.query.get(policy_id)
+        query = CompliancePolicy.query.filter_by(id=policy_id)
+        if self.user_id is not None:
+            query = query.filter_by(user_id=self.user_id)
+        return query.first()
 
     def get_user_policies(self, user_id: int, policy_type: str = None) -> List[Any]:
         CompliancePolicy = self._get_policy_model()

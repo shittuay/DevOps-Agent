@@ -132,6 +132,16 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - ALL database queries MUST filter by `user_id=current_user.id`
 - Conversations, messages, credentials are per-user
 - Cloud operations use per-user encrypted credentials
+- **A service class constructed with a `user_id` must apply it on every read, not just writes.**
+  `services/compliance_service.py`'s `ComplianceService.__init__` always stores `self.user_id`
+  (every real call site — `routes/compliance.py`, `app.py`, `tasks/security_tasks.py` — passes a
+  real one), but `get_policy()`/`get_compliance_report()` did a bare `Model.query.get(id)` with no
+  `user_id` filter, so `toggle_policy`/`delete_policy`/`update_policy`/`get_report`/`export_report`
+  (all of which call one of those two getters) let any logged-in user toggle, delete, or download
+  another user's compliance policy/report by guessing the integer id. Fixed by filtering both
+  getters on `self.user_id` when set — see CLAUDE_RUNBOOK.md's 2026-07-27 scheduled-audit entry.
+  When adding a new per-user service class, an instance-level `user_id` is only a security
+  boundary if every getter actually filters by it — storing it on `self` isn't enough on its own.
 
 ### Credential Storage
 - `UserCloudCredential` model stores encrypted credentials
@@ -276,6 +286,31 @@ response body back to the caller, which made it an SSRF response oracle), and
 `token_endpoint`/`jwks_uri`/`userinfo_endpoint` — all of it caller-controlled and previously
 fetched with raw `requests.get/post`, reachable on every login attempt including against the
 cloud metadata endpoint). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
+
+### Git argument-injection guard (`src/tools/git_tools.py`)
+
+Distinct from the SSRF guard above: GitPython's `repo.git.<subcommand>(*args)` invokes the `git`
+executable directly with an argv list — no shell involved, so this isn't the shell-injection class
+`scripts/check_security_invariants.py` tracks. The bug is that **git itself treats a leading `-`
+as an option regardless of argument position**, and several subcommands expose options that
+execute arbitrary commands on the host: `git pull`/`git fetch --upload-pack=<cmd>`,
+`git push --receive-pack=<cmd>`, and `git rebase --exec=<cmd>`. `git_pull`/`git_push`/
+`git_force_push_branch`/`git_push_tag` passed caller-supplied `remote`/`branch`/`tag_name` as a
+bare positional argument with no validation, so a chat-driven caller could set
+`remote="--upload-pack=touch$IFS/tmp/pwned;true"` and reach command execution — independent of the
+medium/high-risk confirmation gate on these tools (the confirmation prompt shows "pull from X", it
+doesn't recognize X as a flag). `git_rebase_branch`'s `onto_branch` had the same shape with
+`--exec=<cmd>`. Fixed with a shared `_reject_flag_like(value, param_name)` helper (raises
+`ValueError` if `value.startswith('-')`) called before `_get_repo()` in every function that passes
+a caller-supplied remote/branch/commit/tag value as a bare positional git-command argument:
+`git_pull`, `git_push`, `git_force_push_branch`, `git_push_tag`, `git_rebase_branch`,
+`git_switch_branch`, `git_delete_branch`, `git_merge_branch`, `git_rename_branch`,
+`git_reset_to_commit`, `git_cherry_pick`, `git_delete_tag`, `git_revert_commit` — the last several
+have no known RCE-capable flag but got the same guard for defense-in-depth given the ambiguity of
+how each git subcommand's argument parser treats a dash-prefixed positional. **When adding a new
+git tool that passes a caller-supplied ref/remote/branch string as a bare positional argument to
+`repo.git.*`, call `_reject_flag_like()` on it first** — don't assume GitPython's lack of a shell
+makes the value safe.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 
@@ -724,7 +759,7 @@ instance + GetCommandInvocation only). No long-lived AWS keys exist in GitHub.
 
 Enforced by `@admin_required` / `@approver_required` decorators in `services/rbac.py`.
 
-**This is a platform-wide role, distinct from `OrganizationMember.role`** (`owner`/`admin`/`member`, used by `organizations.py`/`services/multi_tenancy.py` for team management) — the two never cross-check each other. A route gated only by `@approver_required` has no tenant boundary by default: it must add an explicit org-membership check (see `routes/changes.py`'s `_user_active_org_ids()`/`_change_visible_to_approver()`) if it touches data that isn't already scoped by `user_id`, or any `role='approver'` account can act on every organization's data platform-wide (see CLAUDE_RUNBOOK.md, change-governance org-scope fix).
+**This is a platform-wide role, distinct from `OrganizationMember.role`** (`owner`/`admin`/`member`, used by `organizations.py`/`services/multi_tenancy.py` for team management) — the two never cross-check each other. A route gated only by `@approver_required` has no tenant boundary by default: it must add an explicit org-membership check (see `routes/changes.py`'s `_user_active_org_ids()`/`_change_visible_to_approver()`) if it touches data that isn't already scoped by `user_id`, or any `role='approver'` account can act on every organization's data platform-wide (see CLAUDE_RUNBOOK.md, change-governance org-scope fix). **`routes/approvals.py` had the exact same gap** — `get_pending()`/`get_count()`/`get_history()` are gated only by a platform-role check (`_approver_required`) and read the same `InfrastructureChange` model as `routes/changes.py`, but were never given the org-membership filter, leaking every organization's pending/historical change details to any platform-wide approver. Fixed by adding a local `_org_scoped_change_query()` helper that reuses `routes.changes._user_active_org_ids()` (see CLAUDE_RUNBOOK.md's 2026-07-27 scheduled-audit entry). `ApprovalRequest` (the agent tool-call approval side of those same endpoints) has no `organization_id` and is intentionally platform-wide for any approver — only `InfrastructureChange` reads need this filter. **When adding a new `@approver_required`-gated route that queries `InfrastructureChange` (or any other org-scoped model), always route it through the shared org-scoping helper — don't re-derive the filter inline.**
 
 ### Admin Pages
 

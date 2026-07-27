@@ -3,7 +3,7 @@ from functools import wraps
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
-from models import ApprovalRequest, InfrastructureChange, User
+from models import ApprovalRequest, InfrastructureChange, User, db
 
 approvals_bp = Blueprint('approvals', __name__)
 
@@ -26,6 +26,24 @@ def queue_page():
     return render_template('approvals/queue.html')
 
 
+def _org_scoped_change_query(query):
+    """Restrict an InfrastructureChange query to the current approver's organizations.
+
+    Mirrors routes/changes.py's list_pending_approvals(): admins see every
+    organization's changes; non-admin approvers only see changes belonging to
+    an organization they're an active member of. ApprovalRequest (agent tool-call
+    approvals) has no organization_id and is intentionally platform-wide for any
+    approver, so this only needs to apply to InfrastructureChange queries.
+    """
+    if current_user.role == 'admin':
+        return query
+    from routes.changes import _user_active_org_ids
+    org_ids = _user_active_org_ids(current_user)
+    if not org_ids:
+        return query.filter(db.false())
+    return query.filter(InfrastructureChange.organization_id.in_(org_ids))
+
+
 @approvals_bp.route('/api/approvals/pending')
 @login_required
 @_approver_required
@@ -41,9 +59,10 @@ def get_pending():
         result.append(d)
 
     # Manually-submitted change requests awaiting human approval
-    changes = InfrastructureChange.query.filter_by(status='pending').order_by(
-        InfrastructureChange.created_at.asc()
-    ).all()
+    changes_query = _org_scoped_change_query(
+        InfrastructureChange.query.filter_by(status='pending')
+    )
+    changes = changes_query.order_by(InfrastructureChange.created_at.asc()).all()
     for c in changes:
         details = c.change_details or {}
         requester = User.query.get(c.user_id)
@@ -72,7 +91,9 @@ def get_pending():
 def get_count():
     from services import approval_service
     reqs = approval_service.get_pending_for_approver()
-    pending_changes = InfrastructureChange.query.filter_by(status='pending').count()
+    pending_changes = _org_scoped_change_query(
+        InfrastructureChange.query.filter_by(status='pending')
+    ).count()
     return jsonify({'count': len(reqs) + pending_changes})
 
 
@@ -110,7 +131,9 @@ def get_history():
 
     # InfrastructureChange records (non-pending)
     if status_filter != 'expired':  # changes have no "expired" status
-        cq = InfrastructureChange.query.filter(InfrastructureChange.status != 'pending')
+        cq = _org_scoped_change_query(
+            InfrastructureChange.query.filter(InfrastructureChange.status != 'pending')
+        )
         if status_filter == 'approved':
             cq = cq.filter(InfrastructureChange.status.in_(['approved', 'executed']))
         elif status_filter == 'rejected':
