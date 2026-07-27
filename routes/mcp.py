@@ -224,6 +224,43 @@ def _store_client_db(client_id: str, client_name: str, redirect_uris: list) -> N
         }
 
 
+def _find_existing_client_by_redirect_uris(redirect_uris: list) -> Optional[str]:
+    """Look up a previously-registered client with the same redirect_uris set.
+
+    Dynamic Client Registration (RFC 7591) doesn't require idempotency, but
+    claude.ai calls POST /register again on every single reconnect attempt
+    with an otherwise-identical payload (same client_name, same redirect_uris)
+    and gets back a brand-new random client_id each time. If claude.ai's own
+    connector bookkeeping expects a stable client identity across reconnects
+    (rather than treating every attempt as a new, unrelated OAuth client),
+    that churn could plausibly stop the connection from ever settling into a
+    "connected" state even though each individual token issued is valid.
+    Returns the existing client_id if one is found with the same redirect_uris
+    (order-independent), else None.
+    """
+    wanted = set(redirect_uris or [])
+    if not wanted:
+        return None
+    with _oauth_lock:
+        for cid, info in _registered_clients.items():
+            if set(info.get('redirect_uris') or []) == wanted:
+                return cid
+    try:
+        from models import MCPOAuthClient
+        from flask import current_app
+        with current_app.app_context():
+            for row in MCPOAuthClient.query.order_by(MCPOAuthClient.id.asc()).all():
+                try:
+                    existing_uris = set(json.loads(row.redirect_uris or '[]'))
+                except (TypeError, ValueError):
+                    continue
+                if existing_uris == wanted:
+                    return row.client_id
+    except Exception as e:
+        logger.warning(f"MCP: DB client search failed: {e}")
+    return None
+
+
 def _lookup_client_db(client_id: str) -> Optional[Dict[str, Any]]:
     """Look up a registered client: L1 = in-memory cache, L2 = database."""
     with _oauth_lock:
@@ -1135,16 +1172,27 @@ def oauth_register():
     Dynamic Client Registration (RFC 7591).
 
     Claude.ai and Claude Desktop call this before the authorization redirect so
-    they can use their own generated client_id.  We accept any registration and
+    they can use their own generated client_id. We accept any registration and
     return a client_id they can use in subsequent OAuth requests.
+
+    Idempotent by redirect_uris: if a client with the same redirect_uris was
+    already registered (e.g. a previous reconnect attempt), reuse that
+    client_id instead of minting a new one every time — see
+    _find_existing_client_by_redirect_uris for why this matters.
     """
     if request.method == 'OPTIONS':
         return Response('', 204, headers=_cors_headers())
 
     body = request.get_json(silent=True) or {}
-    client_id = secrets.token_urlsafe(16)
-    _store_client_db(client_id, body.get('client_name', 'MCP Client'), body.get('redirect_uris', []))
-    logger.info(f"MCP: registered OAuth client {client_id!r} ({body.get('client_name', '?')})")
+    redirect_uris = body.get('redirect_uris', [])
+    client_name = body.get('client_name', 'MCP Client')
+    client_id = _find_existing_client_by_redirect_uris(redirect_uris)
+    if client_id:
+        logger.info(f"MCP: reusing existing OAuth client {client_id!r} ({client_name}) for repeat registration")
+    else:
+        client_id = secrets.token_urlsafe(16)
+        _store_client_db(client_id, client_name, redirect_uris)
+        logger.info(f"MCP: registered OAuth client {client_id!r} ({client_name})")
 
     # RFC 7591 §3.2.1: echo the registered metadata — strict clients validate
     # that the response covers the grant types they asked for.
@@ -1154,9 +1202,9 @@ def oauth_register():
     resp = jsonify({
         'client_id':            client_id,
         'client_id_issued_at':  int(time.time()),
-        'client_name':          body.get('client_name', 'MCP Client'),
+        'client_name':          client_name,
         'token_endpoint_auth_method': 'none',   # public client — PKCE only
-        'redirect_uris':        body.get('redirect_uris', []),
+        'redirect_uris':        redirect_uris,
         'grant_types':          supported_grants,
         'response_types':       ['code'],
         'scope':                'mcp',
