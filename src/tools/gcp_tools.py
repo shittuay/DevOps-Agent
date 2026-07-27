@@ -49,13 +49,15 @@ def _get_user_gcp_credentials():
         from google.oauth2 import service_account
 
         creds_path, project_id, region, zone = get_user_gcp_credentials_file(user_id)
-        credentials = service_account.Credentials.from_service_account_file(creds_path)
-
-        # Clean up temp file
         try:
-            os.remove(creds_path)
-        except OSError:
-            pass
+            credentials = service_account.Credentials.from_service_account_file(creds_path)
+        finally:
+            # Always clean up the temp file (contains a plaintext private key),
+            # even if loading it fails partway through.
+            try:
+                os.remove(creds_path)
+            except OSError:
+                pass
 
         return credentials, project_id
     except Exception:

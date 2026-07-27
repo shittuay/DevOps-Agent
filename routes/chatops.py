@@ -11,12 +11,20 @@ import hmac
 import hashlib
 import json
 import os
+import time
 
 from services.chatops_service import get_chatops_service, ChatPlatform
+from src.utils.network_safety import safe_request
 
 logger = logging.getLogger(__name__)
 
 chatops_bp = Blueprint('chatops', __name__, url_prefix='/chatops')
+
+# Bot Framework auth for the Teams endpoints below (see _verify_teams_request).
+_BOTFRAMEWORK_OPENID_CONFIG = 'https://login.botframework.com/v1/.well-known/openidconfiguration'
+_BOTFRAMEWORK_ISSUER = 'https://api.botframework.com'
+_TEAMS_JWKS_CACHE: dict = {}
+_TEAMS_JWKS_TTL = 3600  # seconds
 
 
 # ==================== WEB ROUTES ====================
@@ -179,6 +187,59 @@ def slack_interactive():
 # ==================== MICROSOFT TEAMS INTEGRATION ====================
 
 
+def _get_botframework_jwks() -> dict:
+    """Fetch (and cache) Bot Framework's JWKS used to verify inbound bot tokens."""
+    cached = _TEAMS_JWKS_CACHE.get('jwks')
+    if cached and time.time() - cached[0] < _TEAMS_JWKS_TTL:
+        return cached[1]
+
+    # Both URLs are hardcoded to Microsoft's Bot Framework endpoint, never
+    # caller-influenced — still routed through safe_request for defense in depth.
+    doc = safe_request('GET', _BOTFRAMEWORK_OPENID_CONFIG, timeout=10).json()
+    jwks = safe_request('GET', doc['jwks_uri'], timeout=10).json()
+    _TEAMS_JWKS_CACHE['jwks'] = (time.time(), jwks)
+    return jwks
+
+
+def _verify_teams_request() -> bool:
+    """Validate the Bot Framework JWT bearer token on an inbound Teams request.
+
+    Unlike the Slack routes (HMAC signature over the raw body), Teams/Bot
+    Framework authenticates via a JWT in the Authorization header, signed by
+    Microsoft and audienced to this bot's app ID (TEAMS_APP_ID). Without this
+    check, these routes accepted any anonymous POST as a legitimate Teams
+    message — dispatched straight into ChatOpsService.process_message().
+    """
+    app_id = os.environ.get('TEAMS_APP_ID')
+    if not app_id:
+        # Teams integration isn't configured — never accept unauthenticated bot traffic.
+        return False
+
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return False
+    token = auth_header[len('Bearer '):]
+
+    try:
+        from joserfc import jwt
+        from joserfc.jwk import KeySet
+
+        jwks = _get_botframework_jwks()
+        key_set = KeySet.import_key_set(jwks)
+        decoded = jwt.decode(token, key_set)
+
+        registry = jwt.JWTClaimsRegistry(
+            iss={'essential': True, 'value': _BOTFRAMEWORK_ISSUER},
+            aud={'essential': True, 'value': app_id},
+            exp={'essential': True},
+        )
+        registry.validate(decoded.claims)
+        return True
+    except Exception as e:
+        logger.warning(f"Rejected Teams request with invalid bot token: {e}")
+        return False
+
+
 @chatops_bp.route('/teams/messages', methods=['POST'])
 def teams_messages():
     """
@@ -186,6 +247,9 @@ def teams_messages():
 
     Handles incoming messages from Teams.
     """
+    if not _verify_teams_request():
+        return jsonify({'error': 'Unauthorized'}), 401
+
     data = request.get_json(silent=True) or {}
 
     activity_type = data.get('type')
@@ -229,6 +293,9 @@ def teams_commands():
     """
     Microsoft Teams messaging extension commands.
     """
+    if not _verify_teams_request():
+        return jsonify({'error': 'Unauthorized'}), 401
+
     data = request.get_json(silent=True) or {}
 
     command_id = data.get('name')

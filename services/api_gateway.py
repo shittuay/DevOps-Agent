@@ -5,7 +5,6 @@ Provides public API access, API key management, rate limiting, and webhooks out.
 Uses database persistence for all data.
 """
 
-import ipaddress
 import logging
 from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime, timedelta, date
@@ -14,13 +13,11 @@ import secrets
 import hashlib
 import hmac
 import json
-import socket
-from urllib.parse import urlparse
 from functools import wraps
 
 from flask import request, jsonify, g
 
-from src.utils.network_safety import safe_request, UnsafeUrlError
+from src.utils.network_safety import safe_request, assert_safe_external_webhook_url, UnsafeUrlError
 
 logger = logging.getLogger(__name__)
 
@@ -31,30 +28,21 @@ def _is_safe_webhook_url(url: str) -> bool:
     Deliberately stricter than src.utils.network_safety.assert_safe_url — these
     are arbitrary user-configured external endpoints, not the self-hosted
     internal-tool trust model (Jenkins/SonarQube/Nexus/etc.) assert_safe_url is
-    designed for, so RFC1918/reserved ranges are blocked here too.
+    designed for, so RFC1918/reserved ranges are blocked here too. Shared with
+    notification_service.py's Slack/Teams webhooks (same trust model) via
+    assert_safe_external_webhook_url() in network_safety.py.
     """
     try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ('http', 'https'):
-            return False
-        hostname = parsed.hostname
-        if not hostname:
-            return False
-        resolved = socket.getaddrinfo(hostname, None)
-        for _, _, _, _, sockaddr in resolved:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return False
+        assert_safe_external_webhook_url(url)
         return True
-    except Exception:
+    except UnsafeUrlError:
         return False
 
 
 def _raise_if_unsafe_webhook_url(url: str) -> None:
     """Adapts the bool-returning _is_safe_webhook_url to safe_request()'s
     raise-on-rejection validator contract."""
-    if not _is_safe_webhook_url(url):
-        raise UnsafeUrlError(f"Webhook URL {url!r} targets a disallowed network")
+    assert_safe_external_webhook_url(url)
 
 
 class APIKeyScope(Enum):

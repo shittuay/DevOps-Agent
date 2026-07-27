@@ -71,6 +71,45 @@ def assert_safe_url(url: str) -> str:
     return url
 
 
+def assert_safe_external_webhook_url(url: str) -> str:
+    """
+    Stricter sibling of assert_safe_url() for arbitrary user-configured
+    EXTERNAL webhook endpoints (Slack/Teams/generic outbound webhooks) — a
+    different trust model than assert_safe_url's self-hosted-internal-tool
+    targets (Jenkins/SonarQube/Nexus/Prometheus/K8s service IPs/etc.), which
+    legitimately live on private IPs. Here there is no legitimate reason for
+    a notification webhook to target RFC1918/loopback/link-local/reserved
+    space, so those ranges are blocked too (not just loopback/link-local).
+
+    Raises UnsafeUrlError if disallowed. Returns the url unchanged if safe.
+    """
+    if not url or not isinstance(url, str):
+        raise UnsafeUrlError("URL must be a non-empty string")
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        raise UnsafeUrlError(f"URL scheme must be http or https, got: {parsed.scheme!r}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise UnsafeUrlError("URL must include a hostname")
+
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        raise UnsafeUrlError(f"Could not resolve host {hostname!r}: {e}")
+
+    for _, _, _, _, sockaddr in addr_infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved \
+                or ip.is_multicast or ip.is_unspecified:
+            raise UnsafeUrlError(
+                f"Webhook URL host {hostname!r} resolves to a disallowed private/internal address ({sockaddr[0]})"
+            )
+
+    return url
+
+
 _SENSITIVE_HEADERS = ('authorization', 'cookie', 'proxy-authorization')
 
 
