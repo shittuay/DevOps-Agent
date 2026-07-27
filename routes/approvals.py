@@ -1,5 +1,3 @@
-from functools import wraps
-
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
@@ -8,15 +6,23 @@ from models import ApprovalRequest, InfrastructureChange, User, db
 approvals_bp = Blueprint('approvals', __name__)
 
 
-def _approver_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role not in ('approver', 'admin'):
-            if request.path.startswith('/api/'):
-                return jsonify({'error': 'Approver access required'}), 403
-            return redirect(url_for('index'))
-        return f(*args, **kwargs)
-    return decorated
+def _pending_changes_query_for(user):
+    """InfrastructureChange rows awaiting approval that this approver may see.
+
+    Mirrors routes/changes.py's list_pending_approvals() scoping: admins see
+    every pending change, other approvers only see changes stamped with an
+    organization they belong to. Previously this file queried
+    InfrastructureChange.query.filter_by(status='pending') with no org filter
+    at all, letting any role='approver' account see (and, via approve/reject,
+    act on) every organization's pending changes platform-wide.
+    """
+    query = InfrastructureChange.query.filter_by(status='pending')
+    if user_is_admin(user):
+        return query
+    org_ids = user_active_org_ids(user.id)
+    if not org_ids:
+        return query.filter(db.false())
+    return query.filter(InfrastructureChange.organization_id.in_(org_ids))
 
 
 @approvals_bp.route('/approvals')
@@ -52,7 +58,7 @@ def get_pending():
     result = []
 
     # Agent-triggered approval requests
-    reqs = approval_service.get_pending_for_approver()
+    reqs = approval_service.get_pending_for_approver(current_user.id)
     for r in reqs:
         d = r.to_dict()
         d['_type'] = 'agent'
@@ -100,8 +106,10 @@ def get_count():
 @approvals_bp.route('/api/approvals/<int:approval_id>/status')
 @login_required
 def get_status(approval_id):
+    from services import approval_service
     req = ApprovalRequest.query.get_or_404(approval_id)
-    if current_user.id != req.requester_id and current_user.role not in ('approver', 'admin'):
+    is_approver = current_user.role in ('approver', 'admin') and approval_service.is_visible_to_approver(req, current_user)
+    if current_user.id != req.requester_id and not is_approver:
         return jsonify({'error': 'Access denied'}), 403
     return jsonify(req.to_dict())
 
@@ -120,8 +128,19 @@ def get_history():
     status_filter = request.args.get('status', 'all')
     limit = min(int(request.args.get('limit', 100)), 500)
 
-    # Agent approval requests (non-pending)
+    # Agent approval requests (non-pending), scoped to this approver's organization(s)
     query = ApprovalRequest.query.filter(ApprovalRequest.status != 'pending')
+    is_admin = user_is_admin(current_user)
+    if not is_admin:
+        org_ids = user_active_org_ids(current_user.id)
+        if not org_ids:
+            query = query.filter(db.false())
+        else:
+            visible_requesters = db.session.query(OrganizationMember.user_id).filter(
+                OrganizationMember.organization_id.in_(org_ids),
+                OrganizationMember.is_active.is_(True)
+            )
+            query = query.filter(ApprovalRequest.requester_id.in_(visible_requesters))
     if status_filter == 'approved':
         query = query.filter(ApprovalRequest.status.in_(['approved', 'executed']))
     elif status_filter in ('rejected', 'expired'):
@@ -129,7 +148,7 @@ def get_history():
     reqs = query.order_by(ApprovalRequest.created_at.desc()).limit(limit).all()
     result = [r.to_dict() for r in reqs]
 
-    # InfrastructureChange records (non-pending)
+    # InfrastructureChange records (non-pending), same org scoping
     if status_filter != 'expired':  # changes have no "expired" status
         cq = _org_scoped_change_query(
             InfrastructureChange.query.filter(InfrastructureChange.status != 'pending')

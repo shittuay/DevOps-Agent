@@ -147,6 +147,25 @@ def user_is_approver(user) -> bool:
     return user_has_role(user, Role.APPROVER.value)
 
 
+def user_active_org_ids(user_id: int) -> Set[int]:
+    """Organization IDs the user is an active member of (any org role).
+
+    Shared by any route/service that scopes a non-admin approver's visibility to
+    their own organization(s) — e.g. routes/changes.py's InfrastructureChange
+    queries and services/approval_service.py's ApprovalRequest queries. Centralized
+    here (rather than each call site reimplementing the same OrganizationMember
+    lookup) after that duplication let approval_service.py's ApprovalRequest
+    queries ship without the same org check changes.py already had, letting any
+    role='approver' account approve/reject another organization's pending
+    high-risk tool calls platform-wide.
+    """
+    from models import OrganizationMember
+    rows = OrganizationMember.query.filter_by(
+        user_id=user_id, is_active=True
+    ).with_entities(OrganizationMember.organization_id).all()
+    return {r[0] for r in rows}
+
+
 def user_can_manage_user(manager, target_user) -> bool:
     """Check if manager can manage target user."""
     if not manager or not target_user:
