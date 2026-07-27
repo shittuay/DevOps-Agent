@@ -17,6 +17,14 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Same group as ci.yml's automatic deploy job — a manual dispatch here and
+    # a push-triggered deploy must never run their SSM scripts on the box at
+    # the same time (see ci.yml's deploy job for the incident this prevents).
+    # This job intentionally still resets to origin/main's current tip, not a
+    # pinned SHA — that's the whole point of a manual "resync to main" tool.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     permissions:
       id-token: write   # OIDC token for AssumeRoleWithWebIdentity
       contents: read
