@@ -8,7 +8,7 @@ This document archives fixed issues and their solutions for reference. Most issu
 
 | Issue | Solution |
 |-------|----------|
-| **Scheduled audit found the change-governance org-scope gap had recurred for ApprovalRequest in routes/approvals.py (FIXED 2026-07-26)** | Routine code-vulnerability scan re-checked the exact gap class fixed in the entry below for `InfrastructureChange` and found it had never been applied to the sibling `ApprovalRequest` flow (agent-triggered high-risk tool calls awaiting human approval, distinct from the manually-submitted `InfrastructureChange` requests). `routes/approvals.py` defined its own `_approver_required` decorator instead of importing `services/rbac.py`'s `approver_required`, and none of its data access was org-scoped: `services/approval_service.get_pending_for_approver()` returned every pending `ApprovalRequest` platform-wide (the model has no `organization_id` column at all — unlike `InfrastructureChange`, which has one specifically for this), and `routes/approvals.py`'s `get_pending`/`get_count`/`get_history` queried `InfrastructureChange` directly with no org filter even though `routes/changes.py`'s equivalent `list_pending_approvals` already filters it correctly. Net effect: any platform-wide `role='approver'` account (granted per-org routinely, not just site admins) could view and **approve/reject** — which executes the underlying tool call for real — another organization's pending high-risk requests, a more consequential recurrence than the read-only view gaps normally seen in this class of bug. Fixed by: (1) extracting the `OrganizationMember` lookup duplicated in `routes/changes.py`'s `_user_active_org_ids()` into a single shared `services.rbac.user_active_org_ids()`, with `changes.py` now delegating to it; (2) adding `services.approval_service.is_visible_to_approver(req, approver)` — since `ApprovalRequest` has no `organization_id`, visibility is derived from whether the approver shares an active org with the *requester* (same "solo requester → admin-only" convention as `changes.py`) — and enforcing it in `approve()`/`reject()`/`get_pending_for_approver()`/`_notify_approvers()`; (3) scoping `routes/approvals.py`'s `InfrastructureChange` queries (`get_pending`/`get_count`/`get_history`) with the same admin-bypass/org-filter pattern `routes/changes.py` already uses, and its `get_status` endpoint via `is_visible_to_approver`; (4) replacing the duplicate `_approver_required` decorator with the shared `services.rbac.approver_required`. Regression tests: `tests/test_approval_org_scope.py` (org-member approve, foreign-org denial on view/status/approve/reject, solo-request admin-only, admin sees all). **Lesson:** a fix scoped to one route file doesn't close the underlying gap if a sibling file duplicates the same query pattern without the same check — the shared `user_active_org_ids()`/`is_visible_to_approver()` helpers exist specifically so the next new approver-gated surface imports the check instead of reimplementing (and forgetting) it. |
+| **Scheduled audit found git argument-injection RCE + two org/user-isolation IDORs (FIXED 2026-07-27)** | Routine code-vulnerability scan (parallel sweeps of routes/services for IDOR, of src/tools for injection/SSRF gaps, and of known duplicated code) found three real issues. **(1) Git argument-injection → command execution, highest severity:** `src/tools/git_tools.py`'s `git_pull`/`git_push`/`git_force_push_branch`/`git_push_tag` passed caller-supplied `remote`/`branch`/`tag_name` as a bare positional argument to GitPython's `repo.git.<subcommand>(*args)` with no validation. GitPython invokes `git` directly with no shell (not the shell-injection class `scripts/check_security_invariants.py` tracks), but git itself treats a leading `-` as an option regardless of position, and `git pull`/`fetch --upload-pack=<cmd>`, `git push --receive-pack=<cmd>`, and `git rebase --exec=<cmd>` (found the same way in `git_rebase_branch`'s `onto_branch`) all execute `<cmd>` on the host as part of the transport/rebase machinery. A chat-driven caller could set `remote="--upload-pack=touch$IFS/tmp/pwned;true"` and reach command execution independent of the medium/high-risk confirmation gate on these tools (the prompt shows "pull from X", it doesn't recognize X as a flag). Fixed with a shared `_reject_flag_like(value, param_name)` helper (rejects any value starting with `-`) called before `_get_repo()` in every function passing a caller-supplied ref/remote/branch/commit/tag as a bare positional arg — the RCE-capable set above plus `git_switch_branch`, `git_delete_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_to_commit`, `git_cherry_pick`, `git_delete_tag`, `git_revert_commit` for defense-in-depth (no known RCE flag on those, but the same ambiguity of how each subcommand's parser treats a dash-prefixed positional). Regression tests: `tests/test_git_tools_argument_injection.py` (13 tests — confirms the guard fires *before* `_get_repo()` runs, and that normal values pass through untouched). **(2) `services/compliance_service.py` IDOR:** `get_policy()`/`get_compliance_report()` did a bare `Model.query.get(id)` with no `user_id` filter even though `ComplianceService` is always constructed with one — any logged-in user could toggle, delete, or download another user's compliance policy/report by guessing the integer id (`toggle_policy`/`delete_policy`/`update_policy`/`get_report`/`export_report` all call one of the two unfiltered getters). Fixed by filtering both on `self.user_id` when set. Regression tests: `tests/test_compliance_policy_idor.py` (5 tests). **(3) `routes/approvals.py` org-scope leak:** same bug class as the change-governance fix below, in a route file that was never given the same treatment — `get_pending()`/`get_count()`/`get_history()` are gated only by the platform-wide `_approver_required` (no org-membership check) and query `InfrastructureChange` — which carries `organization_id` specifically to scope non-admin approver visibility — with no org filter at all, leaking every organization's pending/historical change details (requester, resource, risk reason) to any platform-role approver. Fixed with a local `_org_scoped_change_query()` helper that reuses `routes.changes._user_active_org_ids()` rather than re-deriving the org-membership logic a third time. `ApprovalRequest` (the agent tool-call approval side of the same endpoints) has no `organization_id` and is intentionally platform-wide, so it was left untouched. Regression tests: `tests/test_approvals_org_scope.py` (3 tests). Full suite after the fixes: 630 passed (plus 21 new), 1 pre-existing unrelated failure (missing `ANTHROPIC_API_KEY` in the sandbox used to run the suite). **Also cataloged, not yet fixed (lower risk / larger diff, left for a future pass):** duplicated OpenAI-compatible `chat()`/`chat_stream()` logic across `services/model_failover.py`'s three provider classes; `create_or_update_recommendation()` defined twice, with diverged behavior, in `services/cost_explorer.py` and `services/infrastructure_sync.py`; near-identical `docker_compose_up`/`docker_compose_down` in `docker_tools.py`; three structurally-identical email-template functions in `services/email_service.py`; duplicated header-parsing block between `require_api_key`/`optional_api_key` in `services/api_key_service.py`. **Lesson:** the SSRF/shell-injection guard pattern doesn't cover every way a "safe because no shell" subprocess call can still be attacker-steerable — GitPython's argv-passthrough is real command execution once a positional argument can be flag-shaped; any future tool wrapping a CLI that accepts `--upload-pack`/`--receive-pack`/`--exec`-style transport/hook options needs the same bare-positional-argument scrutiny, not just a shell-metacharacter check. |
 | **Scheduled audit found curriculum AI-guide guardrail bypass + three SSRF gaps (FIXED 2026-07-23)** | Routine code-vulnerability scan (guardrails / safety.py / SSRF / user-isolation sweeps) found: (1) `routes/curriculum.py`'s `/curriculum/api/ai-guide` streamed a free-text `question` straight into a Kimi chat completion with **none** of the four mandated guardrail steps (no `sanitize_input`, no `is_guardrail_blocked` check, no `validate_message`, no `screen_message`) — the same bug class as the `api_gateway.py`/`api/v1/conversations.py` incidents below, just not yet caught. Fixed by porting the same guardrail block (including crisis-language handling, logged to `CrisisIncident` with `conversation_id=f'curriculum:{module_id}'`) used in `app.py`'s `/api/chat`. (2) `services/notification_service.py`'s `SlackClient.send_webhook`/`TeamsClient.send` POST to a user-configured `webhook_url` (set via `routes/notifications.py`) with **zero** SSRF validation — pointing it at `http://169.254.169.254/latest/meta-data/` made the server fetch cloud metadata on every notification event, and the Slack path even logged the response body. Fixed by calling `assert_safe_url()` before both requests. (3) `services/api_gateway.py`'s `test_webhook()` skipped the `_is_safe_webhook_url()` guard that `trigger_webhook()` already had, and echoed up to 500 chars of the response body straight back to the caller — a direct SSRF response oracle for anyone who owns a webhook row. Fixed by adding the same guard used elsewhere in the file. (4) `src/tools/git_tools.py`'s `_validate_git_url()` only checked URL *shape* (scheme/pattern), never resolved the host — `git_clone_repository`/`git_add_remote` would let `git`'s own HTTP transport issue a real GET to `http://169.254.169.254/...` before failing. Fixed by resolving the host (both `https://` via `assert_safe_url()` and `git@host:` via direct `getaddrinfo` + the shared `_is_blocked_ip()` check) and rejecting loopback/link-local targets. **Verified clean in the same pass:** `safety.py` risk classification (all 745 tools cross-referenced, zero gaps), user-isolation/IDOR shape across all per-user models (zero unfixed instances), Datadog/PagerDuty/OpsGenie/Prometheus/Grafana/Jenkins/SonarQube/Nexus SSRF wiring. **Open item at the time, since fixed same day** (see the entry directly below): `routes/changes.py`'s `approve_change`/`reject_change` let any user holding the `approver` role act on *any* pending change regardless of who it's assigned to, while the sibling `list_pending_approvals` scopes non-admins to `user_id=current_user.id`. |
 | **Change governance had no tenant boundary — any approver could act on every customer's changes (FIXED 2026-07-23)** | Flagged as an open item in the entry above, then investigated further same day: the gap was broader than an assignment mismatch. `InfrastructureChange` (`models.py`) only ever tracked `user_id` (requester) and `approver_id` — no assignment/team field existed. `routes/changes.py`'s `list_changes`, `approve_change`, `reject_change`, and `rollback_change` gated purely on the **platform-wide** `User.role` (`admin`/`approver`/`user`/`viewer`, only settable via direct DB edit — see "Granting Admin Access" in CLAUDE.md) and queried the entire `InfrastructureChange` table with zero org boundary: any account promoted to `role='approver'` could view, approve, reject, or roll back **every customer's** infrastructure changes platform-wide, not just their own team's — this is a different, unrelated role system from the per-org `OrganizationMember.role` (`owner`/`admin`/`member`) used in `organizations.py`, and the two never cross-checked each other. Separately, `list_pending_approvals` filtered non-admins to `user_id=current_user.id` — showing an approver only changes *they personally submitted*, never other users' changes awaiting approval — while the action endpoints had no such filter, so an approver could act on a change by ID that never appeared in their own pending list. Fixed by adding `InfrastructureChange.organization_id` (nullable FK, stamped at creation from the requester's `session['active_organization_id']`, validated against real `OrganizationMember` rows so a tampered session value can't assign a change to a foreign org) and scoping every non-admin approver path (`list_changes`, `get_change`, `list_pending_approvals`, `approve_change`, `reject_change`, `rollback_change`) to organizations the approver is an active member of via a shared `_user_active_org_ids()`/`_change_visible_to_approver()` helper pair. A change with no organization (solo/non-team accounts) is now approvable only by a platform admin — there's no team to route it to. Admins remain unrestricted, matching every other admin-gated view in the app. Regression tests: `tests/test_change_governance_org_scope.py` (6 tests: org-stamping, org-member approve, foreign-org denial on view/approve/reject, solo-change admin-only, admin sees all). **Lesson:** this repo has two independent role systems (platform `User.role` vs per-org `OrganizationMember.role`) that look similar but don't compose — any route gated by `approver_required`/`admin_required` needs an explicit org-membership check if it touches data that isn't already scoped by `user_id`, the same class of gap as the guardrails-stack and safety.py single-source-of-truth lessons above. |
 | **Scheduled audit found `pagerduty_update_incident`/`opsgenie_*` alert tools unclassified in safety.py (FIXED 2026-07-18)** | Routine code-vulnerability scan flagged that `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, and `opsgenie_escalate_alert` (`src/tools/alerting_tools.py`) were absent from both `high_risk_tools` and `medium_risk_tools` in `src/agent/safety.py` — the exact `<provider>_<verb>_<noun>` blind spot documented above (name doesn't start with `update_`/`acknowledge_`/`close_`/`escalate_`, so prefix auto-detection never caught it either). Impact: the agent could silently resolve or escalate a live PagerDuty incident, or acknowledge/close/escalate an OpsGenie alert, with zero confirmation prompt — masking a real ongoing outage from on-call. Fixed by adding all four to `medium_risk_tools`; regression tests added in `tests/test_new_tools.py::TestSafetyClassifications`. No other gaps found in this pass — SSRF guard coverage, guardrail wiring on chat entry points, and the rest of the tool inventory were re-verified clean. |
@@ -488,3 +488,101 @@ finding* the same shape of gap in a new place three-plus times in one
 project history, that is itself a signal to stop fixing instances and go
 build the guardrail; see CLAUDE.md's "Security invariants" section for how
 to add a new check or exemption.
+
+---
+
+## Scheduled audit: org role-escalation, unauthenticated Teams bot endpoint, webhook SSRF gap, GCP credential leak (2026-07-25)
+
+A routine scheduled review (parallel agents auditing `routes/`+`api/`,
+`services/`, and `src/tools/`+`src/agent/`) found and fixed four issues, none
+of which were the SSRF/login-timing shape already covered by
+`scripts/check_security_invariants.py` — a reminder that the structural
+checker only closes the two specific patterns it scans for, not every
+security bug shape.
+
+1. **Org `admin` could self-promote to `owner` (`routes/organizations.py`
+   `update_member_role`).** The route took `role = request.form.get('role')`
+   and passed it straight to `MultiTenancyService.update_member_role()`
+   (`services/multi_tenancy.py`), which just sets `member.role = new_role` and
+   commits — no allow-list, no check that the caller was already an `owner`.
+   The route is gated only by `@org_admin_required`, which accepts both
+   `'owner'` and `'admin'`. Since `'owner'` is the only role with owner-only
+   powers (org deletion/billing, gated via
+   `user_has_org_permission(..., ['owner'])`), any org `admin` could
+   `POST /organizations/<org_id>/members/<own_user_id>/role` with
+   `role=owner` and grant themselves full ownership — a straightforward
+   vertical privilege escalation within a tenant. Fixed by validating
+   `new_role` against the known role set (`owner`/`admin`/`member`/
+   `billing`/`viewer`) and requiring the caller to already be an `owner`
+   before granting or changing `owner` access. Regression tests:
+   `tests/test_org_role_escalation.py`.
+
+2. **Microsoft Teams ChatOps endpoints had zero authentication
+   (`routes/chatops.py`).** `teams_messages`/`teams_commands` had no
+   `@login_required` and — unlike the Slack endpoints, which verify an HMAC
+   signature when `SLACK_SIGNING_SECRET` is set — performed no verification
+   of the caller at all, despite the ChatOps dashboard UI instructing admins
+   to set `TEAMS_APP_ID`/`TEAMS_APP_PASSWORD` for exactly this purpose; those
+   env vars were never actually read anywhere in the code. Any anonymous POST
+   with a crafted Bot Framework-shaped body was processed as a legitimate
+   Teams message and dispatched into `ChatOpsService.process_message()`.
+   Fixed by validating the inbound Bot Framework JWT
+   (`Authorization: Bearer <token>`) against Microsoft's JWKS
+   (`https://login.botframework.com/v1/.well-known/openidconfiguration`),
+   checking `iss`/`aud` (against `TEAMS_APP_ID`)/`exp` via `joserfc` — the
+   same JWT/JWKS validation pattern already used for OIDC SSO in
+   `services/sso_service.py._validate_id_token()`. The endpoint now fails
+   closed (401) if `TEAMS_APP_ID` isn't configured at all, rather than
+   accepting unauthenticated traffic when the integration is unset up.
+   Regression tests: `tests/test_chatops_teams_auth.py`. **Separately noted,
+   not fixed (low severity, pre-existing dead code):** `ChatOpsService`'s
+   `_cmd_status`/`_cmd_incident_detail`/`_cmd_acknowledge`/`_cmd_resolve` call
+   `IncidentResponseEngine` methods positionally without the required leading
+   `user_id` argument, so every one of those commands raises `TypeError`,
+   silently swallowed by `process_message()`'s generic `except Exception`.
+   These have apparently never worked since the incident engine moved to
+   per-user isolation, and there's no existing design for mapping a Slack/
+   Teams identity to an app `user_id` — real access-control design work, not
+   a one-line signature fix, so left for a future pass.
+
+3. **Slack/Teams notification webhooks could reach internal RFC1918 hosts
+   (`services/notification_service.py`, `app.py`).** `SlackClient.send_webhook`/
+   `TeamsClient.send`, and `app.py`'s `POST /api/notification-channels/<id>/test`
+   route, validated the user-supplied `webhook_url` with `assert_safe_url()`/
+   `safe_request()`'s default validator — which only blocks loopback/
+   link-local/multicast by design, since most callers of that default (Jenkins/
+   SonarQube/Nexus/Prometheus) are self-hosted internal tools that legitimately
+   live on private IPs. But a notification webhook is a different trust
+   model: an arbitrary user-configured *external* endpoint, exactly like
+   `services/api_gateway.py`'s outbound platform webhooks, which already had a
+   stricter validator (`_is_safe_webhook_url`/`_raise_if_unsafe_webhook_url`,
+   blocking RFC1918/reserved ranges too) for this exact reason — it just
+   was never reused by the Slack/Teams code. Any user could set their Slack
+   webhook URL to `http://10.x.x.x/...` and every subsequent alert/incident
+   notification would POST to that internal address — blind SSRF into the
+   app's own network. Fixed by moving the stricter check into
+   `src/utils/network_safety.py` as a shared
+   `assert_safe_external_webhook_url()`, having `api_gateway.py`'s two
+   functions delegate to it (removing the duplicated ipaddress/socket logic),
+   and wiring `notification_service.py`'s Slack/Teams clients plus `app.py`'s
+   notification-channel-test route to use it as their `validator=`. Regression
+   tests added to `tests/test_network_safety.py`.
+
+4. **GCP service-account private key left on disk when credential loading
+   failed (`services/credential_service.py` callers).**
+   `get_user_gcp_credentials_file()` writes the decrypted service-account JSON
+   (including the RSA private key) to a `tempfile.mkstemp()` path; all four
+   callers (`src/tools/gcp_tools.py._get_user_gcp_credentials`,
+   `services/infrastructure_sync.py`'s `sync_gcp_compute_instances`/
+   `sync_gcp_storage_buckets`/`sync_gcp_sql_instances`) only deleted that file
+   *after* successfully constructing
+   `service_account.Credentials.from_service_account_file(creds_path)`, with
+   no `try/finally`. A malformed/invalid/revoked key left the plaintext
+   private key on disk indefinitely — worse under repeated failed sync
+   attempts, since each one leaks another file into the shared temp
+   directory. Fixed by wrapping the `from_service_account_file(...)` call in
+   `try/finally: os.remove(creds_path)` at all four call sites. Regression
+   tests: `tests/test_gcp_credentials_file_cleanup.py`.
+
+**Also verified clean in this pass:** `scripts/check_security_invariants.py`
+reports zero violations after all the above edits.

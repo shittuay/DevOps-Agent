@@ -2523,10 +2523,12 @@ def test_notification_channel(channel_id):
             return jsonify({'success': False, 'error': f"Channel type '{channel.channel_type}' not supported for test"}), 400
 
         # Call Slack directly so we can surface the response status in the UI.
-        # webhook_url is user-configured (UserNotificationChannel) — must go
-        # through safe_request(), not a raw requests.post(), or a validated-safe
-        # URL could 302 to an internal target (see src/utils/network_safety.py).
-        from src.utils.network_safety import safe_request
+        # webhook_url is user-configured (UserNotificationChannel) — an arbitrary
+        # EXTERNAL endpoint, not the self-hosted-internal-tool trust model
+        # assert_safe_url's default policy is designed for, so use the stricter
+        # validator (also blocks RFC1918) that also gates SlackClient/TeamsClient
+        # in services/notification_service.py and api_gateway.py's webhooks-out.
+        from src.utils.network_safety import safe_request, assert_safe_external_webhook_url
         payload = {
             'text': notification.title,
             'blocks': notification.to_slack_blocks(),
@@ -2537,6 +2539,7 @@ def test_notification_channel(channel_id):
             json=payload,
             headers={'Content-Type': 'application/json'},
             timeout=10,
+            validator=assert_safe_external_webhook_url,
         )
         # Truncated, like every other webhook-test response body in this app —
         # this endpoint is owner-only, but the body is still attacker-influenced

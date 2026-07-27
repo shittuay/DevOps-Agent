@@ -132,6 +132,16 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - ALL database queries MUST filter by `user_id=current_user.id`
 - Conversations, messages, credentials are per-user
 - Cloud operations use per-user encrypted credentials
+- **A service class constructed with a `user_id` must apply it on every read, not just writes.**
+  `services/compliance_service.py`'s `ComplianceService.__init__` always stores `self.user_id`
+  (every real call site — `routes/compliance.py`, `app.py`, `tasks/security_tasks.py` — passes a
+  real one), but `get_policy()`/`get_compliance_report()` did a bare `Model.query.get(id)` with no
+  `user_id` filter, so `toggle_policy`/`delete_policy`/`update_policy`/`get_report`/`export_report`
+  (all of which call one of those two getters) let any logged-in user toggle, delete, or download
+  another user's compliance policy/report by guessing the integer id. Fixed by filtering both
+  getters on `self.user_id` when set — see CLAUDE_RUNBOOK.md's 2026-07-27 scheduled-audit entry.
+  When adding a new per-user service class, an instance-level `user_id` is only a security
+  boundary if every getter actually filters by it — storing it on `self` isn't enough on its own.
 
 ### Credential Storage
 - `UserCloudCredential` model stores encrypted credentials
@@ -248,9 +258,17 @@ module) instead of `requests.get/post/etc.` directly — it re-validates every r
 following it, raises `UnsafeUrlError` on rejection, caps the chain at 5 hops, and strips
 `Authorization`/`Cookie`/`auth=` on any cross-origin hop so a redirected base_url can't leak a
 live credential to whatever responded with the redirect. Pass `validator=` if the call site needs
-a stricter policy than `assert_safe_url` (see `api_gateway.py`'s `_raise_if_unsafe_webhook_url`
-adapter, which also blocks RFC1918 — arbitrary external endpoints, not the self-hosted-tool trust
-model). For clients that don't go through `requests` at all, disable redirects at that client's
+a stricter policy than `assert_safe_url` — **`assert_safe_external_webhook_url()`** (same module)
+is the shared stricter policy for arbitrary user-configured *external* webhook endpoints
+(Slack/Teams/generic outbound webhooks): it also blocks RFC1918/reserved/multicast ranges, since
+there's no legitimate reason for a notification webhook to target private address space, unlike
+the self-hosted-internal-tool trust model `assert_safe_url` is designed for. `api_gateway.py`'s
+`_is_safe_webhook_url`/`_raise_if_unsafe_webhook_url` now delegate to it instead of duplicating the
+ipaddress/socket logic; `services/notification_service.py`'s `SlackClient`/`TeamsClient` and
+`app.py`'s `test_notification_channel` route were fixed to use it too (2026-07-25 — they were
+still using plain `assert_safe_url`/its default `safe_request()` validator, which let a
+user-configured Slack/Teams webhook or notification-channel-test URL reach RFC1918 addresses
+inside the app's own network — see CLAUDE_RUNBOOK.md). For clients that don't go through `requests` at all, disable redirects at that client's
 own level instead: `cicd_tools._disable_jenkins_redirects()` monkeypatches `python-jenkins`'s
 wrapped session (no `allow_redirects` param exposed by the library); `git_clone_repository` passes
 `multi_options=['-c', 'http.followRedirects=false']` to `Repo.clone_from()` (needs
@@ -276,6 +294,31 @@ response body back to the caller, which made it an SSRF response oracle), and
 `token_endpoint`/`jwks_uri`/`userinfo_endpoint` — all of it caller-controlled and previously
 fetched with raw `requests.get/post`, reachable on every login attempt including against the
 cloud metadata endpoint). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
+
+### Git argument-injection guard (`src/tools/git_tools.py`)
+
+Distinct from the SSRF guard above: GitPython's `repo.git.<subcommand>(*args)` invokes the `git`
+executable directly with an argv list — no shell involved, so this isn't the shell-injection class
+`scripts/check_security_invariants.py` tracks. The bug is that **git itself treats a leading `-`
+as an option regardless of argument position**, and several subcommands expose options that
+execute arbitrary commands on the host: `git pull`/`git fetch --upload-pack=<cmd>`,
+`git push --receive-pack=<cmd>`, and `git rebase --exec=<cmd>`. `git_pull`/`git_push`/
+`git_force_push_branch`/`git_push_tag` passed caller-supplied `remote`/`branch`/`tag_name` as a
+bare positional argument with no validation, so a chat-driven caller could set
+`remote="--upload-pack=touch$IFS/tmp/pwned;true"` and reach command execution — independent of the
+medium/high-risk confirmation gate on these tools (the confirmation prompt shows "pull from X", it
+doesn't recognize X as a flag). `git_rebase_branch`'s `onto_branch` had the same shape with
+`--exec=<cmd>`. Fixed with a shared `_reject_flag_like(value, param_name)` helper (raises
+`ValueError` if `value.startswith('-')`) called before `_get_repo()` in every function that passes
+a caller-supplied remote/branch/commit/tag value as a bare positional git-command argument:
+`git_pull`, `git_push`, `git_force_push_branch`, `git_push_tag`, `git_rebase_branch`,
+`git_switch_branch`, `git_delete_branch`, `git_merge_branch`, `git_rename_branch`,
+`git_reset_to_commit`, `git_cherry_pick`, `git_delete_tag`, `git_revert_commit` — the last several
+have no known RCE-capable flag but got the same guard for defense-in-depth given the ambiguity of
+how each git subcommand's argument parser treats a dash-prefixed positional. **When adding a new
+git tool that passes a caller-supplied ref/remote/branch string as a bare positional argument to
+`repo.git.*`, call `_reject_flag_like()` on it first** — don't assume GitPython's lack of a shell
+makes the value safe.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 

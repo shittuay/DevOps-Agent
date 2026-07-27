@@ -386,6 +386,37 @@ class TestOAuthFlowEndToEnd:
         assert resp.status_code == 400
         assert resp.get_json()['error'] == 'invalid_client'
 
+    def test_repeat_registration_with_same_redirect_uris_reuses_client_id(self, client):
+        """claude.ai calls POST /register again on every single reconnect attempt with
+        an otherwise-identical payload. If we minted a brand-new client_id each time,
+        a client that tracks connection state by client_id would never see a stable
+        identity across reconnects, and could plausibly never settle into a
+        'connected' state even though each individual token issued is valid."""
+        payload = {
+            'client_name': 'Claude',
+            'redirect_uris': ['https://claude.ai/api/mcp/idempotency-test-callback'],
+        }
+        first = client.post('/mcp/oauth/register', json=payload)
+        second = client.post('/mcp/oauth/register', json=payload)
+        third = client.post('/mcp/oauth/register', json=payload)
+        assert first.status_code == 201
+        assert second.status_code == 201
+        assert third.status_code == 201
+        client_id = first.get_json()['client_id']
+        assert second.get_json()['client_id'] == client_id
+        assert third.get_json()['client_id'] == client_id
+
+    def test_registration_with_different_redirect_uris_gets_distinct_client_id(self, client):
+        first = client.post('/mcp/oauth/register', json={
+            'client_name': 'app-a',
+            'redirect_uris': ['https://app-a.example.com/callback'],
+        })
+        second = client.post('/mcp/oauth/register', json={
+            'client_name': 'app-b',
+            'redirect_uris': ['https://app-b.example.com/callback'],
+        })
+        assert first.get_json()['client_id'] != second.get_json()['client_id']
+
     def test_redirect_uri_must_match_registered_value(self, client):
         reg = client.post('/mcp/oauth/register', json={
             'client_name': 'mismatch-test-client',

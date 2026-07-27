@@ -53,6 +53,23 @@ def _validate_git_url(url: str) -> bool:
     return True
 
 
+def _reject_flag_like(value: Optional[str], param_name: str) -> None:
+    """Reject a caller-supplied ref/remote/branch value that looks like a CLI flag.
+
+    GitPython's repo.git.<subcommand>(*args) hands args straight to the git
+    executable with no shell involved (not the shell-injection class), but git
+    itself parses a leading '-' as an option regardless of the caller's intent
+    that it be a literal remote/branch/commit name. Several subcommands expose
+    options that execute arbitrary commands: `git pull/fetch --upload-pack=<cmd>`,
+    `git push --receive-pack=<cmd>`, and `git rebase --exec=<cmd>` all run <cmd>
+    on this host. A value like `--upload-pack=touch$IFS/tmp/pwned` passed as the
+    "remote" argument achieves command execution independent of any shell-based
+    guard. Reject any value starting with '-' before it reaches GitPython.
+    """
+    if value and value.startswith('-'):
+        raise ValueError(f"Invalid {param_name}: must not start with '-' ({value!r})")
+
+
 def get_repository_status(repo_path: str) -> Dict[str, Any]:
     """
     Get status of a git repository.
@@ -625,6 +642,7 @@ def git_create_branch(repo_path: str, branch_name: str, start_point: Optional[st
 def git_switch_branch(repo_path: str, branch_name: str) -> Dict[str, Any]:
     """Switch to a different branch."""
     try:
+        _reject_flag_like(branch_name, 'branch_name')
         repo = _get_repo(repo_path)
         repo.git.checkout(branch_name)
         return {
@@ -643,6 +661,7 @@ def git_switch_branch(repo_path: str, branch_name: str) -> Dict[str, Any]:
 def git_delete_branch(repo_path: str, branch_name: str, force: bool = False) -> Dict[str, Any]:
     """Delete a branch."""
     try:
+        _reject_flag_like(branch_name, 'branch_name')
         repo = _get_repo(repo_path)
         repo.git.branch('-D' if force else '-d', branch_name)
         return {
@@ -662,6 +681,7 @@ def git_delete_branch(repo_path: str, branch_name: str, force: bool = False) -> 
 def git_merge_branch(repo_path: str, source_branch: str, message: Optional[str] = None, no_ff: bool = False) -> Dict[str, Any]:
     """Merge a branch into the current branch."""
     try:
+        _reject_flag_like(source_branch, 'source_branch')
         repo = _get_repo(repo_path)
         args = []
         if no_ff:
@@ -685,6 +705,8 @@ def git_merge_branch(repo_path: str, source_branch: str, message: Optional[str] 
 def git_rename_branch(repo_path: str, old_name: str, new_name: str) -> Dict[str, Any]:
     """Rename a branch."""
     try:
+        _reject_flag_like(old_name, 'old_name')
+        _reject_flag_like(new_name, 'new_name')
         repo = _get_repo(repo_path)
         repo.git.branch('-m', old_name, new_name)
         return {
@@ -781,6 +803,7 @@ def git_reset_to_commit(repo_path: str, commit_sha: str, mode: str = 'mixed') ->
     try:
         if mode not in ('soft', 'mixed', 'hard'):
             return {'success': False, 'error': f'Invalid mode: {mode}. Must be soft, mixed, or hard'}
+        _reject_flag_like(commit_sha, 'commit_sha')
         repo = _get_repo(repo_path)
         repo.git.reset(f'--{mode}', commit_sha)
         return {
@@ -848,6 +871,8 @@ def git_fetch(repo_path: str, remote: str = 'origin', prune: bool = False) -> Di
 def git_pull(repo_path: str, remote: str = 'origin', branch: Optional[str] = None, rebase: bool = False) -> Dict[str, Any]:
     """Pull changes from a remote."""
     try:
+        _reject_flag_like(remote, 'remote')
+        _reject_flag_like(branch, 'branch')
         repo = _get_repo(repo_path)
         args = [remote]
         if branch:
@@ -872,6 +897,8 @@ def git_pull(repo_path: str, remote: str = 'origin', branch: Optional[str] = Non
 def git_push(repo_path: str, remote: str = 'origin', branch: Optional[str] = None, set_upstream: bool = False) -> Dict[str, Any]:
     """Push changes to a remote."""
     try:
+        _reject_flag_like(remote, 'remote')
+        _reject_flag_like(branch, 'branch')
         repo = _get_repo(repo_path)
         args = [remote]
         if branch:
@@ -896,6 +923,8 @@ def git_push(repo_path: str, remote: str = 'origin', branch: Optional[str] = Non
 def git_force_push_branch(repo_path: str, remote: str = 'origin', branch: Optional[str] = None) -> Dict[str, Any]:
     """Force push a branch to a remote. WARNING: This overwrites remote history."""
     try:
+        _reject_flag_like(remote, 'remote')
+        _reject_flag_like(branch, 'branch')
         repo = _get_repo(repo_path)
         branch = branch or repo.active_branch.name
         repo.git.push(remote, branch, '--force')
@@ -916,6 +945,7 @@ def git_force_push_branch(repo_path: str, remote: str = 'origin', branch: Option
 def git_cherry_pick(repo_path: str, commit_sha: str) -> Dict[str, Any]:
     """Cherry-pick a commit onto the current branch."""
     try:
+        _reject_flag_like(commit_sha, 'commit_sha')
         repo = _get_repo(repo_path)
         repo.git.cherry_pick(commit_sha)
         return {
@@ -978,6 +1008,7 @@ def git_create_tag(repo_path: str, tag_name: str, message: Optional[str] = None,
 def git_delete_tag(repo_path: str, tag_name: str) -> Dict[str, Any]:
     """Delete a local tag."""
     try:
+        _reject_flag_like(tag_name, 'tag_name')
         repo = _get_repo(repo_path)
         repo.git.tag('-d', tag_name)
         return {
@@ -996,6 +1027,8 @@ def git_delete_tag(repo_path: str, tag_name: str) -> Dict[str, Any]:
 def git_push_tag(repo_path: str, tag_name: str, remote: str = 'origin') -> Dict[str, Any]:
     """Push a tag to a remote."""
     try:
+        _reject_flag_like(remote, 'remote')
+        _reject_flag_like(tag_name, 'tag_name')
         repo = _get_repo(repo_path)
         repo.git.push(remote, tag_name)
         return {
@@ -1216,6 +1249,7 @@ def git_clean_working_directory(repo_path: str, directories: bool = False, force
 def git_revert_commit(repo_path: str, commit_sha: str) -> Dict[str, Any]:
     """Revert a commit by creating a new commit that undoes the changes."""
     try:
+        _reject_flag_like(commit_sha, 'commit_sha')
         repo = _get_repo(repo_path)
         repo.git.revert(commit_sha, '--no-edit')
         return {
@@ -1234,6 +1268,7 @@ def git_revert_commit(repo_path: str, commit_sha: str) -> Dict[str, Any]:
 def git_rebase_branch(repo_path: str, onto_branch: str) -> Dict[str, Any]:
     """Rebase the current branch onto another branch."""
     try:
+        _reject_flag_like(onto_branch, 'onto_branch')
         repo = _get_repo(repo_path)
         repo.git.rebase(onto_branch)
         return {

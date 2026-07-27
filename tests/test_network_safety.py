@@ -9,7 +9,12 @@ from unittest.mock import patch
 import pytest
 from requests import Response
 
-from src.utils.network_safety import assert_safe_url, safe_request, UnsafeUrlError
+from src.utils.network_safety import (
+    assert_safe_url,
+    assert_safe_external_webhook_url,
+    safe_request,
+    UnsafeUrlError,
+)
 
 
 @pytest.mark.parametrize('url', [
@@ -42,6 +47,27 @@ def test_allows_private_network_urls():
 
 def test_allows_public_urls():
     assert assert_safe_url('https://example.com/api') == 'https://example.com/api'
+
+
+@pytest.mark.parametrize('url', [
+    'http://10.0.5.20:9090',        # RFC1918 — allowed by assert_safe_url, not here
+    'http://192.168.1.1/webhook',
+    'http://172.16.0.1/webhook',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://127.0.0.1:8080',
+])
+def test_external_webhook_validator_blocks_private_and_reserved_ranges(url):
+    # Regression: notification_service.py's Slack/Teams webhook_url is an
+    # arbitrary user-configured EXTERNAL endpoint (a different trust model
+    # than the self-hosted-internal-tool targets assert_safe_url allows on
+    # RFC1918), so it must go through the stricter validator instead.
+    with pytest.raises(UnsafeUrlError):
+        assert_safe_external_webhook_url(url)
+
+
+def test_external_webhook_validator_allows_public_urls():
+    assert assert_safe_external_webhook_url('https://hooks.slack.com/services/T00/B00/xxx') == \
+        'https://hooks.slack.com/services/T00/B00/xxx'
 
 
 def _ok_response():
