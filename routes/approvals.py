@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
-from models import ApprovalRequest, InfrastructureChange, User, db
+from models import ApprovalRequest, InfrastructureChange, OrganizationMember, User, db
+from services.rbac import approver_required as _approver_required, user_is_admin, user_active_org_ids
 
 approvals_bp = Blueprint('approvals', __name__)
 
@@ -96,7 +97,7 @@ def get_pending():
 @_approver_required
 def get_count():
     from services import approval_service
-    reqs = approval_service.get_pending_for_approver()
+    reqs = approval_service.get_pending_for_approver(current_user.id)
     pending_changes = _org_scoped_change_query(
         InfrastructureChange.query.filter_by(status='pending')
     ).count()
