@@ -623,8 +623,36 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
                         f"Tool blocked by safety validator: {result.reason}",
                         {"risk_level": result.risk_level})
         if result.requires_confirmation:
-            # For MCP we include a warning in the response but still execute —
-            # the calling AI model sees the warning and can re-confirm with the user.
+            # Same approval-workflow gate as the chat entry points
+            # (src/agent/core.py's _handle_tool_uses): a non-approver/non-admin
+            # caller cannot self-approve a high-risk tool call just by having an
+            # MCP client willing to send it — defer to a real approver instead of
+            # trusting the MCP client to have confirmed with a human first.
+            try:
+                from models import User
+                user = User.query.get(user_id)
+                if user and user.role not in ('approver', 'admin'):
+                    from services.approval_service import create_request, build_risk_reason
+                    reason = build_risk_reason(tool_name, arguments)
+                    req = create_request(
+                        tool_name=tool_name,
+                        tool_input=arguments,
+                        risk_level=result.risk_level,
+                        risk_reason=reason,
+                        requester_id=user_id,
+                    )
+                    return _ok(req_id, {
+                        "content": [{"type": "text", "text": json.dumps({
+                            "success": False,
+                            "error": "Pending approval from an approver",
+                            "approval_id": req.id,
+                            "risk_level": result.risk_level,
+                            "risk_reason": reason,
+                        })}],
+                        "isError": True,
+                    })
+            except Exception as e:
+                logger.warning(f"MCP approval intercept failed for '{tool_name}': {e}")
             logger.warning(f"MCP executing high-risk tool '{tool_name}' for user {user_id}")
     except Exception:
         pass  # Safety validator fails open

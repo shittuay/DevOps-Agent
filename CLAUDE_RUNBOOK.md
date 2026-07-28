@@ -586,3 +586,109 @@ security bug shape.
 
 **Also verified clean in this pass:** `scripts/check_security_invariants.py`
 reports zero violations after all the above edits.
+
+## Scheduled audit: MCP approval bypass, unsigned Slack interactive endpoint, AI-template/analytics IDOR (2026-07-28)
+
+A routine scheduled review (parallel agents auditing `routes/`+`api/`,
+`services/`, and `src/tools/`+`src/agent/`) found and fixed five issues.
+
+1. **MCP `tools/call` executed high-risk tools directly instead of deferring
+   to the approval workflow (`routes/mcp.py` `_handle_tools_call`).** The
+   chat entry points (`src/agent/core.py`'s `_handle_tool_uses`) already gate
+   `requires_confirmation` tools behind `services/approval_service.py`: a
+   non-approver/non-admin caller gets the call deferred into a pending
+   `ApprovalRequest` that a different approver must sign off on (self-approval
+   is explicitly disallowed elsewhere in the app). The MCP handler skipped
+   this entirely — it only logged a warning
+   ("MCP executing high-risk tool ... for user ...") and then executed the
+   tool immediately, trusting the calling MCP client (e.g. Claude Desktop) to
+   have confirmed with a human first. Any authenticated MCP client could
+   therefore call `terminate_ec2_instance`/`delete_s3_bucket`/etc. with zero
+   second-party review — the same governance control every other execution
+   path enforces, silently absent on this one. Fixed by giving
+   `_handle_tools_call` the identical intercept `core.py` uses: look up the
+   caller's `User.role`, and if not `approver`/`admin`, call
+   `approval_service.create_request()` and return a `isError: True` MCP
+   response carrying the `approval_id` instead of executing — approvers/admins
+   still execute directly, matching existing chat behavior. Fails open (logs
+   and falls through to direct execution) only if the approval-service call
+   itself raises, same fail-open convention as `core.py`.
+
+2. **`/chatops/slack/interactive` had zero signature verification
+   (`routes/chatops.py` `slack_interactive`).** Unlike its siblings
+   `/chatops/slack/events` and `/chatops/slack/commands`, which at least
+   attempted an HMAC check when `SLACK_SIGNING_SECRET` was set, this endpoint
+   read `request.form.get('payload')` and dispatched straight into
+   `ChatOpsService.process_message()` with no verification at all — anyone
+   able to reach the endpoint could forge a Slack interactive-component POST
+   (arbitrary `user_id`/`channel_id`/button `value`) and trigger any ChatOps
+   command, including incident-playbook execution, fully unauthenticated.
+   Separately, the two siblings' checks were fail-*open*: `if
+   slack_signing_secret: <verify>` with no `else`, so an operator who hadn't
+   configured `SLACK_SIGNING_SECRET` yet was accepting unsigned traffic on
+   all three endpoints — inconsistent with `_verify_teams_request()`'s
+   documented fail-closed convention for the same file's Teams routes. Fixed
+   by extracting a shared `_verify_slack_request()` helper (fails closed if
+   the secret isn't configured, otherwise checks the HMAC as before) and
+   calling it at the top of all three Slack routes, closing both the missing
+   check on `/interactive` and the fail-open gap on `/events`+`/commands`.
+
+3. **AI Infrastructure template preview leaked other users' private
+   templates (`services/ai_infrastructure.py` `AIInfrastructureService`,
+   route `routes/ai_infrastructure.py` `api_template_preview`).**
+   `get_template()`'s docstring claimed "public or owned" visibility but the
+   implementation was a bare `query.get(template_id)` with no filter at all —
+   callers were expected to re-check `template.is_public or template.user_id
+   == current_user.id` themselves, and `template_detail`/`api_template_clone`
+   did, but `api_template_preview` forgot to, so any logged-in user could read
+   another user's private template's rendered content (proprietary
+   Terraform/CloudFormation) by iterating `template_id`. Same bug shape as
+   the earlier `compliance_service.py` fix. Fixed by making `get_template()`
+   actually enforce "public or owned by `self.user_id`" (the instance already
+   receives `current_user.id` at every real call site), so every current and
+   future caller is covered regardless of whether it remembers a manual
+   check.
+
+4. **Latent recurrence of the same "instance stores `user_id`, getters don't
+   filter by it" shape in `AnalyticsService`
+   (`services/analytics_service.py`).** `get_dashboard`/`get_widget` (and
+   everything built on them — `update_dashboard`, `delete_dashboard`,
+   `update_widget`, `delete_widget`) did unfiltered `query.get(id)` despite
+   `__init__` accepting and storing `user_id`. Not currently reachable from
+   any route (dead code today), but the existing call-site convention
+   (`AnalyticsService(current_user.id)`) is exactly what caused the original
+   `compliance_service` bug and would silently reintroduce cross-user IDOR
+   the moment a dashboard/widget CRUD route is added. Fixed preemptively:
+   `get_dashboard` now returns `None` if `self.user_id` is set and doesn't
+   match the row's owner; `get_widget` resolves its parent dashboard through
+   the now-scoped `get_dashboard` and returns `None` if that dashboard isn't
+   visible.
+
+5. **`execute_change` used an ad-hoc, unscoped authorization check instead of
+   the file's shared org-visibility helper
+   (`routes/changes.py`).** `approve_change`/`reject_change`/`rollback_change`
+   all gate non-owner access on `user_is_admin(current_user) or
+   _change_visible_to_approver(change, current_user)` (organization-scoped).
+   `execute_change` instead checked `current_user.role not in ('admin',
+   'operator')` — `'operator'` isn't in the app's assignable role set
+   (`admin`/`approver`/`user`/`viewer`, see `services/rbac.py`), so this
+   currently reduces to owner-or-admin with no exploit today, but it silently
+   skips org-scoping and depends on a role that could be introduced or set
+   directly via a DB script (as the admin-grant runbook in CLAUDE.md already
+   documents doing for `role='admin'`) without anyone noticing the
+   inconsistency. Any such `operator` would be able to execute — actually run
+   against AWS/Azure/GCP using the *owner's* credentials — any other user's
+   or organization's already-approved change platform-wide. Fixed by
+   switching `execute_change` to the same `user_is_admin(...) or
+   _change_visible_to_approver(...)` check as its siblings.
+
+**Not yet acted on (reported by the audit, needs product-level design, not a
+one-line fix):** `/v1/execute`'s (`routes/api_gateway.py`) high-risk
+confirmation is a self-issued HMAC token the same API-key caller redeems —
+no second human ever reviews it, unlike the `ApprovalRequest` path fixed in
+item 1 above. Lower severity than item 1 (scoped to the API key owner's own
+account, Professional/Business tier only, requires an explicit second
+round-trip) but the same underlying gap: a caller can self-approve their own
+high-risk action. Left for a future pass since closing it changes the
+external API contract (`confirm_token` is documented/public-facing), unlike
+the MCP fix which only changed an internal execution path.
