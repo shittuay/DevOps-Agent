@@ -1373,6 +1373,10 @@ def create_or_update_recommendation(
         )
         db.session.add(recommendation)
         return True
+
+    existing.title = title
+    existing.description = description
+    existing.potential_monthly_savings = savings
     return False
 
 
