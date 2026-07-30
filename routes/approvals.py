@@ -7,25 +7,6 @@ from services.rbac import approver_required as _approver_required, user_is_admin
 approvals_bp = Blueprint('approvals', __name__)
 
 
-def _pending_changes_query_for(user):
-    """InfrastructureChange rows awaiting approval that this approver may see.
-
-    Mirrors routes/changes.py's list_pending_approvals() scoping: admins see
-    every pending change, other approvers only see changes stamped with an
-    organization they belong to. Previously this file queried
-    InfrastructureChange.query.filter_by(status='pending') with no org filter
-    at all, letting any role='approver' account see (and, via approve/reject,
-    act on) every organization's pending changes platform-wide.
-    """
-    query = InfrastructureChange.query.filter_by(status='pending')
-    if user_is_admin(user):
-        return query
-    org_ids = user_active_org_ids(user.id)
-    if not org_ids:
-        return query.filter(db.false())
-    return query.filter(InfrastructureChange.organization_id.in_(org_ids))
-
-
 @approvals_bp.route('/approvals')
 @login_required
 @_approver_required
@@ -39,13 +20,14 @@ def _org_scoped_change_query(query):
     Mirrors routes/changes.py's list_pending_approvals(): admins see every
     organization's changes; non-admin approvers only see changes belonging to
     an organization they're an active member of. ApprovalRequest (agent tool-call
-    approvals) has no organization_id and is intentionally platform-wide for any
-    approver, so this only needs to apply to InfrastructureChange queries.
+    approvals) has no organization_id column of its own — its visibility is scoped
+    separately, via services.approval_service.is_visible_to_approver() comparing
+    org membership against the *requester* — so this helper only applies to
+    InfrastructureChange queries.
     """
     if current_user.role == 'admin':
         return query
-    from routes.changes import _user_active_org_ids
-    org_ids = _user_active_org_ids(current_user)
+    org_ids = user_active_org_ids(current_user.id)
     if not org_ids:
         return query.filter(db.false())
     return query.filter(InfrastructureChange.organization_id.in_(org_ids))
