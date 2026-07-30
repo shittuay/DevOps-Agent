@@ -351,12 +351,26 @@ layer on top that reads real files and applies the file-level exemption list.
 
 ## Concurrency Model: the shared `agent` singleton
 
-Production runs a **single gunicorn worker** (`Procfile`: `--worker-class gevent
---workers 1 --worker-connections 1000`), so the one `DevOpsAgent` instance
-(`app.py`'s global `agent`) is shared by every concurrent request in the process.
-Gevent's cooperative scheduling switches to another request's greenlet on every
-I/O wait — including the entire duration of a Claude/Kimi API call, which is most
-of a request's wall-clock time.
+**The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
+1000`) does not match what's actually deployed.** Confirmed 2026-07-30 via the
+live instance's systemd unit (`devops-agent.service`) and its own startup log
+(`Using worker: sync`): production actually runs **3 plain sync workers**
+(`--workers 3`, no `--worker-class` — gunicorn's default), each a separate OS
+process with its own memory space, so `app.py`'s global `agent` is really 3
+independent per-process singletons, not one instance shared across every
+concurrent request. A sync worker fully blocks on one request at a time, so
+there's no within-process greenlet-interleaving race to begin with under this
+config — reconcile the Procfile with reality at some point (see
+CLAUDE_RUNBOOK.md's 524 incident entry), but don't assume it's live without
+checking `systemctl cat devops-agent` / the gunicorn startup log first.
+
+The rest of this section (the `_greenlet_local_property` fix) remains correct
+and worth keeping regardless of which worker class ends up running: it
+correctly isolates per-request state whether the mechanism is genuine
+greenlet-local storage (gevent) or simple thread/process-local storage (sync),
+so it's not wasted effort even though the original race it was built for
+assumed gevent specifically. The description below documents the gevent
+scenario the fix was originally designed against.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in
@@ -391,6 +405,29 @@ entirely: `aws_tools._get_boto_client` hard-requires a user context, so an appro
 either failed closed with "Authentication required" or could pick up whatever context a prior
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
+
+## Cloudflare's idle-connection timeout vs. long agent turns
+
+This site is proxied through Cloudflare, which enforces its own ~100s idle-connection
+timeout on top of everything the app does — not configurable below Enterprise tier.
+Any endpoint that can legitimately take longer than that (Kimi-tier swarm tasks are
+explicitly designed to run up to ~290s) must send *something* back to the client
+periodically, or Cloudflare kills the connection and returns a 524 to the user while
+the backend keeps working, unaware the client already gave up. See
+CLAUDE_RUNBOOK.md's 524 incident entry for how this was diagnosed live (a `499` in
+nginx's log followed by a successful completion in gunicorn's own log ~25s later —
+the backend wasn't broken, it just finished too late to matter).
+
+`/api/chat` (`app.py`) handles this by running the actual agent call in a background
+thread while streaming a whitespace keep-alive byte every
+`CHAT_KEEPALIVE_INTERVAL_SECONDS` (module-level constant in `app.py`) back to the
+client for as long as the thread is alive, then yielding the real JSON body once it
+finishes — wrapped in `flask.stream_with_context` so `current_user`/`db.session`/etc.
+keep working exactly as they would in a normal synchronous view. `response.json()`
+(browser) and `json.loads()` (Python) both ignore insignificant leading whitespace
+around a JSON value per spec, so this needed zero frontend changes. Any other
+endpoint that can legitimately run long should use the same pattern rather than a
+plain synchronous `jsonify(...)` return.
 
 ## Context Management & Progressive Tool Loading
 
