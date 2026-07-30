@@ -586,3 +586,76 @@ security bug shape.
 
 **Also verified clean in this pass:** `scripts/check_security_invariants.py`
 reports zero violations after all the above edits.
+
+---
+
+## Cloudflare 524 on long /api/chat turns — connection idle-timeout mismatch, not a backend failure (2026-07-30)
+
+A user reported a 524 ("A Timeout Occurred") from Cloudflare when asking the
+agent to perform a task. Confirmed live via server logs: nginx recorded a
+`499` (client — effectively Cloudflare — disconnected) for a `POST /api/chat`,
+and gunicorn's own access log shows that *same* request completing
+successfully (`200`) about 25 seconds later — the backend was never broken,
+it just finished after Cloudflare had already given up and shown the user an
+error.
+
+**Root cause:** `/api/chat` sent zero response bytes to the client until the
+entire agent turn was done. Kimi-tier "swarm" tasks are explicitly designed
+to take up to ~290s (the frontend gives itself a 290s client-side abort
+timeout to match gunicorn's own 300s worker timeout — see the comment
+`// Kimi uses the non-streaming endpoint — swarm scales with task
+complexity` in `templates/index.html`). Cloudflare's edge proxy has its own
+~100s idle-connection timeout that can't be raised below Enterprise tier, so
+any turn longer than ~100s got killed by Cloudflare regardless of how
+patient our own gunicorn/frontend timeouts were.
+
+**Also found while diagnosing this:** production's actual gunicorn config
+(the `devops-agent` systemd unit: `--workers 3` with the *default* `sync`
+worker class) doesn't match the repo's `Procfile` (`--worker-class gevent
+--workers 1 --worker-connections 1000`) — the Procfile appears to be stale/
+aspirational documentation for a different deploy target, not what's
+actually running. Doesn't change any conclusions from the earlier
+concurrency-race fix (`threading.local()`-backed properties are correct and
+harmless either way — sync workers are separate OS processes with no
+shared-memory race to begin with), but worth reconciling at some point so
+the docs match reality.
+
+**Fix:** `api_chat()`'s actual `agent.process_message_isolated()` /
+`_process_free_tier_chat()` call now runs in a background thread while the
+view streams a single whitespace byte every `CHAT_KEEPALIVE_INTERVAL_SECONDS`
+(15s) back to the client for as long as the thread is still alive — keeping
+Cloudflare's connection looking active without changing anything about the
+actual turn's logic or duration. The rest of the original synchronous code
+(usage logging, sanitization, saving the assistant message, credit
+deduction, building `response_data`) is unchanged, just now living inside
+the streaming generator (wrapped in `flask.stream_with_context` so
+`current_user`/`db.session`/etc. all keep working exactly as before) instead
+of directly in the view function body. The frontend needed **no changes at
+all**: `response.json()` (and Python's `json.loads()`) both ignore
+insignificant leading whitespace around a JSON value per spec, so a few
+keep-alive bytes before the real payload are completely transparent to the
+existing `const data = await kimiResp.json()` call.
+
+One behavioral note: once the response starts streaming, the HTTP status is
+already committed to 200 — an exception in the post-agent-call code (usage
+logging, DB writes, etc.) can no longer become a 500 the way the old
+synchronous handler could. Added a dedicated `try/except` inside the
+generator for this narrow window that rolls back the session and yields a
+best-effort `{"error": ...}` body instead of dropping the connection; the
+agent-call's own exception handling (already converting failures into a
+plain "Error processing request: ..." response string) is unchanged.
+
+Regression tests: `tests/test_chat_keepalive.py` — a mocked slow agent call
+proves real keep-alive whitespace bytes are sent and the final JSON still
+parses correctly (verified this fails without the fix); a mocked fast call,
+an error-raising call, and a credit-deduction/message-persistence check all
+confirm no regression to the common paths. Also verified live against the
+actual local dev server (not just Flask's test client) — full login + 2FA +
+`/api/chat` round trip, correct credit deduction, valid JSON response.
+
+**Lesson:** a 502/524/timeout from the client's perspective doesn't always
+mean the backend crashed or hung — check whether the backend actually
+*finished* shortly after the client gave up before assuming it's a hard
+failure. A proxy layer's own idle-timeout, invisible from the application's
+logs alone, can silently cap how long a legitimately-designed-to-be-slow
+endpoint is allowed to run.
