@@ -89,6 +89,37 @@ def test_slow_agent_call_streams_keepalive_and_still_returns_valid_json(app, cha
     assert data['response'] == "Done after a while."
 
 
+def test_background_agent_call_has_app_context_for_db_access(app, chatting_client, test_user):
+    """Regression test: the background thread that runs the actual agent call
+    (see _run_agent_call in app.py) must have a Flask app context pushed.
+
+    Without it, any real (non-sandbox) tool call that resolves per-user cloud
+    credentials via UserCloudCredential.query (services/credential_service.py),
+    or logs a destructive-action audit trail via db.session
+    (core.py's _audit_chat_deletion), raises "RuntimeError: Working outside
+    of application context" — silently breaking every AWS/Azure/GCP tool call
+    made through /api/chat. Simulate that by having the mocked
+    process_message_isolated actually touch the DB from inside the thread.
+    """
+    from models import User
+
+    def _process_touching_db(**kwargs):
+        # Raises RuntimeError("Working outside of application context") if
+        # this thread has no app context — exactly the bug being guarded against.
+        User.query.filter_by(id=test_user.id).first()
+        return "Queried the DB from the background thread just fine."
+
+    agent = _mock_agent(_process_touching_db)
+
+    with patch('app.agent', agent), \
+         patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
+        resp = chatting_client.post('/api/chat', json={'message': 'terminate my ec2 instance'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+    assert data['response'] == "Queried the DB from the background thread just fine."
+
+
 def test_agent_exception_is_reported_not_dropped(app, chatting_client):
     def _raise(**kwargs):
         raise RuntimeError("boom")

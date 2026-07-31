@@ -659,3 +659,54 @@ mean the backend crashed or hung — check whether the backend actually
 failure. A proxy layer's own idle-timeout, invisible from the application's
 logs alone, can silently cap how long a legitimately-designed-to-be-slow
 endpoint is allowed to run.
+
+## Scheduled review found the 524 fix itself broke every real cloud tool call via chat (2026-07-31)
+
+The Cloudflare 524 fix above (2026-07-30) moved `api_chat()`'s actual
+`agent.process_message_isolated()` / `_process_free_tier_chat()` call onto a
+dedicated background thread (`_worker = threading.Thread(target=_run_agent_call,
+daemon=True)`), while the view generator streams keep-alive whitespace and
+`_worker.join()`s. That background thread never pushed a Flask application
+context, so **any real (non-sandbox) tool call that touches the DB from
+inside `process_message_isolated` raised `RuntimeError: Working outside of
+application context`** — caught by `_run_agent_call`'s own `except Exception`
+and turned into a plain `"Error processing request: ..."` response string, so
+it failed silently from the caller's point of view (200 OK, agent-shaped error
+text) rather than a loud 500.
+
+This was not a narrow edge case: `services/credential_service.py`'s
+`get_user_boto_client()` (called by `src/tools/aws_tools.py`'s
+`_get_boto_client()`, i.e. **every** AWS tool call, and the Azure/GCP
+equivalents) does `UserCloudCredential.query.filter_by(...)`, so essentially
+all non-sandbox AWS/Azure/GCP tool calls made through `/api/chat` broke the
+moment 5e39d02 (PR #106) reached `main`. `core.py`'s `_audit_chat_deletion()`
+(the destructive-action audit trail — see the "User Isolation" section) has
+the same shape (`db.session.add(InfrastructureChange(...))` /
+`db.session.commit()`) and would have silently stopped logging destructive
+chat actions even if a tool call somehow didn't need a DB-backed credential
+lookup. Confirmed empirically in an isolated repro (a bare `threading.Thread`
+touching a Flask-SQLAlchemy model with no app context reliably raises the
+same `RuntimeError`, while wrapping the same call in `with app.app_context():`
+succeeds) before touching the fix.
+
+**Why the keepalive regression tests (`tests/test_chat_keepalive.py`) didn't
+catch this:** every existing test there mocks `agent.process_message_isolated`
+with a plain lambda/sleep that never touches the DB, so none of them exercised
+the one thing that actually needs the app context.
+
+**Fix:** wrap `_run_agent_call`'s body in `with app.app_context():` — same
+"re-enter the app context inside the thread, never pass a live ORM object
+across the boundary" pattern already used by
+`services/notification_service.py`'s async Slack/Teams dispatch and
+`routes/auth.py`'s `_dispatch_password_reset_email()`. Added
+`test_background_agent_call_has_app_context_for_db_access` to
+`tests/test_chat_keepalive.py`, which mocks `process_message_isolated` to
+actually run a DB query from inside the thread — verified it fails with the
+exact `RuntimeError` above against the pre-fix code and passes after the fix.
+
+**Lesson:** any time a Flask request handler's real work gets moved onto a
+new thread for latency/timeout reasons (keep-alive streaming, fire-and-forget
+background dispatch, etc.), a regression test that only mocks/stubs the
+work being threaded will never catch a missing `app.app_context()` — the
+mock has to actually touch the DB (or otherwise depend on `current_app`) to
+exercise the one failure mode that matters.

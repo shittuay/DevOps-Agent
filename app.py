@@ -3045,42 +3045,53 @@ def api_chat():
         _agent_result = {}
 
         def _run_agent_call():
-            try:
-                if model_config.provider == 'kimi':
-                    resp = agent.process_message_isolated(
-                        user_message=message,
-                        conversation_history=conversation_history,
-                        user_preferences_context=preferences_context,
-                        user_id=_user_id,
-                        model_override=model_config.model,
-                        trial_context=trial_context,
-                        sandbox_mode=sandbox_active,
-                        provider='kimi',
-                        tools_override=_filtered_tools,
-                        trust_tool_results=model_config.trust_tool_results,
-                        swarm_max_agents=_swarm_max_agents,
-                    )
-                elif model_config.provider == 'anthropic':
-                    resp = agent.process_message_isolated(
-                        user_message=message,
-                        conversation_history=conversation_history,
-                        user_preferences_context=preferences_context,
-                        user_id=_user_id,
-                        model_override=model_config.model,
-                        trial_context=trial_context,
-                        sandbox_mode=sandbox_active,
-                        tools_override=_filtered_tools,
-                        trust_tool_results=model_config.trust_tool_results,
-                    )
-                else:
-                    resp = _process_free_tier_chat(message, conversation_history, preferences_context)
-                _agent_result['response'] = resp
-                _agent_result['success'] = True
-                _agent_result['error_msg'] = None
-            except Exception as agent_error:
-                _agent_result['response'] = f"Error processing request: {str(agent_error)}"
-                _agent_result['success'] = False
-                _agent_result['error_msg'] = str(agent_error)
+            # Runs on a dedicated background thread (see below), which has no
+            # Flask application context of its own. Every real (non-sandbox)
+            # tool call resolves per-user cloud credentials via
+            # UserCloudCredential.query (services/credential_service.py) and
+            # destructive actions log an InfrastructureChange via db.session
+            # (core.py's _audit_chat_deletion) — both need an active app
+            # context or they raise "Working outside of application context."
+            # Re-enter it here rather than passing any live ORM object across
+            # the thread boundary (same pattern as
+            # services/notification_service.py's async Slack dispatch).
+            with app.app_context():
+                try:
+                    if model_config.provider == 'kimi':
+                        resp = agent.process_message_isolated(
+                            user_message=message,
+                            conversation_history=conversation_history,
+                            user_preferences_context=preferences_context,
+                            user_id=_user_id,
+                            model_override=model_config.model,
+                            trial_context=trial_context,
+                            sandbox_mode=sandbox_active,
+                            provider='kimi',
+                            tools_override=_filtered_tools,
+                            trust_tool_results=model_config.trust_tool_results,
+                            swarm_max_agents=_swarm_max_agents,
+                        )
+                    elif model_config.provider == 'anthropic':
+                        resp = agent.process_message_isolated(
+                            user_message=message,
+                            conversation_history=conversation_history,
+                            user_preferences_context=preferences_context,
+                            user_id=_user_id,
+                            model_override=model_config.model,
+                            trial_context=trial_context,
+                            sandbox_mode=sandbox_active,
+                            tools_override=_filtered_tools,
+                            trust_tool_results=model_config.trust_tool_results,
+                        )
+                    else:
+                        resp = _process_free_tier_chat(message, conversation_history, preferences_context)
+                    _agent_result['response'] = resp
+                    _agent_result['success'] = True
+                    _agent_result['error_msg'] = None
+                except Exception as agent_error:
+                    _agent_result['response'] = f"Error processing request: {str(agent_error)}"
+                    _agent_result['success'] = False
+                    _agent_result['error_msg'] = str(agent_error)
 
         import threading
         _worker = threading.Thread(target=_run_agent_call, daemon=True)

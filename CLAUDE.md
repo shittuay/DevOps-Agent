@@ -418,16 +418,35 @@ CLAUDE_RUNBOOK.md's 524 incident entry for how this was diagnosed live (a `499` 
 nginx's log followed by a successful completion in gunicorn's own log ~25s later —
 the backend wasn't broken, it just finished too late to matter).
 
-`/api/chat` (`app.py`) handles this by running the actual agent call in a background
-thread while streaming a whitespace keep-alive byte every
-`CHAT_KEEPALIVE_INTERVAL_SECONDS` (module-level constant in `app.py`) back to the
-client for as long as the thread is alive, then yielding the real JSON body once it
-finishes — wrapped in `flask.stream_with_context` so `current_user`/`db.session`/etc.
-keep working exactly as they would in a normal synchronous view. `response.json()`
-(browser) and `json.loads()` (Python) both ignore insignificant leading whitespace
-around a JSON value per spec, so this needed zero frontend changes. Any other
-endpoint that can legitimately run long should use the same pattern rather than a
-plain synchronous `jsonify(...)` return.
+`/api/chat` (`app.py`) handles this by running the actual agent call
+(`_run_agent_call`) in a background thread while the view's generator
+(`_generate_chat_response`, wrapped in `flask.stream_with_context`) streams a
+whitespace keep-alive byte every `CHAT_KEEPALIVE_INTERVAL_SECONDS`
+(module-level constant in `app.py`) back to the client for as long as the
+thread is alive, then yields the real JSON body once it finishes.
+`response.json()` (browser) and `json.loads()` (Python) both ignore
+insignificant leading whitespace around a JSON value per spec, so this needed
+zero frontend changes.
+
+**`_run_agent_call` must wrap its body in `with app.app_context():`.**
+`stream_with_context` only preserves the request/app context for the
+generator it wraps (`_generate_chat_response`, which is why `current_user`/
+`db.session` keep working in the post-agent-call code that lives there) — it
+does nothing for a separate `threading.Thread` spawned alongside it. The
+initial version of this fix (5e39d02) missed this: `_run_agent_call` ran
+`agent.process_message_isolated()` with no app context of its own, so every
+real (non-sandbox) tool call that resolves per-user cloud credentials via
+`UserCloudCredential.query` (`services/credential_service.py`, hit by
+literally every AWS/Azure/GCP tool) — plus `core.py`'s `_audit_chat_deletion`
+destructive-action audit log — raised `RuntimeError: Working outside of
+application context`, silently turned into a plain error-text response by
+`_run_agent_call`'s own `except Exception`. Fixed the same day (2026-07-31);
+see CLAUDE_RUNBOOK.md's follow-up entry. Any other endpoint that moves real
+work onto a background thread for this pattern must do the same — re-enter
+the app context inside the thread, never pass a live ORM object across the
+boundary (same rule as `_dispatch_password_reset_email` and
+`services/notification_service.py`'s async Slack/Teams dispatch) — rather
+than a plain synchronous `jsonify(...)` return.
 
 ## Context Management & Progressive Tool Loading
 
