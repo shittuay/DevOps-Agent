@@ -710,3 +710,74 @@ background dispatch, etc.), a regression test that only mocks/stubs the
 work being threaded will never catch a missing `app.app_context()` — the
 mock has to actually touch the DB (or otherwise depend on `current_app`) to
 exercise the one failure mode that matters.
+
+## Scheduled review found three more IDOR gaps (2026-07-31)
+
+Same scheduled review as the app-context fix above, run as a separate
+sweep for unfiltered-getter/missing-membership-check IDORs (the bug class
+CLAUDE.md's "User Isolation" section already documents once for
+`services/compliance_service.py`). Found three live, distinct instances,
+all confirmed via a route/service read-through and a reverted-fix test run
+(each new regression test fails with the exact exploit against the pre-fix
+code):
+
+1. **`services/ai_infrastructure.py`'s `preview_template()`** called
+   `self.get_template(template_id)` (a bare `.query.get()`, public-or-owned
+   is left entirely to the caller) with no ownership check at all, unlike
+   its siblings `template_detail`/`api_template_clone` in
+   `routes/ai_infrastructure.py`, which both check
+   `template.is_public or template.user_id == current_user.id`. Any
+   logged-in user could `POST /ai/api/templates/<guessed_id>/preview` and
+   get back another user's private saved template fully rendered
+   (`template_content` with variables substituted) — a real IaC content
+   leak. Fixed by adding the same ownership check inside
+   `preview_template()` itself (`template.user_id == self.user_id`), so
+   every caller gets it for free rather than relying on each route to
+   remember. Regression test:
+   `tests/test_ai_infrastructure_templates.py::test_preview_blocked_for_private_template_of_another_user`.
+
+2. **`routes/organizations.py`'s `view_team()`** fetched
+   `membership = service.get_membership(org_id, current_user.id)` but never
+   checked it before rendering the team's member list — the sibling
+   `view_organization`/`list_members`/`list_teams` routes in the same file
+   all redirect with a flash when `membership` is falsy; `view_team` only
+   validated `team.organization_id == org_id`. Any authenticated user,
+   including one belonging to zero organizations, could browse
+   `/organizations/<org_id>/teams/<team_id>` for any org/team id pair and
+   see that org's team member list (names, roles) with no membership at
+   all. Fixed by adding the same `if not membership: flash(...); redirect(...)`
+   guard used by its siblings. Regression test:
+   `tests/test_organization_team_idor.py::test_non_member_cannot_view_team`.
+
+3. **`services/compliance_service.py`'s `get_framework()`** — the third
+   getter in the same class whose other two (`get_policy`/
+   `get_compliance_report`) were already fixed to filter on `self.user_id`
+   (see the "User Isolation" entry in CLAUDE.md); this one was missed in
+   that pass. `routes/compliance.py`'s `framework_detail`/`enable_framework`
+   call it with a guessed integer id from the URL path
+   (`/compliance/frameworks/<framework_id>`), so a logged-in user could
+   read or re-enable another user's `ComplianceFrameworkModel` row
+   (`compliance_score`, `is_enabled`, the `settings` JSON blob). Fixed with
+   the identical `filter_by(id=..., user_id=self.user_id)` pattern already
+   used by its two siblings. Regression test:
+   `tests/test_compliance_policy_idor.py::test_get_framework_scoped_to_owner`.
+
+**Noted but not fixed (dead code — no route calls these methods today, so
+not currently exploitable, confirmed via a repo-wide grep):**
+`services/analytics_service.py`'s `AnalyticsDashboard`/`AnalyticsWidget`
+CRUD getters (`get_dashboard`, `update_dashboard`, `delete_dashboard`,
+`get_widget`, `update_widget`, `delete_widget`) and
+`services/ai_infrastructure.py`'s `ProvisioningRequestModel` getters
+(`get_request`, `approve_request`, `execute_request`, `cancel_request`) —
+both classes store `self.user_id`/take a `user_id` and have the identical
+unfiltered-getter shape. Worth fixing for defense-in-depth before either
+gets wired to a route, but out of scope for this pass since there's no live
+exploit path today.
+
+**Lesson:** "fix the getter that's actually called from a route" doesn't
+fully close a class like `ComplianceService` — a sibling getter on the same
+class, following the identical `self.user_id`-scoped pattern, can still be
+missing the filter and just hasn't been reached by a grep for the
+already-known call sites. When a service class stores an instance-level
+`user_id` meant to scope every read, audit *every* getter on the class in
+one pass, not just the ones a specific bug report pointed at.

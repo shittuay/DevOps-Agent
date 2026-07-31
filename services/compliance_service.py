@@ -137,7 +137,10 @@ class ComplianceService:
 
     def get_framework(self, framework_id: int) -> Optional[Any]:
         ComplianceFrameworkModel = self._get_framework_model()
-        return ComplianceFrameworkModel.query.get(framework_id)
+        query = ComplianceFrameworkModel.query.filter_by(id=framework_id)
+        if self.user_id is not None:
+            query = query.filter_by(user_id=self.user_id)
+        return query.first()
 
     def enable_framework(self, user_id: int, framework_name: str) -> Any:
         """Enable a compliance framework for a user."""

@@ -142,6 +142,20 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
   getters on `self.user_id` when set — see CLAUDE_RUNBOOK.md's 2026-07-27 scheduled-audit entry.
   When adding a new per-user service class, an instance-level `user_id` is only a security
   boundary if every getter actually filters by it — storing it on `self` isn't enough on its own.
+  That same class had a **third** getter, `get_framework()`, with the identical gap — missed in
+  the 2026-07-27 pass because it wasn't one of the two getters the original bug report pointed at,
+  and only caught by a later scheduled review auditing every getter on the class in one pass (fixed
+  2026-07-31, see CLAUDE_RUNBOOK.md). The same review also found and fixed two more instances of
+  this general shape elsewhere: `services/ai_infrastructure.py`'s `preview_template()` rendered
+  another user's private saved template with zero ownership check (its siblings `template_detail`/
+  `api_template_clone` in `routes/ai_infrastructure.py` both check
+  `template.is_public or template.user_id == current_user.id`, but `preview_template()` never did),
+  and `routes/organizations.py`'s `view_team()` computed `membership` but never checked it before
+  rendering a team's member list to a non-member (its siblings `view_organization`/`list_members`/
+  `list_teams` all do). **Lesson: when auditing a per-user service class or an org-membership-gated
+  route, check every getter/route in the file against its best-behaved sibling — a fix scoped to
+  only the specific method a bug report named will miss an identically-shaped gap two methods
+  away.**
 
 ### Credential Storage
 - `UserCloudCredential` model stores encrypted credentials
