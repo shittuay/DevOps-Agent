@@ -659,3 +659,74 @@ mean the backend crashed or hung — check whether the backend actually
 failure. A proxy layer's own idle-timeout, invisible from the application's
 logs alone, can silently cap how long a legitimately-designed-to-be-slow
 endpoint is allowed to run.
+
+---
+
+## Scheduled audit: 3 confirmed vulnerabilities — IDOR, broken access control, git argument injection (2026-08-01)
+
+A routine scheduled review (parallel agents auditing SSRF/IDOR/risk-classification
+gaps, XSS/SSTI/injection/CSRF, and code smells/duplication) found and fixed three
+real, independently-confirmed bugs, each a new instance of a bug class this repo
+has hit — and fixed — before in a different file.
+
+1. **`ComplianceService.get_framework()` (`services/compliance_service.py`)
+   missing the `user_id` filter.** The exact same class had `get_policy()`/
+   `get_compliance_report()` fixed for this on 2026-07-27 (see that entry above),
+   but a third getter on the same class was missed. `get_framework()` did a bare
+   `Model.query.get(framework_id)` with no ownership check, reachable via
+   `routes/compliance.py`'s `framework_detail` (GET) and `enable_framework`
+   (POST) — both gated only by `@login_required`, with no ownership check of
+   their own beyond `if not framework`. Any logged-in user could read (and, via
+   `enable_framework`'s re-fetch, indirectly probe) another user's
+   `ComplianceFrameworkModel` row by guessing the integer id. Fixed by filtering
+   on `self.user_id` when set, matching the already-fixed siblings;
+   `disable_framework()` calls `self.get_framework()` internally so it inherited
+   the fix for free.
+
+2. **`view_team` (`routes/organizations.py`) rendered another org's team without
+   checking membership.** Every sibling route in the file (`list_teams`,
+   `list_members`, `view_organization`) fetches `membership =
+   service.get_membership(org_id, current_user.id)` and redirects with a flash
+   message if it's `None`. `view_team` fetched the same `membership` value and
+   passed it to the template, but never checked it — it only validated that the
+   requested team's `organization_id` matched the URL's `org_id`, which says
+   nothing about whether the *current user* belongs to that org. Any logged-in
+   user could view any organization's team name, description, and full member
+   list by URL-guessing `org_id`/`team_id`. Fixed by adding the same `if not
+   membership: flash(...); redirect(...)` guard used elsewhere in the file.
+
+3. **Three more `git_tools.py` functions missing `_reject_flag_like()`,** on top
+   of the set fixed 2026-07-24 (see `git_pull`/`git_push`/etc. above — same
+   underlying bug: git treats a leading `-` in any positional argument as an
+   option, and `repo.git.*` passes caller-supplied strings straight to the git
+   executable with no shell involved). `get_diff` and `git_diff_stat` pass
+   `commit1`/`commit2` unvalidated into `repo.git.diff(...)`/`repo.git.show(...)`
+   — `git diff --output=<path> <commit2>` is a real arbitrary-file-write
+   primitive, and both tools are classified **low risk** (no confirmation
+   prompt), making this more directly reachable than the already-fixed
+   high/medium-risk write tools. `git_show_file_at_commit`'s `commit_sha` is
+   interpolated into `f'{commit_sha}:{file_path}'` before reaching
+   `repo.git.show`, so it's still flag-like whenever `commit_sha` itself starts
+   with `-`. `git_blame_file`'s `file_path` got the same guard for
+   defense-in-depth (no known RCE-capable `git blame` flag today, same rationale
+   as the other defense-in-depth additions in that earlier fix). All four now
+   call `_reject_flag_like()` before their `repo.git.*` call.
+
+**Also reported by the same audit, not yet acted on (maintainability, not
+security — logged here so the next pass doesn't have to rediscover it):** the
+free-tier `UserSubscription` get-or-create bootstrap is independently
+reimplemented in `app.py` (3 places), `routes/auth.py`, `api/v1/conversations.py`,
+and `routes/billing.py` — six copies of logic whose divergence is exactly the
+shape that caused the `user_active_org_ids()`/compliance-service IDOR bugs
+elsewhere; and the trial-context prompt block (with hardcoded `20`/`5` credit
+literals disconnected from `SubscriptionTier.monthly_credits`) is duplicated
+byte-for-byte in four places across `app.py` and `api/v1/conversations.py`. Both
+are candidates for extraction into a shared helper next time either file is
+touched.
+
+**Lesson (repeating from 2026-07-27 and 2026-07-24):** fixing one getter/tool
+instance of a bug class doesn't fix the class. When a per-user service class or
+a `repo.git.*`-calling function gets touched for one bug, audit every other
+method on that same class/module with the same shape before considering the
+class "fixed" — the fix pattern is cheap to apply everywhere at once but keeps
+getting found piecemeal instead.

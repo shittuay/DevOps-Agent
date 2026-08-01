@@ -142,6 +142,23 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
   getters on `self.user_id` when set — see CLAUDE_RUNBOOK.md's 2026-07-27 scheduled-audit entry.
   When adding a new per-user service class, an instance-level `user_id` is only a security
   boundary if every getter actually filters by it — storing it on `self` isn't enough on its own.
+  A third getter on the same class, `get_framework()`, was missed by that fix and had the
+  identical unfiltered `Model.query.get(id)` shape — reachable via `routes/compliance.py`'s
+  `framework_detail`/`enable_framework` (both only `@login_required`, no ownership check of their
+  own), letting any user read another user's compliance framework by guessing the id. Fixed the
+  same way (filter on `self.user_id` when set) — see CLAUDE_RUNBOOK.md's 2026-08-01 entry. A
+  service class with a security-relevant `user_id` needs *every* getter audited when the class is
+  touched again, not just the ones a bug report happens to point at.
+- **A route rendering another entity's nested child (team, resource, sub-object) must check the
+  parent-membership guard itself — checking the child's `parent_id` foreign key is not the same
+  as checking access.** `routes/organizations.py`'s `view_team` fetched `membership =
+  service.get_membership(org_id, current_user.id)` and passed it to the template, but never
+  checked it was non-`None` before rendering — unlike every sibling route in the file
+  (`list_teams`, `list_members`, `view_organization`), which all `if not membership: redirect`.
+  It only validated `team.organization_id == org_id`, so any logged-in user (not just a
+  non-member) could view any organization's team roster by URL-guessing `org_id`/`team_id`. Fixed
+  by adding the same membership guard used elsewhere in the file — see CLAUDE_RUNBOOK.md's
+  2026-08-01 entry.
 
 ### Credential Storage
 - `UserCloudCredential` model stores encrypted credentials
@@ -319,6 +336,17 @@ how each git subcommand's argument parser treats a dash-prefixed positional. **W
 git tool that passes a caller-supplied ref/remote/branch string as a bare positional argument to
 `repo.git.*`, call `_reject_flag_like()` on it first** — don't assume GitPython's lack of a shell
 makes the value safe.
+
+A 2026-08-01 scheduled audit found three **read-only** functions that were missed by the original
+pass specifically because they're classified low-risk (no confirmation prompt at all, so the gap
+was even more reachable): `get_diff`'s `commit1`/`commit2` (`repo.git.diff`/`repo.git.show`),
+`git_diff_stat`'s `commit1`/`commit2` (`repo.git.diff(..., '--stat')`), and
+`git_show_file_at_commit`'s `commit_sha` (interpolated into `f'{commit_sha}:{file_path}'`, still
+flag-like if `commit_sha` itself starts with `-`). `git diff --output=<path>` in particular is a
+real arbitrary-file-write primitive — a caller-controlled `commit1="--output=/some/path"` writes
+diff content to that path instead of returning it. `git_blame_file`'s `file_path` got the same
+defense-in-depth treatment as its sibling read-only functions. All four now call
+`_reject_flag_like()` before the `repo.git.*` call, same as the write-side tools above.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 
