@@ -659,3 +659,73 @@ mean the backend crashed or hung — check whether the backend actually
 failure. A proxy layer's own idle-timeout, invisible from the application's
 logs alone, can silently cap how long a legitimately-designed-to-be-slow
 endpoint is allowed to run.
+
+## infra_sync scheduler task silently failed for every user, every run (2026-08-01)
+
+Found by a scheduled health-check routine reading production logs via the
+`check-errors.yml` workflow: `journalctl` (all levels, not just `-p err`) showed
+`Error syncing EC2 instances: Working outside of application context` — and the
+same for RDS, S3, Lambda, DynamoDB, Load Balancers, Elastic IPs, ECS, API
+Gateway, SNS, CloudWatch, and SQS — recurring **daily** for at least
+2026-07-27 through 2026-07-31. It never tripped `-p err..emerg` because these
+are plain `print()` calls in `services/infrastructure_sync.py`, not logged at
+error priority, so the existing daily error check missed it entirely.
+
+**Root cause:** `services/scheduler.py`'s `_scheduler_loop()` runs each tick's
+task inside `with app.app_context():`, and `_run_infra_sync(app, db)` (invoked
+from inside that block) is correctly able to query the DB for stale users. But
+for each stale user it spawned a **plain `threading.Thread(target=_sync_user_safe,
+args=(user.id,))`** to do the actual sync — and Flask's app context stack is
+thread-local (contextvars aren't inherited by new threads), so that new thread
+started with *no* app context at all. Every call into
+`sync_user_infrastructure()` hit Flask-SQLAlchemy code needing `current_app`
+and failed immediately, before syncing a single resource. Because
+`_sync_user_safe` already wraps the call in try/except and only logs a
+warning, this failed silently — no exception ever propagated to the scheduler
+loop's own error handling, and `InfrastructureResource.last_synced` just never
+advanced for any user past their first sync.
+
+**Impact:** any user whose most recent `InfrastructureResource` sync was
+older than the 2-hour staleness threshold never got fresh data from the
+hourly `infra_sync` scheduler tick — cost optimization, security findings,
+and dashboards were silently working off increasingly stale AWS state.
+Chat-triggered syncs (inside a real request, which does have an app context)
+were unaffected — only the background scheduler path was broken.
+
+**Fix:** thread `app` through to the spawned thread and open the app context
+*inside* it, not just in the spawning function:
+```python
+# services/scheduler.py
+def _run_task(task_name, app, db):
+    ...
+    elif task_name == 'infra_sync':
+        _run_infra_sync(app, db)   # was: _run_infra_sync(db)
+
+def _run_infra_sync(app, db):
+    ...
+    t = threading.Thread(target=_sync_user_safe, args=(app, user.id), ...)  # was: args=(user.id,)
+
+def _sync_user_safe(app, user_id: int):
+    try:
+        with app.app_context():          # <-- the actual fix
+            sync_user_infrastructure(user_id)
+    except Exception as e:
+        logger.warning(f"Infra sync failed for user {user_id}: {e}")
+```
+Regression test: `tests/test_scheduler_infra_sync_context.py` spawns a real
+`threading.Thread` (not just calls the function inline) targeting
+`_sync_user_safe`, since calling it directly from the test's main thread
+wouldn't have caught the bug — the `app` test fixture already has a context
+pushed on the main thread, and the whole point of the bug is that a *new*
+thread doesn't inherit it.
+
+**Lesson:** `with app.app_context():` at the top of a function does not cover
+any thread that function spawns — Flask's app/request context stacks are
+thread-local (backed by `contextvars`, which are not copied into new
+`threading.Thread`s). Any code path that does `threading.Thread(target=...)`
+from inside an app-context block must pass `app` through and re-open
+`app.app_context()` as the first thing the new thread does. This is the same
+class of thread-local gotcha as this file's "Shared `agent` singleton leaked
+per-request state" entry and CLAUDE.md's `_greenlet_local_property` section,
+just inverted: those are about state leaking *across* threads that shouldn't
+share it, this is about context *not* propagating to a thread that needs it.
