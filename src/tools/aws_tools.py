@@ -916,6 +916,8 @@ def associate_eks_oidc_provider(
             return {'success': False, 'error': 'Cluster has no OIDC issuer. Ensure the cluster is active.'}
 
         # Derive thumbprint from OIDC issuer
+        from ..utils.network_safety import assert_safe_url
+        assert_safe_url(oidc_issuer)
         oidc_host = oidc_issuer.replace('https://', '')
         try:
             import ssl

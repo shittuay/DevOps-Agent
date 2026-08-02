@@ -659,3 +659,49 @@ mean the backend crashed or hung — check whether the backend actually
 failure. A proxy layer's own idle-timeout, invisible from the application's
 logs alone, can silently cap how long a legitimately-designed-to-be-slow
 endpoint is allowed to run.
+
+---
+
+## Scheduled audit: unguarded raw-socket connect in EKS OIDC tool (2026-08-02)
+
+A routine scheduled review (parallel agents auditing tool risk classification,
+SSRF coverage, IDOR/tenant isolation, and code smells) confirmed the first three
+areas clean and found one new SSRF-adjacent gap in the fourth-from-last category:
+
+**`associate_eks_oidc_provider()` (`src/tools/aws_tools.py`) connected to a
+caller-influenced host with no `assert_safe_url()` guard.** The function derives
+`oidc_host` from `cluster['identity']['oidc']['issuer']` (the EKS API's own
+`describe_cluster` response) and passes it straight to a raw
+`ssl.get_server_certificate((oidc_host.split('/')[0], 443))` call to compute the
+IAM OIDC provider's certificate thumbprint. Because this goes through `ssl`
+directly rather than `requests`, it's invisible to
+`scripts/check_security_invariants.py`'s AST check (which only scans for raw
+`requests.*` calls) — the same blind spot that let previous SSRF gaps hide in
+non-`requests` clients (git's HTTP transport, the Jenkins SDK) until a dedicated
+pass found them. Severity here is lower than a directly chat-supplied URL, since
+`oidc_issuer` comes from AWS's own API response for the caller's own cluster
+rather than raw chat input — exploiting it would require the EKS API itself to
+return a blocked address (e.g. a misconfigured/compromised cluster whose issuer
+resolves to `169.254.169.254` or a loopback address) — but the codebase's
+established convention is defense-in-depth on every outbound call driven by
+caller-reachable data, regardless of how indirect the path is. Fixed by calling
+`assert_safe_url(oidc_issuer)` (the internal-trust-model validator — this is
+infra the user's own AWS account controls, the same trust tier as
+Jenkins/SonarQube/Nexus, not an arbitrary external webhook) immediately after
+reading `oidc_issuer`, before it's used to build the connection target; a raised
+`UnsafeUrlError` (a `ValueError` subclass) is caught by the function's existing
+outer `except Exception` handler and returned as a normal `{'success': False,
+'error': ...}` response, no new error handling needed.
+
+**Lesson:** `scripts/check_security_invariants.py` only catches the *raw
+`requests.*` call* shape of SSRF — any tool that reaches the network through a
+different mechanism (`ssl`, `socket`, `urllib`, an SDK's internal HTTP client)
+needs the same `assert_safe_url`/`safe_request` treatment applied by hand, since
+the structural checker won't see it. When auditing for this class of bug, grep
+for `ssl.`, `socket.`, `urllib.` and SDK-internal connection calls too, not just
+`requests.`.
+
+**Also verified clean in this pass:** `src/agent/safety.py`'s risk
+classification (all 743 tool names cross-checked against `high_risk_tools`/
+`medium_risk_tools`/auto-detect prefixes — no gaps); `scripts/check_security_
+invariants.py` reports zero violations after this edit.
