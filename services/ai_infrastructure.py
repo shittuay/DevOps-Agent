@@ -394,9 +394,12 @@ class AIInfrastructureService:
         return request
 
     def get_request(self, request_id: int) -> Optional[Any]:
-        """Get a provisioning request."""
+        """Get a provisioning request (scoped to self.user_id when set)."""
         ProvisioningRequestModel = self._get_request_model()
-        return ProvisioningRequestModel.query.get(request_id)
+        query = ProvisioningRequestModel.query.filter_by(id=request_id)
+        if self.user_id is not None:
+            query = query.filter_by(user_id=self.user_id)
+        return query.first()
 
     def get_user_requests(self, user_id: int) -> List[Any]:
         """Get all requests for a user."""
@@ -545,7 +548,7 @@ class AIInfrastructureService:
         intact.
         """
         template = self.get_template(template_id)
-        if not template:
+        if not template or not (template.is_public or template.user_id == self.user_id):
             return {'error': 'Template not found'}
 
         params = params or {}

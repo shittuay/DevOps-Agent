@@ -204,7 +204,7 @@ def describe_pod(
                     'message': event.message,
                     'timestamp': event.last_timestamp.isoformat() if event.last_timestamp else None
                 })
-        except:
+        except Exception:
             pass
 
         return {

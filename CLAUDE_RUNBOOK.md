@@ -705,3 +705,170 @@ for `ssl.`, `socket.`, `urllib.` and SDK-internal connection calls too, not just
 classification (all 743 tool names cross-checked against `high_risk_tools`/
 `medium_risk_tools`/auto-detect prefixes — no gaps); `scripts/check_security_
 invariants.py` reports zero violations after this edit.
+
+---
+
+## Same scheduled audit: 3 exploitable IDORs + 3 latent instances of the same defect (2026-08-02)
+
+The IDOR/tenant-isolation pass of the same scheduled review (see the EKS OIDC
+entry above) found three currently-exploitable cross-user/cross-org data leaks,
+plus three more instances of the same unfiltered-getter shape sitting in
+service methods no live route calls yet — the exact way
+`compliance_service.py`'s original bug (documented earlier in this file)
+recurred: a class stores `self.user_id` but a getter does a bare `.query.get()`
+instead of filtering by it, and the gap sits dormant until something wires a
+route to that method.
+
+### Exploitable
+
+1. **`routes/organizations.py` `view_team` — org-membership check computed but
+   never enforced.** The route fetched `membership =
+   service.get_membership(org_id, current_user.id)` but only gated on
+   `team.organization_id != org_id`, never on `if not membership` — every
+   sibling route (`view_organization`, `list_members`, `list_teams`) has that
+   check, this one silently didn't. Any authenticated user with zero
+   organization memberships could `GET
+   /organizations/<any_org_id>/teams/<any_team_id>` for any org/team id pair
+   and see that team's name, description, and full member list (user ids +
+   roles) for an organization they have no relationship to. Fixed by adding
+   the same `if not membership: flash(...); return redirect(...)` check used
+   by its siblings, before the team lookup.
+
+2. **`services/compliance_service.py` `get_framework` — bare `.query.get()`,
+   unlike its already-fixed siblings `get_policy`/`get_compliance_report`.**
+   Same class, same original 2026-07-27 audit — `get_policy` and
+   `get_compliance_report` were fixed to filter by `self.user_id`, but
+   `get_framework` was missed in that pass. Reachable via
+   `routes/compliance.py`'s `GET /compliance/frameworks/<framework_id>`
+   (`@login_required` only, no ownership check in the route itself — it relies
+   entirely on the service layer). Any logged-in user supplying another user's
+   numeric framework id got back that framework's name, description, control
+   settings, and compliance score. Fixed with the same `filter_by(id=...,
+   user_id=self.user_id)` pattern already used by `get_policy`. Bonus:
+   `disable_framework()` calls `self.get_framework()` internally, so it's now
+   scoped too even though no live route calls it yet.
+
+3. **`services/ai_infrastructure.py` `preview_template` — no ownership/
+   `is_public` check, unlike its siblings.** `template_detail` and
+   `api_template_clone` (both in `routes/ai_infrastructure.py`) correctly gate
+   on `template.is_public or template.user_id == current_user.id` after
+   calling `service.get_template()` — which itself is a bare, unfiltered
+   `.query.get()`, relying entirely on callers to re-check visibility.
+   `api_template_preview`'s route skipped that check, and so did the service
+   method it calls. Any authenticated user could `POST
+   /ai/api/templates/<any_template_id>/preview` with any body and get back the
+   full rendered template content (Terraform/CloudFormation) of another user's
+   **private** template, guessable by integer id — leaking resource names,
+   account/region choices, and anything a user embedded in a template they
+   never intended to share. Fixed by adding the same visibility check inside
+   `preview_template()` itself (using `self.user_id`, already stored on the
+   instance), rather than relying on yet another route-level copy of the
+   check `get_template()` should arguably enforce by default.
+
+### Latent (same defect, no live route reaches them yet — hardened anyway)
+
+- `services/analytics_service.py` `get_dashboard`/`get_widget` — bare
+  `.query.get()` despite `AnalyticsService.__init__` storing `self.user_id`,
+  which was never referenced anywhere in the class. `update_dashboard`/
+  `delete_dashboard`/`update_widget`/`delete_widget` all call these
+  internally, so scoping the two getters (widget scoped via its parent
+  dashboard's ownership) closes the whole family at once.
+- `services/ai_infrastructure.py` `get_request` (provisioning requests) —
+  same shape; `approve_request`/`execute_request`/`cancel_request` all call it
+  internally. Scoped by `self.user_id` when set.
+- `services/api_gateway.py` `get_webhook_deliveries` — unlike its siblings
+  `update_webhook`/`delete_webhook`/`toggle_webhook`/`test_webhook`, took no
+  `user_id` at all. Given an optional `user_id` parameter matching the
+  sibling signature (`webhook.user_id != user_id` check), defaulting to
+  `None` (no filtering) to match the existing siblings' behavior when called
+  without it.
+
+**Not fixed (flagged as a separate, lower-severity inconsistency, not a
+vulnerability):** `routes/changes.py` `execute_change` allows any user with
+`role in ('admin', 'operator')` to execute any org's change with no
+`_change_visible_to_approver` check, unlike its siblings `approve_change`/
+`reject_change`/`rollback_change`. `'operator'` isn't a role that exists
+anywhere in the platform role set (`services/rbac.py`'s `ROLE_HIERARCHY` has
+no such entry), so that branch is dead code, and `admin`'s platform-wide
+bypass is consistent with `admin`'s documented "full access" design (the same
+bypass `user_is_admin(current_user)` grants on the sibling routes) — not a
+boundary the other three routes are actually enforcing against admins either.
+Left as-is; noted here in case a real `operator` role is ever introduced.
+
+**Lesson (reinforcing the existing one in the 2026-07-27 entry):** a per-user
+service class's `self.user_id` is only a security boundary if *every* getter
+filters by it — this is the second time an unfiltered getter has been found
+sitting next to already-fixed siblings in the same class. When auditing a
+class like this, check every method that starts with `get_`/`find_`, not just
+the ones a known route already calls — the getters with no current caller are
+exactly the ones a future feature will wire up unreviewed.
+
+---
+
+## Same scheduled audit: low-risk code-quality cleanup applied; larger duplication left for a dedicated PR (2026-08-02)
+
+The fourth pass of the same scheduled review (see the two entries above) audited
+for dead code, duplication, and general smells — not security vulnerabilities.
+This environment had no installed dependencies (no `pytest`, no app deps), so
+nothing beyond `ast.parse()` and the standalone `scripts/check_security_
+invariants.py` could be run to verify changes. Applied only mechanical,
+independently-verifiable fixes; left larger refactors for a PR that can run the
+real test suite.
+
+**Applied:**
+- Removed `get_command_history()` (`src/tools/command_tools.py`) — a
+  `'coming soon'` stub never wired into `get_tools()` and never called
+  anywhere else in the repo.
+- Removed two dead `color_map` dicts in `services/notification_service.py` —
+  `to_slack_blocks()`'s copy was never read (nothing in that method uses
+  `color_map` after building it), and `to_teams_card()`'s copy was fully
+  shadowed by its own `_get_teams_color()` helper, which is what `themeColor`
+  actually uses.
+- Extracted `DEFAULT_KIMI_MODEL = 'kimi-k3'` in `services/model_router.py` and
+  pointed the three other `os.environ.get('KIMI_MODEL', 'kimi-k3')` call sites
+  (`src/agent/core.py` ×2, `services/model_failover.py`) at it, so the default
+  model id lives in one place instead of four independently-typed literals.
+- Changed all 27 bare `except:` clauses in `src/tools/aws_tools.py` (25),
+  `src/tools/kubernetes_tools.py` (1), and `routes/changes.py` (1) to
+  `except Exception:` — a repo-wide grep for the bare form confirmed these
+  were the only 3 files with it. Bare `except:` also catches
+  `KeyboardInterrupt`/`SystemExit`/`GeneratorExit`, which `except Exception:`
+  correctly lets propagate; behavior for every real error case these
+  best-effort secondary lookups (bucket size, K8s events, etc.) already
+  handle is unchanged.
+
+**Identified but deliberately NOT applied — needs a dedicated PR with test
+coverage, not a same-pass fix:**
+- **Guardrail-check block duplicated across 8 call sites** (`app.py`'s
+  `api_chat`/`api_chat_stream`, `api/v1/conversations.py` ×2,
+  `routes/api_gateway.py` ×2, `routes/curriculum.py`) — the
+  `is_guardrail_blocked()` → `validate_message()` → `screen_message()` →
+  `record_guardrail_violation()` sequence documented in CLAUDE.md's Guardrails
+  section. This exact duplication is *why* it's been independently missed on
+  three different new entry points over this app's history (see the
+  Guardrails section of CLAUDE.md for each prior incident) — extracting a
+  shared `run_guardrail_checks()` would close that recurrence risk for good.
+  Not done in this pass because it touches the chat request path directly and
+  this environment can't run `pytest`/the app to verify no regression;
+  recommended as a follow-up PR.
+- **Crisis-incident logging block duplicated 3×** (`app.py` ×2,
+  `routes/curriculum.py`) — same reasoning, same recommendation
+  (`log_crisis_incident()` helper).
+- **Free-tier subscription bootstrap reimplemented inline in 5+ places**
+  instead of reusing `api/v1/conversations.py`'s existing `_ensure_
+  subscription()`/`_check_credits()` helpers — already showing drift (the
+  inline copies in `app.py` skip `should_reset_credits()`/`reset_monthly_
+  credits()` that the helper calls). Same reasoning for deferring.
+- Query params parsed but silently unused in `routes/analytics.py`
+  (`api_resource_trends`'s `start_date`/`end_date`, `api_performance_
+  metrics`'s `resource_id`) and `routes/ai_infrastructure.py`
+  (`api_recommendations`'s `category`) — real functional gaps (filters that
+  silently do nothing), not vulnerabilities; worth a follow-up but not
+  addressed here since it changes response contents and should ship with a
+  test asserting the filter actually filters.
+- Inconsistent error-response envelope (`{'error': ...}` vs `{'success':
+  False, ...}`) across `routes/`/`api/`/`app.py`, and `app.py`'s
+  `api_chat()`/`api_chat_stream()` being very large functions mixing several
+  concerns — both are largely downstream consequences of the guardrail/
+  subscription duplication above; expected to shrink naturally once those are
+  extracted.

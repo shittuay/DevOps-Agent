@@ -517,7 +517,7 @@ def get_s3_bucket_info(bucket_name: str, region: Optional[str] = None) -> Dict[s
         try:
             location_response = s3.get_bucket_location(Bucket=bucket_name)
             location = location_response['LocationConstraint'] or 'us-east-1'
-        except:
+        except Exception:
             location = 'unknown'
 
         # Get bucket size (list objects and calculate)
@@ -533,7 +533,7 @@ def get_s3_bucket_info(bucket_name: str, region: Optional[str] = None) -> Dict[s
                         object_count += 1
 
             size_mb = total_size / (1024 * 1024)
-        except:
+        except Exception:
             size_mb = 0
             object_count = 0
 
@@ -3709,7 +3709,7 @@ def delete_s3_bucket(
 
                     if versions:
                         s3.delete_objects(Bucket=bucket_name, Delete={'Objects': versions})
-            except:
+            except Exception:
                 pass  # Versioning might not be enabled
 
         # Delete bucket
@@ -6218,7 +6218,7 @@ def list_dynamodb_tables(region: Optional[str] = None) -> Dict[str, Any]:
                     'key_schema': table_info.get('KeySchema', []),
                     'billing_mode': table_info.get('BillingModeSummary', {}).get('BillingMode', 'PROVISIONED')
                 })
-            except:
+            except Exception:
                 # If describe fails, just add basic info
                 tables.append({'table_name': table_name, 'status': 'Unknown'})
 
@@ -8399,7 +8399,7 @@ def list_cloudtrail_trails(region: Optional[str] = None) -> Dict[str, Any]:
                 status = cloudtrail.get_trail_status(Name=trail['TrailARN'])
                 is_logging = status.get('IsLogging', False)
                 latest_delivery = status.get('LatestDeliveryTime')
-            except:
+            except Exception:
                 is_logging = False
                 latest_delivery = None
 
@@ -8455,7 +8455,7 @@ def list_config_rules(region: Optional[str] = None) -> Dict[str, Any]:
                     ConfigRuleNames=[rule['ConfigRuleName']]
                 )
                 compliance_type = compliance['ComplianceByConfigRules'][0]['Compliance']['ComplianceType']
-            except:
+            except Exception:
                 compliance_type = 'UNKNOWN'
 
             rules.append({
@@ -9121,7 +9121,7 @@ def list_trusted_advisor_checks(region: Optional[str] = None) -> Dict[str, Any]:
                 status = result['result']['status']
                 resources_flagged = result['result'].get('flaggedResources', [])
                 flagged_count = len(resources_flagged)
-            except:
+            except Exception:
                 status = 'unknown'
                 flagged_count = 0
 
@@ -9182,7 +9182,7 @@ def list_resource_groups(region: Optional[str] = None) -> Dict[str, Any]:
                 # Get resources in group
                 resources_response = rg.list_group_resources(Group=group['GroupArn'])
                 resource_count = len(resources_response.get('ResourceIdentifiers', []))
-            except:
+            except Exception:
                 group_info = {}
                 resource_count = 0
 
@@ -9386,7 +9386,7 @@ def list_sns_topics(region: Optional[str] = None) -> Dict[str, Any]:
                 # Get subscriptions count
                 subs = sns.list_subscriptions_by_topic(TopicArn=topic_arn)
                 subscription_count = len(subs.get('Subscriptions', []))
-            except:
+            except Exception:
                 attributes = {}
                 subscription_count = 0
 
@@ -9547,7 +9547,7 @@ def list_sqs_queues(region: Optional[str] = None) -> Dict[str, Any]:
                     AttributeNames=['All']
                 )
                 attributes = attrs.get('Attributes', {})
-            except:
+            except Exception:
                 attributes = {}
 
             queue_name = queue_url.split('/')[-1]
@@ -9692,7 +9692,7 @@ def list_ecr_repositories(region: Optional[str] = None) -> Dict[str, Any]:
             try:
                 images = ecr.list_images(repositoryName=repo['repositoryName'])
                 image_count = len(images.get('imageIds', []))
-            except:
+            except Exception:
                 image_count = 0
 
             repositories.append({
@@ -9940,7 +9940,7 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
                 try:
                     tgs = elbv2.describe_target_groups(LoadBalancerArn=lb['LoadBalancerArn'])
                     target_group_count = len(tgs.get('TargetGroups', []))
-                except:
+                except Exception:
                     target_group_count = 0
 
                 modern_lbs.append({
@@ -9956,7 +9956,7 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
                     'target_groups': target_group_count,
                     'ip_address_type': lb.get('IpAddressType', 'ipv4')
                 })
-        except:
+        except Exception:
             pass
 
         # Get Classic Load Balancers
@@ -9976,7 +9976,7 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
                     'health_check_target': lb.get('HealthCheck', {}).get('Target', 'N/A'),
                     'health_check_interval': lb.get('HealthCheck', {}).get('Interval', 30)
                 })
-        except:
+        except Exception:
             pass
 
         all_lbs = modern_lbs + classic_lbs
@@ -10430,7 +10430,7 @@ def list_efs_file_systems(region: Optional[str] = None) -> Dict[str, Any]:
             try:
                 mts = efs.describe_mount_targets(FileSystemId=fs['FileSystemId'])
                 mount_target_count = len(mts.get('MountTargets', []))
-            except:
+            except Exception:
                 mount_target_count = 0
 
             file_systems.append({
@@ -10544,7 +10544,7 @@ def list_eventbridge_rules(region: Optional[str] = None) -> Dict[str, Any]:
             try:
                 targets = events.list_targets_by_rule(Rule=rule['Name'])
                 target_count = len(targets.get('Targets', []))
-            except:
+            except Exception:
                 target_count = 0
 
             rules.append({
@@ -10595,7 +10595,7 @@ def list_eventbridge_event_buses(region: Optional[str] = None) -> Dict[str, Any]
             try:
                 rules = events.list_rules(EventBusName=bus['Name'])
                 rule_count = len(rules.get('Rules', []))
-            except:
+            except Exception:
                 rule_count = 0
 
             event_buses.append({
@@ -10738,7 +10738,7 @@ def list_step_functions(region: Optional[str] = None) -> Dict[str, Any]:
                     maxResults=10
                 )
                 execution_count = len(executions.get('executions', []))
-            except:
+            except Exception:
                 execution_count = 0
 
             state_machines.append({
@@ -10830,7 +10830,7 @@ def list_kinesis_streams(region: Optional[str] = None) -> Dict[str, Any]:
                     'creation_timestamp': stream_desc.get('StreamCreationTimestamp').isoformat() if stream_desc.get('StreamCreationTimestamp') else 'N/A',
                     'enhanced_monitoring': stream_desc.get('EnhancedMonitoring', [])
                 })
-            except:
+            except Exception:
                 streams.append({
                     'stream_name': stream_name,
                     'stream_arn': 'N/A',
@@ -10939,7 +10939,7 @@ def list_acm_certificates(region: Optional[str] = None) -> Dict[str, Any]:
                     'not_after': cert_details.get('NotAfter').isoformat() if cert_details.get('NotAfter') else 'N/A',
                     'renewal_eligibility': cert_details.get('RenewalEligibility', 'N/A')
                 })
-            except:
+            except Exception:
                 certificates.append({
                     'domain_name': cert.get('DomainName'),
                     'certificate_arn': cert.get('CertificateArn'),
@@ -11022,7 +11022,7 @@ def list_waf_web_acls(region: Optional[str] = None) -> Dict[str, Any]:
                     'description': acl.get('Description', 'N/A'),
                     'lock_token': acl.get('LockToken', 'N/A')
                 })
-        except:
+        except Exception:
             pass
 
         # List CloudFront (global) Web ACLs
@@ -11037,7 +11037,7 @@ def list_waf_web_acls(region: Optional[str] = None) -> Dict[str, Any]:
                     'description': acl.get('Description', 'N/A'),
                     'lock_token': acl.get('LockToken', 'N/A')
                 })
-        except:
+        except Exception:
             pass
 
         return {
@@ -11090,7 +11090,7 @@ def list_backup_plans(region: Optional[str] = None) -> Dict[str, Any]:
                     'rule_count': len(plan_details.get('Rules', [])),
                     'advanced_backup_settings': plan_details.get('AdvancedBackupSettings', [])
                 })
-            except:
+            except Exception:
                 plans.append({
                     'backup_plan_id': plan['BackupPlanId'],
                     'backup_plan_name': plan['BackupPlanName'],
@@ -11834,7 +11834,7 @@ def list_athena_workgroups(region: Optional[str] = None) -> Dict[str, Any]:
                     'bytes_scanned_cutoff': config.get('BytesScannedCutoffPerQuery', 0),
                     'enforce_workgroup_config': config.get('EnforceWorkGroupConfiguration', False)
                 })
-            except:
+            except Exception:
                 workgroups.append({
                     'name': wg['Name'],
                     'state': wg.get('State', 'ENABLED'),
@@ -12076,7 +12076,7 @@ def list_opensearch_domains(region: Optional[str] = None) -> Dict[str, Any]:
                     'instance_type': domain_status.get('ClusterConfig', {}).get('InstanceType', 'N/A'),
                     'instance_count': domain_status.get('ClusterConfig', {}).get('InstanceCount', 0)
                 })
-            except:
+            except Exception:
                 domains.append({
                     'domain_name': domain['DomainName'],
                     'engine_type': domain.get('EngineType', 'OpenSearch')
