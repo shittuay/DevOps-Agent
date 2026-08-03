@@ -545,7 +545,7 @@ class AIInfrastructureService:
         intact.
         """
         template = self.get_template(template_id)
-        if not template:
+        if not template or not (template.is_public or template.user_id == self.user_id):
             return {'error': 'Template not found'}
 
         params = params or {}

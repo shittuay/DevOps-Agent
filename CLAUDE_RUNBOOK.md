@@ -659,3 +659,71 @@ mean the backend crashed or hung — check whether the backend actually
 failure. A proxy layer's own idle-timeout, invisible from the application's
 logs alone, can silently cap how long a legitimately-designed-to-be-slow
 endpoint is allowed to run.
+
+---
+
+## Scheduled audit (2026-08-03): 2 new IDORs + 6 git argument-injection gaps
+
+Routine scheduled review of the full codebase (not just a diff) turned up two
+IDOR/information-disclosure bugs and extended the git argument-injection guard
+to functions the previous rounds missed.
+
+**1. `routes/organizations.py`'s `view_team()` — missing org-membership check.**
+It fetched `membership = service.get_membership(org_id, current_user.id)` but,
+unlike its sibling `list_teams()`/`view_organization()` in the same file, never
+checked `if not membership:` before rendering — `current_membership` was passed
+to the template but never used to gate anything there either. Any authenticated
+user (no org membership required) could view any other organization's team
+roster by guessing `/organizations/<org_id>/teams/<team_id>`. Fixed by adding the
+same `if not membership: flash(...); redirect(...)` check the sibling routes
+already have.
+
+**2. `services/ai_infrastructure.py`'s `preview_template()` — missing visibility
+check.** `AIInfrastructureService.get_template()` is deliberately a bare
+`.query.get(id)` ("public or owned" is left to the caller), and the two route
+call sites that render a template (`template_detail`, `api_template_clone` in
+`routes/ai_infrastructure.py`) both correctly gate with
+`if not template or not (template.is_public or template.user_id == current_user.id)`.
+`preview_template()` — called from `POST /ai/api/templates/<id>/preview` — did
+not, so any authenticated user could read the full rendered Terraform/
+CloudFormation content of another user's private template (`is_public` defaults
+to `False`) by guessing its integer id. Fixed by adding the same visibility
+check inside `preview_template()` itself (using the service's own `self.user_id`,
+already set in `__init__`), rather than relying on every future call site to
+remember it — matches the "the getter must enforce the check, not just the
+caller" lesson from the `ComplianceService` fix.
+
+**3. `src/tools/git_tools.py` — `_reject_flag_like()` was missing from several
+functions that pass a caller-supplied value as a bare positional argument to
+`repo.git.*`.** The existing guard (see CLAUDE.md's "Git argument-injection
+guard" section) blocks leading `-` so git can't parse a ref/commit/path as a
+flag. Extended to:
+- `git_grep_search`'s `pattern` — `git grep --open-files-in-pager=<cmd>` runs
+  `<cmd>` as an external pager on any match; the highest-severity gap found,
+  same RCE class as the already-fixed `--upload-pack=`/`--exec=` cases.
+- `get_diff`'s `commit1`/`commit2` and `git_diff_stat`'s `commit1`/`commit2` —
+  `git diff`/`show --output=<path>` writes diff content to an arbitrary file.
+- `git_show_file_at_commit`'s `commit_sha` (interpolated as `f'{commit_sha}:{file_path}'`,
+  still flag-like at the string's start) — same `--output=` file-write.
+- `git_blame_file`'s `file_path` — passed as a bare positional to `repo.git.blame`.
+- `git_create_branch`'s `branch_name`/`start_point` and `git_create_tag`'s
+  `tag_name`/`commit` — routed through GitPython's `create_head()`/`create_tag()`
+  rather than a direct `repo.git.*` call, so no confirmed RCE-capable flag, but
+  guarded for defense-in-depth per the same reasoning CLAUDE.md already gives for
+  the other ambiguous-shape functions.
+
+None of the four read-shaped functions above (`get_diff`, `git_diff_stat`,
+`git_show_file_at_commit`, `git_grep_search`) were in `safety.py`'s risk
+classification either — they default to low risk with no confirmation prompt,
+consistent with them being read-only in the intended case; the fix is the input
+guard, not a risk-level change.
+
+**Verified clean in this pass:** `scripts/check_security_invariants.py` (SSRF /
+login-timing patterns), all previously-documented SSRF/IDOR/credential-leak
+fixes (org role escalation, GCP temp-file cleanup, webhook SSRF guards,
+approval-request org-scoping) remain intact. One minor smell noted but not
+acted on: `src/tools/gcp_tools.py` has two independent implementations of
+project-id resolution (`_resolve_project_id()` used by newer tools, an inline
+copy inside `_get_gcp_client()` used by older ones) that currently agree but
+could drift — worth collapsing into one call the next time that file is
+touched.
