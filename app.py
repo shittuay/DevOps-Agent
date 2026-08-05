@@ -3045,35 +3045,45 @@ def api_chat():
         _agent_result = {}
 
         def _run_agent_call():
+            # This runs on a brand-new OS thread (not a greenlet-friendly
+            # context-copy) — Flask's app/request context from the request
+            # thread is NOT visible here. agent.process_message_isolated goes
+            # on to do real DB work (per-user cloud credential lookups in
+            # credential_service.py, skills_engine's UserSkillActivation
+            # query, etc.), all of which require an active app context or
+            # raise "Working outside of application context." Without this
+            # push, that RuntimeError gets caught by the except below and
+            # silently reported as a generic agent error on every tool call.
             try:
-                if model_config.provider == 'kimi':
-                    resp = agent.process_message_isolated(
-                        user_message=message,
-                        conversation_history=conversation_history,
-                        user_preferences_context=preferences_context,
-                        user_id=_user_id,
-                        model_override=model_config.model,
-                        trial_context=trial_context,
-                        sandbox_mode=sandbox_active,
-                        provider='kimi',
-                        tools_override=_filtered_tools,
-                        trust_tool_results=model_config.trust_tool_results,
-                        swarm_max_agents=_swarm_max_agents,
-                    )
-                elif model_config.provider == 'anthropic':
-                    resp = agent.process_message_isolated(
-                        user_message=message,
-                        conversation_history=conversation_history,
-                        user_preferences_context=preferences_context,
-                        user_id=_user_id,
-                        model_override=model_config.model,
-                        trial_context=trial_context,
-                        sandbox_mode=sandbox_active,
-                        tools_override=_filtered_tools,
-                        trust_tool_results=model_config.trust_tool_results,
-                    )
-                else:
-                    resp = _process_free_tier_chat(message, conversation_history, preferences_context)
+                with app.app_context():
+                    if model_config.provider == 'kimi':
+                        resp = agent.process_message_isolated(
+                            user_message=message,
+                            conversation_history=conversation_history,
+                            user_preferences_context=preferences_context,
+                            user_id=_user_id,
+                            model_override=model_config.model,
+                            trial_context=trial_context,
+                            sandbox_mode=sandbox_active,
+                            provider='kimi',
+                            tools_override=_filtered_tools,
+                            trust_tool_results=model_config.trust_tool_results,
+                            swarm_max_agents=_swarm_max_agents,
+                        )
+                    elif model_config.provider == 'anthropic':
+                        resp = agent.process_message_isolated(
+                            user_message=message,
+                            conversation_history=conversation_history,
+                            user_preferences_context=preferences_context,
+                            user_id=_user_id,
+                            model_override=model_config.model,
+                            trial_context=trial_context,
+                            sandbox_mode=sandbox_active,
+                            tools_override=_filtered_tools,
+                            trust_tool_results=model_config.trust_tool_results,
+                        )
+                    else:
+                        resp = _process_free_tier_chat(message, conversation_history, preferences_context)
                 _agent_result['response'] = resp
                 _agent_result['success'] = True
                 _agent_result['error_msg'] = None
