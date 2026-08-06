@@ -817,3 +817,82 @@ enforcing structurally (e.g. an AST check in
 `scripts/check_security_invariants.py` for any `repo.git.<x>(*args)` call
 where an arg traces to an unguarded function parameter) rather than relying
 on each new git tool's author remembering to call it.
+
+---
+
+## Scheduled audit: CloudWatch monitoring bypassed per-user AWS credentials; one unclassified Terraform tool (2026-08-06)
+
+A routine scheduled review (five parallel agents covering the git
+flag-injection guard, `safety.py` risk classification, user/org data
+isolation, non-`requests` SSRF vectors, and general code smells/duplication)
+found the automated `scripts/check_security_invariants.py` check still
+clean, the git flag-injection guard (2026-07-27/08-04 entries above) still
+fully applied, and no live-exploitable IDOR — but turned up two real gaps,
+both fixed:
+
+1. **`services/proactive_monitoring.py`'s `MetricCollector._collect_cloudwatch()`
+   never used per-user AWS credentials.** Every AWS tool in this codebase is
+   required to route through `_get_boto_client()`/`credential_service.py` so
+   each user's chat-driven actions run under their own stored
+   access-key/role-ARN credentials (see CLAUDE.md's "User Isolation" and
+   "Credential Storage" sections). This collector was the one exception: it
+   called a bare `boto3.client("cloudwatch")` with no user context, even
+   though `_check_rule(self, user_id, rule)` — its only caller — already had
+   `user_id` in scope and simply never passed it down. In practice this meant
+   a `source=cloudwatch` monitoring rule never actually queried the owning
+   user's own AWS account; it silently ran under whatever default AWS
+   identity (if any) the app server process itself has (e.g. an EC2 instance
+   role attached for an unrelated purpose like SSM), and depending on that
+   identity's permissions either failed closed with no visible error to the
+   user, or — the more concerning case — successfully returned CloudWatch
+   metrics belonging to the platform's own AWS account into a specific
+   customer's alert/DB record for an arbitrary attacker-chosen
+   `namespace/metric_name/dimensions` query string, which is exactly the kind
+   of "per-user isolation exists for the DB row but not for the credential
+   used to populate it" bug shape the `ComplianceService`/`AIInfrastructureService`
+   findings above warn about, just on the AWS-credential axis instead of the
+   database-row axis. Fixed by threading `user_id` through
+   `MetricCollector.collect()` → `_collect_cloudwatch()` and calling
+   `services.credential_service.get_user_boto_client(user_id, "cloudwatch")`
+   instead of a bare `boto3.client(...)`; a CloudWatch rule now fails closed
+   with a clear "AWS credentials not configured" error (same as every other
+   per-user AWS tool) if the owning user hasn't connected AWS credentials,
+   rather than silently falling back to the server's own ambient identity.
+   Prometheus/Datadog collectors were already using operator-configured
+   hardcoded hosts (`# ssrf-safe:`-annotated) and needed no change.
+
+2. **`terraform_providers_lock` had no risk classification
+   (`src/agent/safety.py`).** It mutates `.terraform.lock.hcl` (the trusted
+   provider-checksum lock file) on disk — the same "writes project state to
+   disk" shape as its siblings `terraform_state_push`/`terraform_import`/
+   `terraform_force_unlock`, all three already medium risk — but its name
+   doesn't start with any auto-detect prefix (`terraform_` isn't one), so it
+   silently defaulted to low risk with no user confirmation. Fixed by adding
+   it to `medium_risk_tools` next to its siblings.
+
+**Also cataloged, not fixed this pass (lower severity, left for a future
+pass):** `services/learning_sandbox.py`'s `generate_mock_result()` has no
+dedicated mock branch for `ansible_tools.py`, `alerting_tools.py`
+(PagerDuty/OpsGenie), `monitoring_tools.py`, or `pentest_tools.py` — sandbox
+mode for these falls through to the generic low-fidelity catch-all, despite
+CLAUDE.md's Tool Registration Checklist claiming ansible's sandbox mocking
+was "completed and verified." `AIInfrastructureService.delete_template()`
+(`services/ai_infrastructure.py:599`) calls `get_template()`, a
+no-ownership-filter lookup, and applies no ownership check itself before
+deleting — same shape as the `ComplianceService`/`view_team` postmortems in
+CLAUDE.md, but currently dead code (no route calls it), so not an active
+exploit; flagged so the check gets added *before* a delete route is wired up
+rather than after. ~24 broad `except Exception: pass` blocks with no logging
+exist across `src/tools/`, `services/`, and `routes/` (mostly benign
+optional-lookup cleanup, but a handful inside multi-region AWS aggregation
+loops in `aws_tools.py` silently drop a whole region's resources from a
+listing on any transient error with zero log signal).
+
+Verified: `scripts/check_security_invariants.py` reports zero violations
+after the fixes; both edited files parse and import cleanly. Full
+`pytest` run wasn't possible in this sandbox (no preinstalled
+`requirements.txt`/dependency set and no network-fetched venv within the
+scheduled run's time budget) — verification here relied on AST syntax
+checks, a clean module import, and manual call-chain tracing instead;
+worth a full `pytest -q` pass next time a session has the dependencies
+available.

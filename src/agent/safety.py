@@ -510,6 +510,7 @@ class SafetyValidator:
             'terraform_force_unlock',
             'terraform_state_push',
             'terraform_workspace_delete',
+            'terraform_providers_lock',
             # GitLab CI medium risk
             'trigger_gitlab_pipeline',
             'retry_gitlab_pipeline',
