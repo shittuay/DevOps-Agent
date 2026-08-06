@@ -113,3 +113,42 @@ def test_owner_can_grant_owner(client, org_with_admin_and_member, test_user):
 
     membership = OrganizationMember.query.filter_by(organization_id=org.id, user_id=admin_user.id).first()
     assert membership.role == 'owner'
+
+
+def test_org_admin_cannot_remove_owner(client, org_with_admin_and_member, test_user):
+    """remove_member had no role-hierarchy check at all (update_member_role got one,
+    remove_member didn't): an org 'admin' could deactivate the actual owner's
+    membership via POST /members/<owner_id>/remove and seize effective control."""
+    from models import OrganizationMember
+
+    org, admin_user, other_member = org_with_admin_and_member
+    _login_as(client, 'org-admin@example.com')
+
+    client.post(f'/organizations/{org.id}/members/{test_user.id}/remove')
+
+    membership = OrganizationMember.query.filter_by(organization_id=org.id, user_id=test_user.id).first()
+    assert membership is not None and membership.is_active
+
+
+def test_org_admin_can_still_remove_non_owner_member(client, org_with_admin_and_member):
+    from models import OrganizationMember
+
+    org, admin_user, other_member = org_with_admin_and_member
+    _login_as(client, 'org-admin@example.com')
+
+    client.post(f'/organizations/{org.id}/members/{other_member.id}/remove')
+
+    membership = OrganizationMember.query.filter_by(organization_id=org.id, user_id=other_member.id).first()
+    assert membership is None or not membership.is_active
+
+
+def test_owner_can_remove_admin(client, org_with_admin_and_member, test_user):
+    from models import OrganizationMember
+
+    org, admin_user, other_member = org_with_admin_and_member
+    _login_as(client, test_user.email)
+
+    client.post(f'/organizations/{org.id}/members/{admin_user.id}/remove')
+
+    membership = OrganizationMember.query.filter_by(organization_id=org.id, user_id=admin_user.id).first()
+    assert membership is None or not membership.is_active

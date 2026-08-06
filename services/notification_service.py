@@ -60,13 +60,6 @@ class Notification:
 
     def to_slack_blocks(self) -> list:
         """Convert notification to Slack Block Kit format."""
-        color_map = {
-            NotificationPriority.LOW: "#36a64f",
-            NotificationPriority.NORMAL: "#2196f3",
-            NotificationPriority.HIGH: "#ff9800",
-            NotificationPriority.CRITICAL: "#f44336",
-        }
-
         blocks = [
             {
                 "type": "header",
@@ -167,13 +160,6 @@ class Notification:
 
     def to_teams_card(self) -> dict:
         """Convert notification to Microsoft Teams Adaptive Card format."""
-        color_map = {
-            NotificationPriority.LOW: "good",
-            NotificationPriority.NORMAL: "default",
-            NotificationPriority.HIGH: "warning",
-            NotificationPriority.CRITICAL: "attention",
-        }
-
         card = {
             "@type": "MessageCard",
             "@context": "http://schema.org/extensions",

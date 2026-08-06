@@ -197,6 +197,11 @@ class SafetyValidator:
         high_risk_tools = {
             'execute_command',
             'execute_script',  # runs through the same execute_command() code path
+            # Arbitrary host bind-mounts (e.g. /var/run/docker.sock or '/') give a
+            # container trivial escape to full host/Docker-daemon control — same risk
+            # class as execute_command even though _validate_container_volumes now
+            # blocks the clearest cases.
+            'docker_create_container',
             'delete_resource',
             'terminate_instance',
             'delete_deployment',
@@ -241,6 +246,11 @@ class SafetyValidator:
             'delete_cloud_sql_instance',
             'delete_pubsub_topic',
             'delete_gcp_secret',
+            # Discloses live secret plaintext into the chat/tool-trace/LLM-provider path —
+            # every other secret-bearing tool in this codebase deliberately never returns
+            # decrypted material (AWS has no secretsmanager:GetSecretValue/ssm:GetParameter
+            # WithDecryption equivalent; GitHub's list_github_secrets never exposes values).
+            'get_secret_value',
             'delete_cloud_run_service',
             'delete_gke_cluster',
             'delete_firewall_rule',
@@ -386,6 +396,14 @@ class SafetyValidator:
             'git_stash_drop',
             'git_revert_commit',
             'git_rebase_branch',
+            # Git flag-injection-guarded read tools (defense-in-depth: pattern/commit/file
+            # params are validated by _reject_flag_like, but confirmation gives a human
+            # review layer over the same class of git-flag primitive as the tools above)
+            'git_grep_search',
+            'get_diff',
+            'git_diff_stat',
+            'git_show_file_at_commit',
+            'git_blame_file',
             # GitHub PR medium risk
             'github_close_pull_request',
             # Docker medium risk
@@ -393,7 +411,6 @@ class SafetyValidator:
             'docker_push_image',
             'docker_compose_up',
             'docker_build_image',
-            'docker_create_container',
             # GitHub medium risk
             'github_trigger_workflow',
             'github_invite_collaborator',
@@ -494,6 +511,7 @@ class SafetyValidator:
             'terraform_force_unlock',
             'terraform_state_push',
             'terraform_workspace_delete',
+            'terraform_providers_lock',
             # GitLab CI medium risk
             'trigger_gitlab_pipeline',
             'retry_gitlab_pipeline',

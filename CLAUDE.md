@@ -142,6 +142,23 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
   getters on `self.user_id` when set — see CLAUDE_RUNBOOK.md's 2026-07-27 scheduled-audit entry.
   When adding a new per-user service class, an instance-level `user_id` is only a security
   boundary if every getter actually filters by it — storing it on `self` isn't enough on its own.
+  A third getter on the same class, `get_framework()`, was missed by that fix and had the
+  identical unfiltered `Model.query.get(id)` shape — reachable via `routes/compliance.py`'s
+  `framework_detail`/`enable_framework` (both only `@login_required`, no ownership check of their
+  own), letting any user read another user's compliance framework by guessing the id. Fixed the
+  same way (filter on `self.user_id` when set) — see CLAUDE_RUNBOOK.md's 2026-08-01 entry. A
+  service class with a security-relevant `user_id` needs *every* getter audited when the class is
+  touched again, not just the ones a bug report happens to point at.
+- **A route rendering another entity's nested child (team, resource, sub-object) must check the
+  parent-membership guard itself — checking the child's `parent_id` foreign key is not the same
+  as checking access.** `routes/organizations.py`'s `view_team` fetched `membership =
+  service.get_membership(org_id, current_user.id)` and passed it to the template, but never
+  checked it was non-`None` before rendering — unlike every sibling route in the file
+  (`list_teams`, `list_members`, `view_organization`), which all `if not membership: redirect`.
+  It only validated `team.organization_id == org_id`, so any logged-in user (not just a
+  non-member) could view any organization's team roster by URL-guessing `org_id`/`team_id`. Fixed
+  by adding the same membership guard used elsewhere in the file — see CLAUDE_RUNBOOK.md's
+  2026-08-01 entry.
 
 ### Credential Storage
 - `UserCloudCredential` model stores encrypted credentials
@@ -216,10 +233,10 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - **Auto-detection only matches the verb as a prefix of the tool name** (`name.startswith(...)`). A tool shaped `<provider>_<verb>_<noun>` (e.g. `git_delete_branch`, `pagerduty_update_incident`) is NOT caught by auto-detection even though `delete`/`update` appear in the name — it silently defaults to low risk unless explicitly added to `high_risk_tools`/`medium_risk_tools`. Check for this shape specifically when adding tools whose name doesn't start with the destructive verb.
 
 **Current high-risk additions (beyond auto-detection):**
-`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path)
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -293,7 +310,16 @@ response body back to the caller, which made it an SSRF response oracle), and
 `routes/organizations.py`'s `sso_settings`, and the discovery document itself supplies
 `token_endpoint`/`jwks_uri`/`userinfo_endpoint` — all of it caller-controlled and previously
 fetched with raw `requests.get/post`, reachable on every login attempt including against the
-cloud metadata endpoint). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
+cloud metadata endpoint), and `aws_tools.associate_eks_oidc_provider()` (connects to the
+cluster's own OIDC issuer host via a raw `ssl.get_server_certificate()` call — not `requests`,
+so invisible to `scripts/check_security_invariants.py`'s AST check; guarded with `assert_safe_url`
+directly since there's no `requests`-based call to route through `safe_request()`). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
+
+**Non-`requests` HTTP/network calls need the guard applied by hand.** The SSRF invariant checker
+only scans for raw `requests.*` calls — a tool that reaches the network via `ssl`, `socket`,
+`urllib`, or an SDK's internal HTTP client is invisible to it. When auditing for SSRF or adding a
+new tool that connects to a caller-influenced host through one of these, call `assert_safe_url()`
+by hand before connecting; don't rely on the automated check to catch it.
 
 ### Git argument-injection guard (`src/tools/git_tools.py`)
 
@@ -319,6 +345,19 @@ how each git subcommand's argument parser treats a dash-prefixed positional. **W
 git tool that passes a caller-supplied ref/remote/branch string as a bare positional argument to
 `repo.git.*`, call `_reject_flag_like()` on it first** — don't assume GitPython's lack of a shell
 makes the value safe.
+
+**2026-08-04 follow-up — the guard didn't cover every function that needed it.** A scheduled audit
+found (and live-verified by actually running the exploit) that four functions added after the fix
+above were still unguarded: `git_grep_search`'s `pattern` (`git grep
+--open-files-in-pager=<cmd>` execs the pager — confirmed RCE), `get_diff`/`git_diff_stat`'s
+`commit1`/`commit2` and `git_show_file_at_commit`'s `commit_sha` (`git diff/show --output=<file>`
+writes to an arbitrary path — confirmed arbitrary file write), and `git_blame_file`'s `file_path`
+(`git blame --contents=<file>` echoes an arbitrary file's contents back — confirmed arbitrary file
+read, e.g. `/etc/passwd`). All five now call `_reject_flag_like()` and are classified medium-risk
+in `safety.py` (see CLAUDE_RUNBOOK.md's 2026-08-04 entry). **This guard is opt-in per function, the
+same structural gap the SSRF/login-timing checks in `check_security_invariants.py` were built to
+close for their own patterns — it is not yet enforced by an automated check,** so don't assume a
+new git tool is safe just because sibling tools in the same file are guarded; verify it directly.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 
@@ -351,12 +390,26 @@ layer on top that reads real files and applies the file-level exemption list.
 
 ## Concurrency Model: the shared `agent` singleton
 
-Production runs a **single gunicorn worker** (`Procfile`: `--worker-class gevent
---workers 1 --worker-connections 1000`), so the one `DevOpsAgent` instance
-(`app.py`'s global `agent`) is shared by every concurrent request in the process.
-Gevent's cooperative scheduling switches to another request's greenlet on every
-I/O wait — including the entire duration of a Claude/Kimi API call, which is most
-of a request's wall-clock time.
+**The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
+1000`) does not match what's actually deployed.** Confirmed 2026-07-30 via the
+live instance's systemd unit (`devops-agent.service`) and its own startup log
+(`Using worker: sync`): production actually runs **3 plain sync workers**
+(`--workers 3`, no `--worker-class` — gunicorn's default), each a separate OS
+process with its own memory space, so `app.py`'s global `agent` is really 3
+independent per-process singletons, not one instance shared across every
+concurrent request. A sync worker fully blocks on one request at a time, so
+there's no within-process greenlet-interleaving race to begin with under this
+config — reconcile the Procfile with reality at some point (see
+CLAUDE_RUNBOOK.md's 524 incident entry), but don't assume it's live without
+checking `systemctl cat devops-agent` / the gunicorn startup log first.
+
+The rest of this section (the `_greenlet_local_property` fix) remains correct
+and worth keeping regardless of which worker class ends up running: it
+correctly isolates per-request state whether the mechanism is genuine
+greenlet-local storage (gevent) or simple thread/process-local storage (sync),
+so it's not wasted effort even though the original race it was built for
+assumed gevent specifically. The description below documents the gevent
+scenario the fix was originally designed against.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in
@@ -391,6 +444,48 @@ entirely: `aws_tools._get_boto_client` hard-requires a user context, so an appro
 either failed closed with "Authentication required" or could pick up whatever context a prior
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
+
+## Cloudflare's idle-connection timeout vs. long agent turns
+
+This site is proxied through Cloudflare, which enforces its own ~100s idle-connection
+timeout on top of everything the app does — not configurable below Enterprise tier.
+Any endpoint that can legitimately take longer than that (Kimi-tier swarm tasks are
+explicitly designed to run up to ~290s) must send *something* back to the client
+periodically, or Cloudflare kills the connection and returns a 524 to the user while
+the backend keeps working, unaware the client already gave up. See
+CLAUDE_RUNBOOK.md's 524 incident entry for how this was diagnosed live (a `499` in
+nginx's log followed by a successful completion in gunicorn's own log ~25s later —
+the backend wasn't broken, it just finished too late to matter).
+
+`/api/chat` (`app.py`) handles this by running the actual agent call
+(`_run_agent_call`) in a background thread while the view's generator
+(`_generate_chat_response`, wrapped in `flask.stream_with_context`) streams a
+whitespace keep-alive byte every `CHAT_KEEPALIVE_INTERVAL_SECONDS`
+(module-level constant in `app.py`) back to the client for as long as the
+thread is alive, then yields the real JSON body once it finishes.
+`response.json()` (browser) and `json.loads()` (Python) both ignore
+insignificant leading whitespace around a JSON value per spec, so this needed
+zero frontend changes.
+
+**`_run_agent_call` must wrap its body in `with app.app_context():`.**
+`stream_with_context` only preserves the request/app context for the
+generator it wraps (`_generate_chat_response`, which is why `current_user`/
+`db.session` keep working in the post-agent-call code that lives there) — it
+does nothing for a separate `threading.Thread` spawned alongside it. The
+initial version of this fix (5e39d02) missed this: `_run_agent_call` ran
+`agent.process_message_isolated()` with no app context of its own, so every
+real (non-sandbox) tool call that resolves per-user cloud credentials via
+`UserCloudCredential.query` (`services/credential_service.py`, hit by
+literally every AWS/Azure/GCP tool) — plus `core.py`'s `_audit_chat_deletion`
+destructive-action audit log — raised `RuntimeError: Working outside of
+application context`, silently turned into a plain error-text response by
+`_run_agent_call`'s own `except Exception`. Fixed the same day (2026-07-31);
+see CLAUDE_RUNBOOK.md's follow-up entry. Any other endpoint that moves real
+work onto a background thread for this pattern must do the same — re-enter
+the app context inside the thread, never pass a live ORM object across the
+boundary (same rule as `_dispatch_password_reset_email` and
+`services/notification_service.py`'s async Slack/Teams dispatch) — rather
+than a plain synchronous `jsonify(...)` return.
 
 ## Context Management & Progressive Tool Loading
 
