@@ -348,8 +348,7 @@ def execute_change(change_id):
     change = InfrastructureChange.query.get_or_404(change_id)
 
     if change.user_id != current_user.id:
-        user_role = getattr(current_user, 'role', 'viewer')
-        if user_role not in ('admin', 'operator'):
+        if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
             return jsonify({'error': 'Unauthorized'}), 403
 
     if change.status != 'approved':

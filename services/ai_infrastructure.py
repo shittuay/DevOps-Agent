@@ -516,9 +516,14 @@ class AIInfrastructureService:
         return template
 
     def get_template(self, template_id: int) -> Optional[Any]:
-        """Get a template by ID (public or owned)."""
+        """Get a template by ID (public or owned by self.user_id)."""
         InfrastructureTemplate = self._get_template_model()
-        return InfrastructureTemplate.query.get(template_id)
+        template = InfrastructureTemplate.query.get(template_id)
+        if not template:
+            return None
+        if self.user_id is not None and not (template.is_public or template.user_id == self.user_id):
+            return None
+        return template
 
     def get_user_templates(self, user_id: int) -> List[Any]:
         """Get all templates owned by a user."""

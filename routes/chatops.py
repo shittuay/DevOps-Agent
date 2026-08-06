@@ -59,14 +59,8 @@ def slack_events():
     - app_mention events
     - message events (DMs)
     """
-    # Verify request signature
-    slack_signing_secret = os.environ.get('SLACK_SIGNING_SECRET')
-    if slack_signing_secret:
-        timestamp = request.headers.get('X-Slack-Request-Timestamp', '')
-        signature = request.headers.get('X-Slack-Signature', '')
-
-        if not _verify_slack_signature(slack_signing_secret, timestamp, signature, request.get_data()):
-            return jsonify({'error': 'Invalid signature'}), 401
+    if not _verify_slack_request():
+        return jsonify({'error': 'Invalid signature'}), 401
 
     data = request.get_json(silent=True) or {}
 
@@ -108,14 +102,8 @@ def slack_commands():
 
     Handles slash commands like /devops status
     """
-    # Verify request signature
-    slack_signing_secret = os.environ.get('SLACK_SIGNING_SECRET')
-    if slack_signing_secret:
-        timestamp = request.headers.get('X-Slack-Request-Timestamp', '')
-        signature = request.headers.get('X-Slack-Signature', '')
-
-        if not _verify_slack_signature(slack_signing_secret, timestamp, signature, request.get_data()):
-            return jsonify({'error': 'Invalid signature'}), 401
+    if not _verify_slack_request():
+        return jsonify({'error': 'Invalid signature'}), 401
 
     # Parse form data
     command = request.form.get('command', '')
@@ -155,6 +143,9 @@ def slack_interactive():
 
     Handles button clicks, menu selections, etc.
     """
+    if not _verify_slack_request():
+        return jsonify({'error': 'Invalid signature'}), 401
+
     payload = json.loads(request.form.get('payload', '{}'))
 
     action_type = payload.get('type')
@@ -375,6 +366,23 @@ def api_list_commands():
 
 
 # ==================== HELPER FUNCTIONS ====================
+
+
+def _verify_slack_request() -> bool:
+    """Validate the HMAC signature Slack signs into every inbound request.
+
+    Fails closed if SLACK_SIGNING_SECRET isn't configured, mirroring
+    _verify_teams_request()'s Bot Framework convention: never accept
+    unauthenticated bot traffic just because the operator hasn't wired up
+    the integration yet.
+    """
+    slack_signing_secret = os.environ.get('SLACK_SIGNING_SECRET')
+    if not slack_signing_secret:
+        return False
+
+    timestamp = request.headers.get('X-Slack-Request-Timestamp', '')
+    signature = request.headers.get('X-Slack-Signature', '')
+    return _verify_slack_signature(slack_signing_secret, timestamp, signature, request.get_data())
 
 
 def _verify_slack_signature(signing_secret: str, timestamp: str, signature: str, body: bytes) -> bool:
