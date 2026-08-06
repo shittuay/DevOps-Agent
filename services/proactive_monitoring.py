@@ -141,12 +141,14 @@ class MetricCollector:
             MetricSource.CUSTOM: self._collect_custom,
         }
 
-    def collect(self, source: MetricSource, query: str) -> Optional[float]:
+    def collect(self, source: MetricSource, query: str, user_id: Optional[int] = None) -> Optional[float]:
         collector = self._collectors.get(source)
         if not collector:
             logger.error(f"Unknown metric source: {source}")
             return None
         try:
+            if source == MetricSource.CLOUDWATCH:
+                return collector(query, user_id)
             return collector(query)
         except Exception as e:
             logger.error(f"Failed to collect metric from {source.value}: {e}")
@@ -173,9 +175,12 @@ class MetricCollector:
             logger.warning(f"Prometheus query failed: {e}")
             return None
 
-    def _collect_cloudwatch(self, query: str) -> Optional[float]:
+    def _collect_cloudwatch(self, query: str, user_id: Optional[int] = None) -> Optional[float]:
         try:
-            import boto3
+            if user_id is None:
+                logger.error("CloudWatch query requires a user_id to resolve per-user AWS credentials")
+                return None
+            from services.credential_service import get_user_boto_client
             parts = query.split("/")
             if len(parts) < 3:
                 logger.error(f"Invalid CloudWatch query format: {query}")
@@ -187,7 +192,7 @@ class MetricCollector:
                     if "=" in dim:
                         name, value = dim.split("=", 1)
                         dimensions.append({"Name": name, "Value": value})
-            client = boto3.client("cloudwatch")
+            client = get_user_boto_client(user_id, "cloudwatch")
             response = client.get_metric_statistics(
                 Namespace=namespace,
                 MetricName=metric_name,
@@ -609,7 +614,7 @@ class ProactiveMonitoringService:
         if not rule.enabled:
             return
 
-        value = self.collector.collect(rule.source, rule.query)
+        value = self.collector.collect(rule.source, rule.query, user_id=user_id)
         rule.last_check = datetime.utcnow()
 
         if value is None:

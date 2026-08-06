@@ -437,8 +437,13 @@ class APIGatewayService:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def get_webhook_deliveries(self, webhook_id: int, limit: int = 50) -> List[Any]:
-        """Get recent deliveries for a webhook."""
+    def get_webhook_deliveries(self, webhook_id: int, limit: int = 50,
+                                user_id: Optional[int] = None) -> List[Any]:
+        """Get recent deliveries for a webhook. When user_id is given, only the owner may view them."""
+        webhook = self.get_webhook(webhook_id)
+        if not webhook or (user_id is not None and webhook.user_id != user_id):
+            return []
+
         WebhookDelivery = self._get_delivery_model()
         return WebhookDelivery.query.filter_by(endpoint_id=webhook_id)\
             .order_by(WebhookDelivery.created_at.desc())\

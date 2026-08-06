@@ -89,35 +89,35 @@ def test_slow_agent_call_streams_keepalive_and_still_returns_valid_json(app, cha
     assert data['response'] == "Done after a while."
 
 
-def test_background_agent_call_has_app_context_for_db_access(app, chatting_client, test_user):
-    """Regression test: the background thread that runs the actual agent call
-    (see _run_agent_call in app.py) must have a Flask app context pushed.
-
-    Without it, any real (non-sandbox) tool call that resolves per-user cloud
-    credentials via UserCloudCredential.query (services/credential_service.py),
-    or logs a destructive-action audit trail via db.session
-    (core.py's _audit_chat_deletion), raises "RuntimeError: Working outside
-    of application context" — silently breaking every AWS/Azure/GCP tool call
-    made through /api/chat. Simulate that by having the mocked
-    process_message_isolated actually touch the DB from inside the thread.
+def test_background_thread_has_app_context_for_db_access(app, chatting_client, test_user):
+    """agent.process_message_isolated runs on a background OS thread (see the
+    524-fix in CLAUDE_RUNBOOK.md) — but real tool calls do DB work from that
+    thread (credential_service.py's UserCloudCredential.query, skills_engine's
+    UserSkillActivation query, etc.), which raises "Working outside of
+    application context" unless the thread pushes its own app context. The
+    other tests in this file fully mock process_message_isolated and never
+    exercise that path; this one performs a real ORM query inside the fake
+    agent call to prove the background thread can actually reach the DB.
     """
-    from models import User
+    from models import UsageLog
 
     def _process_touching_db(**kwargs):
-        # Raises RuntimeError("Working outside of application context") if
-        # this thread has no app context — exactly the bug being guarded against.
-        User.query.filter_by(id=test_user.id).first()
-        return "Queried the DB from the background thread just fine."
+        # Same shape as a real credential lookup / skills-engine query —
+        # requires an active Flask app context to not raise.
+        count = UsageLog.query.filter_by(user_id=test_user.id).count()
+        return f"ok, saw {count} prior usage log(s)"
 
     agent = _mock_agent(_process_touching_db)
 
     with patch('app.agent', agent), \
          patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
-        resp = chatting_client.post('/api/chat', json={'message': 'terminate my ec2 instance'})
+        resp = chatting_client.post('/api/chat', json={'message': 'list my ec2 instances'})
         assert resp.status_code == 200
         data = resp.get_json()
 
-    assert data['response'] == "Queried the DB from the background thread just fine."
+    assert data['response'].startswith('ok, saw'), (
+        f"expected a real DB-backed response, got an error instead: {data['response']!r}"
+    )
 
 
 def test_agent_exception_is_reported_not_dropped(app, chatting_client):

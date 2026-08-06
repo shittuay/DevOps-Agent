@@ -1336,7 +1336,8 @@ class DevOpsAgent:
             return "The AI service is temporarily unavailable. Please try again in a few minutes — if this keeps happening, contact support@devopsagent.io."
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k3')
+        from services.model_router import DEFAULT_KIMI_MODEL
+        model = model_override or os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
         _override = getattr(self, '_tools_override', None)
         oai_tools = (
             self._convert_tool_list_to_openai_format(_override)
@@ -1541,7 +1542,8 @@ class DevOpsAgent:
             return
 
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-        model = model_override or os.environ.get('KIMI_MODEL', 'kimi-k3')
+        from services.model_router import DEFAULT_KIMI_MODEL
+        model = model_override or os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
         _override = getattr(self, '_tools_override', None)
         oai_tools = (
             self._convert_tool_list_to_openai_format(_override)

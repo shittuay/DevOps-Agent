@@ -3045,18 +3045,17 @@ def api_chat():
         _agent_result = {}
 
         def _run_agent_call():
-            # Runs on a dedicated background thread (see below), which has no
-            # Flask application context of its own. Every real (non-sandbox)
-            # tool call resolves per-user cloud credentials via
-            # UserCloudCredential.query (services/credential_service.py) and
-            # destructive actions log an InfrastructureChange via db.session
-            # (core.py's _audit_chat_deletion) — both need an active app
-            # context or they raise "Working outside of application context."
-            # Re-enter it here rather than passing any live ORM object across
-            # the thread boundary (same pattern as
-            # services/notification_service.py's async Slack dispatch).
-            with app.app_context():
-                try:
+            # This runs on a brand-new OS thread (not a greenlet-friendly
+            # context-copy) — Flask's app/request context from the request
+            # thread is NOT visible here. agent.process_message_isolated goes
+            # on to do real DB work (per-user cloud credential lookups in
+            # credential_service.py, skills_engine's UserSkillActivation
+            # query, etc.), all of which require an active app context or
+            # raise "Working outside of application context." Without this
+            # push, that RuntimeError gets caught by the except below and
+            # silently reported as a generic agent error on every tool call.
+            try:
+                with app.app_context():
                     if model_config.provider == 'kimi':
                         resp = agent.process_message_isolated(
                             user_message=message,
@@ -3085,13 +3084,13 @@ def api_chat():
                         )
                     else:
                         resp = _process_free_tier_chat(message, conversation_history, preferences_context)
-                    _agent_result['response'] = resp
-                    _agent_result['success'] = True
-                    _agent_result['error_msg'] = None
-                except Exception as agent_error:
-                    _agent_result['response'] = f"Error processing request: {str(agent_error)}"
-                    _agent_result['success'] = False
-                    _agent_result['error_msg'] = str(agent_error)
+                _agent_result['response'] = resp
+                _agent_result['success'] = True
+                _agent_result['error_msg'] = None
+            except Exception as agent_error:
+                _agent_result['response'] = f"Error processing request: {str(agent_error)}"
+                _agent_result['success'] = False
+                _agent_result['error_msg'] = str(agent_error)
 
         import threading
         _worker = threading.Thread(target=_run_agent_call, daemon=True)

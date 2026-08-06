@@ -9,7 +9,15 @@ from ..utils import get_logger
 logger = get_logger(__name__)
 
 # Modules that execute arbitrary OS commands on remote hosts are excluded.
-# Specifically: shell, command, raw, script.
+# Beyond the obvious `shell`/`command`/`raw`/`script`, this also excludes two
+# modules whose normal parameters are just as capable of arbitrary command
+# execution / persistent backdoor access on the target host, even though
+# their name doesn't say so:
+#   - cron: `job=` accepts an arbitrary shell command line and schedules it
+#     to run — functionally equivalent to `shell`.
+#   - authorized_key: lets a caller inject an attacker-controlled SSH public
+#     key onto the target for persistent access, independent of any other
+#     credential control on that host.
 _ALLOWED_ANSIBLE_MODULES: frozenset = frozenset({
     'ping', 'setup', 'gather_facts',
     'file', 'copy', 'fetch', 'template', 'lineinfile', 'blockinfile',
@@ -17,7 +25,6 @@ _ALLOWED_ANSIBLE_MODULES: frozenset = frozenset({
     'apt', 'yum', 'dnf', 'zypper', 'package', 'pip',
     'service', 'systemd',
     'user', 'group',
-    'cron',
     'git',
     'stat', 'find',
     'debug', 'assert', 'fail', 'set_fact',
@@ -25,7 +32,7 @@ _ALLOWED_ANSIBLE_MODULES: frozenset = frozenset({
     'uri', 'get_url',
     'unarchive', 'archive',
     'mount',
-    'authorized_key', 'known_hosts',
+    'known_hosts',
     'firewalld', 'iptables',
     'docker_container', 'docker_image',
     'k8s', 'helm',
