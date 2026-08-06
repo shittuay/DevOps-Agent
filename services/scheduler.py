@@ -150,7 +150,7 @@ def _run_task(task_name: str, app, db):
     elif task_name == 'monitoring_tick':
         _run_monitoring_tick(db)
     elif task_name == 'infra_sync':
-        _run_infra_sync(db)
+        _run_infra_sync(app, db)
     elif task_name == 'cost_check':
         _run_cost_anomaly_check(db)
     elif task_name == 'security_scan':
@@ -239,7 +239,7 @@ def _run_monitoring_tick(db):
             logger.debug(f"Monitoring tick skipped for user {user.id}: {e}")
 
 
-def _run_infra_sync(db):
+def _run_infra_sync(app, db):
     """
     Trigger infrastructure sync for users with stale data.
 
@@ -272,10 +272,13 @@ def _run_infra_sync(db):
 
             if needs_sync:
                 logger.info(f"User {user.id}: infrastructure data stale — triggering sync")
-                # Run sync in a separate thread so slow cloud calls don't block the scheduler
+                # Run sync in a separate thread so slow cloud calls don't block the scheduler.
+                # The thread gets its own app context — it does NOT inherit the
+                # `with app.app_context()` the scheduler loop is holding, since that's
+                # thread-local to the scheduler thread, not this new one.
                 t = threading.Thread(
                     target=_sync_user_safe,
-                    args=(user.id,),
+                    args=(app, user.id),
                     daemon=True,
                     name=f'infra-sync-{user.id}'
                 )
@@ -285,11 +288,12 @@ def _run_infra_sync(db):
             logger.debug(f"Infra sync check skipped for user {user.id}: {e}")
 
 
-def _sync_user_safe(user_id: int):
+def _sync_user_safe(app, user_id: int):
     """Run sync_user_infrastructure in a try/except so one failure doesn't kill the thread."""
     from services.infrastructure_sync import sync_user_infrastructure
     try:
-        sync_user_infrastructure(user_id)
+        with app.app_context():
+            sync_user_infrastructure(user_id)
         logger.info(f"Infra sync complete for user {user_id}")
     except Exception as e:
         logger.warning(f"Infra sync failed for user {user_id}: {e}")
