@@ -418,6 +418,7 @@ class SafetyValidator:
             'github_create_release',
             # CI/CD medium risk
             'disable_jenkins_job',
+            'enable_jenkins_job',
             'cancel_github_workflow_run',
             'rerun_failed_github_jobs',
             'trigger_github_workflow',
