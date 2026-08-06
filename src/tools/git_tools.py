@@ -221,6 +221,8 @@ def get_diff(
         Dictionary with diff information
     """
     try:
+        _reject_flag_like(commit1, 'commit1')
+        _reject_flag_like(commit2, 'commit2')
         repo = Repo(repo_path)
 
         if commit2:
@@ -514,6 +516,7 @@ def git_show_commit(repo_path: str, commit_sha: str) -> Dict[str, Any]:
 def git_blame_file(repo_path: str, file_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> Dict[str, Any]:
     """Show git blame for a file, optionally for a specific line range."""
     try:
+        _reject_flag_like(file_path, 'file_path')
         repo = _get_repo(repo_path)
         args = [file_path]
         if start_line is not None and end_line is not None:
@@ -561,6 +564,7 @@ def git_log_file(repo_path: str, file_path: str, limit: int = 10) -> Dict[str, A
 def git_show_file_at_commit(repo_path: str, commit_sha: str, file_path: str) -> Dict[str, Any]:
     """Show the contents of a file at a specific commit."""
     try:
+        _reject_flag_like(commit_sha, 'commit_sha')
         repo = _get_repo(repo_path)
         content = repo.git.show(f'{commit_sha}:{file_path}')
         if len(content) > 10000:
@@ -624,6 +628,8 @@ def git_get_remote_url(repo_path: str, remote_name: str = 'origin') -> Dict[str,
 def git_create_branch(repo_path: str, branch_name: str, start_point: Optional[str] = None) -> Dict[str, Any]:
     """Create a new branch."""
     try:
+        _reject_flag_like(branch_name, 'branch_name')
+        _reject_flag_like(start_point, 'start_point')
         repo = _get_repo(repo_path)
         if start_point:
             repo.create_head(branch_name, commit=start_point)
@@ -989,6 +995,8 @@ def git_list_tags(repo_path: str, limit: int = 20) -> Dict[str, Any]:
 def git_create_tag(repo_path: str, tag_name: str, message: Optional[str] = None, commit: Optional[str] = None) -> Dict[str, Any]:
     """Create a new tag (lightweight or annotated)."""
     try:
+        _reject_flag_like(tag_name, 'tag_name')
+        _reject_flag_like(commit, 'commit')
         repo = _get_repo(repo_path)
         if message:
             repo.create_tag(tag_name, ref=commit, message=message)
@@ -1137,6 +1145,7 @@ def git_stash_drop(repo_path: str, stash_index: int = 0) -> Dict[str, Any]:
 def git_grep_search(repo_path: str, pattern: str, file_pattern: Optional[str] = None) -> Dict[str, Any]:
     """Search for a pattern in tracked files using git grep."""
     try:
+        _reject_flag_like(pattern, 'pattern')
         repo = _get_repo(repo_path)
         args = [pattern]
         if file_pattern:
@@ -1324,6 +1333,8 @@ def git_reflog(repo_path: str, limit: int = 15) -> Dict[str, Any]:
 def git_diff_stat(repo_path: str, commit1: Optional[str] = None, commit2: Optional[str] = None) -> Dict[str, Any]:
     """Show diff statistics (files changed, insertions, deletions)."""
     try:
+        _reject_flag_like(commit1, 'commit1')
+        _reject_flag_like(commit2, 'commit2')
         repo = _get_repo(repo_path)
         if commit1 and commit2:
             output = repo.git.diff(commit1, commit2, '--stat')

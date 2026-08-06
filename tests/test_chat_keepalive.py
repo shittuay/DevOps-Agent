@@ -89,6 +89,37 @@ def test_slow_agent_call_streams_keepalive_and_still_returns_valid_json(app, cha
     assert data['response'] == "Done after a while."
 
 
+def test_background_thread_has_app_context_for_db_access(app, chatting_client, test_user):
+    """agent.process_message_isolated runs on a background OS thread (see the
+    524-fix in CLAUDE_RUNBOOK.md) — but real tool calls do DB work from that
+    thread (credential_service.py's UserCloudCredential.query, skills_engine's
+    UserSkillActivation query, etc.), which raises "Working outside of
+    application context" unless the thread pushes its own app context. The
+    other tests in this file fully mock process_message_isolated and never
+    exercise that path; this one performs a real ORM query inside the fake
+    agent call to prove the background thread can actually reach the DB.
+    """
+    from models import UsageLog
+
+    def _process_touching_db(**kwargs):
+        # Same shape as a real credential lookup / skills-engine query —
+        # requires an active Flask app context to not raise.
+        count = UsageLog.query.filter_by(user_id=test_user.id).count()
+        return f"ok, saw {count} prior usage log(s)"
+
+    agent = _mock_agent(_process_touching_db)
+
+    with patch('app.agent', agent), \
+         patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
+        resp = chatting_client.post('/api/chat', json={'message': 'list my ec2 instances'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+    assert data['response'].startswith('ok, saw'), (
+        f"expected a real DB-backed response, got an error instead: {data['response']!r}"
+    )
+
+
 def test_agent_exception_is_reported_not_dropped(app, chatting_client):
     def _raise(**kwargs):
         raise RuntimeError("boom")

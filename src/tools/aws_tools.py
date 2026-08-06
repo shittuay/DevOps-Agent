@@ -1285,23 +1285,12 @@ def generate_eks_kubeconfig(
 ) -> Dict[str, Any]:
     """Generate kubeconfig content for kubectl access to an EKS cluster."""
     try:
-        import subprocess
-        cmd = ['aws', 'eks', 'update-kubeconfig', '--name', cluster_name]
-        if region:
-            cmd.extend(['--region', region])
-        if role_arn:
-            cmd.extend(['--role-arn', role_arn])
-        cmd.extend(['--dry-run'])
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            return {
-                'success': True,
-                'cluster_name': cluster_name,
-                'kubeconfig': result.stdout,
-                'message': f'Kubeconfig generated for {cluster_name}',
-                'region': _get_effective_region(region)
-            }
-        # Fallback: build config manually using boto3
+        # Deliberately does not shell out to the `aws` CLI: `aws eks update-kubeconfig`
+        # resolves credentials via its own default chain (host env vars / IAM instance
+        # role), bypassing this app's per-user thread-local credential context entirely
+        # (_get_boto_client's whole purpose — see its docstring — is to never fall back
+        # to environment/IAM role credentials). Always build the kubeconfig via boto3
+        # using the requesting user's own credentials instead.
         eks = _get_boto_client('eks', region)
         cluster = eks.describe_cluster(name=cluster_name)['cluster']
         endpoint = cluster.get('endpoint', '')
@@ -1315,7 +1304,9 @@ def generate_eks_kubeconfig(
             'users': [{'name': cluster_name, 'user': {'exec': {
                 'apiVersion': 'client.authentication.k8s.io/v1beta1',
                 'command': 'aws',
-                'args': ['eks', 'get-token', '--cluster-name', cluster_name] + (['--region', region] if region else []),
+                'args': ['eks', 'get-token', '--cluster-name', cluster_name]
+                    + (['--region', region] if region else [])
+                    + (['--role-arn', role_arn] if role_arn else []),
             }}}]
         }
         return {

@@ -216,10 +216,10 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - **Auto-detection only matches the verb as a prefix of the tool name** (`name.startswith(...)`). A tool shaped `<provider>_<verb>_<noun>` (e.g. `git_delete_branch`, `pagerduty_update_incident`) is NOT caught by auto-detection even though `delete`/`update` appear in the name — it silently defaults to low risk unless explicitly added to `high_risk_tools`/`medium_risk_tools`. Check for this shape specifically when adding tools whose name doesn't start with the destructive verb.
 
 **Current high-risk additions (beyond auto-detection):**
-`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path)
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `docker_create_container`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -328,6 +328,19 @@ how each git subcommand's argument parser treats a dash-prefixed positional. **W
 git tool that passes a caller-supplied ref/remote/branch string as a bare positional argument to
 `repo.git.*`, call `_reject_flag_like()` on it first** — don't assume GitPython's lack of a shell
 makes the value safe.
+
+**2026-08-04 follow-up — the guard didn't cover every function that needed it.** A scheduled audit
+found (and live-verified by actually running the exploit) that four functions added after the fix
+above were still unguarded: `git_grep_search`'s `pattern` (`git grep
+--open-files-in-pager=<cmd>` execs the pager — confirmed RCE), `get_diff`/`git_diff_stat`'s
+`commit1`/`commit2` and `git_show_file_at_commit`'s `commit_sha` (`git diff/show --output=<file>`
+writes to an arbitrary path — confirmed arbitrary file write), and `git_blame_file`'s `file_path`
+(`git blame --contents=<file>` echoes an arbitrary file's contents back — confirmed arbitrary file
+read, e.g. `/etc/passwd`). All five now call `_reject_flag_like()` and are classified medium-risk
+in `safety.py` (see CLAUDE_RUNBOOK.md's 2026-08-04 entry). **This guard is opt-in per function, the
+same structural gap the SSRF/login-timing checks in `check_security_invariants.py` were built to
+close for their own patterns — it is not yet enforced by an automated check,** so don't assume a
+new git tool is safe just because sibling tools in the same file are guarded; verify it directly.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 

@@ -8,6 +8,7 @@ This document archives fixed issues and their solutions for reference. Most issu
 
 | Issue | Solution |
 |-------|----------|
+| **Scheduled audit found the 524-fix's background thread silently dropped the Flask app context, breaking every real tool call (FIXED 2026-08-05)** | Routine code-vulnerability scan reviewing the diff since the last audit (2026-07-27) found that `5e39d02`'s `/api/chat` keep-alive fix (see the Cloudflare 524 entry below) moved `agent.process_message_isolated(...)` into a plain `threading.Thread(target=_run_agent_call)` with no `app.app_context()` pushed inside it. A brand-new `threading.Thread` does not inherit the Flask request/app context from the thread that spawned it (contextvars aren't copied to a manually-started thread, and — confirmed live — production actually runs plain sync gunicorn workers, not the gevent config the Procfile describes, so there's no monkey-patched thread-local magic to paper over this either). `process_message_isolated` goes on to do real DB work from inside that thread on almost every substantive turn: `credential_service.py`'s `UserCloudCredential.query` (every AWS/Azure/GCP/K8s tool call that needs per-user credentials), `skills_engine.py`'s `UserSkillActivation`/infrastructure-summary queries, etc. — all of which raise `RuntimeError: Working outside of application context.` outside a pushed context. That exception was caught by `_run_agent_call`'s own `except Exception`, turning into a generic `"Error processing request: Working outside of application context...."` response — and `_is_anthropic_error()` could then trigger the Groq no-tools fallback, so the failure often surfaced only as "Claude/Kimi is temporarily unavailable, this response was generated without tool execution" rather than a visible crash. Net effect: since the Jul 30 deploy, most `/api/chat` (non-streaming) turns that actually needed a cloud tool call were silently losing tool execution in production. `/api/chat/stream`'s SSE path was unaffected — it calls `agent.process_message_streaming` directly inside the `stream_with_context`-wrapped generator on the *original* request thread, never spawning a separate thread. Fixed by wrapping `_run_agent_call`'s body in `with app.app_context():`. Regression test added: `tests/test_chat_keepalive.py::test_background_thread_has_app_context_for_db_access` — unlike the fix's original four tests (which fully mock `process_message_isolated` and never exercise this path), this one has the fake agent call perform a real `UsageLog.query` from inside the background thread; confirmed it reproduces the exact production error message before the fix and passes after. Full suite: 667 passed, 1 pre-existing unrelated failure (missing `ANTHROPIC_API_KEY` in the sandbox used to run the suite). **Verified clean in the same pass:** every other `threading.Thread(target=...)` call site in the codebase (`routes/auth.py`'s password-reset/signup-email dispatch, `services/notification_service.py`'s webhook dispatch, `services/proactive_monitoring.py`) already wraps its body in `app.app_context()` — this was an isolated regression introduced by the 524 fix, not a systemic pattern; the two other Jul 27–Aug 5 diffs (Azure friendly-error-message translation, the CI deploy-pin/concurrency-group fix) were reviewed and are clean. **Lesson:** "runs the agent call in a background thread" and "runs the agent call in a background thread that also participates in Flask/DB machinery" are different claims — a fix's own regression tests need at least one case where the mocked entry point does the kind of real work (DB/app-context-dependent) the code path exists to do, or a context-loss bug like this one sails through fully green. |
 | **Scheduled audit found git argument-injection RCE + two org/user-isolation IDORs (FIXED 2026-07-27)** | Routine code-vulnerability scan (parallel sweeps of routes/services for IDOR, of src/tools for injection/SSRF gaps, and of known duplicated code) found three real issues. **(1) Git argument-injection → command execution, highest severity:** `src/tools/git_tools.py`'s `git_pull`/`git_push`/`git_force_push_branch`/`git_push_tag` passed caller-supplied `remote`/`branch`/`tag_name` as a bare positional argument to GitPython's `repo.git.<subcommand>(*args)` with no validation. GitPython invokes `git` directly with no shell (not the shell-injection class `scripts/check_security_invariants.py` tracks), but git itself treats a leading `-` as an option regardless of position, and `git pull`/`fetch --upload-pack=<cmd>`, `git push --receive-pack=<cmd>`, and `git rebase --exec=<cmd>` (found the same way in `git_rebase_branch`'s `onto_branch`) all execute `<cmd>` on the host as part of the transport/rebase machinery. A chat-driven caller could set `remote="--upload-pack=touch$IFS/tmp/pwned;true"` and reach command execution independent of the medium/high-risk confirmation gate on these tools (the prompt shows "pull from X", it doesn't recognize X as a flag). Fixed with a shared `_reject_flag_like(value, param_name)` helper (rejects any value starting with `-`) called before `_get_repo()` in every function passing a caller-supplied ref/remote/branch/commit/tag as a bare positional arg — the RCE-capable set above plus `git_switch_branch`, `git_delete_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_to_commit`, `git_cherry_pick`, `git_delete_tag`, `git_revert_commit` for defense-in-depth (no known RCE flag on those, but the same ambiguity of how each subcommand's parser treats a dash-prefixed positional). Regression tests: `tests/test_git_tools_argument_injection.py` (13 tests — confirms the guard fires *before* `_get_repo()` runs, and that normal values pass through untouched). **(2) `services/compliance_service.py` IDOR:** `get_policy()`/`get_compliance_report()` did a bare `Model.query.get(id)` with no `user_id` filter even though `ComplianceService` is always constructed with one — any logged-in user could toggle, delete, or download another user's compliance policy/report by guessing the integer id (`toggle_policy`/`delete_policy`/`update_policy`/`get_report`/`export_report` all call one of the two unfiltered getters). Fixed by filtering both on `self.user_id` when set. Regression tests: `tests/test_compliance_policy_idor.py` (5 tests). **(3) `routes/approvals.py` org-scope leak:** same bug class as the change-governance fix below, in a route file that was never given the same treatment — `get_pending()`/`get_count()`/`get_history()` are gated only by the platform-wide `_approver_required` (no org-membership check) and query `InfrastructureChange` — which carries `organization_id` specifically to scope non-admin approver visibility — with no org filter at all, leaking every organization's pending/historical change details (requester, resource, risk reason) to any platform-role approver. Fixed with a local `_org_scoped_change_query()` helper that reuses `routes.changes._user_active_org_ids()` rather than re-deriving the org-membership logic a third time. `ApprovalRequest` (the agent tool-call approval side of the same endpoints) has no `organization_id` and is intentionally platform-wide, so it was left untouched. Regression tests: `tests/test_approvals_org_scope.py` (3 tests). Full suite after the fixes: 630 passed (plus 21 new), 1 pre-existing unrelated failure (missing `ANTHROPIC_API_KEY` in the sandbox used to run the suite). **Also cataloged, not yet fixed (lower risk / larger diff, left for a future pass):** duplicated OpenAI-compatible `chat()`/`chat_stream()` logic across `services/model_failover.py`'s three provider classes; `create_or_update_recommendation()` defined twice, with diverged behavior, in `services/cost_explorer.py` and `services/infrastructure_sync.py`; near-identical `docker_compose_up`/`docker_compose_down` in `docker_tools.py`; three structurally-identical email-template functions in `services/email_service.py`; duplicated header-parsing block between `require_api_key`/`optional_api_key` in `services/api_key_service.py`. **Lesson:** the SSRF/shell-injection guard pattern doesn't cover every way a "safe because no shell" subprocess call can still be attacker-steerable — GitPython's argv-passthrough is real command execution once a positional argument can be flag-shaped; any future tool wrapping a CLI that accepts `--upload-pack`/`--receive-pack`/`--exec`-style transport/hook options needs the same bare-positional-argument scrutiny, not just a shell-metacharacter check. |
 | **Scheduled audit found curriculum AI-guide guardrail bypass + three SSRF gaps (FIXED 2026-07-23)** | Routine code-vulnerability scan (guardrails / safety.py / SSRF / user-isolation sweeps) found: (1) `routes/curriculum.py`'s `/curriculum/api/ai-guide` streamed a free-text `question` straight into a Kimi chat completion with **none** of the four mandated guardrail steps (no `sanitize_input`, no `is_guardrail_blocked` check, no `validate_message`, no `screen_message`) — the same bug class as the `api_gateway.py`/`api/v1/conversations.py` incidents below, just not yet caught. Fixed by porting the same guardrail block (including crisis-language handling, logged to `CrisisIncident` with `conversation_id=f'curriculum:{module_id}'`) used in `app.py`'s `/api/chat`. (2) `services/notification_service.py`'s `SlackClient.send_webhook`/`TeamsClient.send` POST to a user-configured `webhook_url` (set via `routes/notifications.py`) with **zero** SSRF validation — pointing it at `http://169.254.169.254/latest/meta-data/` made the server fetch cloud metadata on every notification event, and the Slack path even logged the response body. Fixed by calling `assert_safe_url()` before both requests. (3) `services/api_gateway.py`'s `test_webhook()` skipped the `_is_safe_webhook_url()` guard that `trigger_webhook()` already had, and echoed up to 500 chars of the response body straight back to the caller — a direct SSRF response oracle for anyone who owns a webhook row. Fixed by adding the same guard used elsewhere in the file. (4) `src/tools/git_tools.py`'s `_validate_git_url()` only checked URL *shape* (scheme/pattern), never resolved the host — `git_clone_repository`/`git_add_remote` would let `git`'s own HTTP transport issue a real GET to `http://169.254.169.254/...` before failing. Fixed by resolving the host (both `https://` via `assert_safe_url()` and `git@host:` via direct `getaddrinfo` + the shared `_is_blocked_ip()` check) and rejecting loopback/link-local targets. **Verified clean in the same pass:** `safety.py` risk classification (all 745 tools cross-referenced, zero gaps), user-isolation/IDOR shape across all per-user models (zero unfixed instances), Datadog/PagerDuty/OpsGenie/Prometheus/Grafana/Jenkins/SonarQube/Nexus SSRF wiring. **Open item at the time, since fixed same day** (see the entry directly below): `routes/changes.py`'s `approve_change`/`reject_change` let any user holding the `approver` role act on *any* pending change regardless of who it's assigned to, while the sibling `list_pending_approvals` scopes non-admins to `user_id=current_user.id`. |
 | **Change governance had no tenant boundary — any approver could act on every customer's changes (FIXED 2026-07-23)** | Flagged as an open item in the entry above, then investigated further same day: the gap was broader than an assignment mismatch. `InfrastructureChange` (`models.py`) only ever tracked `user_id` (requester) and `approver_id` — no assignment/team field existed. `routes/changes.py`'s `list_changes`, `approve_change`, `reject_change`, and `rollback_change` gated purely on the **platform-wide** `User.role` (`admin`/`approver`/`user`/`viewer`, only settable via direct DB edit — see "Granting Admin Access" in CLAUDE.md) and queried the entire `InfrastructureChange` table with zero org boundary: any account promoted to `role='approver'` could view, approve, reject, or roll back **every customer's** infrastructure changes platform-wide, not just their own team's — this is a different, unrelated role system from the per-org `OrganizationMember.role` (`owner`/`admin`/`member`) used in `organizations.py`, and the two never cross-checked each other. Separately, `list_pending_approvals` filtered non-admins to `user_id=current_user.id` — showing an approver only changes *they personally submitted*, never other users' changes awaiting approval — while the action endpoints had no such filter, so an approver could act on a change by ID that never appeared in their own pending list. Fixed by adding `InfrastructureChange.organization_id` (nullable FK, stamped at creation from the requester's `session['active_organization_id']`, validated against real `OrganizationMember` rows so a tampered session value can't assign a change to a foreign org) and scoping every non-admin approver path (`list_changes`, `get_change`, `list_pending_approvals`, `approve_change`, `reject_change`, `rollback_change`) to organizations the approver is an active member of via a shared `_user_active_org_ids()`/`_change_visible_to_approver()` helper pair. A change with no organization (solo/non-team accounts) is now approvable only by a platform admin — there's no team to route it to. Admins remain unrestricted, matching every other admin-gated view in the app. Regression tests: `tests/test_change_governance_org_scope.py` (6 tests: org-stamping, org-member approve, foreign-org denial on view/approve/reject, solo-change admin-only, admin sees all). **Lesson:** this repo has two independent role systems (platform `User.role` vs per-org `OrganizationMember.role`) that look similar but don't compose — any route gated by `approver_required`/`admin_required` needs an explicit org-membership check if it touches data that isn't already scoped by `user_id`, the same class of gap as the guardrails-stack and safety.py single-source-of-truth lessons above. |
@@ -662,213 +663,157 @@ endpoint is allowed to run.
 
 ---
 
-## Scheduled audit: unguarded raw-socket connect in EKS OIDC tool (2026-08-02)
+## Scheduled audit: live-verified git RCE, two credential-isolation bypasses, secret exfiltration, container-escape, and two IDORs (2026-08-04)
 
-A routine scheduled review (parallel agents auditing tool risk classification,
-SSRF coverage, IDOR/tenant isolation, and code smells) confirmed the first three
-areas clean and found one new SSRF-adjacent gap in the fourth-from-last category:
+A routine scheduled review (four parallel agents auditing `src/tools/`+
+`safety.py`, `routes/`+`api/`, `services/`, and recent commits/core modules)
+found and fixed eight real, independently-confirmed issues. The most severe
+was **live-verified** by the reviewing agent actually running the exploit
+against a scratch repo before reporting it, not just read from the code.
 
-**`associate_eks_oidc_provider()` (`src/tools/aws_tools.py`) connected to a
-caller-influenced host with no `assert_safe_url()` guard.** The function derives
-`oidc_host` from `cluster['identity']['oidc']['issuer']` (the EKS API's own
-`describe_cluster` response) and passes it straight to a raw
-`ssl.get_server_certificate((oidc_host.split('/')[0], 443))` call to compute the
-IAM OIDC provider's certificate thumbprint. Because this goes through `ssl`
-directly rather than `requests`, it's invisible to
-`scripts/check_security_invariants.py`'s AST check (which only scans for raw
-`requests.*` calls) — the same blind spot that let previous SSRF gaps hide in
-non-`requests` clients (git's HTTP transport, the Jenkins SDK) until a dedicated
-pass found them. Severity here is lower than a directly chat-supplied URL, since
-`oidc_issuer` comes from AWS's own API response for the caller's own cluster
-rather than raw chat input — exploiting it would require the EKS API itself to
-return a blocked address (e.g. a misconfigured/compromised cluster whose issuer
-resolves to `169.254.169.254` or a loopback address) — but the codebase's
-established convention is defense-in-depth on every outbound call driven by
-caller-reachable data, regardless of how indirect the path is. Fixed by calling
-`assert_safe_url(oidc_issuer)` (the internal-trust-model validator — this is
-infra the user's own AWS account controls, the same trust tier as
-Jenkins/SonarQube/Nexus, not an arbitrary external webhook) immediately after
-reading `oidc_issuer`, before it's used to build the connection target; a raised
-`UnsafeUrlError` (a `ValueError` subclass) is caught by the function's existing
-outer `except Exception` handler and returned as a normal `{'success': False,
-'error': ...}` response, no new error handling needed.
+1. **`git_grep_search` flag-injection RCE (`src/tools/git_tools.py`).** The
+   `_reject_flag_like()` guard added 2026-07-27 for `git_pull`/`git_push`/etc.
+   was never extended to four functions added later that pass a caller-supplied
+   value as a bare positional arg to `repo.git.*`: `git_grep_search`'s
+   `pattern` (`git grep --open-files-in-pager=<cmd>` execs the given pager —
+   confirmed live: `pattern="--open-files-in-pager=touch /tmp/pwned #"`
+   created the file), `get_diff`/`git_diff_stat`'s `commit1`/`commit2` and
+   `git_show_file_at_commit`'s `commit_sha` (`git diff/show --output=<file>`
+   writes command output to an arbitrary path — arbitrary file write,
+   confirmed live), and `git_blame_file`'s `file_path` (`git blame
+   --contents=<file>` echoes an arbitrary file's contents back in the
+   response — arbitrary file read, e.g. `file_path="--contents=/etc/passwd"`,
+   confirmed live). None of the five were in `safety.py`'s risk sets either,
+   so all fired with zero confirmation prompt. Fixed by extending
+   `_reject_flag_like()` to all five params and adding all five tool names to
+   `medium_risk_tools` as defense-in-depth. Regression tests added to
+   `tests/test_git_tools_argument_injection.py` (8 new cases).
 
-**Lesson:** `scripts/check_security_invariants.py` only catches the *raw
-`requests.*` call* shape of SSRF — any tool that reaches the network through a
-different mechanism (`ssl`, `socket`, `urllib`, an SDK's internal HTTP client)
-needs the same `assert_safe_url`/`safe_request` treatment applied by hand, since
-the structural checker won't see it. When auditing for this class of bug, grep
-for `ssl.`, `socket.`, `urllib.` and SDK-internal connection calls too, not just
-`requests.`.
+2. **`generate_eks_kubeconfig` bypassed per-user AWS credential isolation
+   (`src/tools/aws_tools.py`).** Instead of `_get_boto_client()` — whose
+   entire purpose, per its own docstring, is to never fall back to
+   environment/IAM-role credentials — this function shelled out to
+   `aws eks update-kubeconfig --dry-run`, which resolves credentials via the
+   AWS CLI's own default chain (the host's env vars / IAM instance role), not
+   this app's per-user thread-local context. It only fell back to the safe
+   boto3 path if the CLI call *failed*. On the documented EC2 deployment, any
+   authenticated user — regardless of their own linked AWS account — could
+   call this tool with an arbitrary `cluster_name` and have it queried using
+   the **platform host's own AWS identity**. Fixed by removing the CLI
+   shell-out entirely and always building the kubeconfig via
+   `_get_boto_client('eks', region)`.
 
-**Also verified clean in this pass:** `src/agent/safety.py`'s risk
-classification (all 743 tool names cross-checked against `high_risk_tools`/
-`medium_risk_tools`/auto-detect prefixes — no gaps); `scripts/check_security_
-invariants.py` reports zero violations after this edit.
+3. **All 5 GCP Secret Manager tools bypassed per-user GCP credential isolation
+   (`src/tools/gcp_tools.py`).** `_get_gcp_client()` builds every other GCP
+   service client with the requester's per-user credentials when available,
+   but Secret Manager was never added to it — `list_secrets`, `get_secret_value`,
+   `create_gcp_secret`, `delete_gcp_secret`, and `add_secret_version` all
+   called `secretmanager.SecretManagerServiceClient()` directly with no
+   credentials argument, which falls back to Application Default Credentials
+   (the host's own service account). Any authenticated user could list and
+   read secrets from the **platform's own GCP project**, not their own — worse
+   than finding #2 above since it's live secret material, not just cluster
+   metadata. Fixed with a new `_get_secretmanager_client()` helper (mirrors
+   `_get_gcp_client`'s per-user-credentials pattern) used at all 5 call sites.
+   Separately, `get_secret_value` returned decrypted secret plaintext directly
+   into the tool result — the chat/tool_trace/LLM-provider path — which no
+   other secret-bearing tool in this codebase does (AWS deliberately has no
+   `secretsmanager:GetSecretValue`/`ssm:GetParameter WithDecryption`
+   equivalent; `list_github_secrets` never exposes values). Escalated to
+   `high_risk_tools` as defense-in-depth; the credential-isolation fix is the
+   real fix.
 
----
+4. **Ansible module allowlist permitted two command-execution-equivalent
+   modules (`src/tools/ansible_tools.py`).** `_ALLOWED_ANSIBLE_MODULES`'
+   stated purpose is blocking modules that run arbitrary OS commands on
+   remote hosts (`shell`/`command`/`raw`/`script` excluded), but it allowed
+   `cron` (`job=` accepts an arbitrary shell command line — functionally
+   identical to `shell`) and `authorized_key` (injects an attacker-controlled
+   SSH public key onto the target for persistent backdoor access). Removed
+   both from the allowlist. `ansible_adhoc_command` was already high-risk in
+   `safety.py`, so this closes a gap the confirmation prompt alone didn't.
 
-## Same scheduled audit: 3 exploitable IDORs + 3 latent instances of the same defect (2026-08-02)
+5. **`docker_create_container` allowed unrestricted host bind-mounts
+   (`src/tools/docker_tools.py`).** The `volumes` parameter was passed to
+   `client.containers.run()` with no validation of host source paths —
+   mounting `/var/run/docker.sock` or `/` gives trivial container-escape to
+   full host/Docker-daemon control, the same risk class as `execute_command`,
+   yet the tool was only medium-risk (same tier as `docker_push_image`).
+   Fixed with `_validate_container_volumes()` blocking the clearest cases
+   (docker socket, `/`, `/root`, `/etc`, `/boot`, `/proc`, `/sys`) and
+   escalating the tool to `high_risk_tools`. Regression test added to
+   `tests/test_new_tools.py` (updated from `..._is_medium_risk` to
+   `..._is_high_risk`).
 
-The IDOR/tenant-isolation pass of the same scheduled review (see the EKS OIDC
-entry above) found three currently-exploitable cross-user/cross-org data leaks,
-plus three more instances of the same unfiltered-getter shape sitting in
-service methods no live route calls yet — the exact way
-`compliance_service.py`'s original bug (documented earlier in this file)
-recurred: a class stores `self.user_id` but a getter does a bare `.query.get()`
-instead of filtering by it, and the gap sits dormant until something wires a
-route to that method.
+6. **`routes/organizations.py` `view_team` IDOR.** Computed `membership =
+   service.get_membership(...)` but — unlike the sibling `list_teams`, which
+   redirects non-members away — never checked it before rendering. Any
+   `@login_required` user who knew or guessed an `org_id`/`team_id` could view
+   another organization's team name, description, and member roster. Fixed by
+   adding the same membership check `list_teams` already has. Regression
+   tests: `tests/test_team_view_idor.py`.
 
-### Exploitable
+7. **`remove_member` had no owner-role protection (`routes/organizations.py`
+   + `services/multi_tenancy.py`).** `update_member_role` already blocks a
+   non-owner from touching an `owner` role (2026-07-25 fix above), but
+   `remove_member` had no equivalent check anywhere in the call chain — gated
+   only by `org_admin_required` (owner *or* admin), with the service method
+   deactivating any membership with zero role-hierarchy logic. An org `admin`
+   could remove the actual `owner`'s membership and seize effective control.
+   Fixed by mirroring `update_member_role`'s owner-only check before calling
+   `service.remove_member()`. Regression tests added to
+   `tests/test_org_role_escalation.py`.
 
-1. **`routes/organizations.py` `view_team` — org-membership check computed but
-   never enforced.** The route fetched `membership =
-   service.get_membership(org_id, current_user.id)` but only gated on
-   `team.organization_id != org_id`, never on `if not membership` — every
-   sibling route (`view_organization`, `list_members`, `list_teams`) has that
-   check, this one silently didn't. Any authenticated user with zero
-   organization memberships could `GET
-   /organizations/<any_org_id>/teams/<any_team_id>` for any org/team id pair
-   and see that team's name, description, and full member list (user ids +
-   roles) for an organization they have no relationship to. Fixed by adding
-   the same `if not membership: flash(...); return redirect(...)` check used
-   by its siblings, before the team lookup.
+8. **`api/v1/tools.py`'s direct tool-execution endpoint never set cloud user
+   context.** `process_message_isolated`/`process_message_streaming` are the
+   only two entry points that call `agent._set_cloud_user_context()`
+   automatically (see `services/approval_service.py`'s `_execute_tool` fix,
+   2026-07-24 entry above, for the same gap in a different direct-invocation
+   path). `POST /v1/tools/execute` calls `agent.tools[tool_name](**params)`
+   directly, bypassing both — so any write-scope API key calling a cloud tool
+   hit `_get_boto_client()`/GCP/Azure equivalents with no per-user credential
+   context, either failing closed today (3-sync-worker deployment) or, on a
+   different worker model, risking a cross-request context leak. Fixed by
+   setting `agent._set_cloud_user_context(g.api_user.id)` before the call and
+   clearing it in a `finally`, same pattern as `_execute_tool`. The
+   fixture `_FakeAgent` in `tests/test_api_tools_execute.py` needed the two
+   new methods stubbed in — a reminder that a test double for `DevOpsAgent`
+   has to grow alongside the real class's method surface.
 
-2. **`services/compliance_service.py` `get_framework` — bare `.query.get()`,
-   unlike its already-fixed siblings `get_policy`/`get_compliance_report`.**
-   Same class, same original 2026-07-27 audit — `get_policy` and
-   `get_compliance_report` were fixed to filter by `self.user_id`, but
-   `get_framework` was missed in that pass. Reachable via
-   `routes/compliance.py`'s `GET /compliance/frameworks/<framework_id>`
-   (`@login_required` only, no ownership check in the route itself — it relies
-   entirely on the service layer). Any logged-in user supplying another user's
-   numeric framework id got back that framework's name, description, control
-   settings, and compliance score. Fixed with the same `filter_by(id=...,
-   user_id=self.user_id)` pattern already used by `get_policy`. Bonus:
-   `disable_framework()` calls `self.get_framework()` internally, so it's now
-   scoped too even though no live route calls it yet.
+**Also cataloged, not fixed this pass (lower severity / larger diff, left for
+a future pass):** `services/infrastructure_sync.py`'s ~15 `sync_aws_*`
+functions repeat an identical get-or-create/update/commit pattern verbatim
+(~600 lines could collapse into one `_upsert_resource()` helper) and use
+`print()` instead of `logger.error` for swallowed exceptions;
+`services/model_failover.py`'s `OpenAIProvider`/`GroqProvider`/`KimiProvider`
+are near-identical OpenAI-compatible-API adapters that could share a base
+class; `app.py`'s `/api/team/users/<id>/role`/`/delete` duplicate
+`routes/admin.py`'s user-management logic with a flatter (but not
+independently exploitable) authorization check — both require platform
+`role='admin'`, which already has full rights, but it's copy-drifted
+boilerplate enforcing different rules for the same operation.
+`services/multi_tenancy.py`'s `MultiTenancyService.__init__(user_id=None)`
+stores `self.user_id` but no getter method reads it — currently dead (every
+call site passes no args), but the same false-safety shape the
+`ComplianceService` postmortem (CLAUDE.md) warns about: a per-user-looking
+service class whose protection depends entirely on the caller remembering an
+external check, which failed once already here (finding #6).
 
-3. **`services/ai_infrastructure.py` `preview_template` — no ownership/
-   `is_public` check, unlike its siblings.** `template_detail` and
-   `api_template_clone` (both in `routes/ai_infrastructure.py`) correctly gate
-   on `template.is_public or template.user_id == current_user.id` after
-   calling `service.get_template()` — which itself is a bare, unfiltered
-   `.query.get()`, relying entirely on callers to re-check visibility.
-   `api_template_preview`'s route skipped that check, and so did the service
-   method it calls. Any authenticated user could `POST
-   /ai/api/templates/<any_template_id>/preview` with any body and get back the
-   full rendered template content (Terraform/CloudFormation) of another user's
-   **private** template, guessable by integer id — leaking resource names,
-   account/region choices, and anything a user embedded in a template they
-   never intended to share. Fixed by adding the same visibility check inside
-   `preview_template()` itself (using `self.user_id`, already stored on the
-   instance), rather than relying on yet another route-level copy of the
-   check `get_template()` should arguably enforce by default.
+Verified: `scripts/check_security_invariants.py` reports zero violations
+after all fixes. Full test suite (with a locally-assembled dependency set —
+this sandbox has no preinstalled `requirements.txt`) ran 655 passed / 22
+failed, all 22 failures traced to `ModuleNotFoundError` for packages unrelated
+to any file touched in this pass (`qrcode`, `joserfc`, `python3-saml` wiring
+for SAML/SSO/2FA/Teams-bot tests) — confirmed zero regressions by installing
+those and re-running: 0 failures.
 
-### Latent (same defect, no live route reaches them yet — hardened anyway)
-
-- `services/analytics_service.py` `get_dashboard`/`get_widget` — bare
-  `.query.get()` despite `AnalyticsService.__init__` storing `self.user_id`,
-  which was never referenced anywhere in the class. `update_dashboard`/
-  `delete_dashboard`/`update_widget`/`delete_widget` all call these
-  internally, so scoping the two getters (widget scoped via its parent
-  dashboard's ownership) closes the whole family at once.
-- `services/ai_infrastructure.py` `get_request` (provisioning requests) —
-  same shape; `approve_request`/`execute_request`/`cancel_request` all call it
-  internally. Scoped by `self.user_id` when set.
-- `services/api_gateway.py` `get_webhook_deliveries` — unlike its siblings
-  `update_webhook`/`delete_webhook`/`toggle_webhook`/`test_webhook`, took no
-  `user_id` at all. Given an optional `user_id` parameter matching the
-  sibling signature (`webhook.user_id != user_id` check), defaulting to
-  `None` (no filtering) to match the existing siblings' behavior when called
-  without it.
-
-**Not fixed (flagged as a separate, lower-severity inconsistency, not a
-vulnerability):** `routes/changes.py` `execute_change` allows any user with
-`role in ('admin', 'operator')` to execute any org's change with no
-`_change_visible_to_approver` check, unlike its siblings `approve_change`/
-`reject_change`/`rollback_change`. `'operator'` isn't a role that exists
-anywhere in the platform role set (`services/rbac.py`'s `ROLE_HIERARCHY` has
-no such entry), so that branch is dead code, and `admin`'s platform-wide
-bypass is consistent with `admin`'s documented "full access" design (the same
-bypass `user_is_admin(current_user)` grants on the sibling routes) — not a
-boundary the other three routes are actually enforcing against admins either.
-Left as-is; noted here in case a real `operator` role is ever introduced.
-
-**Lesson (reinforcing the existing one in the 2026-07-27 entry):** a per-user
-service class's `self.user_id` is only a security boundary if *every* getter
-filters by it — this is the second time an unfiltered getter has been found
-sitting next to already-fixed siblings in the same class. When auditing a
-class like this, check every method that starts with `get_`/`find_`, not just
-the ones a known route already calls — the getters with no current caller are
-exactly the ones a future feature will wire up unreviewed.
-
----
-
-## Same scheduled audit: low-risk code-quality cleanup applied; larger duplication left for a dedicated PR (2026-08-02)
-
-The fourth pass of the same scheduled review (see the two entries above) audited
-for dead code, duplication, and general smells — not security vulnerabilities.
-This environment had no installed dependencies (no `pytest`, no app deps), so
-nothing beyond `ast.parse()` and the standalone `scripts/check_security_
-invariants.py` could be run to verify changes. Applied only mechanical,
-independently-verifiable fixes; left larger refactors for a PR that can run the
-real test suite.
-
-**Applied:**
-- Removed `get_command_history()` (`src/tools/command_tools.py`) — a
-  `'coming soon'` stub never wired into `get_tools()` and never called
-  anywhere else in the repo.
-- Removed two dead `color_map` dicts in `services/notification_service.py` —
-  `to_slack_blocks()`'s copy was never read (nothing in that method uses
-  `color_map` after building it), and `to_teams_card()`'s copy was fully
-  shadowed by its own `_get_teams_color()` helper, which is what `themeColor`
-  actually uses.
-- Extracted `DEFAULT_KIMI_MODEL = 'kimi-k3'` in `services/model_router.py` and
-  pointed the three other `os.environ.get('KIMI_MODEL', 'kimi-k3')` call sites
-  (`src/agent/core.py` ×2, `services/model_failover.py`) at it, so the default
-  model id lives in one place instead of four independently-typed literals.
-- Changed all 27 bare `except:` clauses in `src/tools/aws_tools.py` (25),
-  `src/tools/kubernetes_tools.py` (1), and `routes/changes.py` (1) to
-  `except Exception:` — a repo-wide grep for the bare form confirmed these
-  were the only 3 files with it. Bare `except:` also catches
-  `KeyboardInterrupt`/`SystemExit`/`GeneratorExit`, which `except Exception:`
-  correctly lets propagate; behavior for every real error case these
-  best-effort secondary lookups (bucket size, K8s events, etc.) already
-  handle is unchanged.
-
-**Identified but deliberately NOT applied — needs a dedicated PR with test
-coverage, not a same-pass fix:**
-- **Guardrail-check block duplicated across 8 call sites** (`app.py`'s
-  `api_chat`/`api_chat_stream`, `api/v1/conversations.py` ×2,
-  `routes/api_gateway.py` ×2, `routes/curriculum.py`) — the
-  `is_guardrail_blocked()` → `validate_message()` → `screen_message()` →
-  `record_guardrail_violation()` sequence documented in CLAUDE.md's Guardrails
-  section. This exact duplication is *why* it's been independently missed on
-  three different new entry points over this app's history (see the
-  Guardrails section of CLAUDE.md for each prior incident) — extracting a
-  shared `run_guardrail_checks()` would close that recurrence risk for good.
-  Not done in this pass because it touches the chat request path directly and
-  this environment can't run `pytest`/the app to verify no regression;
-  recommended as a follow-up PR.
-- **Crisis-incident logging block duplicated 3×** (`app.py` ×2,
-  `routes/curriculum.py`) — same reasoning, same recommendation
-  (`log_crisis_incident()` helper).
-- **Free-tier subscription bootstrap reimplemented inline in 5+ places**
-  instead of reusing `api/v1/conversations.py`'s existing `_ensure_
-  subscription()`/`_check_credits()` helpers — already showing drift (the
-  inline copies in `app.py` skip `should_reset_credits()`/`reset_monthly_
-  credits()` that the helper calls). Same reasoning for deferring.
-- Query params parsed but silently unused in `routes/analytics.py`
-  (`api_resource_trends`'s `start_date`/`end_date`, `api_performance_
-  metrics`'s `resource_id`) and `routes/ai_infrastructure.py`
-  (`api_recommendations`'s `category`) — real functional gaps (filters that
-  silently do nothing), not vulnerabilities; worth a follow-up but not
-  addressed here since it changes response contents and should ship with a
-  test asserting the filter actually filters.
-- Inconsistent error-response envelope (`{'error': ...}` vs `{'success':
-  False, ...}`) across `routes/`/`api/`/`app.py`, and `app.py`'s
-  `api_chat()`/`api_chat_stream()` being very large functions mixing several
-  concerns — both are largely downstream consequences of the guardrail/
-  subscription duplication above; expected to shrink naturally once those are
-  extracted.
+**Lesson:** the flag-injection guard from 2026-07-27 protected every function
+that existed *at the time it was written*, but three of the five gaps here
+were in functions that either already existed and were missed, or a class of
+bug that recurs every time a new bare-positional-argument git wrapper is
+added — same shape as the SSRF/login-timing lesson in the 2026-07-24 entry
+above. Consider whether `_reject_flag_like()` coverage itself is worth
+enforcing structurally (e.g. an AST check in
+`scripts/check_security_invariants.py` for any `repo.git.<x>(*args)` call
+where an arg traces to an unguarded function parameter) rather than relying
+on each new git tool's author remembering to call it.

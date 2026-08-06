@@ -23,6 +23,30 @@ def _get_docker_client():
         raise Exception(f"Failed to connect to Docker: {str(e)}")
 
 
+# Host paths that give a container trivial escape to full host/daemon control if
+# bind-mounted in. The Docker socket grants root-equivalent control over the host
+# (any container with it can launch a new privileged container that mounts '/'),
+# and mounting the host root or core system directories directly is equivalent to
+# handing the container the whole filesystem. This blocks the clearest cases;
+# it is not a sandbox against every possible host path.
+_BLOCKED_VOLUME_HOST_PATHS = frozenset({
+    '/', '/root', '/etc', '/boot', '/proc', '/sys', '/var/run/docker.sock',
+})
+
+
+def _validate_container_volumes(volumes: Optional[Dict]) -> None:
+    """Reject bind-mounts of host paths that grant container-escape / host takeover."""
+    if not volumes:
+        return
+    for host_path in volumes.keys():
+        normalized = os.path.normpath(str(host_path))
+        if normalized in _BLOCKED_VOLUME_HOST_PATHS:
+            raise ValueError(
+                f"Refusing to bind-mount host path {host_path!r} into a container — "
+                "it would grant container-escape or full host/Docker-daemon control."
+            )
+
+
 def list_containers(all_containers: bool = False, filters: Optional[Dict] = None) -> Dict[str, Any]:
     """
     List Docker containers.
@@ -490,6 +514,7 @@ def create_container(image: str, name: Optional[str] = None, ports: Optional[Dic
                      command: Optional[str] = None, detach: bool = True) -> Dict[str, Any]:
     """Create and start a new Docker container."""
     try:
+        _validate_container_volumes(volumes)
         client = _get_docker_client()
         container = client.containers.run(
             image=image,
