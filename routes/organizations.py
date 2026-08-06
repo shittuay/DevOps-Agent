@@ -211,6 +211,17 @@ def remove_member(org_id, user_id):
     from services.multi_tenancy import MultiTenancyService
     service = MultiTenancyService()
 
+    caller_membership = service.get_membership(org_id, current_user.id)
+    caller_is_owner = bool(caller_membership) and caller_membership.role == 'owner'
+    target_membership = service.get_membership(org_id, user_id)
+
+    # Only an existing owner may remove another owner — otherwise an org 'admin'
+    # could remove the owner and seize effective control, the same escalation
+    # update_member_role above already guards against for role changes.
+    if target_membership and target_membership.role == 'owner' and not caller_is_owner:
+        flash('Only an organization owner can remove another owner.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
     if service.remove_member(org_id, user_id):
         flash('Member removed from organization.', 'success')
     else:

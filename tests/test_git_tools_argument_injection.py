@@ -25,6 +25,11 @@ from src.tools.git_tools import (
     git_merge_branch,
     git_cherry_pick,
     git_revert_commit,
+    git_grep_search,
+    get_diff,
+    git_diff_stat,
+    git_show_file_at_commit,
+    git_blame_file,
 )
 
 
@@ -50,6 +55,16 @@ def test_reject_flag_like_allows_normal_values():
     (git_merge_branch, {'repo_path': '/nonexistent', 'source_branch': '--upload-pack=x'}),
     (git_cherry_pick, {'repo_path': '/nonexistent', 'commit_sha': '--upload-pack=x'}),
     (git_revert_commit, {'repo_path': '/nonexistent', 'commit_sha': '--upload-pack=x'}),
+    # `git grep --open-files-in-pager=<cmd>` execs the given pager -- live-verified RCE.
+    (git_grep_search, {'repo_path': '/nonexistent', 'pattern': '--open-files-in-pager=touch /tmp/pwned'}),
+    # `git diff/show --output=<file>` writes command output to an arbitrary path.
+    (get_diff, {'repo_path': '/nonexistent', 'commit1': '--output=/tmp/pwned'}),
+    (get_diff, {'repo_path': '/nonexistent', 'commit1': 'HEAD', 'commit2': '--output=/tmp/pwned'}),
+    (git_diff_stat, {'repo_path': '/nonexistent', 'commit1': '--output=/tmp/pwned'}),
+    (git_diff_stat, {'repo_path': '/nonexistent', 'commit1': 'HEAD', 'commit2': '--output=/tmp/pwned'}),
+    (git_show_file_at_commit, {'repo_path': '/nonexistent', 'commit_sha': '--output=/tmp/pwned', 'file_path': 'f.txt'}),
+    # `git blame --contents=<file>` echoes an arbitrary file's contents back in the response.
+    (git_blame_file, {'repo_path': '/nonexistent', 'file_path': '--contents=/etc/passwd'}),
 ])
 def test_flag_like_argument_rejected_before_touching_repo(fn, kwargs):
     """The rejection must happen before _get_repo() runs, so a bogus repo_path

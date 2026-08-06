@@ -806,7 +806,7 @@ def _execute_rollback(change: InfrastructureChange) -> dict:
                 ec2.describe_security_groups(GroupIds=[group_id])
                 # If we get here, SG still exists (delete failed or didn't execute)
                 return {'action': 'rollback_delete_security_group', 'status': 'noop', 'reason': 'SG still exists'}
-            except:
+            except Exception:
                 # SG was deleted, need to recreate it
                 vpc_id = rollback.get('vpc_id')
                 group_name = rollback.get('group_name')

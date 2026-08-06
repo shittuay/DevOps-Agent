@@ -326,8 +326,13 @@ class TestSafetyClassifications:
     def test_docker_build_image_is_medium_risk(self):
         assert self._classify('docker_build_image') == 'medium'
 
-    def test_docker_create_container_is_medium_risk(self):
-        assert self._classify('docker_create_container') == 'medium'
+    def test_docker_create_container_is_high_risk(self):
+        # Escalated from medium: an unrestricted host bind-mount (e.g.
+        # /var/run/docker.sock or '/') gives trivial container-escape to full
+        # host/Docker-daemon control, the same risk class as execute_command.
+        # _validate_container_volumes() blocks the clearest cases as defense
+        # in depth, but the confirmation prompt is the primary control.
+        assert self._classify('docker_create_container') == 'high'
 
     # --- medium-risk: Alerting (provider_verb_noun shape defeats prefix auto-detection) ---
     def test_pagerduty_update_incident_is_medium_risk(self):
