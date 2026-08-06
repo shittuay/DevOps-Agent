@@ -77,6 +77,14 @@ def execute_tool():
             'requires_confirm': True,
         }), 409
 
+    # process_message_isolated/process_message_streaming are the only two entry
+    # points that set this automatically. Direct tool execution here bypasses
+    # both, so without this call aws_tools._get_boto_client (and the Azure/GCP
+    # equivalents) has no per-user credential context to look up — same gap
+    # fixed for services/approval_service.py's _execute_tool.
+    api_user = getattr(g, 'api_user', None)
+    if api_user:
+        agent._set_cloud_user_context(api_user.id)
     try:
         result = agent.tools[tool_name](**params)
         return jsonify({'tool': tool_name, 'result': result})
@@ -86,3 +94,6 @@ def execute_tool():
     except Exception as e:
         logger.error("Tool execution error for %s: %s", tool_name, e, exc_info=True)
         return jsonify({'error': str(e), 'tool': tool_name}), 500
+    finally:
+        if api_user:
+            agent._clear_cloud_user_context()

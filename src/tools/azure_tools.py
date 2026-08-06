@@ -1,4 +1,5 @@
 """Azure tools for DevOps Agent."""
+import re
 import threading
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
@@ -98,6 +99,54 @@ def _get_azure_client(service_type: str, credential=None, user_id: Optional[int]
         raise Exception("Azure SDK not installed. Install with: pip install azure-mgmt-compute azure-mgmt-storage azure-mgmt-network azure-mgmt-resource azure-mgmt-monitor azure-identity")
     except Exception as e:
         raise Exception(f"Failed to create Azure client: {str(e)}")
+
+
+def _friendly_azure_error(e: Exception) -> str:
+    """Translate common Azure ARM error codes into an actionable message.
+
+    A valid, correctly-scoped service principal can still fail to create
+    resources for reasons that have nothing to do with the credentials
+    themselves (subscription-level config, quota, region availability).
+    Azure's raw SDK exception text names the ARM error code but doesn't say
+    what to do about it, so callers see e.g. "AuthorizationFailed" and
+    reasonably (but wrongly) assume the credentials are misconfigured.
+    """
+    msg = str(e)
+
+    if 'AuthorizationFailed' in msg:
+        return (
+            "Azure denied this operation (AuthorizationFailed): the configured service "
+            "principal doesn't have sufficient RBAC permissions for this specific action. "
+            "Regenerate the setup script in Settings > Cloud Credentials with 'Contributor' "
+            "access level, or ask your Azure admin to grant Contributor on this subscription "
+            f"(or resource group). Original error: {msg}"
+        )
+
+    provider_match = re.search(r"not registered to use namespace '([^']+)'", msg)
+    if provider_match or 'MissingSubscriptionRegistration' in msg:
+        namespace = provider_match.group(1) if provider_match else '<namespace>'
+        return (
+            f"This Azure subscription hasn't registered the {namespace} resource provider yet "
+            "(MissingSubscriptionRegistration) — common on new or rarely-used subscriptions, "
+            "and having Contributor access doesn't register it automatically. Run: "
+            f"az provider register --namespace {namespace} --wait (one-time, takes a few minutes), "
+            f"then retry. Original error: {msg}"
+        )
+
+    if 'QuotaExceeded' in msg or ('quota' in msg.lower() and 'OperationNotAllowed' in msg):
+        return (
+            "Azure quota exceeded for this subscription/region (QuotaExceeded). Request a quota "
+            "increase in the Azure Portal (Subscriptions > Usage + quotas), or choose a smaller "
+            f"size or a different region. Original error: {msg}"
+        )
+
+    if 'SkuNotAvailable' in msg:
+        return (
+            "The requested size/SKU isn't available in this region for this subscription "
+            f"(SkuNotAvailable). Try a different VM size or a different region. Original error: {msg}"
+        )
+
+    return msg
 
 
 def list_virtual_machines(resource_group: Optional[str] = None) -> Dict[str, Any]:
@@ -219,7 +268,7 @@ def manage_vm(resource_group: str, vm_name: str, action: str) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Error managing Azure VM: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def list_storage_accounts(resource_group: Optional[str] = None) -> Dict[str, Any]:
@@ -533,7 +582,7 @@ def create_resource_group(
         }
     except Exception as e:
         logger.error(f"Error creating Azure resource group: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def create_virtual_machine(
@@ -661,7 +710,7 @@ def create_virtual_machine(
         }
     except Exception as e:
         logger.error(f"Error creating Azure VM: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def create_storage_account(
@@ -721,7 +770,7 @@ def create_storage_account(
         }
     except Exception as e:
         logger.error(f"Error creating Azure storage account: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def create_sql_server(
@@ -778,7 +827,7 @@ def create_sql_server(
         }
     except Exception as e:
         logger.error(f"Error creating Azure SQL Server: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def create_sql_database(
@@ -838,7 +887,7 @@ def create_sql_database(
         }
     except Exception as e:
         logger.error(f"Error creating Azure SQL Database: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def delete_resource_group(
@@ -871,7 +920,7 @@ def delete_resource_group(
         }
     except Exception as e:
         logger.error(f"Error deleting Azure resource group: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def delete_virtual_machine(
@@ -901,7 +950,7 @@ def delete_virtual_machine(
         }
     except Exception as e:
         logger.error(f"Error deleting Azure VM: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 # ==================== STORAGE LIFECYCLE ====================
 
@@ -918,7 +967,7 @@ def delete_storage_account(resource_group: str, storage_account_name: str) -> Di
         }
     except Exception as e:
         logger.error(f"Error deleting Azure storage account: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def list_storage_account_keys(resource_group: str, storage_account_name: str) -> Dict[str, Any]:
@@ -951,7 +1000,7 @@ def regenerate_storage_key(resource_group: str, storage_account_name: str, key_n
         }
     except Exception as e:
         logger.error(f"Error regenerating storage key: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 # ==================== NETWORK SECURITY GROUPS ====================
@@ -1024,7 +1073,7 @@ def create_network_security_group(
         }
     except Exception as e:
         logger.error(f"Error creating Azure NSG: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def create_nsg_rule(
@@ -1067,7 +1116,7 @@ def create_nsg_rule(
         }
     except Exception as e:
         logger.error(f"Error creating NSG rule: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def delete_network_security_group(resource_group: str, nsg_name: str) -> Dict[str, Any]:
@@ -1081,7 +1130,7 @@ def delete_network_security_group(resource_group: str, nsg_name: str) -> Dict[st
         }
     except Exception as e:
         logger.error(f"Error deleting Azure NSG: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 # ==================== SQL LIFECYCLE ====================
@@ -1099,7 +1148,7 @@ def delete_sql_server(resource_group: str, server_name: str) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Error deleting Azure SQL Server: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def delete_sql_database(resource_group: str, server_name: str, database_name: str) -> Dict[str, Any]:
@@ -1114,7 +1163,7 @@ def delete_sql_database(resource_group: str, server_name: str, database_name: st
         }
     except Exception as e:
         logger.error(f"Error deleting Azure SQL Database: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def create_sql_firewall_rule(
@@ -1139,7 +1188,7 @@ def create_sql_firewall_rule(
         }
     except Exception as e:
         logger.error(f"Error creating SQL firewall rule: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 # ==================== CONTAINER INSTANCE LIFECYCLE ====================
@@ -1199,7 +1248,7 @@ def create_container_instance(
         }
     except Exception as e:
         logger.error(f"Error creating Azure Container Instance: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def delete_container_instance(resource_group: str, container_group_name: str) -> Dict[str, Any]:
@@ -1213,7 +1262,7 @@ def delete_container_instance(resource_group: str, container_group_name: str) ->
         }
     except Exception as e:
         logger.error(f"Error deleting Azure Container Instance: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def restart_container_instance(resource_group: str, container_group_name: str) -> Dict[str, Any]:
@@ -1227,7 +1276,7 @@ def restart_container_instance(resource_group: str, container_group_name: str) -
         }
     except Exception as e:
         logger.error(f"Error restarting Azure Container Instance: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 # ==================== DISK MANAGEMENT ====================
@@ -1285,7 +1334,7 @@ def create_managed_disk(
         }
     except Exception as e:
         logger.error(f"Error creating Azure managed disk: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 def delete_managed_disk(resource_group: str, disk_name: str) -> Dict[str, Any]:
@@ -1299,7 +1348,7 @@ def delete_managed_disk(resource_group: str, disk_name: str) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Error deleting Azure managed disk: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 # ==================== VIRTUAL NETWORK OPERATIONS ====================
@@ -1375,7 +1424,7 @@ def create_virtual_network(
         }
     except Exception as e:
         logger.error(f"Error creating Azure VNet: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 # ==================== PUBLIC IP OPERATIONS ====================
@@ -1420,7 +1469,7 @@ def delete_public_ip(resource_group: str, public_ip_name: str) -> Dict[str, Any]
         }
     except Exception as e:
         logger.error(f"Error deleting Azure public IP: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 _AZURE_READ_PREFIXES = ('list', 'get', 'check', 'validate', 'begin_list', 'begin_get')
@@ -1501,7 +1550,7 @@ def azure_api_write(
                 'message': f'Successfully executed {client_type}.{operation_path}'}
     except Exception as e:
         logger.error(f"azure_api_write error ({client_type}.{operation_path}): {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': _friendly_azure_error(e)}
 
 
 # ==================== TOOL REGISTRATION ====================
