@@ -660,3 +660,160 @@ mean the backend crashed or hung — check whether the backend actually
 failure. A proxy layer's own idle-timeout, invisible from the application's
 logs alone, can silently cap how long a legitimately-designed-to-be-slow
 endpoint is allowed to run.
+
+---
+
+## Scheduled audit: live-verified git RCE, two credential-isolation bypasses, secret exfiltration, container-escape, and two IDORs (2026-08-04)
+
+A routine scheduled review (four parallel agents auditing `src/tools/`+
+`safety.py`, `routes/`+`api/`, `services/`, and recent commits/core modules)
+found and fixed eight real, independently-confirmed issues. The most severe
+was **live-verified** by the reviewing agent actually running the exploit
+against a scratch repo before reporting it, not just read from the code.
+
+1. **`git_grep_search` flag-injection RCE (`src/tools/git_tools.py`).** The
+   `_reject_flag_like()` guard added 2026-07-27 for `git_pull`/`git_push`/etc.
+   was never extended to four functions added later that pass a caller-supplied
+   value as a bare positional arg to `repo.git.*`: `git_grep_search`'s
+   `pattern` (`git grep --open-files-in-pager=<cmd>` execs the given pager —
+   confirmed live: `pattern="--open-files-in-pager=touch /tmp/pwned #"`
+   created the file), `get_diff`/`git_diff_stat`'s `commit1`/`commit2` and
+   `git_show_file_at_commit`'s `commit_sha` (`git diff/show --output=<file>`
+   writes command output to an arbitrary path — arbitrary file write,
+   confirmed live), and `git_blame_file`'s `file_path` (`git blame
+   --contents=<file>` echoes an arbitrary file's contents back in the
+   response — arbitrary file read, e.g. `file_path="--contents=/etc/passwd"`,
+   confirmed live). None of the five were in `safety.py`'s risk sets either,
+   so all fired with zero confirmation prompt. Fixed by extending
+   `_reject_flag_like()` to all five params and adding all five tool names to
+   `medium_risk_tools` as defense-in-depth. Regression tests added to
+   `tests/test_git_tools_argument_injection.py` (8 new cases).
+
+2. **`generate_eks_kubeconfig` bypassed per-user AWS credential isolation
+   (`src/tools/aws_tools.py`).** Instead of `_get_boto_client()` — whose
+   entire purpose, per its own docstring, is to never fall back to
+   environment/IAM-role credentials — this function shelled out to
+   `aws eks update-kubeconfig --dry-run`, which resolves credentials via the
+   AWS CLI's own default chain (the host's env vars / IAM instance role), not
+   this app's per-user thread-local context. It only fell back to the safe
+   boto3 path if the CLI call *failed*. On the documented EC2 deployment, any
+   authenticated user — regardless of their own linked AWS account — could
+   call this tool with an arbitrary `cluster_name` and have it queried using
+   the **platform host's own AWS identity**. Fixed by removing the CLI
+   shell-out entirely and always building the kubeconfig via
+   `_get_boto_client('eks', region)`.
+
+3. **All 5 GCP Secret Manager tools bypassed per-user GCP credential isolation
+   (`src/tools/gcp_tools.py`).** `_get_gcp_client()` builds every other GCP
+   service client with the requester's per-user credentials when available,
+   but Secret Manager was never added to it — `list_secrets`, `get_secret_value`,
+   `create_gcp_secret`, `delete_gcp_secret`, and `add_secret_version` all
+   called `secretmanager.SecretManagerServiceClient()` directly with no
+   credentials argument, which falls back to Application Default Credentials
+   (the host's own service account). Any authenticated user could list and
+   read secrets from the **platform's own GCP project**, not their own — worse
+   than finding #2 above since it's live secret material, not just cluster
+   metadata. Fixed with a new `_get_secretmanager_client()` helper (mirrors
+   `_get_gcp_client`'s per-user-credentials pattern) used at all 5 call sites.
+   Separately, `get_secret_value` returned decrypted secret plaintext directly
+   into the tool result — the chat/tool_trace/LLM-provider path — which no
+   other secret-bearing tool in this codebase does (AWS deliberately has no
+   `secretsmanager:GetSecretValue`/`ssm:GetParameter WithDecryption`
+   equivalent; `list_github_secrets` never exposes values). Escalated to
+   `high_risk_tools` as defense-in-depth; the credential-isolation fix is the
+   real fix.
+
+4. **Ansible module allowlist permitted two command-execution-equivalent
+   modules (`src/tools/ansible_tools.py`).** `_ALLOWED_ANSIBLE_MODULES`'
+   stated purpose is blocking modules that run arbitrary OS commands on
+   remote hosts (`shell`/`command`/`raw`/`script` excluded), but it allowed
+   `cron` (`job=` accepts an arbitrary shell command line — functionally
+   identical to `shell`) and `authorized_key` (injects an attacker-controlled
+   SSH public key onto the target for persistent backdoor access). Removed
+   both from the allowlist. `ansible_adhoc_command` was already high-risk in
+   `safety.py`, so this closes a gap the confirmation prompt alone didn't.
+
+5. **`docker_create_container` allowed unrestricted host bind-mounts
+   (`src/tools/docker_tools.py`).** The `volumes` parameter was passed to
+   `client.containers.run()` with no validation of host source paths —
+   mounting `/var/run/docker.sock` or `/` gives trivial container-escape to
+   full host/Docker-daemon control, the same risk class as `execute_command`,
+   yet the tool was only medium-risk (same tier as `docker_push_image`).
+   Fixed with `_validate_container_volumes()` blocking the clearest cases
+   (docker socket, `/`, `/root`, `/etc`, `/boot`, `/proc`, `/sys`) and
+   escalating the tool to `high_risk_tools`. Regression test added to
+   `tests/test_new_tools.py` (updated from `..._is_medium_risk` to
+   `..._is_high_risk`).
+
+6. **`routes/organizations.py` `view_team` IDOR.** Computed `membership =
+   service.get_membership(...)` but — unlike the sibling `list_teams`, which
+   redirects non-members away — never checked it before rendering. Any
+   `@login_required` user who knew or guessed an `org_id`/`team_id` could view
+   another organization's team name, description, and member roster. Fixed by
+   adding the same membership check `list_teams` already has. Regression
+   tests: `tests/test_team_view_idor.py`.
+
+7. **`remove_member` had no owner-role protection (`routes/organizations.py`
+   + `services/multi_tenancy.py`).** `update_member_role` already blocks a
+   non-owner from touching an `owner` role (2026-07-25 fix above), but
+   `remove_member` had no equivalent check anywhere in the call chain — gated
+   only by `org_admin_required` (owner *or* admin), with the service method
+   deactivating any membership with zero role-hierarchy logic. An org `admin`
+   could remove the actual `owner`'s membership and seize effective control.
+   Fixed by mirroring `update_member_role`'s owner-only check before calling
+   `service.remove_member()`. Regression tests added to
+   `tests/test_org_role_escalation.py`.
+
+8. **`api/v1/tools.py`'s direct tool-execution endpoint never set cloud user
+   context.** `process_message_isolated`/`process_message_streaming` are the
+   only two entry points that call `agent._set_cloud_user_context()`
+   automatically (see `services/approval_service.py`'s `_execute_tool` fix,
+   2026-07-24 entry above, for the same gap in a different direct-invocation
+   path). `POST /v1/tools/execute` calls `agent.tools[tool_name](**params)`
+   directly, bypassing both — so any write-scope API key calling a cloud tool
+   hit `_get_boto_client()`/GCP/Azure equivalents with no per-user credential
+   context, either failing closed today (3-sync-worker deployment) or, on a
+   different worker model, risking a cross-request context leak. Fixed by
+   setting `agent._set_cloud_user_context(g.api_user.id)` before the call and
+   clearing it in a `finally`, same pattern as `_execute_tool`. The
+   fixture `_FakeAgent` in `tests/test_api_tools_execute.py` needed the two
+   new methods stubbed in — a reminder that a test double for `DevOpsAgent`
+   has to grow alongside the real class's method surface.
+
+**Also cataloged, not fixed this pass (lower severity / larger diff, left for
+a future pass):** `services/infrastructure_sync.py`'s ~15 `sync_aws_*`
+functions repeat an identical get-or-create/update/commit pattern verbatim
+(~600 lines could collapse into one `_upsert_resource()` helper) and use
+`print()` instead of `logger.error` for swallowed exceptions;
+`services/model_failover.py`'s `OpenAIProvider`/`GroqProvider`/`KimiProvider`
+are near-identical OpenAI-compatible-API adapters that could share a base
+class; `app.py`'s `/api/team/users/<id>/role`/`/delete` duplicate
+`routes/admin.py`'s user-management logic with a flatter (but not
+independently exploitable) authorization check — both require platform
+`role='admin'`, which already has full rights, but it's copy-drifted
+boilerplate enforcing different rules for the same operation.
+`services/multi_tenancy.py`'s `MultiTenancyService.__init__(user_id=None)`
+stores `self.user_id` but no getter method reads it — currently dead (every
+call site passes no args), but the same false-safety shape the
+`ComplianceService` postmortem (CLAUDE.md) warns about: a per-user-looking
+service class whose protection depends entirely on the caller remembering an
+external check, which failed once already here (finding #6).
+
+Verified: `scripts/check_security_invariants.py` reports zero violations
+after all fixes. Full test suite (with a locally-assembled dependency set —
+this sandbox has no preinstalled `requirements.txt`) ran 655 passed / 22
+failed, all 22 failures traced to `ModuleNotFoundError` for packages unrelated
+to any file touched in this pass (`qrcode`, `joserfc`, `python3-saml` wiring
+for SAML/SSO/2FA/Teams-bot tests) — confirmed zero regressions by installing
+those and re-running: 0 failures.
+
+**Lesson:** the flag-injection guard from 2026-07-27 protected every function
+that existed *at the time it was written*, but three of the five gaps here
+were in functions that either already existed and were missed, or a class of
+bug that recurs every time a new bare-positional-argument git wrapper is
+added — same shape as the SSRF/login-timing lesson in the 2026-07-24 entry
+above. Consider whether `_reject_flag_like()` coverage itself is worth
+enforcing structurally (e.g. an AST check in
+`scripts/check_security_invariants.py` for any `repo.git.<x>(*args)` call
+where an arg traces to an unguarded function parameter) rather than relying
+on each new git tool's author remembering to call it.

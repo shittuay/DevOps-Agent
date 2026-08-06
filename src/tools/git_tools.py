@@ -221,6 +221,8 @@ def get_diff(
         Dictionary with diff information
     """
     try:
+        _reject_flag_like(commit1, 'commit1')
+        _reject_flag_like(commit2, 'commit2')
         repo = Repo(repo_path)
 
         if commit2:
@@ -514,6 +516,7 @@ def git_show_commit(repo_path: str, commit_sha: str) -> Dict[str, Any]:
 def git_blame_file(repo_path: str, file_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> Dict[str, Any]:
     """Show git blame for a file, optionally for a specific line range."""
     try:
+        _reject_flag_like(file_path, 'file_path')
         repo = _get_repo(repo_path)
         args = [file_path]
         if start_line is not None and end_line is not None:
@@ -561,6 +564,7 @@ def git_log_file(repo_path: str, file_path: str, limit: int = 10) -> Dict[str, A
 def git_show_file_at_commit(repo_path: str, commit_sha: str, file_path: str) -> Dict[str, Any]:
     """Show the contents of a file at a specific commit."""
     try:
+        _reject_flag_like(commit_sha, 'commit_sha')
         repo = _get_repo(repo_path)
         content = repo.git.show(f'{commit_sha}:{file_path}')
         if len(content) > 10000:
@@ -1137,6 +1141,7 @@ def git_stash_drop(repo_path: str, stash_index: int = 0) -> Dict[str, Any]:
 def git_grep_search(repo_path: str, pattern: str, file_pattern: Optional[str] = None) -> Dict[str, Any]:
     """Search for a pattern in tracked files using git grep."""
     try:
+        _reject_flag_like(pattern, 'pattern')
         repo = _get_repo(repo_path)
         args = [pattern]
         if file_pattern:
@@ -1324,6 +1329,8 @@ def git_reflog(repo_path: str, limit: int = 15) -> Dict[str, Any]:
 def git_diff_stat(repo_path: str, commit1: Optional[str] = None, commit2: Optional[str] = None) -> Dict[str, Any]:
     """Show diff statistics (files changed, insertions, deletions)."""
     try:
+        _reject_flag_like(commit1, 'commit1')
+        _reject_flag_like(commit2, 'commit2')
         repo = _get_repo(repo_path)
         if commit1 and commit2:
             output = repo.git.diff(commit1, commit2, '--stat')

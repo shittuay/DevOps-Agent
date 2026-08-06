@@ -119,6 +119,23 @@ def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
         raise Exception(f"Failed to create GCP client: {str(e)}")
 
 
+def _get_secretmanager_client(secretmanager_module):
+    """
+    Build a Secret Manager client using per-user credentials when available.
+
+    Every Secret Manager function previously constructed
+    `secretmanager.SecretManagerServiceClient()` with no credentials argument,
+    which always falls back to Application Default Credentials (the host's own
+    service account) instead of the requesting user's linked GCP credentials —
+    the same class of credential-isolation bypass `_get_gcp_client` exists to
+    prevent for the other GCP services. Route every Secret Manager call through
+    this helper instead of constructing the client directly.
+    """
+    user_credentials, _user_project = _get_user_gcp_credentials()
+    creds_kwargs = {'credentials': user_credentials} if user_credentials else {}
+    return secretmanager_module.SecretManagerServiceClient(**creds_kwargs)
+
+
 def list_compute_instances(
     project_id: Optional[str] = None,
     zone: Optional[str] = None
@@ -1005,7 +1022,7 @@ def list_secrets(project_id: Optional[str] = None) -> Dict[str, Any]:
     try:
         from google.cloud import secretmanager
 
-        client = secretmanager.SecretManagerServiceClient()
+        client = _get_secretmanager_client(secretmanager)
         proj_id = _resolve_project_id(project_id)
 
         parent = f"projects/{proj_id}"
@@ -1049,7 +1066,7 @@ def get_secret_value(
     try:
         from google.cloud import secretmanager
 
-        client = secretmanager.SecretManagerServiceClient()
+        client = _get_secretmanager_client(secretmanager)
         proj_id = _resolve_project_id(project_id)
 
         name = f"projects/{proj_id}/secrets/{secret_name}/versions/{version}"
@@ -1239,7 +1256,7 @@ def create_gcp_secret(
         from google.cloud import secretmanager_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = secretmanager_v1.SecretManagerServiceClient()
+        client = _get_secretmanager_client(secretmanager_v1)
         parent = f'projects/{proj_id}'
 
         secret = client.create_secret(request={
@@ -1272,7 +1289,7 @@ def delete_gcp_secret(secret_id: str, project_id: Optional[str] = None) -> Dict[
         from google.cloud import secretmanager_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = secretmanager_v1.SecretManagerServiceClient()
+        client = _get_secretmanager_client(secretmanager_v1)
         name = f'projects/{proj_id}/secrets/{secret_id}'
         client.delete_secret(request={'name': name})
         return {
@@ -1294,7 +1311,7 @@ def add_secret_version(
         from google.cloud import secretmanager_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = secretmanager_v1.SecretManagerServiceClient()
+        client = _get_secretmanager_client(secretmanager_v1)
         parent = f'projects/{proj_id}/secrets/{secret_id}'
 
         version = client.add_secret_version(request={
