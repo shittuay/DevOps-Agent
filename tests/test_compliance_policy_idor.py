@@ -1,14 +1,20 @@
-"""Regression: ComplianceService.get_policy()/get_compliance_report() must be
-scoped to the owning user.
+"""Regression: ComplianceService.get_policy()/get_compliance_report()/
+get_framework() must be scoped to the owning user.
 
-Both methods did a bare Model.query.get(id) with no user_id filter, even
-though ComplianceService is always constructed with a specific user_id
-(routes/compliance.py's toggle_policy/delete_policy/download_report all do
-ComplianceService(current_user.id)). Any logged-in user could toggle, delete,
-or download another user's compliance policy/report by guessing/incrementing
-the integer id -- an IDOR. Fixed by filtering by self.user_id in both getters
-(every real call site always sets user_id, so this doesn't change behavior
-for any legitimate caller).
+get_policy/get_compliance_report did a bare Model.query.get(id) with no
+user_id filter, even though ComplianceService is always constructed with a
+specific user_id (routes/compliance.py's toggle_policy/delete_policy/
+download_report all do ComplianceService(current_user.id)). Any logged-in
+user could toggle, delete, or download another user's compliance policy/
+report by guessing/incrementing the integer id -- an IDOR. Fixed by filtering
+by self.user_id in both getters (every real call site always sets user_id,
+so this doesn't change behavior for any legitimate caller).
+
+get_framework() had the identical gap and was missed in that same fix (found
+by a later scheduled review) -- routes/compliance.py's framework_detail/
+enable_framework call it with a guessed integer id from the URL, so a
+logged-in user could read or re-enable another user's
+ComplianceFrameworkModel row (compliance_score, is_enabled, settings JSON).
 """
 import pytest
 
@@ -109,3 +115,36 @@ def test_owner_can_still_manage_own_policy(test_user, victim_policy):
     owner_svc = ComplianceService(test_user.id)
     assert owner_svc.get_policy(victim_policy.id) is not None
     assert owner_svc.toggle_policy(victim_policy.id) is not None
+
+
+@pytest.fixture
+def victim_framework(test_user, db_session):
+    from models import ComplianceFrameworkModel, db
+    framework = ComplianceFrameworkModel(
+        user_id=test_user.id, name='soc2', display_name='SOC 2',
+        is_enabled=True, compliance_score=87,
+    )
+    db.session.add(framework)
+    db.session.commit()
+    yield framework
+    try:
+        f = ComplianceFrameworkModel.query.get(framework.id)
+        if f:
+            db.session.delete(f)
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def test_get_framework_scoped_to_owner(other_user, victim_framework):
+    from services.compliance_service import ComplianceService
+    attacker_svc = ComplianceService(other_user.id)
+    assert attacker_svc.get_framework(victim_framework.id) is None
+
+
+def test_owner_can_still_read_own_framework(test_user, victim_framework):
+    from services.compliance_service import ComplianceService
+    owner_svc = ComplianceService(test_user.id)
+    result = owner_svc.get_framework(victim_framework.id)
+    assert result is not None
+    assert result.id == victim_framework.id

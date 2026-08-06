@@ -32,6 +32,12 @@ def agent_with_tools(app):
     class _FakeAgent:
         tools = {n: _make(n) for n in tool_names}
 
+        def _set_cloud_user_context(self, user_id=None):
+            calls.append(('_set_cloud_user_context', {'user_id': user_id}))
+
+        def _clear_cloud_user_context(self):
+            calls.append(('_clear_cloud_user_context', {}))
+
     _prev = app.config.get('DEVOPS_AGENT')
     app.config['DEVOPS_AGENT'] = _FakeAgent()
     app.config['_test_tool_calls'] = calls

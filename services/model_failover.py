@@ -349,7 +349,8 @@ class KimiProvider(ModelProvider):
 
     @property
     def model(self):
-        return os.environ.get('KIMI_MODEL', 'kimi-k3')
+        from services.model_router import DEFAULT_KIMI_MODEL
+        return os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
 
     def is_available(self) -> bool:
         return bool(self.api_key) and super().is_available()

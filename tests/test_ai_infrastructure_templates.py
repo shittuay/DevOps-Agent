@@ -88,6 +88,24 @@ def test_preview_substitutes_vars_but_not_terraform_interp(app, db_session, svc)
     assert '${count.index}' in out['rendered']
 
 
+def test_preview_blocked_for_private_template_of_another_user(app, db_session, svc):
+    """Regression: preview_template() must not render another user's private
+    template. It called self.get_template(template_id) with no ownership
+    check at all (sibling routes template_detail/api_template_clone do check
+    `template.is_public or template.user_id == current_user.id`), so any
+    logged-in user could POST /ai/api/templates/<guessed_id>/preview and get
+    back the fully-rendered template_content of another user's private
+    saved infrastructure template -- an IDOR."""
+    victim = svc.create_template(
+        user_id=999, name='Victim', cloud_provider='aws',
+        template_content='secret_host = "internal.example.com"',
+        is_public=False,
+    )
+    out = svc.preview_template(victim.id)
+    assert 'error' in out
+    assert 'rendered' not in out
+
+
 def test_clone_creates_private_user_copy(app, db_session, svc):
     src = svc.create_template(user_id=999, name='Src', cloud_provider='aws',
                               template_content='x', is_public=True)

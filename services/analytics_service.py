@@ -505,12 +505,12 @@ class AnalyticsService:
         return dashboard
 
     def get_dashboard(self, dashboard_id: int) -> Optional[Any]:
-        """Get a dashboard by ID, scoped to self.user_id when set."""
+        """Get a dashboard by ID (scoped to self.user_id when set)."""
         AnalyticsDashboard = self._get_dashboard_model()
-        dashboard = AnalyticsDashboard.query.get(dashboard_id)
-        if dashboard and self.user_id is not None and dashboard.user_id != self.user_id:
-            return None
-        return dashboard
+        query = AnalyticsDashboard.query.filter_by(id=dashboard_id)
+        if self.user_id is not None:
+            query = query.filter_by(user_id=self.user_id)
+        return query.first()
 
     def get_user_dashboards(self, user_id: int) -> List[Any]:
         """Get all dashboards for a user."""
@@ -566,13 +566,13 @@ class AnalyticsService:
         return widget
 
     def get_widget(self, widget_id: int) -> Optional[Any]:
-        """Get a widget by ID, scoped to self.user_id (via its dashboard) when set."""
+        """Get a widget by ID (scoped to a dashboard owned by self.user_id when set)."""
         AnalyticsWidget = self._get_widget_model()
         widget = AnalyticsWidget.query.get(widget_id)
-        if widget and self.user_id is not None:
-            dashboard = self.get_dashboard(widget.dashboard_id)
-            if not dashboard:
-                return None
+        if widget is None or self.user_id is None:
+            return widget
+        if not self.get_dashboard(widget.dashboard_id):
+            return None
         return widget
 
     def get_dashboard_widgets(self, dashboard_id: int) -> List[Any]:

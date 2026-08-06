@@ -9,8 +9,11 @@ was never given the same treatment as routes/changes.py, even though it reads
 the same model.
 
 ApprovalRequest (the "agent tool-call approval" side of these endpoints) has
-no organization_id and is intentionally platform-wide for any approver, so
-these tests only assert on the InfrastructureChange leak.
+no organization_id column of its own; its visibility is scoped separately via
+services.approval_service.is_visible_to_approver(), which compares org
+membership against the request's *requester* rather than a stored column —
+see test_approval_org_scope.py for that coverage. This file only asserts on
+the InfrastructureChange leak.
 """
 import pytest
 
