@@ -628,6 +628,8 @@ def git_get_remote_url(repo_path: str, remote_name: str = 'origin') -> Dict[str,
 def git_create_branch(repo_path: str, branch_name: str, start_point: Optional[str] = None) -> Dict[str, Any]:
     """Create a new branch."""
     try:
+        _reject_flag_like(branch_name, 'branch_name')
+        _reject_flag_like(start_point, 'start_point')
         repo = _get_repo(repo_path)
         if start_point:
             repo.create_head(branch_name, commit=start_point)
@@ -993,6 +995,8 @@ def git_list_tags(repo_path: str, limit: int = 20) -> Dict[str, Any]:
 def git_create_tag(repo_path: str, tag_name: str, message: Optional[str] = None, commit: Optional[str] = None) -> Dict[str, Any]:
     """Create a new tag (lightweight or annotated)."""
     try:
+        _reject_flag_like(tag_name, 'tag_name')
+        _reject_flag_like(commit, 'commit')
         repo = _get_repo(repo_path)
         if message:
             repo.create_tag(tag_name, ref=commit, message=message)
