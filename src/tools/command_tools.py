@@ -187,25 +187,6 @@ def execute_script(
     )
 
 
-def get_command_history(limit: int = 10) -> Dict[str, Any]:
-    """
-    Get command execution history from logs.
-
-    Args:
-        limit: Number of recent commands to return
-
-    Returns:
-        Dictionary with command history
-    """
-    # This is a placeholder - in a real implementation,
-    # you would query the structured logs
-    return {
-        'success': True,
-        'message': 'Command history feature coming soon',
-        'history': []
-    }
-
-
 def get_tools() -> List[Dict[str, Any]]:
     """
     Get tool definitions for command execution.

@@ -293,7 +293,16 @@ response body back to the caller, which made it an SSRF response oracle), and
 `routes/organizations.py`'s `sso_settings`, and the discovery document itself supplies
 `token_endpoint`/`jwks_uri`/`userinfo_endpoint` — all of it caller-controlled and previously
 fetched with raw `requests.get/post`, reachable on every login attempt including against the
-cloud metadata endpoint). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
+cloud metadata endpoint), and `aws_tools.associate_eks_oidc_provider()` (connects to the
+cluster's own OIDC issuer host via a raw `ssl.get_server_certificate()` call — not `requests`,
+so invisible to `scripts/check_security_invariants.py`'s AST check; guarded with `assert_safe_url`
+directly since there's no `requests`-based call to route through `safe_request()`). Datadog/PagerDuty/OpsGenie tools hit hardcoded hosts and don't need it.
+
+**Non-`requests` HTTP/network calls need the guard applied by hand.** The SSRF invariant checker
+only scans for raw `requests.*` calls — a tool that reaches the network via `ssl`, `socket`,
+`urllib`, or an SDK's internal HTTP client is invisible to it. When auditing for SSRF or adding a
+new tool that connects to a caller-influenced host through one of these, call `assert_safe_url()`
+by hand before connecting; don't rely on the automated check to catch it.
 
 ### Git argument-injection guard (`src/tools/git_tools.py`)
 
