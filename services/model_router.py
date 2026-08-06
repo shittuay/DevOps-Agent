@@ -14,6 +14,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Moonshot Kimi model id, overridable via the KIMI_MODEL env var. Kept as one
+# constant since the same default was drifting across independent call sites.
+DEFAULT_KIMI_MODEL = 'kimi-k3'
+
 
 @dataclass
 class ModelConfig:
@@ -190,7 +194,7 @@ def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[s
     tier_name = (tier_name or 'free').lower()
 
     if preferred_provider == 'kimi':
-        kimi_model = os.environ.get('KIMI_MODEL', 'kimi-k3')
+        kimi_model = os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
         tier_defaults = DEFAULT_TIER_MODELS.get(tier_name, DEFAULT_TIER_MODELS['free'])
         return ModelConfig(
             provider='kimi',
