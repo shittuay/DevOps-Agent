@@ -905,7 +905,6 @@ def associate_eks_oidc_provider(
 ) -> Dict[str, Any]:
     """Associate an OIDC identity provider with an EKS cluster to enable IRSA."""
     try:
-        import urllib.request
         import hashlib
         eks = _get_boto_client('eks', region)
         iam = _get_boto_client('iam', region)

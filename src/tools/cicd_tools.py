@@ -1141,13 +1141,8 @@ def get_deployment_rollout_status(
 ) -> Dict[str, Any]:
     """Check if a Kubernetes deployment rollout is complete (wraps kubectl rollout status logic)."""
     try:
-        from kubernetes import client, config
-        from kubernetes.client.rest import ApiException
-        if context:
-            config.load_kube_config(context=context)
-        else:
-            config.load_kube_config()
-        apps_v1 = client.AppsV1Api()
+        from .kubernetes_tools import _get_k8s_client
+        _, apps_v1 = _get_k8s_client(context)
         d = apps_v1.read_namespaced_deployment(name=deployment_name, namespace=namespace)
         spec_replicas = d.spec.replicas or 0
         ready = d.status.ready_replicas or 0
@@ -1177,13 +1172,8 @@ def blue_green_switch(
 ) -> Dict[str, Any]:
     """Switch a Kubernetes service selector between blue and green deployments."""
     try:
-        from kubernetes import client, config
-        from kubernetes.client.rest import ApiException
-        if context:
-            config.load_kube_config(context=context)
-        else:
-            config.load_kube_config()
-        v1 = client.CoreV1Api()
+        from .kubernetes_tools import _get_k8s_client
+        v1, _ = _get_k8s_client(context)
         color = target_color.lower()
         if color not in ('blue', 'green'):
             return {'success': False, 'error': 'target_color must be "blue" or "green"'}
@@ -1209,12 +1199,8 @@ def canary_update_weight(
 ) -> Dict[str, Any]:
     """Adjust the canary deployment replica ratio to shift a percentage of traffic."""
     try:
-        from kubernetes import client, config
-        if context:
-            config.load_kube_config(context=context)
-        else:
-            config.load_kube_config()
-        apps_v1 = client.AppsV1Api()
+        from .kubernetes_tools import _get_k8s_client
+        _, apps_v1 = _get_k8s_client(context)
         if not 0 <= canary_weight_percent <= 100:
             return {'success': False, 'error': 'canary_weight_percent must be 0-100'}
         stable = apps_v1.read_namespaced_deployment(name=stable_deployment, namespace=namespace)
@@ -1294,13 +1280,8 @@ def auto_rollback_deployment(
             }
 
         # Health check failed → rollback
-        from kubernetes import client, config
-        from kubernetes.client.rest import ApiException
-        if context:
-            config.load_kube_config(context=context)
-        else:
-            config.load_kube_config()
-        apps_v1 = client.AppsV1Api()
+        from .kubernetes_tools import _get_k8s_client
+        _, apps_v1 = _get_k8s_client(context)
 
         # Find previous RS
         rss = apps_v1.list_namespaced_replica_set(namespace=namespace)
