@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Funnel - Admin - DevOps Agent{% endblock %}
+
+{% block content %}
+<style>
+    .funnel-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
+    .funnel-head h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.75rem; }
+    .funnel-sub { color: var(--text-secondary, #8b8b8b); font-size: .9rem; margin-bottom: 1.5rem; max-width: 62ch; line-height: 1.5; }
+    .window-tabs { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .window-tabs a {
+        padding: .35rem .8rem; border-radius: 6px; font-size: .85rem; text-decoration: none;
+        border: 1px solid var(--border-color, #2a2a2a); color: var(--text-secondary, #8b8b8b);
+    }
+    .window-tabs a.active { background: #ff6b35; border-color: #ff6b35; color: #fff; }
+
+    .stage-row { display: grid; grid-template-columns: 15rem 1fr 8rem; gap: 1rem; align-items: center; margin-bottom: .6rem; }
+    .stage-label { font-size: .9rem; }
+    .stage-bar-track { background: var(--bg-secondary, #1a1a1a); border-radius: 6px; height: 2rem; position: relative; overflow: hidden; }
+    .stage-bar { height: 100%; background: linear-gradient(90deg, #ff6b35, #ff8f5e); border-radius: 6px; min-width: 2px; transition: width .3s ease; }
+    .stage-bar.zero { background: var(--border-color, #2a2a2a); }
+    .stage-count { font-family: 'IBM Plex Mono', monospace; font-size: 1.1rem; font-weight: 600; }
+    .stage-meta { font-size: .78rem; color: var(--text-secondary, #8b8b8b); font-family: 'IBM Plex Mono', monospace; }
+
+    .callout { border-left: 3px solid #ff6b35; padding: .9rem 1.1rem; background: var(--bg-secondary, #1a1a1a); border-radius: 0 8px 8px 0; margin: 1.5rem 0; line-height: 1.55; }
+    .callout.empty { border-left-color: #6b7280; }
+    .callout strong { color: #ff6b35; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .kpi { background: var(--bg-secondary, #1a1a1a); border: 1px solid var(--border-color, #2a2a2a); border-radius: 8px; padding: 1rem; }
+    .kpi-val { font-family: 'IBM Plex Mono', monospace; font-size: 1.6rem; font-weight: 700; }
+    .kpi-lbl { font-size: .75rem; color: var(--text-secondary, #8b8b8b); text-transform: uppercase; letter-spacing: .05em; margin-top: .2rem; }
+    .kpi-val.bad { color: #ef4444; }
+    .kpi-val.good { color: #22c55e; }
+
+    .table-wrap { overflow-x: auto; }
+    table.attempts { width: 100%; border-collapse: collapse; font-size: .85rem; min-width: 44rem; }
+    table.attempts th, table.attempts td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--border-color, #2a2a2a); }
+    table.attempts th { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary, #8b8b8b); }
+    .badge { padding: .15rem .5rem; border-radius: 4px; font-size: .72rem; font-family: 'IBM Plex Mono', monospace; }
+    .badge.completed { background: rgba(34,197,94,.15); color: #22c55e; }
+    .badge.created { background: rgba(234,179,8,.15); color: #eab308; }
+    .badge.failed { background: rgba(239,68,68,.15); color: #ef4444; }
+    .err { color: #ef4444; font-family: 'IBM Plex Mono', monospace; font-size: .75rem; }
+    h2.section { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.1rem; margin: 2rem 0 .4rem; }
+</style>
+
+<div class="funnel-head">
+    <h1>Funnel</h1>
+    <div class="window-tabs">
+        <a href="{{ url_for('admin.funnel_dashboard') }}" class="{% if not window_days %}active{% endif %}">All time</a>
+        <a href="{{ url_for('admin.funnel_dashboard', days=7) }}" class="{% if window_days == 7 %}active{% endif %}">7 days</a>
+        <a href="{{ url_for('admin.funnel_dashboard', days=30) }}" class="{% if window_days == 30 %}active{% endif %}">30 days</a>
+        <a href="{{ url_for('admin.funnel_dashboard', days=90) }}" class="{% if window_days == 90 %}active{% endif %}">90 days</a>
+    </div>
+</div>
+<p class="funnel-sub">
+    Distinct users who reached each milestone. Counts are "ever reached", not strictly
+    nested, so a later stage can exceed an earlier one. That is a real signal, not a
+    rendering bug.
+</p>
+
+<div class="kpi-grid">
+    <div class="kpi">
+        <div class="kpi-val">{{ funnel.signed_up }}</div>
+        <div class="kpi-lbl">Signups</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-val {% if checkout_summary.total == 0 %}bad{% endif %}">{{ checkout_summary.total }}</div>
+        <div class="kpi-lbl">Checkout attempts</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-val {% if checkout_summary.failed > 0 %}bad{% endif %}">{{ checkout_summary.failed }}</div>
+        <div class="kpi-lbl">Checkout failures</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-val {% if checkout_summary.completed > 0 %}good{% endif %}">{{ checkout_summary.completed }}</div>
+        <div class="kpi-lbl">Paid</div>
+    </div>
+</div>
+
+{% for s in funnel.stages %}
+<div class="stage-row">
+    <div>
+        <div class="stage-label">{{ s.label }}</div>
+        <div class="stage-meta">
+            {{ s.pct_of_signups }}% of signups{% if s.pct_of_previous is not none %} &middot; {{ s.pct_of_previous }}% of previous{% endif %}
+        </div>
+    </div>
+    <div class="stage-bar-track">
+        <div class="stage-bar {% if s.count == 0 %}zero{% endif %}"
+             style="width: {% if funnel.signed_up %}{{ (100.0 * s.count / funnel.signed_up) | round(1) }}{% else %}0{% endif %}%;"></div>
+    </div>
+    <div class="stage-count">{{ s.count }}</div>
+</div>
+{% endfor %}
+
+{% if funnel.signed_up == 0 %}
+<div class="callout empty">
+    No signups yet in this window. Nothing here will be meaningful until people arrive.
+</div>
+{% elif checkout_summary.total == 0 %}
+<div class="callout">
+    <strong>Nobody has reached checkout.</strong> Every payment problem is downstream of
+    that, so fixing billing changes nothing until this number moves. The constraint is
+    getting people in and to the point where paying is worth it.
+</div>
+{% elif funnel.biggest_drop %}
+<div class="callout">
+    Biggest drop-off: <strong>{{ funnel.biggest_drop.from }} &rarr; {{ funnel.biggest_drop.to }}</strong>,
+    losing {{ funnel.biggest_drop.lost }} user{% if funnel.biggest_drop.lost != 1 %}s{% endif %}
+    ({{ funnel.biggest_drop.pct_retained }}% carried through). Fix this before anything below it.
+</div>
+{% endif %}
+
+<h2 class="section">Recent checkout attempts</h2>
+<p class="funnel-sub">
+    Failed rows are the ones worth reading: users who tried to pay and could not.
+    Nothing else in the database records them.
+</p>
+
+{% if attempts %}
+<div class="table-wrap">
+<table class="attempts">
+    <thead>
+        <tr>
+            <th>When</th><th>User</th><th>Product</th><th>Currency</th><th>Status</th><th>Error</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for a in attempts %}
+        <tr>
+            <td>{{ a.created_at[:16] if a.created_at else '-' }}</td>
+            <td>{{ a.user_email or '-' }}</td>
+            <td>{{ a.product_key or a.product_type }}</td>
+            <td>{{ a.currency or '-' }}</td>
+            <td><span class="badge {{ a.status }}">{{ a.status }}</span></td>
+            <td class="err">{{ a.error_message or '' }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="callout empty">
+    No checkout attempts recorded yet. This table starts filling from the moment this
+    build is deployed; it cannot be backfilled, because the data was never stored.
+</div>
+{% endif %}
+{% endblock %}

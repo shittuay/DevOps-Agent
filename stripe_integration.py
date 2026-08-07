@@ -28,10 +28,45 @@ def _read_config_env():
     return values
 
 
+def _in_production():
+    return (
+        os.environ.get('FLASK_ENV') == 'production'
+        or os.environ.get('USE_AWS_SECRETS', '').lower() == 'true'
+    )
+
+
 def _ensure_stripe_configured():
-    """Ensure stripe.api_key is set — env (Secrets Manager) first, then config/.env."""
+    """Ensure stripe.api_key is set — env (Secrets Manager) first, then config/.env.
+
+    In production the config/.env fallback is deliberately NOT used. That file
+    can hold a pre-rotation key, and Stripe answers a revoked key with a plain
+    401 'Invalid API Key' — indistinguishable, from the outside, from a key that
+    expired on its own. Silently charging ahead with a stale credential turned a
+    one-line rotation into a recurring outage. Fail loudly instead: a clear error
+    is recoverable, a wrong key that half-works is not.
+    """
+    env_key = os.getenv('STRIPE_SECRET_KEY')
+
+    if _in_production():
+        from services.secrets_manager import secrets_are_authoritative, get_secrets_state
+        if not secrets_are_authoritative():
+            state = get_secrets_state()
+            raise RuntimeError(
+                'Refusing to use a possibly-stale Stripe key: secrets did not load '
+                f"from AWS Secrets Manager (source={state.get('source')}, "
+                f"error={state.get('error')}). Fix Secrets Manager access, then "
+                'POST /admin/api/secrets/reload — no redeploy needed.'
+            )
+        if not env_key:
+            raise RuntimeError(
+                'STRIPE_SECRET_KEY missing from AWS Secrets Manager secret '
+                "'devops-agent/production'."
+            )
+        stripe.api_key = env_key
+        return
+
     config = _read_config_env()
-    stripe.api_key = os.getenv('STRIPE_SECRET_KEY') or config.get('STRIPE_SECRET_KEY')
+    stripe.api_key = env_key or config.get('STRIPE_SECRET_KEY')
     if not stripe.api_key:
         raise RuntimeError('STRIPE_SECRET_KEY is not set (Secrets Manager or config/.env)')
 

@@ -243,6 +243,42 @@ def get_all_secrets() -> Dict[str, Optional[str]]:
     return {}
 
 
+# Records how the current process obtained its secrets. Read by the billing
+# diagnostics endpoint so a degraded load is visible without shell access —
+# a silent fallback to a stale config/.env key is what made rotated Stripe
+# keys look like they "expired" (see CLAUDE_RUNBOOK.md).
+_LOAD_STATE: Dict[str, Any] = {
+    'source': 'not_initialized',   # secrets_manager | env_fallback | not_initialized | development
+    'loaded_count': 0,
+    'loaded_at': None,
+    'error': None,
+}
+
+
+def get_secrets_state() -> Dict[str, Any]:
+    """Return a copy of the current secrets load state (never contains values)."""
+    return dict(_LOAD_STATE)
+
+
+def secrets_are_authoritative() -> bool:
+    """True only when this process loaded secrets from AWS Secrets Manager.
+
+    Production code that must not run against a possibly-stale credential
+    (Stripe, in particular) should gate on this rather than on the mere
+    presence of an env var.
+    """
+    return _LOAD_STATE.get('source') == 'secrets_manager'
+
+
+def mark_env_fallback(reason: str) -> None:
+    """Record that the process fell back to a local .env file."""
+    _LOAD_STATE.update({
+        'source': 'env_fallback',
+        'loaded_at': time.time(),
+        'error': reason,
+    })
+
+
 def init_secrets():
     """
     Initialize secrets for the application.
@@ -261,6 +297,7 @@ def init_secrets():
     use_aws = os.environ.get('USE_AWS_SECRETS', '').lower() == 'true'
 
     if flask_env != 'production' and not use_aws:
+        _LOAD_STATE.update({'source': 'development', 'error': None})
         return False
 
     logger.info("Loading secrets from AWS Secrets Manager...")
@@ -273,6 +310,7 @@ def init_secrets():
             "on arn:aws:secretsmanager:us-east-1:*:secret:devops-agent/*",
             e
         )
+        _LOAD_STATE.update({'source': 'not_initialized', 'error': f'GetSecretValue failed: {e}'})
         return False
 
     if not secrets:
@@ -281,6 +319,10 @@ def init_secrets():
             "Ensure secret '%s' exists in us-east-1 and contains the required keys.",
             PRIMARY_SECRET_NAME
         )
+        _LOAD_STATE.update({
+            'source': 'not_initialized',
+            'error': f"secret '{PRIMARY_SECRET_NAME}' returned no data",
+        })
         return False
 
     loaded = 0
@@ -295,10 +337,53 @@ def init_secrets():
             "Secrets JSON was returned but contained none of the expected keys. "
             "Expected keys: %s", MANAGED_SECRET_KEYS
         )
+        _LOAD_STATE.update({
+            'source': 'not_initialized',
+            'error': 'secret JSON contained none of the expected keys',
+        })
         return False
 
+    _LOAD_STATE.update({
+        'source': 'secrets_manager',
+        'loaded_count': loaded,
+        'loaded_at': time.time(),
+        'error': None,
+    })
     logger.info("Loaded %d secrets from AWS Secrets Manager", loaded)
     return True
+
+
+def reload_secrets() -> Dict[str, Any]:
+    """Re-read AWS Secrets Manager into os.environ without restarting the process.
+
+    Rotating a credential previously required a redeploy: init_secrets() runs
+    once at startup, so os.environ kept serving the pre-rotation value and the
+    new key looked broken. This clears the TTL cache, re-runs init_secrets(),
+    and re-points the Stripe SDK at whatever key just landed.
+
+    Returns a state dict; never returns secret values.
+    """
+    try:
+        get_secrets_manager().clear_cache()
+    except Exception as e:  # cache clearing must never block a rotation
+        logger.warning("Could not clear secrets cache before reload: %s", e)
+
+    ok = init_secrets()
+
+    # Stripe caches the key on the module at import time, so a fresh env var is
+    # not enough — re-point the SDK or checkout keeps using the old credential.
+    if ok:
+        try:
+            import stripe
+            new_key = os.environ.get('STRIPE_SECRET_KEY')
+            if new_key:
+                stripe.api_key = new_key
+        except Exception as e:
+            logger.warning("Secrets reloaded but Stripe SDK re-point failed: %s", e)
+
+    state = get_secrets_state()
+    state['reloaded'] = ok
+    return state
 
 
 if __name__ == '__main__':

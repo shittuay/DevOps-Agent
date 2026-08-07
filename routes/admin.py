@@ -341,3 +341,70 @@ def api_roles():
         'roles': get_all_roles(),
         'assignable_roles': get_assignable_roles(current_user)
     })
+
+
+@admin_bp.route('/funnel')
+@login_required
+@admin_required
+def funnel_dashboard():
+    """Signup-to-paid funnel: distinct users per milestone, and where they stop."""
+    from services.funnel_analytics import get_funnel, get_checkout_attempts, get_checkout_summary
+
+    try:
+        days = request.args.get('days', type=int)
+    except Exception:
+        days = None
+
+    return render_template(
+        'admin/funnel.html',
+        funnel=get_funnel(days),
+        attempts=get_checkout_attempts(limit=25),
+        checkout_summary=get_checkout_summary(),
+        window_days=days,
+    )
+
+
+@admin_bp.route('/api/funnel')
+@login_required
+@admin_required
+def api_funnel():
+    """JSON funnel, for scripting or an external dashboard."""
+    from services.funnel_analytics import get_funnel, get_checkout_summary
+
+    days = request.args.get('days', type=int)
+    return jsonify({
+        'success': True,
+        'funnel': get_funnel(days),
+        'checkout': get_checkout_summary(),
+    })
+
+
+@admin_bp.route('/api/secrets/reload', methods=['POST'])
+@login_required
+@admin_required
+def api_reload_secrets():
+    """Re-read AWS Secrets Manager into the running process.
+
+    init_secrets() only runs at startup, so a rotated credential used to require
+    a redeploy — and until that happened the process kept serving the old value,
+    making a fresh Stripe key look invalid. This closes that gap. Returns load
+    state only; secret values are never included in the response.
+    """
+    from services.secrets_manager import reload_secrets
+
+    try:
+        state = reload_secrets()
+    except Exception as e:
+        logger.error("Secrets reload failed: %s", e, exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    logger.info(
+        "Secrets reloaded by admin %s: source=%s count=%s",
+        current_user.id, state.get('source'), state.get('loaded_count')
+    )
+    return jsonify({
+        'success': bool(state.get('reloaded')),
+        'source': state.get('source'),
+        'loaded_count': state.get('loaded_count'),
+        'error': state.get('error'),
+    })

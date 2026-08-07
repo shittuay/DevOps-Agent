@@ -10,7 +10,8 @@ from flask_login import login_required, current_user
 from extensions import limiter
 from models import (
     db, User, UserSubscription, SubscriptionTier, UserPreferences,
-    CreditPurchase, UsageLog, NGNPriceConfig, PaymentWebhookEvent
+    CreditPurchase, UsageLog, NGNPriceConfig, PaymentWebhookEvent,
+    CheckoutAttempt
 )
 from src.utils import get_logger
 from services.credit_service import CreditService
@@ -33,6 +34,33 @@ billing_bp = Blueprint('billing', __name__)
 
 
 # ==================== HELPERS ====================
+
+
+def _record_checkout_attempt(user_id, product_type, product_key, currency,
+                             status, session_id=None, error=None):
+    """Persist a checkout attempt. Never let analytics break a payment flow.
+
+    Failures matter more than successes here: a user who hits checkout and gets
+    a 500 from a bad API key is invisible in CreditPurchase/UserSubscription,
+    because nothing is written until money moves.
+    """
+    try:
+        attempt = CheckoutAttempt(
+            user_id=user_id,
+            product_type=product_type,
+            product_key=str(product_key) if product_key is not None else None,
+            currency=(currency or 'USD').upper()[:3],
+            stripe_session_id=session_id,
+            status=status,
+            error_message=str(error)[:1000] if error else None,
+        )
+        db.session.add(attempt)
+        db.session.commit()
+        return attempt
+    except Exception as e:
+        logger.error("Could not record checkout attempt: %s", e)
+        db.session.rollback()
+        return None
 
 
 def _get_active_tiers():
@@ -279,6 +307,10 @@ def create_subscription_checkout_session():
 
         if result['success']:
             logger.info(f"Checkout session created: {result['session_id']}")
+            _record_checkout_attempt(
+                current_user.id, 'subscription', tier_name, currency,
+                'created', session_id=result['session_id']
+            )
             return jsonify({
                 'success': True,
                 'checkout_url': result['checkout_url'],
@@ -286,10 +318,18 @@ def create_subscription_checkout_session():
             })
         else:
             logger.error(f"Checkout creation failed: {result.get('error')}")
+            _record_checkout_attempt(
+                current_user.id, 'subscription', tier_name, currency,
+                'failed', error=result.get('error')
+            )
             return jsonify({'error': result.get('error', 'Failed to create checkout')}), 500
 
     except Exception as e:
         logger.error(f"Error creating checkout: {str(e)}", exc_info=True)
+        _record_checkout_attempt(
+            current_user.id, 'subscription', locals().get('tier_name'),
+            locals().get('currency'), 'failed', error=e
+        )
         return jsonify({'error': str(e)}), 500
 
 
@@ -345,6 +385,10 @@ def create_credits_checkout_session():
 
         if result['success']:
             logger.info(f"Credit pack checkout created: pack={pack_size}, session={result['session_id']}")
+            _record_checkout_attempt(
+                current_user.id, 'credit_pack', f'pack_{pack_size}', currency,
+                'created', session_id=result['session_id']
+            )
             return jsonify({
                 'success': True,
                 'checkout_url': result['checkout_url'],
@@ -352,10 +396,20 @@ def create_credits_checkout_session():
             })
         else:
             logger.error(f"Credit pack checkout failed: {result.get('error')}")
+            _record_checkout_attempt(
+                current_user.id, 'credit_pack', f'pack_{pack_size}', currency,
+                'failed', error=result.get('error')
+            )
             return jsonify({'error': result.get('error', 'Failed to create checkout')}), 500
 
     except Exception as e:
         logger.error(f"Error creating checkout: {str(e)}", exc_info=True)
+        _pack = locals().get('pack_size')
+        _record_checkout_attempt(
+            current_user.id, 'credit_pack',
+            f'pack_{_pack}' if _pack else None,
+            locals().get('currency'), 'failed', error=e
+        )
         return jsonify({'error': str(e)}), 500
 
 
@@ -459,9 +513,40 @@ def stripe_status():
                 'pack_1000': bool(os.getenv('STRIPE_PRICE_PACK_1000')),
             }
         }
+        # Where this process actually got its secrets. An env_fallback source in
+        # production means the key on disk may predate the last rotation.
+        try:
+            from services.secrets_manager import get_secrets_state
+            secrets_state = get_secrets_state()
+        except Exception:
+            secrets_state = {'source': 'unknown', 'error': None}
+        status['secrets_source'] = secrets_state.get('source')
+        status['secrets_error'] = secrets_state.get('error')
+
+        # "Set" is not "works". A revoked or rotated key is still a non-empty
+        # string, so the old version of this endpoint reported all-clear while
+        # every checkout 401'd. Ask Stripe.
+        key_valid = None
+        key_error = None
+        live_mode = None
+        if api_key:
+            try:
+                import stripe as _stripe
+                acct = _stripe.Account.retrieve(api_key=api_key)
+                key_valid = True
+                live_mode = not api_key.startswith('sk_test_')
+                status['stripe_account_id'] = acct.get('id')
+            except Exception as e:
+                key_valid = False
+                key_error = type(e).__name__ + ': ' + str(e)[:200]
+        status['api_key_valid'] = key_valid
+        status['api_key_error'] = key_error
+        status['live_mode'] = live_mode
+
         all_configured = (
             status['stripe_enabled'] and
             status['api_key_set'] and
+            bool(key_valid) and
             status['webhook_secret_set'] and
             all(status['price_ids'].values())
         )
@@ -631,6 +716,18 @@ def handle_checkout_completed(session):
         if not user:
             logger.error(f"User not found for checkout session. user_id={user_id_str}, email={customer_email}")
             return
+
+        # Close out the funnel record for this session. Best-effort: a missing
+        # attempt row must never stop a paid subscription from being applied.
+        try:
+            session_id = session.get('id')
+            if session_id:
+                attempt = CheckoutAttempt.query.filter_by(stripe_session_id=session_id).first()
+                if attempt and attempt.status != 'completed':
+                    attempt.status = 'completed'
+                    attempt.completed_at = datetime.utcnow()
+        except Exception as e:
+            logger.error("Could not mark checkout attempt completed: %s", e)
 
         if product_type == 'subscription':
             tier_name = metadata.get('tier_name')

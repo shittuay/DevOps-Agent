@@ -752,6 +752,55 @@ class CreditPurchase(db.Model):
         return f'<CreditPurchase {self.credits_amount} credits for ${self.price_paid}>'
 
 
+class CheckoutAttempt(db.Model):
+    """Every time a user reaches Stripe checkout, successful or not.
+
+    Purchases are only recorded once money moves, so an abandoned or failing
+    checkout left no trace anywhere but the application log. That made the most
+    important funnel question — did anyone even try to pay? — unanswerable, and
+    it is exactly the stage where a broken API key does its damage silently.
+    """
+    __tablename__ = 'checkout_attempts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    product_type = db.Column(db.String(20), nullable=False)   # subscription, credit_pack
+    product_key = db.Column(db.String(50))                    # starter, professional, pack_100, ...
+    currency = db.Column(db.String(3))                        # USD, NGN
+
+    stripe_session_id = db.Column(db.String(200), index=True)
+    # created  = checkout session handed to the user
+    # completed = payment confirmed (webhook or success page)
+    # failed   = we could not even create the session (bad key, bad price id, ...)
+    status = db.Column(db.String(20), default='created', nullable=False, index=True)
+    error_message = db.Column(db.Text)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', backref=db.backref('checkout_attempts', lazy='dynamic', cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.Index('idx_checkout_user_created', 'user_id', 'created_at'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_type': self.product_type,
+            'product_key': self.product_key,
+            'currency': self.currency,
+            'status': self.status,
+            'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def __repr__(self):
+        return f'<CheckoutAttempt {self.product_type}/{self.product_key} {self.status}>'
+
+
 class UsageLog(db.Model):
     """Log of credit usage for analytics"""
     __tablename__ = 'usage_logs'

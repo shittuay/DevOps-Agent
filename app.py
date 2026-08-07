@@ -12,13 +12,29 @@ if _flask_env == 'production' or _use_aws:
     from services.secrets_manager import init_secrets
     _secrets_loaded = init_secrets()
     if not _secrets_loaded:
-        # Fall back to .env file if AWS Secrets Manager failed
-        print("WARNING: AWS Secrets Manager failed, falling back to .env file")
+        # Fall back to .env file if AWS Secrets Manager failed. This keeps the app
+        # serving, but the local file can hold PRE-ROTATION credentials — that is
+        # exactly how a rotated Stripe key came back as "Invalid API Key" and read
+        # like an expiring key. Record the degraded state so /api/stripe/status can
+        # report it, and so the money path can refuse a possibly-stale key outright.
+        from services.secrets_manager import mark_env_fallback
+        _fallback_file = None
         from dotenv import load_dotenv
         for _env_path in ['config/.env', '.env']:
             if os.path.exists(_env_path):
                 load_dotenv(_env_path)
+                _fallback_file = _env_path
                 break
+        mark_env_fallback(
+            f"AWS Secrets Manager unavailable; loaded {_fallback_file}"
+            if _fallback_file else
+            "AWS Secrets Manager unavailable and no local .env found"
+        )
+        print(
+            "CRITICAL: AWS Secrets Manager failed. Running on "
+            f"{_fallback_file or 'NO secret source'} — credentials may be stale. "
+            "Billing is disabled until secrets load; check /api/stripe/status."
+        )
 elif _flask_env != 'testing':
     from dotenv import load_dotenv
     # config/.env is authoritative — override=True ensures it always wins over shell env vars

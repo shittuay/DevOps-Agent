@@ -1066,6 +1066,43 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 
 ---
 
+### Signup-to-Paid Funnel
+**Access:** `/admin/funnel` (admin only) — window tabs for all-time / 7 / 30 / 90 days
+
+**What it does:** Counts **distinct users per milestone**, not rows. At low volume this is the
+only way to tell a traffic problem from a product problem — "40 conversations" hides whether
+one person sent 40 messages or forty people sent one each.
+
+Stages: `signed_up` → `verified_email` → `sent_first_message` → `returned` → `connected_cloud`
+→ `reached_checkout` → `paid`. Counts are "ever reached", **not strictly nested**, so a later
+stage can exceed an earlier one (e.g. paid without connecting a cloud account). That is left
+visible on purpose rather than smoothed away.
+
+**Service (`services/funnel_analytics.py`):** every stage but checkout is reconstructed from
+existing tables, so history reaches back to the first signup.
+- `get_funnel(days=None)` — per-stage counts, `pct_of_signups`, `pct_of_previous`, `biggest_drop`
+- `get_checkout_attempts(limit)` / `get_checkout_summary()` — failed rows are the valuable ones
+- `returned` = messages on **2+ distinct calendar days** (`func.date()` — renders on both SQLite
+  and Postgres). Two chats in one sitting is one session, not a return visit.
+
+**New model:** `CheckoutAttempt` (`checkout_attempts`) — the one stage with no prior storage.
+Written on session creation, creation failure, and completion. **Cannot be backfilled.**
+
+```
+GET  /admin/funnel                → funnel page
+GET  /admin/api/funnel?days=30    → JSON funnel + checkout summary
+POST /admin/api/secrets/reload    → re-read Secrets Manager, re-point stripe.api_key (no redeploy)
+```
+
+### Stripe Key Handling (production)
+`stripe_integration._ensure_stripe_configured()` **refuses the `config/.env` fallback when
+`FLASK_ENV=production` or `USE_AWS_SECRETS=true`** and secrets did not load from AWS Secrets
+Manager. A stale local key produces a 401 that is indistinguishable from an expired key, so the
+money path fails loudly instead. Gate on `secrets_are_authoritative()`, never on the mere
+presence of the env var. After fixing Secrets Manager access, `POST /admin/api/secrets/reload`
+recovers without a redeploy. `/api/stripe/status` reports `api_key_valid` (a real
+`stripe.Account.retrieve()` call), not just `api_key_set`. See CLAUDE_RUNBOOK.md.
+
 ### Database Migration
 **Auto-migration at startup:** Every time `app.py` starts, it runs `db.create_all()` (new tables) then inspects all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for any columns in the model not yet in the DB. Output: `Auto-migration: added N column(s): table.column, ...`
 
