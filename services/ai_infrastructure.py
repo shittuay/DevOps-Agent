@@ -602,14 +602,17 @@ class AIInfrastructureService:
         return clone
 
     def delete_template(self, template_id: int) -> bool:
-        """Delete a template."""
+        """Delete a template. Ownership only — unlike get_template(), a
+        template's is_public flag grants read access to everyone but must
+        never grant delete access to non-owners."""
         db = self._get_db()
-        template = self.get_template(template_id)
-        if template:
-            db.session.delete(template)
-            db.session.commit()
-            return True
-        return False
+        InfrastructureTemplate = self._get_template_model()
+        template = InfrastructureTemplate.query.get(template_id)
+        if not template or self.user_id is None or template.user_id != self.user_id:
+            return False
+        db.session.delete(template)
+        db.session.commit()
+        return True
 
     # Deployments
 

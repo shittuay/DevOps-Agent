@@ -582,8 +582,13 @@ def api_execute_tool():
     try:
         from src.agent.safety import SafetyValidator
         validation = SafetyValidator().validate_tool_call(tool_name, params)
-    except Exception:
-        validation = None  # fails open — don't block execution on validator errors
+    except Exception as e:
+        # Deliberate fail-open (matches routes/mcp.py and the Haiku
+        # guardrail screen), but log it — a silently-broken validator would
+        # otherwise disable confirmation gating for every high-risk tool
+        # call indefinitely with zero operational visibility.
+        current_app.logger.error(f"Safety validator raised for tool '{tool_name}', executing without a safety gate: {e}")
+        validation = None
 
     if validation and validation.requires_confirmation:
         # High/medium risk tool — require explicit confirmation token

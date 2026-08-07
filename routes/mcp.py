@@ -654,8 +654,12 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
             except Exception as e:
                 logger.warning(f"MCP approval intercept failed for '{tool_name}': {e}")
             logger.warning(f"MCP executing high-risk tool '{tool_name}' for user {user_id}")
-    except Exception:
-        pass  # Safety validator fails open
+    except Exception as e:
+        # Deliberate fail-open (matches /v1/execute and the Haiku guardrail
+        # screen), but a silent failure here means a broken validator would
+        # disable safety gating for every high-risk tool call indefinitely
+        # with zero operational visibility — log it.
+        logger.error(f"MCP safety validator raised for tool '{tool_name}', executing without a safety gate: {e}")
 
     # Execute the tool handler with user context set
     try:
