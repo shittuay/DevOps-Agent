@@ -897,3 +897,138 @@ scheduled run's time budget) — verification here relied on AST syntax
 checks, a clean module import, and manual call-chain tracing instead;
 worth a full `pytest -q` pass next time a session has the dependencies
 available.
+
+## Scheduled audit: GCP tools broadly bypassed per-user credentials; `register_targets` unclassified; latent dead-code IDOR closed (2026-08-08)
+
+A routine scheduled review (five parallel agents covering the git
+flag-injection guard, `safety.py` risk classification, user/org data
+isolation, non-`requests` SSRF vectors + cloud credential isolation, and
+general code smells/duplication) found the git flag-injection guard and IDOR
+shape both still clean, `scripts/check_security_invariants.py` still
+reporting zero violations — but turned up one real, wide-reaching gap plus
+two smaller ones, all fixed:
+
+1. **`src/tools/gcp_tools.py` — most GCP tools silently fell back to
+   Application Default Credentials (the app server's own ambient GCP
+   identity) instead of the requesting user's linked GCP credentials.** This
+   is the exact bug class already found and fixed once for GCP Secret
+   Manager (`_get_secretmanager_client`, prior audit) and for AWS CloudWatch
+   (`services/proactive_monitoring.py`, 2026-08-06 entry above) — but it
+   turned out to be far more widespread on the GCP side than either of those
+   fixes covered. `_get_gcp_client()` itself was fine when a `project_id` was
+   omitted (it correctly resolved the user's own project), but **~25 other
+   functions constructed a GCP SDK client directly with no `credentials=`
+   argument at all**: `list_compute_instances`' all-zones path
+   (`compute_v1.ZonesClient()`), `create_compute_instance`/
+   `delete_compute_instance` (`InstancesClient()`/`ImagesClient()`),
+   `list_cloud_functions` (`CloudFunctionsServiceClient()`), Cloud Run list/
+   deploy/delete (`run_v2.ServicesClient()`), Pub/Sub publish/subscribe
+   (`PublisherClient()`/`SubscriberClient()`), BigQuery dataset list/create/
+   delete (`bigquery.Client()`), Cloud Logging (`logging.Client()`), Cloud
+   SQL restart/delete (`SqlInstancesServiceClient()`), GKE resize/delete
+   (`container_v1.ClusterManagerClient()`), firewall list/create/delete
+   (`compute_v1.FirewallsClient()`), Cloud Functions v2 delete
+   (`FunctionServiceClient()`), and disk/snapshot list/create/delete
+   (`SnapshotsClient()`/`DisksClient()`). Because a caller can pass an
+   explicit `project_id` (bypassing `_resolve_project_id`'s only failure
+   path — raising when *no* project can be resolved), **any authenticated
+   user, even one with zero GCP credentials configured, could target an
+   arbitrary project id and have compute/storage/GKE/Cloud Run/Pub/Sub/
+   BigQuery/firewall/disk operations run under the platform's own ambient
+   GCP identity** instead of failing closed — the same "per-user isolation
+   exists for the DB row but not for the credential used to act on it" shape
+   flagged repeatedly in CLAUDE.md's User Isolation section, just far wider
+   than the single CloudWatch collector found last time. Separately,
+   `create_cloud_sql_instance` had an even more explicit version of the same
+   bug: `credentials = user_creds if user_creds else google.auth.default()[0]`
+   — an intentional fallback to ADC written into the code, not just a missing
+   argument. Fixed by adding a single shared `_get_gcp_credentials_kwargs()`
+   helper (returns `{'credentials': user_credentials} if user_credentials
+   else {}`, reusing `_get_user_gcp_credentials()`) and routing every one of
+   the ~25 bare client constructions through it, plus rewriting
+   `create_cloud_sql_instance` to raise the same "GCP credentials not
+   configured" error every other GCP tool raises instead of falling back to
+   `google.auth.default()`. `_get_gcp_client()` and `_get_secretmanager_client()`
+   were refactored to call the same shared helper instead of duplicating the
+   `creds_kwargs` construction. Note this fix does not change behavior for a
+   user who has never linked GCP credentials at all — they still get ADC via
+   an empty kwargs dict if `project_id` is explicitly supplied, same
+   pre-existing gap `_resolve_project_id`'s own design already has when
+   `project_id` is caller-supplied; closing that fully would mean rejecting
+   any explicit `project_id` unless the caller also has GCP creds configured,
+   left as a follow-up rather than folded into this pass since it changes
+   behavior for legitimately-configured self-hosted deployments using
+   `GCP_PROJECT_ID` env var + platform ADC by design.
+
+2. **`register_targets` (AWS ELB target-group tool, `src/tools/aws_tools.py`)
+   had no risk classification.** It registers arbitrary instances/IPs with a
+   load-balancer target group — i.e. it can redirect live production traffic
+   to an attacker- or agent-chosen target — but its sibling
+   `deregister_targets` is explicitly medium-risk while `register_targets`
+   itself was absent from both `high_risk_tools`/`medium_risk_tools` and
+   doesn't match any auto-detect prefix, so it silently defaulted to low risk
+   with no confirmation prompt. Fixed by adding it to `medium_risk_tools`
+   next to `deregister_targets`.
+
+3. **`services/ai_infrastructure.py`'s `delete_template()` reused
+   `get_template()`'s ownership check, which also returns public/starter
+   templates.** Flagged as dead code (no route calls it) in the 2026-08-06
+   audit above; confirmed still uncalled this pass, so still not a live
+   exploit, but closed anyway before it's ever wired to a route — if it had
+   been, any user could have deleted another user's *public* template since
+   `get_template()` intentionally returns public templates for read/preview
+   access. Fixed by querying the model directly and checking
+   `template.user_id == self.user_id` explicitly, never falling through to
+   the public-template path for a delete.
+
+**Lower-severity items also cataloged this pass, not fixed:** `app.py`'s
+`api_chat` and `api_chat_stream` duplicate a ~60-line context-building block
+(memory/credential-status/trial context) almost verbatim, and the streaming
+path additionally calls `get_active_skills_context()` and handles
+`page_context`/`resource_context` that the non-streaming path never gets —
+a real feature gap (skills-engine injection and page/resource awareness
+silently don't apply to non-streaming `/api/chat`), not just duplication,
+but a large enough refactor to warrant its own pass rather than folding into
+a security-audit commit. `get_compliance_service()`/`get_ai_infrastructure_service()`/
+`get_analytics_service()`/`get_multi_tenancy_service()` singleton-getter
+functions are defined with zero callers (every route instantiates the
+service class directly instead). `services/infrastructure_sync.py`'s
+`check_rightsizing_opportunity()` swallowed CloudWatch errors with a bare
+`except Exception: pass` inside a per-resource cost-recommendation loop —
+fixed with a one-line `logger.warning()` (the module had no logger at all;
+added a standard `logging.getLogger(__name__)`). `get_commit_history()`
+(`src/tools/git_tools.py`) was the one function whose caller-supplied
+`branch` reached `repo.iter_commits()` without a `_reject_flag_like()` call;
+confirmed non-exploitable today only because GitPython 3.1.58 itself blocks
+the one file-write-capable `rev-list` flag internally (an implicit
+library-level protection, not this app's own guard) — added the guard call
+anyway for defense-in-depth/consistency rather than relying on a pinned
+dependency's internal blocklist staying exactly as-is. `app.py:_validate_webhook_url`
+reimplements a weaker single-IP DNS check instead of calling
+`assert_safe_external_webhook_url` — low severity since it's create-time
+validation only and the actual send path already uses the shared stricter
+helper; left for a future pass.
+
+**Verification:** `scripts/check_security_invariants.py` reports zero
+violations after the fixes. All five edited files
+(`src/tools/gcp_tools.py`, `src/agent/safety.py`,
+`services/ai_infrastructure.py`, `services/infrastructure_sync.py`,
+`src/tools/git_tools.py`) compile cleanly. Full `pip install -r
+requirements.txt` failed on an unrelated pre-existing package
+(`multi-key-dict` wheel build failure under modern setuptings) and the
+sandbox's system `cryptography` package conflicts with a pip-installed
+build (`pyo3_runtime.PanicException: Python API call failed`), so a full
+`pytest -q` run wasn't possible here either — same constraint as the
+2026-08-06 audit. Verification instead used targeted `pip install` of the
+specific packages needed (`google-cloud-compute`, `google-cloud-storage`,
+`google-cloud-container`, `google-auth`, `boto3`), then: a real isolated
+import of `gcp_tools.py` confirming `get_tools()` still returns 42 tools;
+direct calls to `_get_gcp_credentials_kwargs()` and `list_compute_instances`
+with mocked user credentials confirming the credentials kwarg is actually
+threaded into `ZonesClient(...)`; direct `SafetyValidator.validate_tool_call()`
+calls confirming `register_targets` now matches `deregister_targets`'s
+medium-risk classification; and an isolated mock-based unit test of
+`delete_template()` confirming it now returns `False`/leaves the row
+untouched for a template owned by a different user id and `True`/deletes for
+one owned by the caller. Worth a full `pytest -q` pass next time a session
+has the dependency set available.

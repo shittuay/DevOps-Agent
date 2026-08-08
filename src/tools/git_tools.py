@@ -171,6 +171,7 @@ def get_commit_history(
         Dictionary with commit history
     """
     try:
+        _reject_flag_like(branch, 'branch')
         repo = Repo(repo_path)
 
         # Get commits

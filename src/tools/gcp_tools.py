@@ -64,6 +64,23 @@ def _get_user_gcp_credentials():
         return None, None
 
 
+def _get_gcp_credentials_kwargs() -> Dict[str, Any]:
+    """
+    Build the credentials kwarg for a GCP SDK client using per-user credentials
+    when available. Every GCP client in this module must be constructed via this
+    helper (or `_get_gcp_client`/`_get_secretmanager_client`, which already use
+    it) — an SDK client built with no `credentials=` argument silently falls
+    back to Application Default Credentials (the app server's own ambient GCP
+    identity) instead of the requesting user's linked GCP credentials, letting
+    an authenticated user with no GCP creds configured query/manage resources
+    under the platform's own service account. See CLAUDE.md's "User Isolation"
+    and the 2026-08-06 CloudWatch credential-isolation fix for the same bug
+    class on the AWS side.
+    """
+    user_credentials, _user_project = _get_user_gcp_credentials()
+    return {'credentials': user_credentials} if user_credentials else {}
+
+
 def _resolve_project_id(project_id: Optional[str] = None) -> str:
     """Resolve GCP project ID: explicit > per-user credentials > env var."""
     if project_id:
@@ -91,10 +108,8 @@ def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
     try:
         from google.cloud import compute_v1, storage, container_v1, sql_v1, monitoring_v3
 
-        # Try per-user credentials first
-        user_credentials, user_project = _get_user_gcp_credentials()
-
         if project_id is None:
+            _, user_project = _get_user_gcp_credentials()
             project_id = user_project or os.environ.get('GCP_PROJECT_ID')
             if not project_id:
                 raise Exception(
@@ -102,7 +117,7 @@ def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
                 )
 
         # Build clients with per-user credentials if available
-        creds_kwargs = {'credentials': user_credentials} if user_credentials else {}
+        creds_kwargs = _get_gcp_credentials_kwargs()
 
         clients = {
             'compute': compute_v1.InstancesClient(**creds_kwargs),
@@ -131,9 +146,7 @@ def _get_secretmanager_client(secretmanager_module):
     prevent for the other GCP services. Route every Secret Manager call through
     this helper instead of constructing the client directly.
     """
-    user_credentials, _user_project = _get_user_gcp_credentials()
-    creds_kwargs = {'credentials': user_credentials} if user_credentials else {}
-    return secretmanager_module.SecretManagerServiceClient(**creds_kwargs)
+    return secretmanager_module.SecretManagerServiceClient(**_get_gcp_credentials_kwargs())
 
 
 def list_compute_instances(
@@ -169,7 +182,7 @@ def list_compute_instances(
                 instances.append(_format_gce_instance(instance, zone))
         else:
             # List instances in all zones
-            zones_client = compute_v1.ZonesClient()
+            zones_client = compute_v1.ZonesClient(**_get_gcp_credentials_kwargs())
             zones_request = compute_v1.ListZonesRequest(project=proj_id)
 
             for zone_info in zones_client.list(request=zones_request):
@@ -484,7 +497,7 @@ def list_cloud_functions(project_id: Optional[str] = None, location: str = '-') 
     try:
         from google.cloud import functions_v1
 
-        client = functions_v1.CloudFunctionsServiceClient()
+        client = functions_v1.CloudFunctionsServiceClient(**_get_gcp_credentials_kwargs())
         _, proj_id = _get_gcp_client('storage', project_id)
 
         parent = f"projects/{proj_id}/locations/{location}"
@@ -544,11 +557,11 @@ def create_compute_instance(
     try:
         from google.cloud import compute_v1
 
-        instances_client = compute_v1.InstancesClient()
+        instances_client = compute_v1.InstancesClient(**_get_gcp_credentials_kwargs())
         proj_id = _resolve_project_id(project_id)
 
         # Get the latest image
-        images_client = compute_v1.ImagesClient()
+        images_client = compute_v1.ImagesClient(**_get_gcp_credentials_kwargs())
         image = images_client.get_from_family(project=image_project, family=image_family)
 
         # Configure the instance
@@ -664,15 +677,16 @@ def create_cloud_sql_instance(
     """
     try:
         from googleapiclient import discovery
-        from google.oauth2 import service_account
-        import google.auth
 
         proj_id = _resolve_project_id(project_id)
 
-        # Try per-user credentials, fall back to default
+        # Never fall back to Application Default Credentials (the app server's
+        # own ambient GCP identity) — fail closed like every other GCP tool
+        # when the user hasn't linked their own credentials.
         user_creds, _ = _get_user_gcp_credentials()
-        credentials = user_creds if user_creds else google.auth.default()[0]
-        sqladmin = discovery.build('sqladmin', 'v1beta4', credentials=credentials)
+        if not user_creds:
+            raise Exception("GCP credentials not configured. Please configure your GCP credentials in Settings.")
+        sqladmin = discovery.build('sqladmin', 'v1beta4', credentials=user_creds)
 
         instance_body = {
             'name': instance_name,
@@ -732,7 +746,7 @@ def delete_compute_instance(
     try:
         from google.cloud import compute_v1
 
-        instances_client = compute_v1.InstancesClient()
+        instances_client = compute_v1.InstancesClient(**_get_gcp_credentials_kwargs())
         proj_id = _resolve_project_id(project_id)
 
         operation = instances_client.delete(
@@ -813,7 +827,7 @@ def list_cloud_run_services(
     try:
         from google.cloud import run_v2
 
-        client = run_v2.ServicesClient()
+        client = run_v2.ServicesClient(**_get_gcp_credentials_kwargs())
         proj_id = _resolve_project_id(project_id)
 
         parent = f"projects/{proj_id}/locations/{region}"
@@ -858,7 +872,7 @@ def list_pubsub_topics(project_id: Optional[str] = None) -> Dict[str, Any]:
     try:
         from google.cloud import pubsub_v1
 
-        publisher = pubsub_v1.PublisherClient()
+        publisher = pubsub_v1.PublisherClient(**_get_gcp_credentials_kwargs())
         proj_id = _resolve_project_id(project_id)
 
         project_path = f"projects/{proj_id}"
@@ -903,7 +917,7 @@ def publish_pubsub_message(
     try:
         from google.cloud import pubsub_v1
 
-        publisher = pubsub_v1.PublisherClient()
+        publisher = pubsub_v1.PublisherClient(**_get_gcp_credentials_kwargs())
         proj_id = _resolve_project_id(project_id)
 
         topic_path = publisher.topic_path(proj_id, topic_name)
@@ -944,7 +958,7 @@ def list_bigquery_datasets(project_id: Optional[str] = None) -> Dict[str, Any]:
     try:
         from google.cloud import bigquery
 
-        client = bigquery.Client(project=_resolve_project_id(project_id))
+        client = bigquery.Client(project=_resolve_project_id(project_id), **_get_gcp_credentials_kwargs())
 
         datasets = []
         for dataset in client.list_datasets():
@@ -986,7 +1000,7 @@ def query_bigquery(
     try:
         from google.cloud import bigquery
 
-        client = bigquery.Client(project=_resolve_project_id(project_id))
+        client = bigquery.Client(project=_resolve_project_id(project_id), **_get_gcp_credentials_kwargs())
 
         query_job = client.query(query)
         results = query_job.result(max_results=max_results)
@@ -1105,7 +1119,7 @@ def list_cloud_logs(
     try:
         from google.cloud import logging
 
-        client = logging.Client(project=_resolve_project_id(project_id))
+        client = logging.Client(project=_resolve_project_id(project_id), **_get_gcp_credentials_kwargs())
 
         if filter_query:
             iterator = client.list_entries(filter_=filter_query, max_results=max_entries)
@@ -1145,7 +1159,7 @@ def delete_cloud_sql_instance(instance_name: str, project_id: Optional[str] = No
         from google.cloud.sql_v1.types import SqlInstancesDeleteRequest
 
         proj_id = _resolve_project_id(project_id)
-        client = SqlInstancesServiceClient()
+        client = SqlInstancesServiceClient(**_get_gcp_credentials_kwargs())
         operation = client.delete(request=SqlInstancesDeleteRequest(project=proj_id, instance=instance_name))
         return {
             'success': True, 'instance_name': instance_name, 'project': proj_id,
@@ -1163,7 +1177,7 @@ def restart_cloud_sql_instance(instance_name: str, project_id: Optional[str] = N
         from google.cloud.sql_v1.types import SqlInstancesRestartRequest
 
         proj_id = _resolve_project_id(project_id)
-        client = SqlInstancesServiceClient()
+        client = SqlInstancesServiceClient(**_get_gcp_credentials_kwargs())
         operation = client.restart(request=SqlInstancesRestartRequest(project=proj_id, instance=instance_name))
         return {
             'success': True, 'instance_name': instance_name, 'project': proj_id,
@@ -1183,7 +1197,7 @@ def create_pubsub_topic(topic_name: str, project_id: Optional[str] = None) -> Di
         from google.cloud import pubsub_v1
 
         proj_id = _resolve_project_id(project_id)
-        publisher = pubsub_v1.PublisherClient()
+        publisher = pubsub_v1.PublisherClient(**_get_gcp_credentials_kwargs())
         topic_path = publisher.topic_path(proj_id, topic_name)
         topic = publisher.create_topic(request={'name': topic_path})
         return {
@@ -1201,7 +1215,7 @@ def delete_pubsub_topic(topic_name: str, project_id: Optional[str] = None) -> Di
         from google.cloud import pubsub_v1
 
         proj_id = _resolve_project_id(project_id)
-        publisher = pubsub_v1.PublisherClient()
+        publisher = pubsub_v1.PublisherClient(**_get_gcp_credentials_kwargs())
         topic_path = publisher.topic_path(proj_id, topic_name)
         publisher.delete_topic(request={'topic': topic_path})
         return {
@@ -1224,7 +1238,7 @@ def create_pubsub_subscription(
         from google.cloud import pubsub_v1
 
         proj_id = _resolve_project_id(project_id)
-        subscriber = pubsub_v1.SubscriberClient()
+        subscriber = pubsub_v1.SubscriberClient(**_get_gcp_credentials_kwargs())
         topic_path = subscriber.topic_path(proj_id, topic_name)
         subscription_path = subscriber.subscription_path(proj_id, subscription_name)
 
@@ -1348,7 +1362,7 @@ def deploy_cloud_run_service(
         from google.cloud import run_v2
 
         proj_id = _resolve_project_id(project_id)
-        client = run_v2.ServicesClient()
+        client = run_v2.ServicesClient(**_get_gcp_credentials_kwargs())
         parent = f'projects/{proj_id}/locations/{region}'
 
         env_list = []
@@ -1398,7 +1412,7 @@ def delete_cloud_run_service(
         from google.cloud import run_v2
 
         proj_id = _resolve_project_id(project_id)
-        client = run_v2.ServicesClient()
+        client = run_v2.ServicesClient(**_get_gcp_credentials_kwargs())
         name = f'projects/{proj_id}/locations/{region}/services/{service_name}'
         operation = client.delete_service(request={'name': name})
         operation.result()
@@ -1426,7 +1440,7 @@ def resize_gke_cluster(
         from google.cloud import container_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = container_v1.ClusterManagerClient()
+        client = container_v1.ClusterManagerClient(**_get_gcp_credentials_kwargs())
         name = f'projects/{proj_id}/locations/{zone}/clusters/{cluster_name}/nodePools/{node_pool_name}'
 
         operation = client.set_node_pool_size(request={
@@ -1454,7 +1468,7 @@ def delete_gke_cluster(
         from google.cloud import container_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = container_v1.ClusterManagerClient()
+        client = container_v1.ClusterManagerClient(**_get_gcp_credentials_kwargs())
         name = f'projects/{proj_id}/locations/{zone}/clusters/{cluster_name}'
 
         operation = client.delete_cluster(request={'name': name})
@@ -1477,7 +1491,7 @@ def list_firewall_rules(project_id: Optional[str] = None) -> Dict[str, Any]:
         from google.cloud import compute_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = compute_v1.FirewallsClient()
+        client = compute_v1.FirewallsClient(**_get_gcp_credentials_kwargs())
         request = compute_v1.ListFirewallsRequest(project=proj_id)
 
         rules = []
@@ -1516,7 +1530,7 @@ def create_firewall_rule(
         from google.cloud import compute_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = compute_v1.FirewallsClient()
+        client = compute_v1.FirewallsClient(**_get_gcp_credentials_kwargs())
 
         firewall = compute_v1.Firewall(
             name=rule_name,
@@ -1546,7 +1560,7 @@ def delete_firewall_rule(rule_name: str, project_id: Optional[str] = None) -> Di
         from google.cloud import compute_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = compute_v1.FirewallsClient()
+        client = compute_v1.FirewallsClient(**_get_gcp_credentials_kwargs())
         operation = client.delete(project=proj_id, firewall=rule_name)
         return {
             'success': True, 'rule_name': rule_name, 'project': proj_id,
@@ -1570,7 +1584,7 @@ def create_bigquery_dataset(
         from google.cloud import bigquery
 
         proj_id = _resolve_project_id(project_id)
-        client = bigquery.Client(project=proj_id)
+        client = bigquery.Client(project=proj_id, **_get_gcp_credentials_kwargs())
 
         dataset_ref = bigquery.DatasetReference(proj_id, dataset_id)
         dataset = bigquery.Dataset(dataset_ref)
@@ -1597,7 +1611,7 @@ def delete_bigquery_dataset(
         from google.cloud import bigquery
 
         proj_id = _resolve_project_id(project_id)
-        client = bigquery.Client(project=proj_id)
+        client = bigquery.Client(project=proj_id, **_get_gcp_credentials_kwargs())
         client.delete_dataset(dataset_id, delete_contents=delete_contents)
         return {
             'success': True, 'dataset_id': dataset_id, 'project': proj_id,
@@ -1621,7 +1635,7 @@ def delete_cloud_function(
         from google.cloud.functions_v2 import FunctionServiceClient
 
         proj_id = _resolve_project_id(project_id)
-        client = FunctionServiceClient()
+        client = FunctionServiceClient(**_get_gcp_credentials_kwargs())
         name = f'projects/{proj_id}/locations/{region}/functions/{function_name}'
         operation = client.delete_function(request={'name': name})
         operation.result()
@@ -1648,8 +1662,8 @@ def create_disk_snapshot(
         from google.cloud import compute_v1
 
         proj_id = _resolve_project_id(project_id)
-        snapshots_client = compute_v1.SnapshotsClient()
-        disks_client = compute_v1.DisksClient()
+        snapshots_client = compute_v1.SnapshotsClient(**_get_gcp_credentials_kwargs())
+        disks_client = compute_v1.DisksClient(**_get_gcp_credentials_kwargs())
 
         snapshot = compute_v1.Snapshot(
             name=snapshot_name,
@@ -1673,7 +1687,7 @@ def delete_disk_snapshot(snapshot_name: str, project_id: Optional[str] = None) -
         from google.cloud import compute_v1
 
         proj_id = _resolve_project_id(project_id)
-        client = compute_v1.SnapshotsClient()
+        client = compute_v1.SnapshotsClient(**_get_gcp_credentials_kwargs())
         operation = client.delete(project=proj_id, snapshot=snapshot_name)
         return {
             'success': True, 'snapshot_name': snapshot_name, 'project': proj_id,
