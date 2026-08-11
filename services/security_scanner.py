@@ -1,9 +1,12 @@
 """Security scanning service for AWS infrastructure"""
+import logging
 from datetime import datetime
 from typing import List, Dict
 from models import db, SecurityFinding, InfrastructureResource
 import os as _os
 from services.notification_service import notify_security as _notify_security
+
+logger = logging.getLogger(__name__)
 
 
 def _get_boto_client(service: str, user_id: int = None, region: str = None):
@@ -118,8 +121,11 @@ def scan_s3_buckets(user_id: int) -> List[Dict]:
                             'risk_score': 95,
                             'exploitability': 'high'
                         })
-            except Exception:
-                pass  # Bucket ACL not accessible — skip
+            except Exception as e:
+                # A failed ACL check must not look like "checked, not public" —
+                # that's how a permissions/throttling error silently drops a
+                # critical public-bucket finding from the report.
+                logger.warning(f"Could not check ACL for S3 bucket {bucket_name}: {e}")
 
             # Check encryption
             try:
@@ -162,11 +168,11 @@ def scan_s3_buckets(user_id: int) -> List[Dict]:
                         'risk_score': 55,
                         'exploitability': 'low'
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not check versioning for S3 bucket {bucket_name}: {e}")
 
     except Exception as e:
-        print(f'Error scanning S3 buckets: {e}')
+        logger.error(f'Error scanning S3 buckets: {e}')
 
     return findings
 

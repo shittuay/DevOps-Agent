@@ -10,7 +10,7 @@ Manages infrastructure change requests with risk-based approval routing:
 from flask import Blueprint, request, jsonify, session
 from flask_login import login_required, current_user
 from models import db, InfrastructureChange, InfrastructureResource, OrganizationMember
-from services.rbac import require_permission, Permission, approver_required, user_is_admin, user_active_org_ids
+from services.rbac import require_permission, Permission, approver_required, user_is_admin, user_is_approver, user_active_org_ids
 from datetime import datetime
 import logging
 
@@ -28,7 +28,13 @@ def _user_active_org_ids(user) -> set:
 
 
 def _change_visible_to_approver(change, user) -> bool:
-    """Whether a non-admin approver may view/act on this change."""
+    """Whether `change` belongs to an organization `user` is an active member of.
+
+    This is an org-membership check ONLY — it says nothing about role. Every
+    call site must pair it with its own role gate (e.g. `user_is_approver()`)
+    before treating a `True` result as "may approve/reject/execute"; a plain
+    'user'-role org member is just as "visible" here as an approver.
+    """
     if change.organization_id is None:
         return False
     return change.organization_id in _user_active_org_ids(user)
@@ -348,7 +354,16 @@ def execute_change(change_id):
     change = InfrastructureChange.query.get_or_404(change_id)
 
     if change.user_id != current_user.id:
-        if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
+        # Executing someone else's change requires approver-or-higher privilege,
+        # same as approve/reject — _change_visible_to_approver is an org-membership
+        # check only and does not by itself imply approver privilege (any org
+        # member, including plain 'user' role, is "visible to" a change in their
+        # org). Requiring user_is_approver() here closes a privilege escalation
+        # where a non-approver org member could execute (actually run, e.g.
+        # terminate/delete) another user's already-approved infrastructure change.
+        if not user_is_admin(current_user) and not (
+            user_is_approver(current_user) and _change_visible_to_approver(change, current_user)
+        ):
             return jsonify({'error': 'Unauthorized'}), 403
 
     if change.status != 'approved':
