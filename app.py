@@ -5696,10 +5696,9 @@ def admin_list_crisis_incidents():
     - severity: 'high', 'medium', 'low'
     - resolved: 'true' or 'false'
 
-    Requires admin role (add in future).
+    Requires admin role.
     """
     try:
-        # Check admin role (TODO: implement role check)
         if current_user.role != 'admin':
             return jsonify({'error': 'Admin access required'}), 403
 
