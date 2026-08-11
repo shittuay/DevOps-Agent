@@ -1043,3 +1043,42 @@ confirming `_get_user_gcp_credentials()` is invoked exactly once per
 `SafetyValidator.validate_tool_call()` calls confirming `register_targets`
 now matches `deregister_targets`'s medium-risk classification. Worth a full
 `pytest -q` pass next time a session has the dependency set available.
+**Follow-up (same day):** that verification was real but lived only in the
+commit message — no test file was committed, so nothing guarded the contract
+against regression. Added `tests/test_gcp_credential_fail_closed.py` (4 tests):
+three pin the fail-closed contract on `_get_gcp_credentials_kwargs()` itself
+(raises when the user has none linked, **never returns `{}`** — the empty dict
+is the specific regression, since `SomeClient(**{})` builds a credential-less
+client that resolves to ADC — and threads real credentials through when
+present), plus one AST-based structural test asserting **every** GCP client
+construction in `gcp_tools.py` passes credentials. The structural one is the
+important half: the original bug wasn't a wrong helper, it was ~25 call sites
+written without any `credentials=` argument, so a newly-added tool would
+reopen the fallback for itself alone with nothing to catch it. It carries a
+`len(examined) >= 20` guard so it can't silently go vacuous if the detection
+heuristic drifts, and was negative-tested (reverting one `FirewallsClient` to
+a bare constructor makes it fail with the exact line number). Full suite on
+this branch: **684 passed**; the 7 failures seen locally are all one
+Windows-only `UnicodeDecodeError` from `pathlib.read_text()` defaulting to
+cp1252 (`scripts/check_security_invariants.py:179` and `test_tool_counts.py`
+read UTF-8 source files without an explicit `encoding=`) — they pass on
+Linux CI. Worth adding `encoding='utf-8'` to those `read_text()` calls so the
+suite is runnable on Windows. **Also found while testing:** `_get_gcp_client()`
+is currently unreachable in *every* environment including production — its
+first statement imports `sql_v1`, and `google-cloud-sql` is commented out of
+`requirements.txt` as "Package doesn't exist on PyPI", so the function raises
+`ImportError` before any credential logic runs. The ~25 direct client
+constructions elsewhere in the module are the paths that actually execute.
+Not fixed here (pre-existing, and GCP has zero live users — see below), but
+it means the `_get_gcp_client` half of this fix is currently theoretical.
+**Live blast radius at time of fix (queried against production):** 8 users
+total, 1 cloud credential row in the entire `user_cloud_credentials` table
+(a single AWS credential), **zero GCP and zero Azure credentials**; and the
+EC2 host has no ambient GCP identity to escalate to either — no
+`GOOGLE_APPLICATION_CREDENTIALS`, no gcloud ADC file under `ubuntu` or
+`root`, no `GCP_PROJECT_ID`, and `169.254.169.254` is AWS IMDS which 404s
+Google's metadata paths. So the ADC fallback had nothing to fall back to and
+was not exploitable in production; this was fixed on the correct-by-
+construction argument, not an active incident, and the fail-closed switch was
+deliberately made while the blast radius is zero rather than after the first
+GCP user exists.
