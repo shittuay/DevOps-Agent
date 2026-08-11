@@ -361,6 +361,7 @@ class SafetyValidator:
             'update_ecs_service',
             'update_cloudformation_stack',
             'revoke_security_group_ingress',
+            'register_targets',
             'deregister_targets',
             'release_elastic_ip',
             'update_secret',

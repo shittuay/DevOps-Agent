@@ -1,9 +1,12 @@
 """Infrastructure sync service for tracking cloud resources and costs"""
 import os
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from models import db, InfrastructureResource, CostOptimization
 from botocore.exceptions import ClientError, NoCredentialsError
+
+logger = logging.getLogger(__name__)
 
 
 def _get_user_boto_client(user_id: int, service: str, region: str = None):
@@ -1393,8 +1396,11 @@ def check_rightsizing_opportunity(resource: InfrastructureResource) -> float:
         if cpu_avg is not None and cpu_avg < 20.0 and cpu_max is not None and cpu_max < 50.0:
             if any(size in instance_type for size in ['xlarge', '2xlarge', 'large']):
                 return resource.monthly_cost * 0.35
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            f"Rightsizing check failed for resource {resource.resource_id} "
+            f"(user {resource.user_id}): {e}"
+        )
 
     return 0.0
 
