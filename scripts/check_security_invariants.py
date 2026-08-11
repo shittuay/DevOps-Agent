@@ -173,20 +173,23 @@ def _scan_source_for_check_password(rel_path: str, source: str) -> List[Violatio
 def check_ssrf_guard_usage() -> List[Violation]:
     violations = []
     for path in _iter_python_files(SCAN_ROOTS):
-        rel = str(path.relative_to(REPO_ROOT))
+        # as_posix(), not str(): on Windows str() yields 'routes\\auth.py',
+        # which never matches the forward-slash paths in the exemption sets,
+        # silently turning every exempt file into a false positive.
+        rel = path.relative_to(REPO_ROOT).as_posix()
         if rel in SSRF_EXEMPT_FILES:
             continue
-        violations.extend(_scan_source_for_ssrf(rel, path.read_text()))
+        violations.extend(_scan_source_for_ssrf(rel, path.read_text(encoding='utf-8')))
     return violations
 
 
 def check_password_duplication() -> List[Violation]:
     violations = []
     for path in _iter_python_files(SCAN_ROOTS):
-        rel = str(path.relative_to(REPO_ROOT))
+        rel = path.relative_to(REPO_ROOT).as_posix()  # see note in check_ssrf_guard_usage
         if rel in CHECK_PASSWORD_EXEMPT_FILES:
             continue
-        violations.extend(_scan_source_for_check_password(rel, path.read_text()))
+        violations.extend(_scan_source_for_check_password(rel, path.read_text(encoding='utf-8')))
     return violations
 
 

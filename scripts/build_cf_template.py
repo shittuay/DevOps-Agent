@@ -20,8 +20,8 @@ PLATFORM_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '188046727805')
 
 
 def build_template() -> dict:
-    readonly = json.loads((IAM_DIR / 'devops-agent-readonly.json').read_text())
-    management = json.loads((IAM_DIR / 'devops-agent-management.json').read_text())
+    readonly = json.loads((IAM_DIR / 'devops-agent-readonly.json').read_text(encoding='utf-8'))
+    management = json.loads((IAM_DIR / 'devops-agent-management.json').read_text(encoding='utf-8'))
 
     return {
         'AWSTemplateFormatVersion': '2010-09-09',
