@@ -783,8 +783,11 @@ class DevOpsAgent:
             # Set DevOps operations user context
             from ..tools.devops_operations_tools import set_user_context as set_devops_context
             set_devops_context(user_id)
-        except (ImportError, Exception):
-            pass
+            self.logger.debug(f"Set DevOps operations user context for user {user_id}")
+        except ImportError:
+            self.logger.warning("Failed to import DevOps operations user context setter")
+        except Exception as e:
+            self.logger.warning(f"Failed to set DevOps operations user context: {str(e)}")
 
         try:
             # Set Azure user context
@@ -817,6 +820,16 @@ class DevOpsAgent:
             self.logger.warning("Failed to import AWS user context clearer")
         except Exception as e:
             self.logger.warning(f"Failed to clear AWS user context: {str(e)}")
+
+        try:
+            # Clear DevOps operations user context
+            from ..tools.devops_operations_tools import clear_user_context as clear_devops_context
+            clear_devops_context()
+            self.logger.debug("Cleared DevOps operations user context")
+        except ImportError:
+            self.logger.warning("Failed to import DevOps operations user context clearer")
+        except Exception as e:
+            self.logger.warning(f"Failed to clear DevOps operations user context: {str(e)}")
 
         try:
             # Clear Azure user context

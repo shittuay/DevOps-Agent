@@ -1082,3 +1082,86 @@ was not exploitable in production; this was fixed on the correct-by-
 construction argument, not an active incident, and the fail-closed switch was
 deliberately made while the blast radius is zero rather than after the first
 GCP user exists.
+
+## Scheduled audit: `devops_operations_tools` thread-local context never cleared (2026-08-11)
+
+A routine scheduled review (four parallel agents covering tool risk
+classification, IDOR/user-isolation, git flag-injection + guardrail-gated
+entry points, and general code smells/duplication) found the first three
+areas clean — `scripts/check_security_invariants.py` still zero violations,
+every destructive/mutating tool correctly classified, no new IDOR shape, all
+18 git tools with a caller-supplied positional still guarded by
+`_reject_flag_like()`, no new chat-to-agent entry point bypassing
+`sanitize_input`/`validate_message`/`screen_message`. The smells pass found
+one real gap in the same per-request context-isolation pattern documented
+above under "Concurrency Model: the shared `agent` singleton", plus a few
+small cleanups:
+
+1. **`src/tools/devops_operations_tools.py` (cost analysis, change
+   governance, compliance tools) had no `clear_user_context()`, unlike its
+   `aws_tools`/`azure_tools`/`gcp_tools` siblings, and `core.py`'s
+   `_clear_cloud_user_context()` had no call for it at all.** The set side
+   (`_set_cloud_user_context`) *did* set it, via
+   `set_devops_context(user_id)`, but the clear side never reset it back to
+   `None`. Worse, the set call was wrapped in a bare
+   `except (ImportError, Exception): pass` — the only one of the four
+   provider blocks in that function with no logging on failure, unlike its
+   AWS/Azure/GCP siblings which each `logger.warning()` on both `ImportError`
+   and generic exceptions. Net effect: after a request finished, the
+   thread-local devops-operations user_id stayed set to that request's user
+   indefinitely on that OS thread, until the next explicit `set_user_context`
+   call overwrote it. `process_message_isolated`/`process_message_streaming`
+   both call `_set_cloud_user_context` at the very start of every real
+   request, so the normal request path was self-healing — but
+   `services/approval_service.py`'s `_execute_tool()` (the approve-and-run
+   path for a deferred high-risk tool call) sets the requester's context,
+   runs the tool, then calls `agent._clear_cloud_user_context()` in a
+   `finally` block specifically to leave a clean slate — and that clear
+   never actually touched the devops context, leaving the approver-run
+   request's user_id sitting on the thread for cost/compliance/
+   change-governance tools to potentially read on some later call that
+   doesn't set its own context first. Fixed by adding
+   `clear_user_context()` to `devops_operations_tools.py` (identical shape
+   to `aws_tools.clear_user_context()`), wiring it into
+   `_clear_cloud_user_context()`, and switching the set-side's silent
+   `pass` to the same logged `except ImportError` / `except Exception`
+   pattern its siblings use. Regression test:
+   `tests/test_devops_context_clear.py`.
+
+2. Two defense-in-depth/consistency cleanups, neither an active
+   vulnerability: `src/agent/safety.py` listed `delete_pod`/
+   `delete_configmap`/`delete_k8s_secret` in **both** `high_risk_tools` and
+   `medium_risk_tools` — harmless today since `high_risk_tools` is checked
+   first, but a latent trap if someone later removes just the high-risk
+   copy assuming the medium one still covers it; removed the redundant
+   medium-risk copies. `src/tools/git_tools.py`'s `git_fetch` was the one
+   function taking a caller-supplied `remote` param that skipped
+   `_reject_flag_like()` (its siblings `git_pull`/`git_push`/
+   `git_force_push_branch` all guard the same parameter) — not currently
+   exploitable since `repo.remote(name)` is a pure-Python dict lookup that
+   raises `ValueError` on an unknown name rather than shelling out, but
+   added the guard for parity in case this ever changes.
+
+3. `routes/api_gateway.py`'s `/v1/agent` handler had a redundant bare
+   `if len(message) > 10000` check that duplicated
+   `services/input_sanitizer.py`'s `MAX_MESSAGE_LENGTH` (also 10000),
+   running with its own hardcoded literal a few lines before
+   `validate_message()` enforces the identical limit anyway — removed the
+   duplicate so the limit can't drift out of sync between the two checks in
+   this one entry point (the other three guardrail-gated entry points don't
+   have this duplicate).
+
+Two findings intentionally **not** changed, flagged for a human decision
+instead: `services/model_router.py`'s `DEFAULT_TIER_MODELS['business']` is
+configured identically to `professional` (`claude-sonnet-4-6`, including a
+matching `display_name`), while CLAUDE.md's tier table documents `business`
+($299/mo) as `claude-opus-4-6` — this reads as either a deliberate
+cost-driven decision that never made it back into the docs, or an unshipped
+regression, and changing which model $299/mo subscribers get isn't something
+a scheduled code-review pass should decide unilaterally. `services/sandbox.py`'s
+`run_sandboxed()`/`run_script_sandboxed()` duplicate ~40 lines of Docker
+subprocess/timeout/cleanup control flow and `app.py` has 8 inline
+`current_user.role != 'admin'` checks that could use the existing
+`admin_required` decorator instead (which also logs denied attempts) — both
+real but larger refactors than this pass's scope, left for a dedicated
+follow-up.

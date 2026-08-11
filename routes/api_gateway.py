@@ -833,8 +833,6 @@ def api_agent():
     message = sanitize_input((data.get('message') or '').strip())
     if not message:
         return jsonify({'error': 'message is required'}), 400
-    if len(message) > 10000:
-        return jsonify({'error': 'message exceeds 10000 character limit'}), 400
 
     api_user = User.query.get(user_id)
 

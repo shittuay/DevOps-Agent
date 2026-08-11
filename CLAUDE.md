@@ -449,6 +449,17 @@ either failed closed with "Authentication required" or could pick up whatever co
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
 
+**`_set_cloud_user_context`/`_clear_cloud_user_context` (`core.py`) must set AND clear every
+provider's thread-local context, not just AWS/Azure/GCP.** `src/tools/devops_operations_tools.py`
+(cost analysis, change governance, compliance tools) has the same `threading.local()`
+set/get-context pattern as `aws_tools`/`azure_tools`/`gcp_tools`, and `_set_cloud_user_context`
+did call its setter — but the module had no `clear_user_context()` at all, so
+`_clear_cloud_user_context()` had nothing to call for it, leaving that thread's devops-operations
+user_id stale after the request that set it finished (found by a 2026-08-11 scheduled audit; see
+CLAUDE_RUNBOOK.md). When adding a new tool module with its own per-user thread-local context,
+give it a `clear_user_context()` from the start and wire it into both halves of this method —
+a setter with no matching clearer is the same class of gap as skipping the setter entirely.
+
 ## Cloudflare's idle-connection timeout vs. long agent turns
 
 This site is proxied through Cloudflare, which enforces its own ~100s idle-connection

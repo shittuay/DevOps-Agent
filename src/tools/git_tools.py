@@ -856,6 +856,7 @@ def git_amend_commit(repo_path: str, message: Optional[str] = None) -> Dict[str,
 def git_fetch(repo_path: str, remote: str = 'origin', prune: bool = False) -> Dict[str, Any]:
     """Fetch updates from a remote."""
     try:
+        _reject_flag_like(remote, 'remote')
         repo = _get_repo(repo_path)
         remote_obj = repo.remote(remote)
         kwargs = {}

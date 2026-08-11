@@ -16,6 +16,11 @@ def set_user_context(user_id: Optional[int] = None):
     _user_context.user_id = user_id
 
 
+def clear_user_context():
+    """Clear user context from this thread."""
+    _user_context.user_id = None
+
+
 def get_current_user_id() -> Optional[int]:
     return getattr(_user_context, 'user_id', None)
 
