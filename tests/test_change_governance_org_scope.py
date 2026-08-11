@@ -157,6 +157,33 @@ def test_solo_change_without_org_requires_admin(app, org_governance_setup):
     assert resp.status_code == 200, resp.get_json()
 
 
+def test_plain_org_member_cannot_execute_another_users_approved_change(app, org_governance_setup):
+    """execute_change previously only checked org-membership (_change_visible_to_approver),
+    not approver role, so any plain 'user'-role org member could execute (actually run)
+    another user's already-approved change. Must require approver-or-admin, matching
+    approve_change/reject_change's role gate.
+    """
+    from models import db, OrganizationMember
+
+    setup = org_governance_setup
+    requester_client = _login(app, 'org-requester@example.com')
+    change = _create_medium_risk_change(requester_client, active_org_id=setup['org'].id)
+
+    approver_client = _login(app, 'org-approver@example.com')
+    resp = approver_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'ok'})
+    assert resp.status_code == 200, resp.get_json()
+
+    plain_member = _make_user(db_session=db.session, email='org-plain-member@example.com', role='user')
+    db.session.add(OrganizationMember(
+        organization_id=setup['org'].id, user_id=plain_member.id, role='member', is_active=True,
+    ))
+    db.session.commit()
+
+    plain_client = _login(app, 'org-plain-member@example.com')
+    resp = plain_client.post(f"/api/changes/{change['id']}/execute")
+    assert resp.status_code == 403, resp.get_json()
+
+
 def test_admin_sees_all_pending_regardless_of_organization(app, org_governance_setup):
     setup = org_governance_setup
     requester_client = _login(app, 'org-requester@example.com')
