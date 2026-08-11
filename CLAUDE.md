@@ -685,6 +685,19 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 ```
 - Always use `_resolve_project_id()` — never hardcode project IDs.
 - GCP clients are imported inline per function.
+- **Never add a symbol to a shared multi-name `from google.cloud import a, b, c` line.** Import each
+  service's SDK lazily, inside the branch that needs it. `_get_gcp_client()` used to import five SDKs
+  on one line, one of which (`sql_v1`) has no PyPI distribution, so `ImportError` disabled all five
+  services — including the four whose packages were installed. See CLAUDE_RUNBOOK.md's 2026-08-11 entry.
+- **Cloud SQL has no `google-cloud-*` client library** (`google-cloud-sql` is not a real PyPI package).
+  Reach it via `_get_sqladmin_client()`, which builds a REST discovery client
+  (`googleapiclient.discovery.build('sqladmin', 'v1beta4', ...)`) and fails closed on missing
+  credentials. Do not write `from google.cloud import sql_v1` — it is guaranteed to raise at runtime,
+  and `tests/test_gcp_credential_fail_closed.py` fails the build if one is reintroduced.
+- Every GCP SDK client must be constructed with credentials from `_get_gcp_credentials_kwargs()`
+  (which raises when the user has none linked). A client built with no `credentials=` argument
+  silently falls back to Application Default Credentials — the app server's own ambient identity —
+  instead of the requesting user's. This is enforced by an AST test over the whole module.
 
 ## Free Trial System
 

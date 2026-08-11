@@ -60,6 +60,113 @@ def test_credentials_kwargs_threads_user_credentials_through():
     assert kwargs == {'credentials': creds}
 
 
+def test_get_gcp_client_fails_closed_even_with_explicit_project_id():
+    """An explicit project_id skips the project-resolution branch, which was
+    once the only path that could raise — so this is the case where a caller
+    could otherwise still reach an ADC-backed client.
+
+    This is reachable to test only because _get_gcp_client now resolves
+    credentials *before* importing any SDK; it previously imported five SDKs
+    up front (one of which, sql_v1, has no PyPI distribution) and so raised
+    ImportError before any credential logic ran, on every platform.
+    """
+    from src.tools import gcp_tools
+
+    with patch.object(gcp_tools, '_get_user_gcp_credentials', return_value=(None, None)):
+        with pytest.raises(Exception) as exc:
+            gcp_tools._get_gcp_client('compute', project_id='some-explicit-project')
+
+    assert 'not configured' in str(exc.value).lower(), (
+        f"expected a fail-closed credentials error, got: {exc.value}"
+    )
+
+
+def test_get_gcp_client_resolves_credentials_only_once():
+    """_get_user_gcp_credentials() writes a plaintext service-account private
+    key to a temp file, loads it, then deletes it. Resolving twice per client
+    construction doubles both the DB round-trip and the window that key is on
+    disk, so the resolution must be hoisted and reused."""
+    from src.tools import gcp_tools
+
+    calls = []
+
+    def _counting_resolver():
+        calls.append(1)
+        return (None, None)
+
+    with patch.object(gcp_tools, '_get_user_gcp_credentials', _counting_resolver):
+        with pytest.raises(Exception):
+            gcp_tools._get_gcp_client('compute')
+
+    assert len(calls) == 1, (
+        f"_get_user_gcp_credentials() called {len(calls)}x for a single "
+        "_get_gcp_client() call; resolve once and reuse the result"
+    )
+
+
+def test_get_gcp_client_does_not_serve_cloud_sql():
+    """Cloud SQL has no google-cloud-* client library (`google-cloud-sql` does
+    not exist on PyPI), so it must be reached via _get_sqladmin_client()'s REST
+    discovery client. Asking _get_gcp_client for it previously returned a
+    client built from `sql_v1` — an import that always failed — and that single
+    unsatisfiable import in the shared import line took down compute, storage,
+    container and monitoring along with it."""
+    from src.tools import gcp_tools
+
+    creds = _FakeCredentials()
+    with patch.object(gcp_tools, '_get_user_gcp_credentials', return_value=(creds, 'proj-1')):
+        with pytest.raises(Exception) as exc:
+            gcp_tools._get_gcp_client('sql')
+
+    message = str(exc.value).lower()
+    assert 'unknown gcp service type' in message, (
+        f"expected Cloud SQL to be rejected by _get_gcp_client, got: {exc.value}"
+    )
+    assert 'sql_v1' not in message
+
+
+def test_sqladmin_client_fails_closed():
+    from src.tools import gcp_tools
+
+    with patch.object(gcp_tools, '_get_user_gcp_credentials', return_value=(None, None)):
+        with pytest.raises(Exception) as exc:
+            gcp_tools._get_sqladmin_client()
+
+    assert 'not configured' in str(exc.value).lower()
+
+
+def test_no_module_imports_the_nonexistent_cloud_sql_package():
+    """`google-cloud-sql` is commented out of requirements.txt as nonexistent
+    on PyPI. Any live `sql_v1` import is therefore guaranteed to raise at
+    runtime — guard against one being reintroduced."""
+    import ast
+    import inspect
+    from src.tools import gcp_tools
+
+    # AST, not a text scan: this module's own comments and docstrings discuss
+    # sql_v1 by name to explain why it must not be imported, and a substring
+    # match cannot tell those apart from a real import.
+    tree = ast.parse(inspect.getsource(gcp_tools))
+
+    offending = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if 'sql_v1' in alias.name:
+                    offending.append(f"line {node.lineno}: import {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ''
+            names = [a.name for a in node.names]
+            if 'sql_v1' in module or any('sql_v1' in n for n in names):
+                offending.append(f"line {node.lineno}: from {module} import {', '.join(names)}")
+
+    assert not offending, (
+        "live import(s) of google.cloud.sql_v1, which has no installable "
+        "distribution — use _get_sqladmin_client() instead:\n  "
+        + "\n  ".join(offending)
+    )
+
+
 def test_every_gcp_client_construction_passes_credentials():
     """Structural guard over every call site, not just the helper.
 

@@ -124,10 +124,8 @@ def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
         Tuple of (GCP client instance, project_id)
     """
     try:
-        from google.cloud import compute_v1, storage, container_v1, sql_v1, monitoring_v3
-
         # Resolve credentials exactly once and reuse for both the project-ID
-        # fallback and every client below — _get_user_gcp_credentials() writes
+        # fallback and the client below — _get_user_gcp_credentials() writes
         # a plaintext service-account private key to a temp file, loads it,
         # then deletes it, so fetching it twice needlessly repeats that DB
         # round-trip and widens the window the plaintext key exists on disk.
@@ -143,19 +141,68 @@ def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
                     "GCP credentials not configured. Please configure your GCP credentials in Settings."
                 )
 
-        clients = {
-            'compute': compute_v1.InstancesClient(**creds_kwargs),
-            'storage': storage.Client(project=project_id, **creds_kwargs),
-            'container': container_v1.ClusterManagerClient(**creds_kwargs),
-            'sql': sql_v1.SqlInstancesServiceClient(**creds_kwargs),
-            'monitoring': monitoring_v3.MetricServiceClient(**creds_kwargs)
-        }
+        # Import and construct ONLY the requested service's client.
+        #
+        # This was previously a single module-level-style import of all five
+        # SDKs followed by eager construction of all five clients, of which
+        # four were discarded. That made the whole function unusable: the
+        # import list included `sql_v1`, and there is no `google-cloud-sql`
+        # distribution on PyPI (see the commented-out pin in requirements.txt),
+        # so `_get_gcp_client` raised ImportError for *every* service_type —
+        # compute, storage, container and monitoring included, even though all
+        # four of those packages are installed. Importing lazily also means one
+        # missing optional SDK can never take down the other services again.
+        if service_type == 'compute':
+            from google.cloud import compute_v1
+            return compute_v1.InstancesClient(**creds_kwargs), project_id
+        if service_type == 'storage':
+            from google.cloud import storage
+            return storage.Client(project=project_id, **creds_kwargs), project_id
+        if service_type == 'container':
+            from google.cloud import container_v1
+            return container_v1.ClusterManagerClient(**creds_kwargs), project_id
+        if service_type == 'monitoring':
+            from google.cloud import monitoring_v3
+            return monitoring_v3.MetricServiceClient(**creds_kwargs), project_id
 
-        return clients.get(service_type), project_id
-    except ImportError:
-        raise Exception("Google Cloud SDK not installed. Install with: pip install google-cloud-compute google-cloud-storage google-cloud-container google-cloud-sql google-cloud-monitoring")
+        # Cloud SQL is deliberately absent: it has no google-cloud-* client
+        # library, and is reached through _get_sqladmin_client() instead.
+        raise Exception(
+            f"Unknown GCP service type: {service_type!r} "
+            "(expected one of: compute, storage, container, monitoring)"
+        )
+    except ImportError as e:
+        raise Exception(
+            f"Google Cloud SDK for '{service_type}' not installed: {e}. "
+            "Install with: pip install google-cloud-compute google-cloud-storage "
+            "google-cloud-container google-cloud-monitoring"
+        )
     except Exception as e:
         raise Exception(f"Failed to create GCP client: {str(e)}")
+
+
+def _get_sqladmin_client():
+    """Build a Cloud SQL Admin API client for the requesting user.
+
+    Cloud SQL is the one GCP service in this module with no `google-cloud-*`
+    client library — `google-cloud-sql` does not exist on PyPI, which is why
+    it sits commented out in requirements.txt. Every `from google.cloud import
+    sql_v1` in this file therefore raised ImportError at runtime, silently
+    turning list/delete/restart of Cloud SQL instances into permanent errors.
+
+    The REST discovery API is the supported route and is already a real pinned
+    dependency (`google-api-python-client`); `create_cloud_sql_instance` was
+    the only Cloud SQL function that used it, and so the only one that worked.
+
+    Fails closed when the user has no linked credentials, matching
+    `_get_gcp_credentials_kwargs()`.
+    """
+    from googleapiclient import discovery
+
+    user_creds, _ = _get_user_gcp_credentials()
+    if not user_creds:
+        raise Exception("GCP credentials not configured. Please configure your GCP credentials in Settings.")
+    return discovery.build('sqladmin', 'v1beta4', credentials=user_creds)
 
 
 def _get_secretmanager_client(secretmanager_module):
@@ -399,26 +446,25 @@ def list_cloud_sql_instances(project_id: Optional[str] = None) -> Dict[str, Any]
         Dictionary with SQL instance information
     """
     try:
-        from google.cloud import sql_v1
+        proj_id = _resolve_project_id(project_id)
+        sqladmin = _get_sqladmin_client()
 
-        client, proj_id = _get_gcp_client('sql', project_id)
-
-        request = sql_v1.ListRequest(project=proj_id)
-        response = client.list(request=request)
+        response = sqladmin.instances().list(project=proj_id).execute()
 
         instances = []
-        for instance in response.items:
+        for instance in response.get('items', []):
+            settings = instance.get('settings') or {}
             instances.append({
-                'name': instance.name,
-                'database_version': instance.database_version,
-                'state': sql_v1.DatabaseInstance.SqlInstanceState(instance.state).name,
-                'region': instance.region,
-                'tier': instance.settings.tier if instance.settings else None,
+                'name': instance.get('name'),
+                'database_version': instance.get('databaseVersion'),
+                'state': instance.get('state'),
+                'region': instance.get('region'),
+                'tier': settings.get('tier'),
                 'ip_addresses': [
-                    {'type': ip.type_.name, 'ip_address': ip.ip_address}
-                    for ip in instance.ip_addresses
-                ] if instance.ip_addresses else [],
-                'connection_name': instance.connection_name
+                    {'type': ip.get('type'), 'ip_address': ip.get('ipAddress')}
+                    for ip in instance.get('ipAddresses') or []
+                ],
+                'connection_name': instance.get('connectionName')
             })
 
         return {
@@ -705,17 +751,10 @@ def create_cloud_sql_instance(
         Dictionary with operation result
     """
     try:
-        from googleapiclient import discovery
-
         proj_id = _resolve_project_id(project_id)
-
-        # Never fall back to Application Default Credentials (the app server's
-        # own ambient GCP identity) — fail closed like every other GCP tool
-        # when the user hasn't linked their own credentials.
-        user_creds, _ = _get_user_gcp_credentials()
-        if not user_creds:
-            raise Exception("GCP credentials not configured. Please configure your GCP credentials in Settings.")
-        sqladmin = discovery.build('sqladmin', 'v1beta4', credentials=user_creds)
+        # Shared helper — fails closed when the user has no linked credentials,
+        # never falls back to Application Default Credentials.
+        sqladmin = _get_sqladmin_client()
 
         instance_body = {
             'name': instance_name,
@@ -1184,12 +1223,9 @@ def list_cloud_logs(
 def delete_cloud_sql_instance(instance_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
     """Delete a Cloud SQL instance."""
     try:
-        from google.cloud.sql_v1 import SqlInstancesServiceClient
-        from google.cloud.sql_v1.types import SqlInstancesDeleteRequest
-
         proj_id = _resolve_project_id(project_id)
-        client = SqlInstancesServiceClient(**_get_gcp_credentials_kwargs())
-        operation = client.delete(request=SqlInstancesDeleteRequest(project=proj_id, instance=instance_name))
+        sqladmin = _get_sqladmin_client()
+        sqladmin.instances().delete(project=proj_id, instance=instance_name).execute()
         return {
             'success': True, 'instance_name': instance_name, 'project': proj_id,
             'message': f'Successfully deleted Cloud SQL instance {instance_name}'
@@ -1202,12 +1238,9 @@ def delete_cloud_sql_instance(instance_name: str, project_id: Optional[str] = No
 def restart_cloud_sql_instance(instance_name: str, project_id: Optional[str] = None) -> Dict[str, Any]:
     """Restart a Cloud SQL instance."""
     try:
-        from google.cloud.sql_v1 import SqlInstancesServiceClient
-        from google.cloud.sql_v1.types import SqlInstancesRestartRequest
-
         proj_id = _resolve_project_id(project_id)
-        client = SqlInstancesServiceClient(**_get_gcp_credentials_kwargs())
-        operation = client.restart(request=SqlInstancesRestartRequest(project=proj_id, instance=instance_name))
+        sqladmin = _get_sqladmin_client()
+        sqladmin.instances().restart(project=proj_id, instance=instance_name).execute()
         return {
             'success': True, 'instance_name': instance_name, 'project': proj_id,
             'message': f'Successfully restarted Cloud SQL instance {instance_name}'
