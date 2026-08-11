@@ -45,7 +45,7 @@ MUTATING_VERBS = re.compile(
 
 
 def _load(path):
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding='utf-8'))
 
 
 def _actions(policy):
@@ -69,7 +69,7 @@ def test_policy_is_valid_and_well_formed(path):
 
 @pytest.mark.parametrize('path', [READONLY, MANAGEMENT], ids=['readonly', 'management'])
 def test_policy_fits_iam_managed_policy_limit(path):
-    non_whitespace = re.sub(r'\s', '', path.read_text())
+    non_whitespace = re.sub(r'\s', '', path.read_text(encoding='utf-8'))
     assert len(non_whitespace) <= IAM_MANAGED_POLICY_CHAR_LIMIT
 
 

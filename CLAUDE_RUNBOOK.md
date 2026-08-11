@@ -1062,8 +1062,25 @@ this branch: **684 passed**; the 7 failures seen locally are all one
 Windows-only `UnicodeDecodeError` from `pathlib.read_text()` defaulting to
 cp1252 (`scripts/check_security_invariants.py:179` and `test_tool_counts.py`
 read UTF-8 source files without an explicit `encoding=`) — they pass on
-Linux CI. Worth adding `encoding='utf-8'` to those `read_text()` calls so the
-suite is runnable on Windows. **Also found while testing:** `_get_gcp_client()`
+Linux CI. **Fixed immediately after (same session):** all 16 bare
+`Path.read_text()` calls across `scripts/check_security_invariants.py`,
+`scripts/build_cf_template.py`, `tests/test_iam_policies.py`, and
+`tests/test_tool_counts.py` now pass `encoding='utf-8'`. Fixing the encoding
+then exposed a **second, more consequential Windows bug hiding behind it**:
+`check_security_invariants.py` built its relative path with
+`str(path.relative_to(REPO_ROOT))`, which yields `routes\auth.py` on Windows
+while both exemption sets hold forward-slash paths like `routes/auth.py` — so
+**every exemption silently failed to match on Windows**, and the scanner
+reported `routes/auth.py`'s own `check_password()` calls as violations of the
+rule that explicitly exempts that file. Switched both call sites to
+`.relative_to(REPO_ROOT).as_posix()`. Note the failure mode: the encoding
+crash was *masking* a correctness bug in the security scanner, so "it only
+fails on Windows" was not the same as "it doesn't matter" — the scanner was
+wrong on that platform, not merely unrunnable. Both fixes negative-tested
+(injecting a raw `requests.get()` into a scanned non-exempt file still fails
+the test; reverting it passes), confirming the exemption fix didn't over-broaden
+into suppressing real detections. Full suite on Windows after the fix:
+**691 passed, 1 skipped, 0 failed** (was 684 passed / 7 failed). **Also found while testing:** `_get_gcp_client()`
 is currently unreachable in *every* environment including production — its
 first statement imports `sql_v1`, and `google-cloud-sql` is commented out of
 `requirements.txt` as "Package doesn't exist on PyPI", so the function raises
