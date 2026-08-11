@@ -833,6 +833,24 @@ GitHub Actions workflows live in `.github/workflows/`:
   Runs `pip-audit` + `safety` (dependency CVEs) and `bandit` (source linter);
   uploads `scheduled-bandit-report` artifact (30-day retention). Steps use
   `continue-on-error` so one tool failing doesn't abort the others.
+- **`main-push-guard.yml`** — fires on every push to `main` and **fails the build if the
+  head commit did not arrive via a merged pull request** (queried through
+  `repos/{repo}/commits/{sha}/pulls`). This exists because **`main` cannot actually be
+  protected on this account**: GitHub gates *both* classic branch protection and rulesets
+  behind a paid plan for private repos, and this repo is private on the free tier (the API
+  returns `403 Upgrade to GitHub Pro or make this repository public` for both). That is also
+  why `gh pr merge --auto` merges *immediately* here rather than waiting for checks — there
+  is no protection rule for it to consult, so **always poll for green and merge explicitly**
+  instead of relying on `--auto`. The guard is **detective, not preventive**: it cannot stop
+  a direct push, only turn `main` red afterwards. Escape hatch: `[skip-pr-guard]` in the
+  commit message (greppable in `git log`, so bypasses stay auditable). It passes rather than
+  fails on a transient API error, so a GitHub outage can't block the pipeline.
+  **If branch protection ever becomes available, replace this with a real required-status-check
+  rule and delete the workflow.**
+  The preventive half is **`.githooks/pre-push`**, which blocks direct pushes to `main`
+  client-side. Hooks are not installed by cloning — each developer must run
+  `git config core.hooksPath .githooks` once. It is bypassable with `git push --no-verify`
+  (the CI guard still catches the commit) and only protects machines where it's configured.
 - **`check-errors.yml`** — on-demand (`workflow_dispatch`) production log/error
   report: pulls `journalctl` errors/warnings, tool-call failure counts, guardrail
   violations, and 7-day usage stats off the EC2 instance via SSM. Authenticates
