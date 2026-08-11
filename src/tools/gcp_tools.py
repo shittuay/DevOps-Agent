@@ -60,25 +60,41 @@ def _get_user_gcp_credentials():
                 pass
 
         return credentials, project_id
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Could not load GCP credentials for user {user_id}: {e}")
         return None, None
 
 
 def _get_gcp_credentials_kwargs() -> Dict[str, Any]:
     """
-    Build the credentials kwarg for a GCP SDK client using per-user credentials
-    when available. Every GCP client in this module must be constructed via this
-    helper (or `_get_gcp_client`/`_get_secretmanager_client`, which already use
-    it) — an SDK client built with no `credentials=` argument silently falls
-    back to Application Default Credentials (the app server's own ambient GCP
-    identity) instead of the requesting user's linked GCP credentials, letting
-    an authenticated user with no GCP creds configured query/manage resources
-    under the platform's own service account. See CLAUDE.md's "User Isolation"
-    and the 2026-08-06 CloudWatch credential-isolation fix for the same bug
-    class on the AWS side.
+    Build the credentials kwarg for a GCP SDK client, requiring per-user
+    credentials — never falls back to Application Default Credentials (the
+    app server's own ambient GCP identity). Every GCP client in this module
+    must be constructed via this helper (or `_get_gcp_client`/
+    `_get_secretmanager_client`, which already use it).
+
+    Raises if the requesting user has no linked GCP credentials, the same
+    fail-closed contract `_get_boto_client` (AWS) and `_get_azure_client`
+    (Azure) already enforce. An earlier version of this helper returned `{}`
+    or no `credentials=` kwarg when the user had none linked, which meant the
+    SDK client was still built and silently ran under Application Default
+    Credentials instead of refusing to run — see CLAUDE.md's "User Isolation"
+    and the 2026-08-06 CloudWatch / 2026-08-08 GCP credential-isolation fixes
+    for the same bug class caught on the AWS/GCP sides respectively; this
+    review-comment follow-up on the 2026-08-08 fix closed the residual
+    fail-open gap the first pass left in place.
+
+    Call this once per tool invocation and reuse the returned dict for every
+    client the function constructs — `_get_user_gcp_credentials()` writes a
+    plaintext service-account private key to a temp file, loads it, then
+    deletes it, so calling this more than once per request needlessly
+    repeats that DB round-trip and widens the window the plaintext key
+    exists on disk.
     """
     user_credentials, _user_project = _get_user_gcp_credentials()
-    return {'credentials': user_credentials} if user_credentials else {}
+    if not user_credentials:
+        raise Exception("GCP credentials not configured. Please configure your GCP credentials in Settings.")
+    return {'credentials': user_credentials}
 
 
 def _resolve_project_id(project_id: Optional[str] = None) -> str:
@@ -96,7 +112,9 @@ def _resolve_project_id(project_id: Optional[str] = None) -> str:
 
 def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
     """
-    Get GCP client for specified service using per-user credentials when available.
+    Get GCP client for specified service using the requesting user's linked
+    GCP credentials. Raises if the user has none configured — never falls
+    back to Application Default Credentials.
 
     Args:
         service_type: Type of GCP service
@@ -108,16 +126,22 @@ def _get_gcp_client(service_type: str, project_id: Optional[str] = None):
     try:
         from google.cloud import compute_v1, storage, container_v1, sql_v1, monitoring_v3
 
+        # Resolve credentials exactly once and reuse for both the project-ID
+        # fallback and every client below — _get_user_gcp_credentials() writes
+        # a plaintext service-account private key to a temp file, loads it,
+        # then deletes it, so fetching it twice needlessly repeats that DB
+        # round-trip and widens the window the plaintext key exists on disk.
+        user_credentials, user_project = _get_user_gcp_credentials()
+        if not user_credentials:
+            raise Exception("GCP credentials not configured. Please configure your GCP credentials in Settings.")
+        creds_kwargs = {'credentials': user_credentials}
+
         if project_id is None:
-            _, user_project = _get_user_gcp_credentials()
             project_id = user_project or os.environ.get('GCP_PROJECT_ID')
             if not project_id:
                 raise Exception(
                     "GCP credentials not configured. Please configure your GCP credentials in Settings."
                 )
-
-        # Build clients with per-user credentials if available
-        creds_kwargs = _get_gcp_credentials_kwargs()
 
         clients = {
             'compute': compute_v1.InstancesClient(**creds_kwargs),
@@ -497,8 +521,11 @@ def list_cloud_functions(project_id: Optional[str] = None, location: str = '-') 
     try:
         from google.cloud import functions_v1
 
+        # _get_gcp_client('storage', ...) was previously used here purely to
+        # resolve proj_id, discarding the storage client it built — wasteful
+        # and it duplicated credential resolution alongside the line above.
+        proj_id = _resolve_project_id(project_id)
         client = functions_v1.CloudFunctionsServiceClient(**_get_gcp_credentials_kwargs())
-        _, proj_id = _get_gcp_client('storage', project_id)
 
         parent = f"projects/{proj_id}/locations/{location}"
         request = functions_v1.ListFunctionsRequest(parent=parent)
@@ -557,11 +584,13 @@ def create_compute_instance(
     try:
         from google.cloud import compute_v1
 
-        instances_client = compute_v1.InstancesClient(**_get_gcp_credentials_kwargs())
+        # Resolve credentials once and reuse for both clients below.
+        creds_kwargs = _get_gcp_credentials_kwargs()
+        instances_client = compute_v1.InstancesClient(**creds_kwargs)
         proj_id = _resolve_project_id(project_id)
 
         # Get the latest image
-        images_client = compute_v1.ImagesClient(**_get_gcp_credentials_kwargs())
+        images_client = compute_v1.ImagesClient(**creds_kwargs)
         image = images_client.get_from_family(project=image_project, family=image_family)
 
         # Configure the instance
@@ -1662,8 +1691,10 @@ def create_disk_snapshot(
         from google.cloud import compute_v1
 
         proj_id = _resolve_project_id(project_id)
-        snapshots_client = compute_v1.SnapshotsClient(**_get_gcp_credentials_kwargs())
-        disks_client = compute_v1.DisksClient(**_get_gcp_credentials_kwargs())
+        # Resolve credentials once and reuse for both clients below.
+        creds_kwargs = _get_gcp_credentials_kwargs()
+        snapshots_client = compute_v1.SnapshotsClient(**creds_kwargs)
+        disks_client = compute_v1.DisksClient(**creds_kwargs)
 
         snapshot = compute_v1.Snapshot(
             name=snapshot_name,

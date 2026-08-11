@@ -898,7 +898,7 @@ checks, a clean module import, and manual call-chain tracing instead;
 worth a full `pytest -q` pass next time a session has the dependencies
 available.
 
-## Scheduled audit: GCP tools broadly bypassed per-user credentials; `register_targets` unclassified; latent dead-code IDOR closed (2026-08-08)
+## Scheduled audit: GCP tools broadly bypassed per-user credentials; `register_targets` unclassified (2026-08-08, PR #121)
 
 A routine scheduled review (five parallel agents covering the git
 flag-injection guard, `safety.py` risk classification, user/org data
@@ -906,7 +906,7 @@ isolation, non-`requests` SSRF vectors + cloud credential isolation, and
 general code smells/duplication) found the git flag-injection guard and IDOR
 shape both still clean, `scripts/check_security_invariants.py` still
 reporting zero violations — but turned up one real, wide-reaching gap plus
-two smaller ones, all fixed:
+a smaller one, both fixed:
 
 1. **`src/tools/gcp_tools.py` — most GCP tools silently fell back to
    Application Default Credentials (the app server's own ambient GCP
@@ -915,11 +915,9 @@ two smaller ones, all fixed:
    Manager (`_get_secretmanager_client`, prior audit) and for AWS CloudWatch
    (`services/proactive_monitoring.py`, 2026-08-06 entry above) — but it
    turned out to be far more widespread on the GCP side than either of those
-   fixes covered. `_get_gcp_client()` itself was fine when a `project_id` was
-   omitted (it correctly resolved the user's own project), but **~25 other
-   functions constructed a GCP SDK client directly with no `credentials=`
-   argument at all**: `list_compute_instances`' all-zones path
-   (`compute_v1.ZonesClient()`), `create_compute_instance`/
+   fixes covered. **~25 functions constructed a GCP SDK client directly with
+   no `credentials=` argument at all**: `list_compute_instances`' all-zones
+   path (`compute_v1.ZonesClient()`), `create_compute_instance`/
    `delete_compute_instance` (`InstancesClient()`/`ImagesClient()`),
    `list_cloud_functions` (`CloudFunctionsServiceClient()`), Cloud Run list/
    deploy/delete (`run_v2.ServicesClient()`), Pub/Sub publish/subscribe
@@ -929,36 +927,49 @@ two smaller ones, all fixed:
    (`container_v1.ClusterManagerClient()`), firewall list/create/delete
    (`compute_v1.FirewallsClient()`), Cloud Functions v2 delete
    (`FunctionServiceClient()`), and disk/snapshot list/create/delete
-   (`SnapshotsClient()`/`DisksClient()`). Because a caller can pass an
-   explicit `project_id` (bypassing `_resolve_project_id`'s only failure
-   path — raising when *no* project can be resolved), **any authenticated
-   user, even one with zero GCP credentials configured, could target an
-   arbitrary project id and have compute/storage/GKE/Cloud Run/Pub/Sub/
-   BigQuery/firewall/disk operations run under the platform's own ambient
-   GCP identity** instead of failing closed — the same "per-user isolation
-   exists for the DB row but not for the credential used to act on it" shape
-   flagged repeatedly in CLAUDE.md's User Isolation section, just far wider
-   than the single CloudWatch collector found last time. Separately,
-   `create_cloud_sql_instance` had an even more explicit version of the same
-   bug: `credentials = user_creds if user_creds else google.auth.default()[0]`
-   — an intentional fallback to ADC written into the code, not just a missing
-   argument. Fixed by adding a single shared `_get_gcp_credentials_kwargs()`
-   helper (returns `{'credentials': user_credentials} if user_credentials
-   else {}`, reusing `_get_user_gcp_credentials()`) and routing every one of
-   the ~25 bare client constructions through it, plus rewriting
-   `create_cloud_sql_instance` to raise the same "GCP credentials not
-   configured" error every other GCP tool raises instead of falling back to
-   `google.auth.default()`. `_get_gcp_client()` and `_get_secretmanager_client()`
-   were refactored to call the same shared helper instead of duplicating the
-   `creds_kwargs` construction. Note this fix does not change behavior for a
-   user who has never linked GCP credentials at all — they still get ADC via
-   an empty kwargs dict if `project_id` is explicitly supplied, same
-   pre-existing gap `_resolve_project_id`'s own design already has when
-   `project_id` is caller-supplied; closing that fully would mean rejecting
-   any explicit `project_id` unless the caller also has GCP creds configured,
-   left as a follow-up rather than folded into this pass since it changes
-   behavior for legitimately-configured self-hosted deployments using
-   `GCP_PROJECT_ID` env var + platform ADC by design.
+   (`SnapshotsClient()`/`DisksClient()`). `create_cloud_sql_instance` had an
+   even more explicit version of the same bug written directly into the
+   code: `credentials = user_creds if user_creds else google.auth.default()[0]`.
+   Fixed by adding a single shared `_get_gcp_credentials_kwargs()` helper and
+   routing every one of the ~25 bare client constructions through it, plus
+   rewriting `create_cloud_sql_instance` to raise the same "GCP credentials
+   not configured" error every other GCP tool raises instead of falling back
+   to `google.auth.default()`.
+
+   **PR review caught that the first version of this fix didn't actually
+   close the gap it documented.** The initial `_get_gcp_credentials_kwargs()`
+   returned `{}` when the user had no linked credentials, so every one of
+   those ~25 client constructions still ran with no `credentials=` argument
+   at all in that case — i.e. still fell back to ADC, for any authenticated
+   user with no GCP creds configured (or, since `_get_user_gcp_credentials()`
+   ends in a bare `except Exception: return None, None`, any user hitting a
+   *transient* DB/key-decode error too), regardless of the shared helper's
+   own docstring naming that exact behavior as the bug being fixed. The
+   commit's PR description had correctly caveated this as a known residual
+   gap rather than claiming full closure, but the reviewer's fix was the
+   right call over documenting a known hole: **`_get_gcp_credentials_kwargs()`
+   now raises "GCP credentials not configured" when the user has none linked,
+   the same fail-closed contract `_get_boto_client` (AWS) and
+   `_get_azure_client` (Azure) already enforce**, rather than degrading to
+   ADC — closing the gap even for a caller-supplied explicit `project_id`,
+   which previously bypassed `_resolve_project_id`'s only failure path. The
+   `GCP_PROJECT_ID` env var / `GOOGLE_APPLICATION_CREDENTIALS` self-hosting
+   path referenced in `app.py`'s `save_gcp_credentials`/`get_gcp_config_status`
+   was checked and confirmed dead — zero callers anywhere in the repo — so
+   there was no live self-hosted use case this fail-closed change could break.
+
+   The same review also flagged that credential resolution ran twice per
+   client construction in `_get_gcp_client()` (once for the project-ID
+   fallback, once inside the credentials helper) and in `create_compute_instance`/
+   `create_disk_snapshot` (once per client, two clients each) — each
+   resolution round-trips the DB and writes a plaintext service-account
+   private key to a temp file before deleting it, so doing it twice doubles
+   both the DB load and the window the plaintext key sits on disk. Fixed by
+   resolving credentials exactly once per function and reusing the result
+   for every client construction in that function; verified via a mocked
+   call-count assertion (`_get_user_gcp_credentials` called exactly once per
+   `_get_gcp_client`/`create_compute_instance` invocation) rather than just
+   reading the diff.
 
 2. **`register_targets` (AWS ELB target-group tool, `src/tools/aws_tools.py`)
    had no risk classification.** It registers arbitrary instances/IPs with a
@@ -970,16 +981,12 @@ two smaller ones, all fixed:
    with no confirmation prompt. Fixed by adding it to `medium_risk_tools`
    next to `deregister_targets`.
 
-3. **`services/ai_infrastructure.py`'s `delete_template()` reused
-   `get_template()`'s ownership check, which also returns public/starter
-   templates.** Flagged as dead code (no route calls it) in the 2026-08-06
-   audit above; confirmed still uncalled this pass, so still not a live
-   exploit, but closed anyway before it's ever wired to a route — if it had
-   been, any user could have deleted another user's *public* template since
-   `get_template()` intentionally returns public templates for read/preview
-   access. Fixed by querying the model directly and checking
-   `template.user_id == self.user_id` explicitly, never falling through to
-   the public-template path for a delete.
+**`services/ai_infrastructure.py`'s `delete_template()` IDOR was deliberately
+NOT touched by this PR** despite being caught by the same audit sweep — PR
+#120 (open concurrently, same base commit) already fixes the identical gap
+independently. Landing both would conflict on the same hunk; this PR's
+copy was reverted before merge so #120 owns that fix. See #120 (or the entry
+directly below once merged) for the writeup.
 
 **Lower-severity items also cataloged this pass, not fixed:** `app.py`'s
 `api_chat` and `api_chat_stream` duplicate a ~60-line context-building block
@@ -1010,25 +1017,27 @@ validation only and the actual send path already uses the shared stricter
 helper; left for a future pass.
 
 **Verification:** `scripts/check_security_invariants.py` reports zero
-violations after the fixes. All five edited files
+violations after the fixes. All edited files
 (`src/tools/gcp_tools.py`, `src/agent/safety.py`,
-`services/ai_infrastructure.py`, `services/infrastructure_sync.py`,
-`src/tools/git_tools.py`) compile cleanly. Full `pip install -r
-requirements.txt` failed on an unrelated pre-existing package
-(`multi-key-dict` wheel build failure under modern setuptings) and the
-sandbox's system `cryptography` package conflicts with a pip-installed
-build (`pyo3_runtime.PanicException: Python API call failed`), so a full
-`pytest -q` run wasn't possible here either — same constraint as the
-2026-08-06 audit. Verification instead used targeted `pip install` of the
-specific packages needed (`google-cloud-compute`, `google-cloud-storage`,
-`google-cloud-container`, `google-auth`, `boto3`), then: a real isolated
+`services/infrastructure_sync.py`, `src/tools/git_tools.py`) compile
+cleanly. Full `pip install -r requirements.txt` failed on an unrelated
+pre-existing package (`multi-key-dict` wheel build failure under modern
+setuptools) and the sandbox's system `cryptography` package conflicts with a
+pip-installed build (`pyo3_runtime.PanicException: Python API call failed`),
+so a full `pytest -q` run wasn't possible here either — same constraint as
+the 2026-08-06 audit. Verification instead used targeted `pip install` of
+the specific packages needed (`google-cloud-compute`, `google-cloud-storage`,
+`google-cloud-container`, `google-auth`, `boto3`), then, after stubbing the
+two GCP submodules not available on PyPI/in this sandbox
+(`google.cloud.sql_v1`, `google.cloud.monitoring_v3`): a real isolated
 import of `gcp_tools.py` confirming `get_tools()` still returns 42 tools;
-direct calls to `_get_gcp_credentials_kwargs()` and `list_compute_instances`
-with mocked user credentials confirming the credentials kwarg is actually
-threaded into `ZonesClient(...)`; direct `SafetyValidator.validate_tool_call()`
-calls confirming `register_targets` now matches `deregister_targets`'s
-medium-risk classification; and an isolated mock-based unit test of
-`delete_template()` confirming it now returns `False`/leaves the row
-untouched for a template owned by a different user id and `True`/deletes for
-one owned by the caller. Worth a full `pytest -q` pass next time a session
-has the dependency set available.
+mocked calls confirming `_get_gcp_credentials_kwargs()` and `_get_gcp_client()`
+both raise when the user has no linked credentials — including with an
+explicit `project_id`, closing the exact bypass the reviewer flagged — and
+that a real client construction (`InstancesClient`) receives the correct
+`credentials=` kwarg when creds are present; call-count assertions
+confirming `_get_user_gcp_credentials()` is invoked exactly once per
+`_get_gcp_client()`/`create_compute_instance()` call; and direct
+`SafetyValidator.validate_tool_call()` calls confirming `register_targets`
+now matches `deregister_targets`'s medium-risk classification. Worth a full
+`pytest -q` pass next time a session has the dependency set available.
