@@ -1,0 +1,86 @@
+name: Main Push Guard
+
+# Detective substitute for branch protection.
+#
+# GitHub gates BOTH classic branch protection and rulesets behind a paid plan
+# for private repositories, so `main` cannot actually be protected server-side
+# on this account. That is also why `gh pr merge --auto` merges immediately
+# here instead of waiting for checks: there is no protection rule to consult.
+#
+# This workflow cannot PREVENT a direct push. It detects one after the fact and
+# turns main red, so an unreviewed commit is loud rather than silent. The
+# preventive half is .githooks/pre-push, which is client-side and bypassable.
+#
+# If branch protection ever becomes available (GitHub Pro, or the repo goes
+# public), replace this with a real required-status-check rule and delete it.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify-pr-origin:
+    name: Commit came from a pull request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that the pushed head commit has a merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -uo pipefail
+
+          # Escape hatch for genuine emergencies (e.g. fixing a broken deploy
+          # at 3am). Deliberately explicit and greppable in `git log` — the
+          # point is an audit trail, not an unbreakable gate.
+          if printf '%s' "$COMMIT_MESSAGE" | grep -qF '[skip-pr-guard]'; then
+            echo "::warning::Commit $SHA carries [skip-pr-guard] — bypassing the PR-origin check."
+            echo "Pushed by: $ACTOR"
+            exit 0
+          fi
+
+          # A commit that arrived through a PR merge (merge, squash or rebase)
+          # is reported by this endpoint. A commit pushed straight to main is not.
+          #
+          # Uses `gh api --jq` rather than piping to a standalone jq: gh embeds
+          # its own jq, so this has no dependency on the runner image shipping
+          # the binary. Empty output means no merged PR is associated.
+          merged_prs=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+            -H "Accept: application/vnd.github+json" \
+            --jq '.[] | select(.merged_at != null) | "  \(.html_url) (merged \(.merged_at))"' 2>/dev/null) || {
+            echo "::warning::Could not query associated PRs for $SHA — passing rather than failing the build on a transient API error."
+            exit 0
+          }
+
+          if [ -n "$merged_prs" ]; then
+            echo "OK: $SHA arrived via pull request:"
+            echo "$merged_prs"
+            exit 0
+          fi
+
+          # Deliberately echoes rather than a heredoc: an unquoted heredoc needs
+          # its terminator at column 0, which cannot be expressed inside an
+          # indented YAML block scalar. This repo has already been broken once
+          # by exactly that (see the ENDSSH terminator fix in ci.yml's history).
+          echo "::error::Commit $SHA was pushed to main without going through a pull request."
+          echo ""
+          echo "Pushed by : $ACTOR"
+          echo "Commit    : $SHA"
+          echo "Message   : $COMMIT_MESSAGE"
+          echo ""
+          echo "main is not protected server-side (GitHub gates branch protection"
+          echo "and rulesets behind a paid plan for private repos), so this check"
+          echo "is the only signal that an unreviewed commit landed."
+          echo ""
+          echo "If this was intentional, either open a retroactive PR for"
+          echo "visibility, or re-push with [skip-pr-guard] in the commit message"
+          echo "to record the bypass deliberately."
+          exit 1

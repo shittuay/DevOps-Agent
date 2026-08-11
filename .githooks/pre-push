@@ -1,0 +1,45 @@
+#!/bin/sh
+# Block direct pushes to main.
+#
+# Preventive half of the branch-protection substitute (the detective half is
+# .github/workflows/main-push-guard.yml). GitHub gates real branch protection
+# behind a paid plan for private repos, so this runs client-side instead.
+#
+# Client-side means bypassable: `git push --no-verify` skips it, and it only
+# protects machines where it is installed. It stops accidents, not intent.
+#
+# Install:  git config core.hooksPath .githooks
+# Bypass:   git push --no-verify   (the CI guard will still flag the commit)
+
+PROTECTED_BRANCH="main"
+
+# stdin: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    case "$remote_ref" in
+        "refs/heads/$PROTECTED_BRANCH")
+            cat >&2 <<EOF
+
+  Direct push to '$PROTECTED_BRANCH' blocked.
+
+  main has no server-side protection on this plan, so this hook is the
+  only thing standing in front of it. Open a pull request instead:
+
+      git checkout -b your-branch-name
+      git push -u origin your-branch-name
+      gh pr create
+
+  If you genuinely need to push straight to main, bypass with:
+
+      git push --no-verify
+
+  That is recorded: the Main Push Guard workflow will fail on main and
+  name the commit. Add [skip-pr-guard] to the commit message to mark the
+  bypass as deliberate.
+
+EOF
+            exit 1
+            ;;
+    esac
+done
+
+exit 0
