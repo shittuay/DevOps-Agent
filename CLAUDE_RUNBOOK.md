@@ -1217,3 +1217,31 @@ never calls AWS -- it returns hardcoded simulated data for 3 resource types
 baselineable types (which would flag every property as "removed" drift
 regardless of real state). Persistence is now correct, but the comparison
 data itself is still a prototype/demo, not real infrastructure state.
+
+## Schema migration only ran under `python app.py`, never under gunicorn (FIXED 2026-08-12)
+
+Root cause behind the drift-detection fix above, and two earlier incidents
+(`mcp_oauth_clients` table missing, `infrastructure_changes.organization_id`
+column missing): `db.create_all()` and the auto-migration `ALTER TABLE`
+column loop lived only inside `if __name__ == '__main__':`, which never
+executes when gunicorn imports the module as `app:app`. `SubscriptionTier`
+rows only existed in prod because `scripts/deploy_ec2.sh` ran
+`db.create_all()` once, manually, during initial EC2 provisioning — every
+table added to `models.py` since then silently never got created
+automatically. This exact gunicorn-vs-`__main__` gap had already been found
+and fixed independently four times in this file, for four *other* startup
+steps (eager agent init, public template seeding, workflow template seeding,
+background scheduler) — each fix left a comment explaining the gap, but none
+of them touched the migration logic itself, which is the one that actually
+matters most. Fixed by extracting the table-creation + column-migration
+logic into `_run_schema_migration()` and calling it from both the
+gunicorn-import block and the `__main__` block. Regression test
+(`tests/test_schema_migration_gunicorn.py`) statically asserts the call site
+is reachable from the gunicorn-import guard — a dynamic test can't exercise
+that branch directly since it's deliberately gated off under pytest, same
+as the other four startup steps next to it. Verified the test fails against
+the pre-fix source.
+
+**Immediate unblock (same day):** manually ran `db.create_all()` on the EC2
+instance via SSM to create the two missing `drift_baselines`/`drift_reports`
+tables so drift detection worked without waiting for a deploy.
