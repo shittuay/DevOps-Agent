@@ -363,6 +363,18 @@ same structural gap the SSRF/login-timing checks in `check_security_invariants.p
 close for their own patterns — it is not yet enforced by an automated check,** so don't assume a
 new git tool is safe just because sibling tools in the same file are guarded; verify it directly.
 
+**2026-08-12 follow-up — same gap, two more functions.** A scheduled audit found two functions
+that predate the fix above and were never covered: `git_add_remote`'s `name` (`repo.create_remote(name,
+url)` — a value like `name="-f"` is parsed by `git remote add` as an option instead of a literal
+remote name, triggering an implicit fetch from the caller-controlled URL immediately on add,
+before any confirmation step assumes data has been pulled) and `git_show_commit`'s `commit_sha`
+(`repo.commit(commit_sha)` — GitPython's rev-parse can fall through to the `git` binary for specs
+it can't resolve locally, the same dash-prefixed-positional ambiguity `_reject_flag_like`'s
+docstring warns about; its sibling `git_show_file_at_commit` already guarded the identical
+parameter). Both now call `_reject_flag_like()` and are classified medium-risk in `safety.py`.
+**Confirms the "not yet enforced by an automated check" gap above is real, not theoretical** — a
+security-focused audit still has to walk every bare-positional call site in this file by hand.
+
 ## Security invariants (`scripts/check_security_invariants.py`)
 
 SSRF gaps and login-timing side channels each got found and fixed independently, in a different
