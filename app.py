@@ -5937,6 +5937,16 @@ if __name__ != '__main__' and not _is_testing:
     except Exception as _e:
         logger.warning(f"Public template seeding skipped (non-fatal): {_e}")
 
+    # Same story for the pre-built workflow catalog: seeding only ever lived in
+    # scripts/seed_workflows.py, which nobody runs on deploy, so /workflows showed
+    # "No workflows in this category" in prod. Idempotent — skips existing names.
+    try:
+        with app.app_context():
+            from services.starter_workflows import seed_workflow_templates
+            seed_workflow_templates()
+    except Exception as _e:
+        logger.warning(f"Workflow template seeding skipped (non-fatal): {_e}")
+
 
 # ---------------------------------------------------------------------------
 # Start the background scheduler under gunicorn.

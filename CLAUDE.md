@@ -55,6 +55,8 @@ services/
   learning_sandbox.py      # Mock tool results for sandbox/learning mode
   prevention_engine.py     # ProactiveRecommendation: SQL pattern analysis + Claude spec generation
   skills_engine.py         # Skills: frontmatter parsing, trigger matching, learned infra context
+  starter_templates.py     # Curated public infrastructure templates (data only)
+  starter_workflows.py     # Curated pre-built workflow templates + seed_workflow_templates()
 routes/
   incidents.py             # Incident dashboard, journal, correlation group APIs
   artifacts.py             # Chat artifact CRUD + markdown export
@@ -1121,6 +1123,23 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.
 
 ---
+
+### Seeded catalogs (import-time, not `scripts/`)
+
+Any table a page needs non-empty to render must be seeded **at import in `app.py`**,
+not by a script under `scripts/`. Gunicorn imports the module and never runs the
+`__main__` block, and nothing in the deploy path runs `scripts/*.py`, so a
+script-only seed leaves the table empty in production forever. This has now bitten
+two separate catalogs (infrastructure templates, then pre-built workflows — see
+CLAUDE_RUNBOOK.md's 2026-08-12 entry).
+
+Pattern: put the data + an idempotent `seed_*()` (skip by name, return the count
+added) in `services/starter_*.py`, call it from the import-time block in `app.py`
+next to `seed_public_templates()` / `seed_workflow_templates()` inside a non-fatal
+`try/except`, and leave `scripts/seed_*.py` as a thin CLI wrapper. The data cannot
+live in `scripts/` — those modules do `from app import app, db`, so importing one
+from `app.py` is circular. Current seeded catalogs: `services/starter_templates.py`
+(`InfrastructureTemplate`), `services/starter_workflows.py` (`WorkflowTemplate`).
 
 ### Database Migration
 **Auto-migration at startup:** Every time `app.py` starts, it runs `db.create_all()` (new tables) then inspects all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for any columns in the model not yet in the DB. Output: `Auto-migration: added N column(s): table.column, ...`
