@@ -22,8 +22,50 @@ change-governance queries.
 """
 from unittest.mock import MagicMock
 
+import pytest
+
 from src.agent.core import DevOpsAgent
 from src.tools import devops_operations_tools
+
+# Every tools module that _set_cloud_user_context() touches. Kept explicit
+# rather than clearing via DevOpsAgent._clear_cloud_user_context(), which is
+# the function under test here — using it as its own cleanup would silently
+# mask exactly the breakage these tests exist to catch.
+_CONTEXT_MODULES = ('aws_tools', 'azure_tools', 'gcp_tools', 'devops_operations_tools')
+
+
+def _clear_all_cloud_contexts():
+    import importlib
+
+    for name in _CONTEXT_MODULES:
+        try:
+            module = importlib.import_module(f'src.tools.{name}')
+        except ImportError:
+            continue  # optional SDK absent in this environment
+        clear = getattr(module, 'clear_user_context', None)
+        if clear is not None:
+            clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cloud_contexts():
+    """Keep this module's thread-local writes from escaping into other tests.
+
+    `_set_cloud_user_context()` sets FOUR thread-local contexts — AWS, DevOps,
+    Azure and GCP. These tests only assert on the DevOps one, so the original
+    per-test `finally` cleared only that, leaving user 55 set on the AWS/Azure/
+    GCP contexts for every subsequent test on the same thread. Nothing failed
+    yet, but `aws_tools._get_boto_client` hard-requires a user context, so a
+    later test expecting "Authentication required" could silently take a
+    credential-lookup path instead — an ordering-dependent failure that would
+    be painful to trace back here.
+
+    An autouse fixture rather than per-test try/finally: it also runs when a
+    test fails partway through, and it covers any test added to this file later.
+    """
+    _clear_all_cloud_contexts()
+    yield
+    _clear_all_cloud_contexts()
 
 
 def _fake_self():
@@ -33,21 +75,14 @@ def _fake_self():
 
 
 def test_set_cloud_user_context_sets_devops_context():
-    devops_operations_tools.clear_user_context()
-    try:
-        DevOpsAgent._set_cloud_user_context(_fake_self(), 55)
-        assert devops_operations_tools.get_current_user_id() == 55
-    finally:
-        devops_operations_tools.clear_user_context()
+    DevOpsAgent._set_cloud_user_context(_fake_self(), 55)
+    assert devops_operations_tools.get_current_user_id() == 55
 
 
 def test_clear_cloud_user_context_clears_devops_context():
     devops_operations_tools.set_user_context(55)
-    try:
-        DevOpsAgent._clear_cloud_user_context(_fake_self())
-        assert devops_operations_tools.get_current_user_id() is None
-    finally:
-        devops_operations_tools.clear_user_context()
+    DevOpsAgent._clear_cloud_user_context(_fake_self())
+    assert devops_operations_tools.get_current_user_id() is None
 
 
 def test_devops_operations_tools_clear_user_context_resets_to_none():
