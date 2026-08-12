@@ -4757,6 +4757,7 @@ def load_conversation(conversation_id):
 @login_required
 def delete_conversation(conversation_id):
     """Delete a conversation."""
+    from models import WorkflowExecution, ChatArtifact, ApprovalRequest
     try:
         # Verify conversation belongs to user
         conversation = Conversation.query.filter_by(
@@ -4771,6 +4772,30 @@ def delete_conversation(conversation_id):
         ChatMessage.query.filter_by(
             conversation_id=conversation_id,
             user_id=current_user.id
+        ).delete()
+
+        # Delete every other row that FKs to this conversation — the DB enforces
+        # these constraints, so leaving any of them behind makes the conversation
+        # delete below fail with an IntegrityError (caught, rolled back, 500).
+        UsageLog.query.filter_by(
+            conversation_id=conversation_id,
+            user_id=current_user.id
+        ).delete()
+        LearningSession.query.filter_by(
+            conversation_id=conversation_id,
+            user_id=current_user.id
+        ).delete()
+        WorkflowExecution.query.filter_by(
+            conversation_id=conversation_id,
+            user_id=current_user.id
+        ).delete()
+        ChatArtifact.query.filter_by(
+            conversation_id=conversation_id,
+            user_id=current_user.id
+        ).delete()
+        ApprovalRequest.query.filter_by(
+            conversation_id=conversation_id,
+            requester_id=current_user.id
         ).delete()
 
         # Delete the conversation
