@@ -209,7 +209,8 @@ def create_conversation():
 @require_api_key(scope='write')
 def delete_conversation(conversation_id):
     """Delete a conversation."""
-    from models import db, Conversation, ChatMessage
+    from models import (db, Conversation, ChatMessage, UsageLog, LearningSession,
+                         WorkflowExecution, ChatArtifact, ApprovalRequest)
 
     user_id = g.api_user.id
 
@@ -227,6 +228,29 @@ def delete_conversation(conversation_id):
     ChatMessage.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
+    ).delete()
+
+    # Delete every other row that FKs to this conversation — see app.py's
+    # delete_conversation() for why leaving any of these breaks the delete below.
+    UsageLog.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
+    ).delete()
+    LearningSession.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
+    ).delete()
+    WorkflowExecution.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
+    ).delete()
+    ChatArtifact.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
+    ).delete()
+    ApprovalRequest.query.filter_by(
+        conversation_id=conversation_id,
+        requester_id=user_id
     ).delete()
 
     db.session.delete(conversation)
