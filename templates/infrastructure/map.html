@@ -77,26 +77,55 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 .fc.on { border-color:#6366f1; color:#6366f1; background:rgba(99,102,241,.12); }
 .fc-label { font-size:12px; color:var(--text-secondary); white-space:nowrap; }
 
-/* ── Viewport + world ───────────────────────────────────────────────────── */
-#viewport {
+/* ── Map area + viewport + world ────────────────────────────────────────── */
+/* #mapArea is the non-scrolling frame. The overlays (stats, legend, empty
+   state) anchor to it rather than to #viewport, so they stay put while the
+   map scrolls underneath them. */
+#mapArea {
     position: relative;
-    overflow: hidden;
     /* fills remaining height below the shell header + toolbar */
     flex: 1;
     min-height: 0;
     background: var(--bg-primary);
-    cursor: grab;
 }
-#viewport:active { cursor:grabbing; }
 
-/* subtle dot grid */
-#viewport::before {
+/* subtle dot grid — on the frame, so it stays fixed as the map scrolls */
+#mapArea::before {
     content:'';
-    position:absolute; inset:0; pointer-events:none;
+    position:absolute; inset:0; pointer-events:none; z-index:0;
     background-image: radial-gradient(circle, var(--border-subtle) 1.2px, transparent 1.2px);
     background-size: 24px 24px;
     opacity:.6;
 }
+
+#viewport {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    z-index: 1;
+    cursor: grab;
+    scrollbar-color: var(--border-medium) transparent;
+}
+#viewport.grabbing { cursor: grabbing; }
+
+#viewport::-webkit-scrollbar { width:13px; height:13px; }
+#viewport::-webkit-scrollbar-track { background:transparent; }
+#viewport::-webkit-scrollbar-thumb {
+    background: var(--border-medium);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 7px;
+}
+#viewport::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+    background-clip: content-box;
+}
+#viewport::-webkit-scrollbar-corner { background:transparent; }
+
+/* #canvas is the scroll sizer: its box is the *scaled* content size, which is
+   what gives the scrollbars their range. #world stays at unscaled coordinates
+   and is scaled by transform, so node layout math is unaffected by zoom. */
+#canvas { position: relative; }
 
 #world {
     position: absolute;
@@ -267,9 +296,13 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 </div>
 
 <!-- Map viewport -->
-<div id="viewport">
-    <div id="world">
-        <svg id="edgeSvg"></svg>
+<div id="mapArea">
+    <div id="viewport">
+        <div id="canvas">
+            <div id="world">
+                <svg id="edgeSvg"></svg>
+            </div>
+        </div>
     </div>
     <div id="statsBar" style="display:none">
         <div class="pill">Nodes: <strong id="sNodes">0</strong></div>
@@ -308,24 +341,54 @@ const PICO = { aws:'☁️', azure:'🔷', gcp:'🟡', kubernetes:'⚙️', dock
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allNodes = [], allEdges = [], filter = 'all';
-let scale = 1, tx = 0, ty = 0;
+let scale = 1;
+let worldW = 0, worldH = 0;   // unscaled content size, set by render()
 let panning = false, panStart = null;
 let positions = {};   // id → {x, y}
 
 // ── Pan / zoom ────────────────────────────────────────────────────────────────
-function applyT() {
-    document.getElementById('world').style.transform =
-        `translate(${tx}px,${ty}px) scale(${scale})`;
+// Panning is native scrolling on #viewport (so the scrollbars are the real
+// scroll position, and keyboard/trackpad/scrollbar drag all work). Zoom scales
+// #world and resizes #canvas, which is what changes the scrollable range.
+
+// When the scaled map is smaller than the viewport there is nothing to scroll,
+// so centre it instead of leaving it jammed into the top-left corner.
+function viewOffset() {
+    const vp = document.getElementById('viewport');
+    return {
+        x: Math.max(0, (vp.clientWidth  - worldW * scale) / 2),
+        y: Math.max(0, (vp.clientHeight - worldH * scale) / 2)
+    };
 }
 
-function zoom(f) {
+function applyT() {
     const vp = document.getElementById('viewport');
-    const cx = vp.clientWidth / 2, cy = vp.clientHeight / 2;
-    tx = cx - (cx - tx) * f;
-    ty = cy - (cy - ty) * f;
-    scale = Math.max(0.15, Math.min(3, scale * f));
-    applyT();
+    const o = viewOffset();
+    const canvas = document.getElementById('canvas');
+    canvas.style.width  = Math.max(worldW * scale, vp.clientWidth)  + 'px';
+    canvas.style.height = Math.max(worldH * scale, vp.clientHeight) + 'px';
+    document.getElementById('world').style.transform =
+        `translate(${o.x}px,${o.y}px) scale(${scale})`;
 }
+
+// Zoom about a point in viewport coords (default: viewport centre), holding the
+// content under that point still.
+function zoomAt(f, px, py) {
+    const vp = document.getElementById('viewport');
+    if (px === undefined) { px = vp.clientWidth / 2; py = vp.clientHeight / 2; }
+    const next = Math.max(0.15, Math.min(3, scale * f));
+    if (next === scale) return;
+    const o0 = viewOffset();
+    const cx = (vp.scrollLeft + px - o0.x) / scale;
+    const cy = (vp.scrollTop  + py - o0.y) / scale;
+    scale = next;
+    applyT();
+    const o1 = viewOffset();
+    vp.scrollLeft = cx * scale + o1.x - px;
+    vp.scrollTop  = cy * scale + o1.y - py;
+}
+
+function zoom(f) { zoomAt(f); }
 
 function fitView() {
     const ids = Object.keys(positions);
@@ -339,31 +402,39 @@ function fitView() {
     const vp = document.getElementById('viewport');
     const vw = vp.clientWidth, vh = vp.clientHeight;
     const pad = 60;
-    scale = Math.min((vw-pad*2)/(x1-x0), (vh-pad*2)/(y1-y0), 1.6);
-    tx = (vw - (x1-x0)*scale)/2 - x0*scale;
-    ty = (vh - (y1-y0)*scale)/2 - y0*scale;
+    scale = Math.max(0.15, Math.min((vw-pad*2)/(x1-x0), (vh-pad*2)/(y1-y0), 1.6));
     applyT();
+    const o = viewOffset();
+    vp.scrollLeft = (x0 + (x1-x0)/2) * scale + o.x - vw/2;
+    vp.scrollTop  = (y0 + (y1-y0)/2) * scale + o.y - vh/2;
 }
 
-// Pan
+// Drag to pan, by moving the scroll position
 const vp = document.getElementById('viewport');
 vp.addEventListener('mousedown', e => {
     if (e.target.closest('.nd')) return;
-    panning=true; panStart={x:e.clientX-tx, y:e.clientY-ty};
+    panning = true;
+    panStart = { x:e.clientX, y:e.clientY, sl:vp.scrollLeft, st:vp.scrollTop };
+    vp.classList.add('grabbing');
+    e.preventDefault();   // suppress native text-selection drag
 });
 window.addEventListener('mousemove', e => {
     if (!panning) return;
-    tx=e.clientX-panStart.x; ty=e.clientY-panStart.y; applyT();
+    vp.scrollLeft = panStart.sl - (e.clientX - panStart.x);
+    vp.scrollTop  = panStart.st - (e.clientY - panStart.y);
 });
-window.addEventListener('mouseup', () => panning=false);
+window.addEventListener('mouseup', () => {
+    panning = false;
+    vp.classList.remove('grabbing');
+});
+
+// Plain wheel scrolls natively (so the scrollbars track it); ctrl/⌘+wheel zooms,
+// which is also what a trackpad pinch sends.
 vp.addEventListener('wheel', e => {
+    if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    const f = e.deltaY < 0 ? 1.1 : 0.9;
     const r = vp.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    tx = mx - (mx-tx)*f; ty = my - (my-ty)*f;
-    scale = Math.max(0.15, Math.min(3, scale*f));
-    applyT();
+    zoomAt(e.deltaY < 0 ? 1.1 : 0.9, e.clientX - r.left, e.clientY - r.top);
 }, {passive:false});
 
 // ── Layout ────────────────────────────────────────────────────────────────────
@@ -446,6 +517,8 @@ function render() {
     Object.values(positions).forEach(p=>{ maxX=Math.max(maxX,p.x+NW+60); maxY=Math.max(maxY,p.y+NH+60); });
     world.style.width  = maxX+'px';
     world.style.height = maxY+'px';
+    worldW = maxX; worldH = maxY;
+    applyT();
 
     // SVG
     const svg = document.getElementById('edgeSvg');

@@ -1093,6 +1093,16 @@ sections: #cloud/#notifications/#budgets/#learning/#api-keys),
 `infrastructure/map.html`. Full-bleed pages (canvas/app-frame) override
 `{% block main %}` instead of `content` — base wraps `.main-content` in that
 block; see map.html for the pattern (flex column shell, `flex:1` viewport).
+`infrastructure/map.html`'s viewport is a **natively scrolling** pan/zoom canvas,
+not a transform-translate one: `#mapArea` (`flex:1`, non-scrolling frame) holds
+`#viewport` (`overflow:auto`, the scroller) → `#canvas` (sizer, box = *scaled*
+content size, which is what gives the scrollbars their range) → `#world`
+(unscaled coordinates, `transform: scale()`). Pan writes `scrollLeft/scrollTop`;
+zoom rescales `#world` and resizes `#canvas`. **Overlays (`#statsBar`,
+`#legend`, `#emptyState`) must stay siblings of `#viewport` inside `#mapArea`** —
+an `position:absolute` child of a scrolling container scrolls with its content,
+so moving them inside `#viewport` would make the legend and stats slide off
+screen. Plain wheel scrolls natively; ctrl/⌘+wheel zooms.
 `index.html` (chat) keeps its own app-frame layout but its header nav and icons
 are aligned with the shell. Full audit + PR sequence:
 `vault/architecture/ui-rebuild-plan-2026-07.md`.
