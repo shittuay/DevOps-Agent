@@ -354,6 +354,12 @@ async function runWorkflow(templateId, btn) {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to start workflow');
 
+        // Hand the prompt to the chat page, which sends it as a real message.
+        // Keyed by execution so a later "View Chat" on a finished run doesn't re-run it.
+        if (data.prompt) {
+            sessionStorage.setItem(`wf_prompt_${data.execution_id}`, data.prompt);
+        }
+
         showToast('Workflow started — opening chat', '');
         setTimeout(() => window.location.href = data.redirect_url, 600);
     } catch (e) {
