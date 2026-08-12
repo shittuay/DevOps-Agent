@@ -991,6 +991,14 @@ GET  /api/incidents/<id>/related         → incidents sharing same correlation_
 
 **URL context shortcut:** Opening `/chat?ctx=resource&type=ec2&id=i-xxx&name=web-01&action=investigate` pre-fills the chat input and sets resource context automatically. The topology map uses this — hovering a node shows "Investigate →" which opens chat with that resource.
 
+**`?cid=<conversation_id>`** opens that specific conversation. It routes through
+`loadConversation(cid)`, which hits `GET /api/conversations/<id>` — that endpoint
+verifies ownership **and** sets `session['conversation_id']`, so it both renders the
+history and binds the session, which is what makes anything sent next land in that
+conversation. The client never sends a conversation id with a chat message; the
+server resolves it from the session alone. Adding `&wf_exec=<id>` additionally
+auto-sends a workflow prompt stashed in `sessionStorage` — see the Workflows note below.
+
 **New model:** `ChatArtifact` (fields: `artifact_type`, `title`, `content`, `version`, `is_latest`, `parent_id`)
 **New columns on `ChatMessage`:** `tool_trace` (JSONB), `page_context` (VARCHAR 100)
 
@@ -1005,6 +1013,27 @@ GET    /api/chat/artifacts/<id>/export   → download as .md file
 ```
 
 ---
+
+### Pre-built Workflows (`/workflows`)
+
+Catalog in `services/starter_workflows.py` (seeded at import — see "Seeded catalogs"),
+routes in `routes/workflows.py`.
+
+**Running a workflow is a chat dispatch, and the dispatch happens in the browser.**
+`POST /api/workflows/<id>/execute` creates an empty `Conversation`, a `WorkflowExecution`
+with status `queued`, and returns `{conversation_id, execution_id, prompt, redirect_url}`.
+It deliberately does **not** persist the prompt as a `ChatMessage`: writing a user message
+row does not run the agent — only `/api/chat/stream` does — so a seeded row produces a
+conversation that displays the prompt and then does nothing forever. `workflows.html`
+stashes the prompt in `sessionStorage` under `wf_prompt_<execution_id>`, and the chat
+page's `?cid=` handler sends it via the normal `sendMessage()` path. Keying by execution
+id is load-bearing: it's what stops "View Chat" on a finished run from re-executing it.
+
+**Execution status must never depend solely on the browser.** `completed`/`failed` are
+written by the SSE `done` handler in the page, so a closed tab would strand a row at
+`running` forever. `list_executions` reconciles on read: past `STALE_EXECUTION_MINUTES`
+(30), an assistant reply in the conversation means `completed`, none means `timed_out`.
+Any new status a client reports must have an equivalent server-derivable fallback.
 
 ### Proactive Prevention Engine
 **Access:** `/optimization/prevention` — click "Run Analysis" to scan

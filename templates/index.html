@@ -3903,6 +3903,44 @@
             }
         });
 
+        // Open a specific conversation from ?cid= (workflow runs, "View Chat" links).
+        // Without this the chat page ignored cid entirely and rendered whatever
+        // conversation the session pointed at, so a workflow run appeared in the
+        // sidebar but never in the chat window.
+        document.addEventListener('DOMContentLoaded', function() {
+            const params = new URLSearchParams(window.location.search);
+            const cid = params.get('cid');
+            if (!cid) return;
+
+            const wfExec = params.get('wf_exec');
+
+            // loadConversation() also binds session['conversation_id'] server-side,
+            // so anything sent next lands in this conversation.
+            loadConversation(cid).then(function() {
+                if (!wfExec) return;
+
+                // Only auto-run when we arrived straight from clicking "Run Workflow".
+                // Revisiting a finished run via "View Chat" has no stashed prompt and
+                // must not re-execute it.
+                const key = `wf_prompt_${wfExec}`;
+                const prompt = sessionStorage.getItem(key);
+                if (!prompt) return;
+                sessionStorage.removeItem(key);
+
+                const input = document.getElementById('messageInput');
+                if (!input) return;
+
+                fetch(`/api/workflows/executions/${wfExec}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status: 'running'}),
+                }).catch(() => {});
+
+                input.value = prompt;
+                setTimeout(() => sendMessage(), 400);
+            });
+        });
+
         // Read URL context params and set globals + pre-fill chat
         (function() {
             const params = new URLSearchParams(window.location.search);
