@@ -1189,3 +1189,31 @@ subprocess/timeout/cleanup control flow and `app.py` has 8 inline
 `admin_required` decorator instead (which also logs denied attempts) — both
 real but larger refactors than this pass's scope, left for a dedicated
 follow-up.
+
+## Drift detection stored everything in per-process memory (FIXED 2026-08-12)
+
+User-reported: "drift detection does not generate a report or findings if
+there is a drift or not." `services/drift_detection.py`'s
+`DriftDetectionService` kept baselines and reports in plain Python dicts on
+a module-level singleton (`get_drift_service()`). Production runs 3
+gunicorn workers, each its own process: a baseline added on the worker that
+served that request was invisible to a scan landing on a different worker
+(`get_baseline_count()` returns 0 -> "No baselines configured"), and any
+report that *did* get generated only existed in that one worker's memory --
+gone on the next request to a different worker, and wiped entirely on every
+deploy. Same class of bug as the MCP OAuth connector fix above, in a
+different feature. Fixed by adding `DriftBaselineModel` / `DriftReportModel`
+(models.py) and rewriting the service's persistence methods to read/write
+the DB instead of dicts, keeping the public API (dataclasses, method
+signatures) unchanged so `routes/drift.py` and the templates needed no
+changes. Regression tests in `tests/test_drift_detection.py` build a *new*
+`DriftDetectionService()` instance per check (standing in for "a different
+worker") -- 3 of 4 fail against the old in-memory code, confirming they
+catch the real bug.
+
+**Not fixed in this pass, flagged for a follow-up:** `_get_actual_state()`
+never calls AWS -- it returns hardcoded simulated data for 3 resource types
+(EC2 instance, security group, S3 bucket) and an empty dict for the other 8
+baselineable types (which would flag every property as "removed" drift
+regardless of real state). Persistence is now correct, but the comparison
+data itself is still a prototype/demo, not real infrastructure state.

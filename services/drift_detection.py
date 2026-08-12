@@ -99,9 +99,11 @@ class DriftDetectionService:
     """
 
     def __init__(self):
-        # Keyed by user_id for data isolation
-        self.baselines: dict[int, dict[str, BaselineResource]] = {}
-        self.reports: dict[int, list[DriftReport]] = {}
+        # Baselines and reports are persisted to the DB (DriftBaselineModel /
+        # DriftReportModel) - see those models' docstrings for why: this
+        # service is a module-level singleton, and production runs multiple
+        # gunicorn workers, so per-process dicts made baselines/reports
+        # invisible across workers and wiped them on every deploy.
         self.drift_rules: list[dict] = []
         self._load_default_rules()
 
@@ -152,18 +154,44 @@ class DriftDetectionService:
 
     def add_baseline(self, user_id: int, resource: BaselineResource):
         """Add or update a baseline resource."""
+        from models import db, DriftBaselineModel
+
+        row = DriftBaselineModel.query.filter_by(
+            user_id=user_id,
+            resource_type=resource.resource_type.value,
+            resource_id=resource.resource_id
+        ).first()
+
+        if row is None:
+            row = DriftBaselineModel(
+                user_id=user_id,
+                resource_type=resource.resource_type.value,
+                resource_id=resource.resource_id
+            )
+            db.session.add(row)
+
+        row.resource_name = resource.resource_name
+        row.expected_config = resource.expected_config
+        row.tags = resource.tags
+        row.last_updated = resource.last_updated
+        db.session.commit()
+
         key = f"{resource.resource_type.value}:{resource.resource_id}"
-        user_baselines = self.baselines.setdefault(user_id, {})
-        user_baselines[key] = resource
         logger.info(f"Baseline added/updated: {key}")
 
     def remove_baseline(self, user_id: int, resource_type: ResourceType, resource_id: str):
         """Remove a baseline resource."""
-        key = f"{resource_type.value}:{resource_id}"
-        user_baselines = self.baselines.get(user_id, {})
-        if key in user_baselines:
-            del user_baselines[key]
-            logger.info(f"Baseline removed: {key}")
+        from models import db, DriftBaselineModel
+
+        deleted = DriftBaselineModel.query.filter_by(
+            user_id=user_id,
+            resource_type=resource_type.value,
+            resource_id=resource_id
+        ).delete()
+        db.session.commit()
+
+        if deleted:
+            logger.info(f"Baseline removed: {resource_type.value}:{resource_id}")
 
     def import_terraform_state(self, user_id: int, state_data: dict):
         """Import baselines from Terraform state."""
@@ -187,8 +215,7 @@ class DriftDetectionService:
                         tags=attributes.get('tags', {})
                     ))
 
-        user_baselines = self.baselines.get(user_id, {})
-        logger.info(f"Imported {len(user_baselines)} resources from Terraform state")
+        logger.info(f"Imported {self.get_baseline_count(user_id)} resources from Terraform state")
 
     def _map_terraform_type(self, tf_type: str) -> Optional[ResourceType]:
         """Map Terraform resource type to internal type."""
@@ -211,14 +238,13 @@ class DriftDetectionService:
     def scan_for_drift(self, user_id: int) -> DriftReport:
         """Scan all baselined resources for drift."""
         import uuid
-        import time
 
         report_id = str(uuid.uuid4())[:8]
         scan_start = datetime.utcnow()
         drift_items = []
-        user_baselines = self.baselines.get(user_id, {})
+        user_baselines = self.get_baselines(user_id)
 
-        for key, baseline in user_baselines.items():
+        for baseline in user_baselines:
             # Get actual state
             actual_config = self._get_actual_state(baseline.resource_type, baseline.resource_id)
 
@@ -268,8 +294,7 @@ class DriftDetectionService:
             summary=self._build_summary(drift_items)
         )
 
-        user_reports = self.reports.setdefault(user_id, [])
-        user_reports.append(report)
+        self._save_report(user_id, report)
         logger.info(f"Drift scan completed: {len(drift_items)} drifts found in {report.drifted_resources} resources")
 
         return report
@@ -450,30 +475,109 @@ class DriftDetectionService:
             'security_issues': sum(1 for d in drift_items if d.drift_type == DriftType.SECURITY)
         }
 
+    def _save_report(self, user_id: int, report: DriftReport):
+        """Persist a scan result to the DB."""
+        from models import db, DriftReportModel
+
+        row = DriftReportModel(
+            id=report.id,
+            user_id=user_id,
+            scan_started=report.scan_started,
+            scan_completed=report.scan_completed,
+            total_resources=report.total_resources,
+            drifted_resources=report.drifted_resources,
+            drift_items=[self._drift_item_to_dict(d) for d in report.drift_items],
+            summary=report.summary
+        )
+        db.session.add(row)
+        db.session.commit()
+
+    @staticmethod
+    def _drift_item_to_dict(item: DriftItem) -> dict:
+        return {
+            'id': item.id,
+            'resource_type': item.resource_type.value,
+            'resource_id': item.resource_id,
+            'resource_name': item.resource_name,
+            'drift_type': item.drift_type.value,
+            'severity': item.severity.value,
+            'expected_value': item.expected_value,
+            'actual_value': item.actual_value,
+            'property_path': item.property_path,
+            'description': item.description,
+            'detected_at': item.detected_at.isoformat(),
+            'remediation_suggestion': item.remediation_suggestion
+        }
+
+    @staticmethod
+    def _drift_item_from_dict(d: dict) -> DriftItem:
+        return DriftItem(
+            id=d['id'],
+            resource_type=ResourceType(d['resource_type']),
+            resource_id=d['resource_id'],
+            resource_name=d['resource_name'],
+            drift_type=DriftType(d['drift_type']),
+            severity=DriftSeverity(d['severity']),
+            expected_value=d['expected_value'],
+            actual_value=d['actual_value'],
+            property_path=d['property_path'],
+            description=d['description'],
+            detected_at=datetime.fromisoformat(d['detected_at']),
+            remediation_suggestion=d.get('remediation_suggestion', '')
+        )
+
+    @classmethod
+    def _report_from_row(cls, row) -> DriftReport:
+        return DriftReport(
+            id=row.id,
+            scan_started=row.scan_started,
+            scan_completed=row.scan_completed,
+            total_resources=row.total_resources,
+            drifted_resources=row.drifted_resources,
+            drift_items=[cls._drift_item_from_dict(d) for d in (row.drift_items or [])],
+            summary=row.summary or {}
+        )
+
     def get_report(self, user_id: int, report_id: str) -> Optional[DriftReport]:
         """Get a specific drift report."""
-        user_reports = self.reports.get(user_id, [])
-        for report in user_reports:
-            if report.id == report_id:
-                return report
-        return None
+        from models import DriftReportModel
+
+        row = DriftReportModel.query.filter_by(id=report_id, user_id=user_id).first()
+        return self._report_from_row(row) if row else None
 
     def get_recent_reports(self, user_id: int, limit: int = 10) -> list[DriftReport]:
         """Get recent drift reports."""
-        user_reports = self.reports.get(user_id, [])
-        return sorted(user_reports, key=lambda r: r.scan_completed, reverse=True)[:limit]
+        from models import DriftReportModel
+
+        rows = DriftReportModel.query.filter_by(user_id=user_id) \
+            .order_by(DriftReportModel.scan_completed.desc()).limit(limit).all()
+        return [self._report_from_row(row) for row in rows]
 
     def get_baseline_count(self, user_id: int) -> int:
         """Get number of baselined resources."""
-        return len(self.baselines.get(user_id, {}))
+        from models import DriftBaselineModel
+
+        return DriftBaselineModel.query.filter_by(user_id=user_id).count()
 
     def get_baselines(self, user_id: int, resource_type: Optional[ResourceType] = None) -> list[BaselineResource]:
         """Get all baselines, optionally filtered by type."""
-        user_baselines = self.baselines.get(user_id, {})
-        baselines = list(user_baselines.values())
+        from models import DriftBaselineModel
+
+        query = DriftBaselineModel.query.filter_by(user_id=user_id)
         if resource_type:
-            baselines = [b for b in baselines if b.resource_type == resource_type]
-        return baselines
+            query = query.filter_by(resource_type=resource_type.value)
+
+        return [
+            BaselineResource(
+                resource_type=ResourceType(row.resource_type),
+                resource_id=row.resource_id,
+                resource_name=row.resource_name,
+                expected_config=row.expected_config or {},
+                tags=row.tags or {},
+                last_updated=row.last_updated
+            )
+            for row in query.all()
+        ]
 
 
 # Global instance

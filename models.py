@@ -3183,3 +3183,50 @@ class MCPOAuthClient(db.Model):
 
     def __repr__(self):
         return f'<MCPOAuthClient {self.client_id!r} ({self.client_name})>'
+
+
+class DriftBaselineModel(db.Model):
+    """Expected state of a resource for drift detection.
+
+    Stored in the DB (not per-process memory) because production runs
+    multiple gunicorn workers: a baseline added on one worker was invisible
+    to a scan running on another, and every baseline vanished on the next
+    deploy — see CLAUDE_RUNBOOK.md.
+    """
+    __tablename__ = 'drift_baselines'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    resource_type = db.Column(db.String(50), nullable=False)
+    resource_id = db.Column(db.String(200), nullable=False)
+    resource_name = db.Column(db.String(200))
+    expected_config = db.Column(db.JSON, nullable=False, default=dict)
+    tags = db.Column(db.JSON, default=dict)
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'resource_type', 'resource_id',
+                             name='uq_drift_baseline_user_resource'),
+    )
+
+    def __repr__(self):
+        return f'<DriftBaselineModel {self.resource_type}:{self.resource_id}>'
+
+
+class DriftReportModel(db.Model):
+    """Result of a drift detection scan. Same DB-persistence rationale as
+    DriftBaselineModel above — reports must survive across gunicorn workers
+    and deploys, not just live in the scanning worker's memory."""
+    __tablename__ = 'drift_reports'
+
+    id = db.Column(db.String(20), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    scan_started = db.Column(db.DateTime, nullable=False)
+    scan_completed = db.Column(db.DateTime, nullable=False, index=True)
+    total_resources = db.Column(db.Integer, default=0)
+    drifted_resources = db.Column(db.Integer, default=0)
+    drift_items = db.Column(db.JSON, default=list)
+    summary = db.Column(db.JSON, default=dict)
+
+    def __repr__(self):
+        return f'<DriftReportModel {self.id} drifts={self.summary.get("total_drifts")}>'
