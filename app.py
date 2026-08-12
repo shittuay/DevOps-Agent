@@ -5940,8 +5940,73 @@ def admin_crisis_statistics():
 # (StaticPool) in a fixture that runs after import, and eager init here would
 # bind the engine before those options apply. Tests exercise the endpoint with
 # their own agent fixture instead.
+def _run_schema_migration():
+    """Create any tables missing from the DB and ALTER TABLE in any columns
+    present in models.py but missing from an existing table. Idempotent and
+    safe to run on every startup — must be called from both the gunicorn
+    import path and the __main__ dev-server path (see the comment above
+    _under_gunicorn below: anything only in the __main__ block silently never
+    runs in production, which is exactly how mcp_oauth_clients and
+    drift_baselines/drift_reports ended up missing from prod after being
+    added to models.py — see CLAUDE_RUNBOOK.md, 2026-08-12)."""
+    with app.app_context():
+        db.create_all()
+
+        try:
+            from sqlalchemy import inspect as _sa_inspect, text as _sa_text
+            _COLUMN_TYPE_MAP = {
+                'Boolean': 'BOOLEAN', 'Integer': 'INTEGER', 'String': 'VARCHAR(255)',
+                'Text': 'TEXT', 'DateTime': 'TIMESTAMP', 'Float': 'FLOAT', 'JSON': 'JSONB',
+            }
+            def _col_sql_type(col):
+                tn = type(col.type).__name__
+                if tn == 'String' and getattr(col.type, 'length', None):
+                    return f'VARCHAR({col.type.length})'
+                return _COLUMN_TYPE_MAP.get(tn, 'TEXT')
+            def _col_default(col):
+                if col.default and col.default.is_scalar:
+                    v = col.default.arg
+                    if isinstance(v, bool): return ' DEFAULT ' + ('TRUE' if v else 'FALSE')
+                    if isinstance(v, int): return f' DEFAULT {v}'
+                if not col.nullable:
+                    tn = type(col.type).__name__
+                    if tn == 'Boolean': return ' DEFAULT FALSE'
+                    if tn == 'Integer': return ' DEFAULT 0'
+                return ''
+            _inspector = _sa_inspect(db.engine)
+            _existing_tables = set(_inspector.get_table_names())
+            _auto_migrated = []
+            for _mapper in db.Model.registry.mappers:
+                _cls = _mapper.class_
+                _table = getattr(_cls, '__tablename__', None)
+                if not _table or _table not in _existing_tables:
+                    continue
+                _db_cols = {c['name'] for c in _inspector.get_columns(_table)}
+                _missing = [c for c in _cls.__table__.columns if c.key not in _db_cols]
+                if not _missing:
+                    continue
+                with db.engine.connect() as _conn:
+                    for _col in _missing:
+                        _sql = (f'ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS '
+                                f'{_col.key} {_col_sql_type(_col)}{_col_default(_col)}')
+                        _conn.execute(_sa_text(_sql))
+                        _auto_migrated.append(f'{_table}.{_col.key}')
+                    _conn.commit()
+            if _auto_migrated:
+                logger.info(f"Auto-migration: added {len(_auto_migrated)} column(s): {', '.join(_auto_migrated)}")
+        except Exception as _me:
+            logger.warning(f"Auto-migration warning (non-fatal): {_me}")
+
+
 _is_testing = os.environ.get('TESTING') == 'true' or os.environ.get('FLASK_ENV') == 'testing'
 if __name__ != '__main__' and not _is_testing:
+    # Schema migration must run before agent init / seeding below, which query
+    # tables this may need to create first.
+    try:
+        _run_schema_migration()
+    except Exception as _e:
+        logger.warning(f"Schema migration skipped (non-fatal): {_e}")
+
     try:
         with app.app_context():
             _ok, _err = initialize_agent()
@@ -6003,57 +6068,12 @@ if __name__ == '__main__':
     # (Built-in skills are loaded at module import time — see the block after
     # the skills blueprint registration.)
 
-    # Initialize database
+    # Initialize database — table creation + column auto-migration lives in
+    # _run_schema_migration() so it also runs under gunicorn (see that
+    # function's docstring above).
+    _run_schema_migration()
+
     with app.app_context():
-        db.create_all()
-
-        # Auto-migration: add any columns present in models but missing from DB.
-        # Runs on every startup — idempotent and safe.
-        try:
-            from sqlalchemy import inspect as _sa_inspect, text as _sa_text
-            _COLUMN_TYPE_MAP = {
-                'Boolean': 'BOOLEAN', 'Integer': 'INTEGER', 'String': 'VARCHAR(255)',
-                'Text': 'TEXT', 'DateTime': 'TIMESTAMP', 'Float': 'FLOAT', 'JSON': 'JSONB',
-            }
-            def _col_sql_type(col):
-                tn = type(col.type).__name__
-                if tn == 'String' and getattr(col.type, 'length', None):
-                    return f'VARCHAR({col.type.length})'
-                return _COLUMN_TYPE_MAP.get(tn, 'TEXT')
-            def _col_default(col):
-                if col.default and col.default.is_scalar:
-                    v = col.default.arg
-                    if isinstance(v, bool): return ' DEFAULT ' + ('TRUE' if v else 'FALSE')
-                    if isinstance(v, int): return f' DEFAULT {v}'
-                if not col.nullable:
-                    tn = type(col.type).__name__
-                    if tn == 'Boolean': return ' DEFAULT FALSE'
-                    if tn == 'Integer': return ' DEFAULT 0'
-                return ''
-            _inspector = _sa_inspect(db.engine)
-            _existing_tables = set(_inspector.get_table_names())
-            _auto_migrated = []
-            for _mapper in db.Model.registry.mappers:
-                _cls = _mapper.class_
-                _table = getattr(_cls, '__tablename__', None)
-                if not _table or _table not in _existing_tables:
-                    continue
-                _db_cols = {c['name'] for c in _inspector.get_columns(_table)}
-                _missing = [c for c in _cls.__table__.columns if c.key not in _db_cols]
-                if not _missing:
-                    continue
-                with db.engine.connect() as _conn:
-                    for _col in _missing:
-                        _sql = (f'ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS '
-                                f'{_col.key} {_col_sql_type(_col)}{_col_default(_col)}')
-                        _conn.execute(_sa_text(_sql))
-                        _auto_migrated.append(f'{_table}.{_col.key}')
-                    _conn.commit()
-            if _auto_migrated:
-                print(f"Auto-migration: added {len(_auto_migrated)} column(s): {', '.join(_auto_migrated)}")
-        except Exception as _me:
-            print(f"Auto-migration warning (non-fatal): {_me}")
-
         # Backfill mfa_method for existing TOTP users
         # Schema changes are now managed by Alembic migrations (migrations/versions/)
         try:
