@@ -26,6 +26,48 @@ def test_seed_populates_catalog_and_is_idempotent(app):
         assert len(seeded) == len(STARTER_WORKFLOWS), "seeding duplicated or missed templates"
 
 
+def test_seed_takes_advisory_lock_on_postgres(app, monkeypatch):
+    """The check-then-insert must be serialized — 3 gunicorn workers seed at
+    import simultaneously, and unguarded this inserted the catalog once per
+    worker (8 templates became 16 in prod on the first deploy)."""
+    from models import db
+
+    executed = []
+    real_execute = db.session.execute
+
+    def fake_execute(stmt, *args, **kwargs):
+        executed.append(str(stmt))
+        if 'pg_advisory_xact_lock' in str(stmt):
+            return None  # SQLite has no such function
+        return real_execute(stmt, *args, **kwargs)
+
+    with app.app_context():
+        monkeypatch.setattr(db.engine.dialect, 'name', 'postgresql', raising=False)
+        monkeypatch.setattr(db.session, 'execute', fake_execute, raising=False)
+        seed_workflow_templates()
+
+    assert any('pg_advisory_xact_lock' in s for s in executed), \
+        "seeding must take an advisory lock, or concurrent workers duplicate the catalog"
+
+
+def test_seed_lock_releases_on_error(app, monkeypatch):
+    """A failed seed must roll back, not strand the transaction holding the lock."""
+    from models import db
+    from services.seed_lock import seed_lock
+
+    rolled_back = []
+    monkeypatch.setattr(db.session, 'rollback', lambda: rolled_back.append(True), raising=False)
+
+    with app.app_context():
+        try:
+            with seed_lock(1234):
+                raise RuntimeError('seed blew up')
+        except RuntimeError:
+            pass
+
+    assert rolled_back, "seed_lock must roll back on error so the lock is released"
+
+
 def test_seeded_workflows_are_public_and_listable(authenticated_client, app):
     with app.app_context():
         seed_workflow_templates()

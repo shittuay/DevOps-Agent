@@ -761,6 +761,10 @@ def _get_or_create_system_user():
     return user
 
 
+# Arbitrary but fixed — must not collide with starter_workflows' key.
+_SEED_LOCK_KEY = 0x49_4E_46_52  # "INFR"
+
+
 def seed_public_templates() -> int:
     """Idempotently seed the curated public starter templates.
 
@@ -769,30 +773,31 @@ def seed_public_templates() -> int:
     """
     from models import db, InfrastructureTemplate
     from services.starter_templates import STARTER_TEMPLATES
+    from services.seed_lock import seed_lock
 
-    existing_names = {
-        t.name for t in InfrastructureTemplate.query.filter_by(is_public=True).all()
-    }
-    to_add = [tpl for tpl in STARTER_TEMPLATES if tpl['name'] not in existing_names]
-    if not to_add:
-        return 0
+    # Under the lock because every gunicorn worker seeds at import simultaneously —
+    # an unguarded check-then-insert lets each one insert the whole catalog.
+    with seed_lock(_SEED_LOCK_KEY):
+        existing_names = {
+            t.name for t in InfrastructureTemplate.query.filter_by(is_public=True).all()
+        }
+        to_add = [tpl for tpl in STARTER_TEMPLATES if tpl['name'] not in existing_names]
+        if to_add:
+            owner = _get_or_create_system_user()
+            for tpl in to_add:
+                db.session.add(InfrastructureTemplate(
+                    user_id=owner.id,
+                    name=tpl['name'],
+                    description=tpl['description'],
+                    category=tpl['category'],
+                    cloud_provider=tpl['cloud_provider'],
+                    template_type=tpl['template_type'],
+                    template_content=tpl['template_content'],
+                    variables=tpl['variables'],
+                    estimated_monthly_cost=tpl['estimated_monthly_cost'],
+                    is_public=True,
+                ))
 
-    owner = _get_or_create_system_user()
-    added = 0
-    for tpl in to_add:
-        db.session.add(InfrastructureTemplate(
-            user_id=owner.id,
-            name=tpl['name'],
-            description=tpl['description'],
-            category=tpl['category'],
-            cloud_provider=tpl['cloud_provider'],
-            template_type=tpl['template_type'],
-            template_content=tpl['template_content'],
-            variables=tpl['variables'],
-            estimated_monthly_cost=tpl['estimated_monthly_cost'],
-            is_public=True,
-        ))
-        added += 1
-    db.session.commit()
-    logger.info(f"Seeded {added} public infrastructure template(s)")
-    return added
+    if to_add:
+        logger.info(f"Seeded {len(to_add)} public infrastructure template(s)")
+    return len(to_add)
