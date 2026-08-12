@@ -1141,6 +1141,16 @@ live in `scripts/` — those modules do `from app import app, db`, so importing 
 from `app.py` is circular. Current seeded catalogs: `services/starter_templates.py`
 (`InfrastructureTemplate`), `services/starter_workflows.py` (`WorkflowTemplate`).
 
+**The check-then-insert MUST run inside `services/seed_lock.py`'s `seed_lock(key)`.**
+Production runs 3 sync gunicorn workers and all of them import `app.py` — and
+therefore seed — at the same moment. "Read existing names, insert the rest" is not
+idempotent across processes: each worker's read returns empty, so each inserts the
+full catalog. This is not theoretical, it happened on the first deploy of the
+workflow seed (8 templates became 16). `seed_lock` takes a Postgres
+transaction-level advisory lock (`pg_advisory_xact_lock`, auto-released on
+commit/rollback so a crashed worker can't strand it) and is a no-op on SQLite,
+which is single-process. Give each catalog its own fixed, non-colliding lock key.
+
 ### Database Migration
 **Auto-migration at startup:** Every time `app.py` starts, it runs `db.create_all()` (new tables) then inspects all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for any columns in the model not yet in the DB. Output: `Auto-migration: added N column(s): table.column, ...`
 

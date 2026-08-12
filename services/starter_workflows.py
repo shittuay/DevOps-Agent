@@ -125,23 +125,31 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
 ]
 
 
+# Arbitrary but fixed — must not collide with another advisory lock key.
+_SEED_LOCK_KEY = 0x77_4F_52_4B  # "wORK"
+
+
 def seed_workflow_templates() -> int:
     """Idempotently seed the curated public workflow templates.
 
     Safe to call on every startup: existing public templates (matched by name)
     are skipped, so it never duplicates. Returns the number of templates added.
+
+    The check-then-insert runs under `seed_lock` because every gunicorn worker
+    calls this at import simultaneously — without it they race and each inserts
+    the full catalog.
     """
     from models import db, WorkflowTemplate
+    from services.seed_lock import seed_lock
 
-    existing_names = {
-        t.name for t in WorkflowTemplate.query.filter_by(is_public=True).all()
-    }
-    to_add = [wf for wf in STARTER_WORKFLOWS if wf['name'] not in existing_names]
-    if not to_add:
-        return 0
+    with seed_lock(_SEED_LOCK_KEY):
+        existing_names = {
+            t.name for t in WorkflowTemplate.query.filter_by(is_public=True).all()
+        }
+        to_add = [wf for wf in STARTER_WORKFLOWS if wf['name'] not in existing_names]
+        for wf in to_add:
+            db.session.add(WorkflowTemplate(**wf, is_public=True))
 
-    for wf in to_add:
-        db.session.add(WorkflowTemplate(**wf, is_public=True))
-    db.session.commit()
-    logger.info(f"Seeded {len(to_add)} public workflow template(s)")
+    if to_add:
+        logger.info(f"Seeded {len(to_add)} public workflow template(s)")
     return len(to_add)
