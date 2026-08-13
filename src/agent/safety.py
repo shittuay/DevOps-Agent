@@ -391,6 +391,7 @@ class SafetyValidator:
             'git_push',
             'git_cherry_pick',
             'git_push_tag',
+            'git_stash_apply',  # merges stashed changes into the working tree, can conflict/overwrite
             'git_stash_drop',
             'git_revert_commit',
             'git_rebase_branch',
