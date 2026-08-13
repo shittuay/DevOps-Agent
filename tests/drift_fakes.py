@@ -10,10 +10,28 @@ def _not_found(code, op):
     return ClientError({'Error': {'Code': code, 'Message': 'not found'}}, op)
 
 
+class _FakePaginator:
+    """boto paginators are what capture uses to list everything."""
+    def __init__(self, pages):
+        self._pages = pages
+
+    def paginate(self, **kwargs):
+        return iter(self._pages)
+
+
 class FakeEc2:
     def __init__(self, instances=None, security_groups=None):
         self.instances = instances or {}
         self.security_groups = security_groups or {}
+
+    def get_paginator(self, operation):
+        if operation == 'describe_instances':
+            return _FakePaginator([
+                {'Reservations': [{'Instances': list(self.instances.values())}]}
+            ])
+        if operation == 'describe_security_groups':
+            return _FakePaginator([{'SecurityGroups': list(self.security_groups.values())}])
+        raise AssertionError(f'unexpected paginator: {operation}')
 
     def describe_instances(self, InstanceIds):
         found = [self.instances[i] for i in InstanceIds if i in self.instances]
@@ -32,6 +50,10 @@ class FakeRds:
     def __init__(self, instances=None):
         self.instances = instances or {}
 
+    def get_paginator(self, operation):
+        assert operation == 'describe_db_instances'
+        return _FakePaginator([{'DBInstances': list(self.instances.values())}])
+
     def describe_db_instances(self, DBInstanceIdentifier):
         db = self.instances.get(DBInstanceIdentifier)
         if not db:
@@ -42,6 +64,9 @@ class FakeRds:
 class FakeS3:
     def __init__(self, buckets=None):
         self.buckets = buckets or {}
+
+    def list_buckets(self):
+        return {'Buckets': [{'Name': n} for n in self.buckets]}
 
     def head_bucket(self, Bucket):
         if Bucket not in self.buckets:

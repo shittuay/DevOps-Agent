@@ -1045,6 +1045,35 @@ GET    /api/chat/artifacts/<id>/export   → download as .md file
 
 ---
 
+### Drift Detection (`/drift`)
+
+Service `services/drift_detection.py`, routes `routes/drift.py`. Reads live AWS through
+`credential_service.get_user_boto_client(user_id, …)` — never ambient credentials, never
+canned data (see the standing rule at the top of this file, and CLAUDE_RUNBOOK.md's
+2026-08-12 entry for what happened when it did).
+
+**Two ways to create baselines, both cloud-backed:**
+- `POST /drift/api/baselines/capture` → `capture_baselines_from_account()` snapshots the
+  account's current EC2 / security groups / S3 / RDS as the expected state. Optional
+  `resource_types` filter.
+- `POST /drift/api/import/terraform` → baselines from a `terraform.tfstate`.
+
+**Capture and scan MUST share the `_normalize_*` helpers.** `_fetch_*` (single resource,
+used by scans) and `capture_baselines_from_account` (paginated lists) both funnel through
+`_normalize_ec2_instance` / `_normalize_security_group` / `_normalize_rds_instance`. If
+capture wrote a different key shape than a scan reads back, every captured baseline would
+report drift the instant it was created — `tests/test_drift_baseline_capture.py::
+test_captured_baseline_scans_clean` is the guard.
+
+**Semantics worth preserving:**
+- A resource that genuinely doesn't exist → `_fetch_*` returns `None` → **one** REMOVED
+  finding. Never let a missing resource become an empty dict; `_compare_configs` reads
+  that as "every expected property was removed" (one absent RDS produced 6 findings).
+- Cannot read the account → `DriftScanError`, surfaced as 502 `scan_failed`. An unreadable
+  account is not a clean one and must never render as findings.
+- A baseline is a **subset** of pinned properties; live properties absent from it are not
+  drift. Don't reintroduce an "added property" check.
+
 ### Pre-built Workflows (`/workflows`)
 
 Catalog in `services/starter_workflows.py` (seeded at import — see "Seeded catalogs"),
