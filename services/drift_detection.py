@@ -370,8 +370,13 @@ class DriftDetectionService:
         instances = reservations[0].get('Instances', []) if reservations else []
         if not instances:
             return None
-        inst = instances[0]
+        return DriftDetectionService._normalize_ec2_instance(instances[0])
 
+    @staticmethod
+    def _normalize_ec2_instance(inst: dict) -> Optional[dict]:
+        """Shared by scan and capture. Both MUST use this: if a captured baseline
+        had a different key set than a scan produces, every baseline would show
+        drift the instant it was created."""
         state = (inst.get('State') or {}).get('Name')
         # A terminated instance is gone for drift purposes.
         if state == 'terminated':
@@ -398,8 +403,10 @@ class DriftDetectionService:
         groups = resp.get('SecurityGroups', [])
         if not groups:
             return None
-        sg = groups[0]
+        return DriftDetectionService._normalize_security_group(groups[0])
 
+    @staticmethod
+    def _normalize_security_group(sg: dict) -> dict:
         # Flatten to the {port, cidr} shape baselines are written in. One rule can
         # carry several CIDRs, so it expands to one entry each.
         ingress = []
@@ -473,8 +480,10 @@ class DriftDetectionService:
         instances = resp.get('DBInstances', [])
         if not instances:
             return None
-        db = instances[0]
+        return DriftDetectionService._normalize_rds_instance(instances[0])
 
+    @staticmethod
+    def _normalize_rds_instance(db: dict) -> dict:
         return {
             'id': db.get('DBInstanceIdentifier'),
             'engine': db.get('Engine'),
@@ -484,6 +493,108 @@ class DriftDetectionService:
             'storage_encrypted': db.get('StorageEncrypted'),
             'multi_az': db.get('MultiAZ'),
         }
+
+    def capture_baselines_from_account(self, user_id: int,
+                                       resource_types: Optional[list] = None) -> dict:
+        """Snapshot the user's live cloud resources as baselines.
+
+        This is the cloud-account-native way to get started: pin what you have
+        right now, then any later change shows as drift. Terraform state import
+        is the other path, for infrastructure that's already declared.
+
+        Reuses the same normalizers the scan uses, so a freshly captured baseline
+        compares clean. Raises DriftScanError when the account can't be read.
+        """
+        from services.credential_service import get_user_boto_client
+
+        wanted = set(resource_types or [
+            ResourceType.EC2_INSTANCE, ResourceType.EC2_SECURITY_GROUP,
+            ResourceType.S3_BUCKET, ResourceType.RDS_INSTANCE,
+        ])
+        captured = {}
+
+        try:
+            if ResourceType.EC2_INSTANCE in wanted or ResourceType.EC2_SECURITY_GROUP in wanted:
+                ec2 = get_user_boto_client(user_id, 'ec2')
+
+            if ResourceType.EC2_INSTANCE in wanted:
+                count = 0
+                for page in ec2.get_paginator('describe_instances').paginate():
+                    for reservation in page.get('Reservations', []):
+                        for inst in reservation.get('Instances', []):
+                            config = self._normalize_ec2_instance(inst)
+                            if config is None:
+                                continue  # terminated
+                            self.add_baseline(user_id, BaselineResource(
+                                resource_type=ResourceType.EC2_INSTANCE,
+                                resource_id=inst['InstanceId'],
+                                resource_name=config['tags'].get('Name') or inst['InstanceId'],
+                                expected_config=config,
+                                tags=config['tags'],
+                            ))
+                            count += 1
+                captured['ec2_instance'] = count
+
+            if ResourceType.EC2_SECURITY_GROUP in wanted:
+                count = 0
+                for page in ec2.get_paginator('describe_security_groups').paginate():
+                    for sg in page.get('SecurityGroups', []):
+                        config = self._normalize_security_group(sg)
+                        self.add_baseline(user_id, BaselineResource(
+                            resource_type=ResourceType.EC2_SECURITY_GROUP,
+                            resource_id=sg['GroupId'],
+                            resource_name=sg.get('GroupName') or sg['GroupId'],
+                            expected_config=config,
+                        ))
+                        count += 1
+                captured['security_group'] = count
+
+            if ResourceType.RDS_INSTANCE in wanted:
+                rds = get_user_boto_client(user_id, 'rds')
+                count = 0
+                for page in rds.get_paginator('describe_db_instances').paginate():
+                    for db in page.get('DBInstances', []):
+                        config = self._normalize_rds_instance(db)
+                        self.add_baseline(user_id, BaselineResource(
+                            resource_type=ResourceType.RDS_INSTANCE,
+                            resource_id=db['DBInstanceIdentifier'],
+                            resource_name=db['DBInstanceIdentifier'],
+                            expected_config=config,
+                        ))
+                        count += 1
+                captured['rds_instance'] = count
+
+            if ResourceType.S3_BUCKET in wanted:
+                s3 = get_user_boto_client(user_id, 's3')
+                count = 0
+                for bucket in s3.list_buckets().get('Buckets', []):
+                    name = bucket['Name']
+                    # Per-bucket sub-config calls; skip anything we can't read
+                    # (cross-region/denied) rather than pinning a half-empty baseline.
+                    try:
+                        config = self._fetch_s3_bucket(s3, name)
+                    except Exception:
+                        logger.warning(f"Skipping bucket {name} during capture - not readable")
+                        continue
+                    if config is None:
+                        continue
+                    self.add_baseline(user_id, BaselineResource(
+                        resource_type=ResourceType.S3_BUCKET,
+                        resource_id=name,
+                        resource_name=name,
+                        expected_config=config,
+                    ))
+                    count += 1
+                captured['s3_bucket'] = count
+
+        except DriftScanError:
+            raise
+        except Exception as e:
+            raise DriftScanError(f"Could not read your AWS account: {e}") from e
+
+        total = sum(captured.values())
+        logger.info(f"Captured {total} baseline(s) from AWS for user {user_id}: {captured}")
+        return {'total': total, 'by_type': captured}
 
     def _compare_configs(self, expected: dict, actual: dict, resource_type: ResourceType,
                          resource_id: str, resource_name: str, report_id: str,

@@ -95,6 +95,42 @@ def api_scan():
     })
 
 
+@drift_bp.route('/api/baselines/capture', methods=['POST'])
+@login_required
+@approver_required
+def api_capture_baselines():
+    """API: Snapshot the user's live cloud resources as baselines.
+
+    The cloud-account-native way to start using drift: pin what you actually
+    have, so any later change shows up. Terraform state import is the other path.
+    """
+    service = get_drift_service()
+
+    data = request.get_json(silent=True) or {}
+    requested = data.get('resource_types')
+    resource_types = None
+    if requested:
+        try:
+            resource_types = [ResourceType(rt) for rt in requested]
+        except ValueError as e:
+            return jsonify({'success': False, 'error': f'Unknown resource type: {e}'}), 400
+
+    try:
+        result = service.capture_baselines_from_account(current_user.id, resource_types)
+    except DriftScanError as e:
+        logger.warning(f"Baseline capture failed for {current_user.email}: {e}")
+        return jsonify({'success': False, 'error': str(e), 'scan_failed': True}), 502
+
+    logger.info(f"Baselines captured by {current_user.email}: {result['total']}")
+
+    return jsonify({
+        'success': True,
+        'captured': result['total'],
+        'by_type': result['by_type'],
+        'total_baselines': service.get_baseline_count(current_user.id),
+    })
+
+
 @drift_bp.route('/api/reports')
 @login_required
 def api_list_reports():
