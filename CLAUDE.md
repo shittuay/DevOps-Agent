@@ -128,6 +128,37 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - **Ansible (13)**: playbook run, ad-hoc, inventory, vault, galaxy
 - **Alerting (16)**: PagerDuty + OpsGenie incidents/alerts
 
+## Non-negotiable: every feature runs against a real cloud account
+
+**No feature may work in isolation.** Every feature in this app operates on the user's
+attached cloud account (AWS, Azure, or GCP). A feature must never produce results from
+hardcoded, sample, or simulated data when no cloud account is connected — if there is no
+account, it says so and does nothing. This applies to anything built here, not just tools:
+dashboards, reports, scans, recommendations, drift, cost, compliance.
+
+**Why this is stated as a rule:** canned output is indistinguishable from a real query, so
+the user acts on fiction. Found live 2026-08-12 — `DriftDetectionService._get_actual_state()`
+returned hardcoded dicts under a `# In a real implementation, this would call AWS APIs`
+comment, with no RDS branch at all, while `/api/import/sample` seeded fake baselines
+(`i-0abc123def456`, `sg-12345`, `production-database`). Every user got a byte-identical
+report, including a **critical** "security group open to `0.0.0.0/0`" alert that was a
+literal in the source, against an account with no database in it. See CLAUDE_RUNBOOK.md.
+
+**When building or reviewing a feature:**
+- Trace where its data comes from. If the answer is a literal in the source, it isn't done
+  — however finished the UI looks.
+- Tells to grep for: `# For now`, `# In a real implementation`, `simulated`, `sample_`,
+  hardcoded `i-0…` / `sg-…` / `vpc-…` ids.
+- Read live state through the per-user credential path
+  (`services/credential_service.get_user_boto_client(user_id, …)`, `aws_tools._get_boto_client()`,
+  or the Azure/GCP equivalents) — never ambient app credentials, never a stub.
+- No credentials → fail closed with "connect a cloud account". Never fall back to demo data.
+- **Distinguish "cannot read the account" from a finding.** They are opposite conclusions,
+  and reporting the first as the second is exactly how fabricated findings ship. Drift uses
+  `DriftScanError` for this; new features need an equivalent.
+- The only exception is sandbox mode (`UserPreferences.sandbox_mode`), which is explicit,
+  user-enabled, and labelled `[Sandbox]`. It is not a substitute for a missing account.
+
 ## Critical Security Patterns
 
 ### User Isolation (NEVER bypass)
