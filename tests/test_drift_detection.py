@@ -9,9 +9,28 @@ one), and every report vanished on the next deploy. Each test below builds a
 *fresh* DriftDetectionService() to stand in for "a different worker" -- if
 data only lived in that instance's memory, these would fail.
 """
+import pytest
+
 from services.drift_detection import (
     DriftDetectionService, BaselineResource, ResourceType,
 )
+from tests.drift_fakes import FakeEc2, patch_boto, clear_drift_state
+
+
+@pytest.fixture(autouse=True)
+def _isolate_baselines(app, db_session):
+    with app.app_context():
+        clear_drift_state()
+    yield
+
+
+@pytest.fixture
+def aws_with_test_instance(monkeypatch):
+    """Scans now read live AWS, so these persistence tests need an account to read."""
+    patch_boto(monkeypatch, {'ec2': FakeEc2(instances={
+        'i-test123': {'InstanceId': 'i-test123', 'InstanceType': 't3.small',
+                      'State': {'Name': 'running'}, 'SecurityGroups': [], 'Tags': []},
+    })})
 
 
 def _ec2_baseline():
@@ -33,7 +52,9 @@ def test_baseline_visible_from_a_different_service_instance(app, db_session, tes
     assert baselines[0].resource_id == 'i-test123'
 
 
-def test_scan_report_visible_from_a_different_service_instance(app, db_session, test_user):
+def test_scan_report_visible_from_a_different_service_instance(
+    app, db_session, test_user, aws_with_test_instance
+):
     DriftDetectionService().add_baseline(test_user.id, _ec2_baseline())
 
     scanning_worker = DriftDetectionService()

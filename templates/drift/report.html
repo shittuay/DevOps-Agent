@@ -276,13 +276,16 @@
                         <p class="drift-description">{{ drift.description }}</p>
 
                         <div class="drift-values">
+                            {# `or 'N/A'` renders a legitimate False/0/'' as "N/A" — which made
+                               an expected `publicly_accessible: False` look like a missing value.
+                               Only a real None is unknown. #}
                             <div class="drift-value">
                                 <div class="label">Expected</div>
-                                <div class="value">{{ drift.expected_value or 'N/A' }}</div>
+                                <div class="value">{{ 'N/A' if drift.expected_value is none else drift.expected_value }}</div>
                             </div>
                             <div class="drift-value">
                                 <div class="label">Actual</div>
-                                <div class="value">{{ drift.actual_value or 'N/A' }}</div>
+                                <div class="value">{{ 'N/A' if drift.actual_value is none else drift.actual_value }}</div>
                             </div>
                         </div>
 
@@ -306,14 +309,18 @@
         {% if report.summary.by_resource_type %}
         <div class="section">
             <div class="section-header">
-                <h3>Drift by Resource Type</h3>
+                {# Counts drift findings, not resources — 6 findings on one RDS instance
+                   read as "6 RDS instances" under the old label. #}
+                <h3>Findings by Resource Type</h3>
             </div>
             <div class="section-content">
                 <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
                     {% for type, count in report.summary.by_resource_type.items() %}
                     <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 8px; text-align: center; min-width: 120px;">
                         <div style="font-size: 1.5rem; font-weight: 600;">{{ count }}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-tertiary);">{{ type }}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-tertiary);">
+                            {{ type }} finding{{ '' if count == 1 else 's' }}
+                        </div>
                     </div>
                     {% endfor %}
                 </div>

@@ -248,7 +248,6 @@
                 <p>Compare your actual infrastructure against expected baselines to identify unauthorized changes, security issues, and configuration drift.</p>
             </div>
             <div style="display: flex; gap: 0.75rem;">
-                <button class="btn btn-secondary" onclick="importSampleBaselines()">Import Sample Data</button>
                 <button class="btn btn-primary" onclick="runScan()" id="scanBtn">
                     Run Drift Scan
                 </button>
@@ -409,25 +408,6 @@
                 showMessage('Error: ' + e.message, 'error');
                 btn.disabled = false;
                 btn.textContent = 'Run Drift Scan';
-            }
-        }
-
-        async function importSampleBaselines() {
-            try {
-                const resp = await fetch('/drift/api/import/sample', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await resp.json();
-
-                if (data.success) {
-                    showMessage(`Imported ${data.imported} sample baselines`, 'success');
-                    setTimeout(() => location.reload(), 1000);
-                } else {
-                    showMessage(data.error || 'Import failed', 'error');
-                }
-            } catch (e) {
-                showMessage('Error: ' + e.message, 'error');
             }
         }
 
