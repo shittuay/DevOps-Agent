@@ -1193,6 +1193,79 @@ subprocess/timeout/cleanup control flow and `app.py` has 8 inline
 real but larger refactors than this pass's scope, left for a dedicated
 follow-up.
 
+## Scheduled review: MCP tool context + git remote-name injection (FIXED), three fabricated-data features (OPEN, 2026-08-14)
+
+Routine scheduled code review (vulnerabilities/smells/duplicates), not a bug
+report. Five parallel audits targeted the codebase's known recurring bug
+classes (safety-risk classification gaps, user-isolation/IDOR, SSRF, git
+flag-injection, guardrail/thread-local context leaks) plus a general
+duplication/smell sweep. Two small, well-scoped, same-shape-as-before bugs
+were found and fixed; one larger finding was left open for a product
+decision rather than fixed unilaterally.
+
+**Fixed — `routes/mcp.py`'s `_handle_tools_call` only set AWS's thread-local
+user context.** It hand-imported `aws_tools.set_user_context`/`clear_user_context`
+directly instead of going through `core.py`'s `_set_cloud_user_context`/
+`_clear_cloud_user_context` (the comprehensive setter that also covers
+Azure/GCP/devops_operations — see the Concurrency Model section of
+CLAUDE.md). `_get_all_tools()` loads Azure and GCP tools into the same MCP
+tool catalog, so any Azure/GCP tool called through the MCP connector ran
+with `user_id=None` and hit the fail-closed "Authentication required"
+branch — same shape as the `devops_operations_tools` missing-clearer bug
+fixed 2026-08-11, this time in a hand-rolled call site rather than `core.py`
+itself. Not a credential leak (fails closed, per the standing rule), but a
+functional break for every Azure/GCP tool over MCP. Fixed by routing through
+`current_app.config['DEVOPS_AGENT']._set_cloud_user_context(user_id)` /
+`_clear_cloud_user_context()`, the same pattern `api/v1/tools.py` already
+uses for its own direct-tool-execution entry point.
+
+**Fixed — `git_add_remote`'s `name` parameter had no flag-injection guard.**
+Every other function in `git_tools.py` that passes a caller-supplied
+ref/remote/branch value as a bare positional to `repo.git.*` calls
+`_reject_flag_like()` first; `git_add_remote` (which calls
+`repo.create_remote(name, url)` → GitPython's `repo.git.remote("add", name,
+url, ...)`) was the one exception, passing `name` unguarded. `git remote
+add`'s own option set (`-f`, `-t`, `-m`, `--mirror=`, `--[no-]tags`) has no
+known RCE/arbitrary-file flag today, so this was defense-in-depth rather
+than a confirmed exploit — but it's the same bare-positional shape the
+codebase otherwise guards everywhere, including on GitPython convenience
+methods. Fixed by adding `_reject_flag_like(name, 'name')`.
+
+**Not fixed — flagged for a product decision: three services return
+fabricated data as if it were live cloud state, the same rule violation
+`_get_actual_state()` had (see the drift-detection entry below).** All three
+are reachable via real, `@login_required` (one also `@api_key`-gated) routes,
+not dead code:
+- `services/ai_infrastructure.py`'s `get_recommendations()` returns a
+  hardcoded, byte-identical list of 4 recommendations (specific dollar
+  savings, specific "confidence" percentages) for every user regardless of
+  their actual infrastructure, served at `/ai/recommendations`. Worse:
+  `apply_recommendation()` doesn't call any cloud API either — clicking
+  "Apply" on the fake "Enable encryption for S3 buckets" recommendation
+  returns `{'success': True, 'actions_taken': [...]}` without touching a
+  single S3 bucket, so a user can walk away believing a real security fix
+  was applied when nothing happened.
+- `services/analytics_service.py`'s `_ensure_sample_data()` generates fully
+  `random.uniform`/`random.choices`-based cost/resource-count/incident/
+  deployment time series with no connection to any DB record or cloud API,
+  served at `/analytics/api/dashboard` and `/analytics/api/costs/summary`
+  and also reachable through the developer REST API gateway
+  (`routes/api_gateway.py:313`) — so third-party API consumers building
+  automated decisions on "cost analytics" would be acting on random numbers.
+- `services/predictive_scaling.py` has the same `random.uniform`-based
+  synthetic-metric pattern feeding `generate_all_predictions()`, wired
+  through `routes/scaling.py`.
+
+Deliberately not fixed in this pass: unlike the two guard-pattern bugs
+above, this isn't a mechanical fix — it requires a real design decision
+(what does "AI recommendations" actually analyze — Cost Explorer? Trusted
+Advisor-equivalent heuristics over synced `InfrastructureResource` rows? —
+and what does `apply_recommendation` actually call), which CLAUDE.md's own
+"Non-negotiable" section says a scheduled pass shouldn't decide unilaterally
+(same reasoning as the business-tier-model finding left open 2026-08-11).
+Flagged here so it doesn't get rediscovered as a fresh "user reported fake
+data" incident the way drift detection was.
+
 ## Drift detection stored everything in per-process memory (FIXED 2026-08-12)
 
 User-reported: "drift detection does not generate a report or findings if

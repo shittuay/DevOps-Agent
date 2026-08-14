@@ -475,6 +475,7 @@ def git_init_repository(repo_path: str, bare: bool = False) -> Dict[str, Any]:
 def git_add_remote(repo_path: str, name: str, url: str) -> Dict[str, Any]:
     """Add a remote to a git repository."""
     try:
+        _reject_flag_like(name, 'name')
         if not _validate_git_url(url):
             return {'success': False, 'error': f'Invalid or disallowed git URL: {url}'}
 

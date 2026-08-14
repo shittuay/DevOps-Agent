@@ -661,14 +661,22 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
         # with zero operational visibility — log it.
         logger.error(f"MCP safety validator raised for tool '{tool_name}', executing without a safety gate: {e}")
 
-    # Execute the tool handler with user context set
+    # Execute the tool handler with user context set. Route through the shared
+    # agent's _set_cloud_user_context/_clear_cloud_user_context (same pattern as
+    # api/v1/tools.py) rather than aws_tools.set_user_context directly — the
+    # latter only sets AWS's own thread-local, leaving Azure/GCP tools (also
+    # loaded into this MCP server's tool_map by _get_all_tools()) running with
+    # no user context and failing closed with "Authentication required".
     try:
-        from src.tools.aws_tools import set_user_context, clear_user_context
-        set_user_context(user_id)
+        from flask import current_app
+        agent = current_app.config.get('DEVOPS_AGENT')
+        if agent:
+            agent._set_cloud_user_context(user_id)
         try:
             result = tool['handler'](**arguments)
         finally:
-            clear_user_context()
+            if agent:
+                agent._clear_cloud_user_context()
     except TypeError as e:
         return _err(req_id, -32602, f"Invalid tool arguments: {e}")
     except Exception as e:
