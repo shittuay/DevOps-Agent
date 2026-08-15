@@ -2601,6 +2601,19 @@
             sendMessage();
         }
 
+        // Report a terminal status for the workflow execution that opened this
+        // chat (?wf_exec=<id>). Without this the row sits at 'running' until the
+        // server-side staleness sweep reclassifies it 30 minutes later.
+        function markWorkflowExecution(status) {
+            const execId = new URLSearchParams(window.location.search).get('wf_exec');
+            if (!execId) return;
+            fetch(`/api/workflows/executions/${execId}`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({status}),
+            }).catch(() => {});
+        }
+
         async function sendMessage() {
             stopSpeaking();
             const input = document.getElementById('messageInput');
@@ -2658,7 +2671,14 @@
                 if (currentModelProvider === 'kimi') {
                     const fetchStart = Date.now();
                     const kimiAbort = new AbortController();
-                    const kimiTimeout = setTimeout(() => kimiAbort.abort(), 290000); // 290s client-side limit
+                    // Backstop only. The server closes the response itself at
+                    // CHAT_MAX_TURN_SECONDS, so this should never fire; it must
+                    // stay ABOVE that budget and must NOT be cleared when fetch()
+                    // resolves — keep-alive bytes deliver the headers within ~15s
+                    // while the real body can still be minutes away, so clearing
+                    // it there (as this code used to) left the body read with no
+                    // timeout at all.
+                    const kimiTimeout = setTimeout(() => kimiAbort.abort(), 900000);
                     let kimiResp;
                     try {
                         kimiResp = await fetch('/api/chat', {
@@ -2675,12 +2695,13 @@
                                 ? 'Request timed out — this scan is too large for a single request. Try breaking it into smaller queries (e.g., one region at a time).'
                                 : `Network error: ${fetchErr.message}`
                         );
+                        markWorkflowExecution('failed');
                         sendButton.disabled = false;
                         sendButton.textContent = 'Send';
                         return;
                     }
-                    clearTimeout(kimiTimeout);
                     if (!kimiResp.ok) {
+                        clearTimeout(kimiTimeout);
                         const errText = await kimiResp.text().catch(() => '');
                         let errMsg = 'Request failed';
                         try { errMsg = JSON.parse(errText).error || errMsg; } catch (_) {
@@ -2691,8 +2712,57 @@
                             }
                         }
                         textDiv.innerHTML = formatMessage(`Error: ${errMsg}`);
+                        markWorkflowExecution('failed');
                     } else {
-                        const data = await kimiResp.json();
+                        // Read as text, not .json(). The keep-alive design commits
+                        // a 200 before the body exists, so a turn killed mid-flight
+                        // (worker timeout, deploy restart, dropped connection)
+                        // arrives as a 200 whose body is only whitespace —
+                        // .json() turns that into a bare "Unexpected end of JSON
+                        // input" with no indication of what actually happened.
+                        let bodyText = '';
+                        let readFailed = false;
+                        try {
+                            bodyText = await kimiResp.text();
+                        } catch (_) {
+                            readFailed = true;
+                        }
+                        clearTimeout(kimiTimeout);
+                        let data = null;
+                        if (!readFailed && bodyText.trim()) {
+                            try { data = JSON.parse(bodyText); } catch (_) { data = null; }
+                        }
+                        if (!data) {
+                            textDiv.innerHTML = formatMessage(
+                                'The connection to the server dropped before this task finished. ' +
+                                'Anything it already changed in your cloud account has taken effect — ' +
+                                'reload this conversation in a moment to see whether the result was saved, ' +
+                                'and check your infrastructure before re-running the task.'
+                            );
+                            markWorkflowExecution('failed');
+                            loadConversations();
+                            return;
+                        }
+                        if (data.still_running) {
+                            // Server closed the response at its own deadline; the
+                            // turn is finishing in the background and will persist
+                            // itself, so this is not a failure.
+                            textDiv.innerHTML = formatMessage(data.response || '');
+                            if (data.credits_remaining !== undefined && data.credits_remaining !== null) {
+                                updateCreditsDisplay(data.credits_remaining);
+                            }
+                            loadConversations();
+                            return;
+                        }
+                        if (data.error && !data.response) {
+                            // Streaming had already committed a 200, so a failure
+                            // after that point arrives as an error field in the
+                            // body rather than an HTTP error status.
+                            textDiv.innerHTML = formatMessage(`Error: ${data.error}`);
+                            markWorkflowExecution('failed');
+                            loadConversations();
+                            return;
+                        }
                         const fullText = data.response || '';
                         const swarmMatch = fullText.match(/🐝 \*Swarm active — (\d+) agents[^*]*\*/);
                         const cleanText = fullText.replace(/\n?🐝 \*Swarm active — \d+ agents[^*]*\*\n*/g, '');
