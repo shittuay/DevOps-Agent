@@ -482,6 +482,17 @@ either failed closed with "Authentication required" or could pick up whatever co
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
 
+**Two more instances of the same gap, found by a 2026-08-15 scheduled audit and fixed the same
+day:** `routes/api_gateway.py`'s `api_execute_tool()` (the `/v1/execute` developer-API direct tool
+endpoint) called `all_tools[tool_name]['handler'](**params)` with no context set at all — same
+fail-closed/stale-context risk as the `approval_service` bug, here on the Professional/Business-tier
+REST API path. `routes/mcp.py`'s `_handle_tools_call()` (the MCP connector's tool-call handler) did
+set context, but only via `aws_tools.set_user_context`/`clear_user_context` directly — AWS-only,
+so an MCP client calling an Azure/GCP/`devops_operations_tools` tool ran with no context for that
+provider. Both fixed by routing through `agent._set_cloud_user_context(user_id)` /
+`agent._clear_cloud_user_context()` (imported via `from app import agent`), the same helper
+`approval_service.py` uses, which covers all four providers.
+
 **`_set_cloud_user_context`/`_clear_cloud_user_context` (`core.py`) must set AND clear every
 provider's thread-local context, not just AWS/Azure/GCP.** `src/tools/devops_operations_tools.py`
 (cost analysis, change governance, compliance tools) has the same `threading.local()`
@@ -534,6 +545,28 @@ the app context inside the thread, never pass a live ORM object across the
 boundary (same rule as `_dispatch_password_reset_email` and
 `services/notification_service.py`'s async Slack/Teams dispatch) — rather
 than a plain synchronous `jsonify(...)` return.
+
+**A second, distinct bug in the same pattern: reading `DevOpsAgent`'s
+per-request properties from the wrong thread.** `_run_agent_call` runs on a
+brand-new OS thread, but `agent.last_tools_used` / `agent.pending_download`
+are `_greenlet_local_property`-backed (`threading.local()`, see the
+Concurrency Model section) — genuinely thread-local. The post-call code in
+`_generate_chat_response` that reads them runs on the *original*
+request-handling thread (the one that `.join()`s the worker), which never
+saw what the worker thread set. This silently zeroed out tool-use usage
+logging, the first-tool-use conversion event, and generated-file downloads
+(keypairs, exported reports) for every `/api/chat` caller — the Kimi/
+free-starter tier's chat path (`templates/index.html`'s
+`currentModelProvider === 'kimi'` branch), i.e. most users, with no
+exception raised. Fixed 2026-08-15 by capturing `agent.last_tools_used` and
+`agent.pending_download` inside `_run_agent_call` itself (same thread that
+set them) into `_agent_result`, and reading from `_agent_result` afterward
+instead of from `agent` directly. **Any future code that spawns a
+background thread to call into `DevOpsAgent` must capture whatever
+per-request state it needs before the thread exits** — reading a
+`_greenlet_local_property` from a different thread than the one that set it
+returns the unset default, not an error, so this class of bug fails silently
+rather than raising. See CLAUDE_RUNBOOK.md's 2026-08-15 entry.
 
 ## Context Management & Progressive Tool Loading
 

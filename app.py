@@ -3087,6 +3087,19 @@ def api_chat():
                 _agent_result['response'] = resp
                 _agent_result['success'] = True
                 _agent_result['error_msg'] = None
+                # Read back per-request agent state HERE, on the same OS thread
+                # that set it — DevOpsAgent's per-request properties (conversation,
+                # pending_download, _last_tools_used, ...) are backed by
+                # threading.local() (see _greenlet_local_property in core.py), so
+                # they are invisible to the request-handling thread that joins this
+                # worker below. Reading them there always saw the unset default
+                # (empty tools list, no pending download) and silently broke
+                # tool-use usage logging, the first-tool-use conversion event, and
+                # generated-file downloads for every /api/chat caller (the Kimi/
+                # free-starter tier's chat path).
+                _agent_result['tools_used'] = list(agent.last_tools_used)
+                _agent_result['pending_download'] = agent.pending_download
+                agent.pending_download = None
             except Exception as agent_error:
                 _agent_result['response'] = f"Error processing request: {str(agent_error)}"
                 _agent_result['success'] = False
@@ -3128,8 +3141,13 @@ def api_chat():
                     except Exception:
                         pass  # Keep the original error response
 
-                # Log usage — capture which tools were actually executed this turn
-                _tools_used = getattr(agent, 'last_tools_used', [])
+                # Log usage — capture which tools were actually executed this turn.
+                # Read from _agent_result (captured on the worker thread), not
+                # agent.last_tools_used directly — that property is thread-local
+                # and this generator runs on a different OS thread than the one
+                # that actually ran the agent call (see the comment in
+                # _run_agent_call above).
+                _tools_used = _agent_result.get('tools_used', [])
                 _primary_tool = _tools_used[0] if _tools_used else None
                 usage_log = UsageLog(
                     user_id=current_user.id,
@@ -3208,26 +3226,25 @@ def api_chat():
                 except Exception:
                     pass
 
-                # Check if there's a pending download from the agent
+                # Check if there's a pending download from the agent (read from
+                # _agent_result, captured on the worker thread — see above)
                 download_url = None
-                if agent.pending_download:
+                _pending_download = _agent_result.get('pending_download')
+                if _pending_download:
                     # Generate a secure token
                     download_token = secrets.token_urlsafe(32)
 
                     # Store the download with expiration (5 minutes)
                     download_storage[download_token] = {
-                        'filename': agent.pending_download.get('filename'),
-                        'content': agent.pending_download.get('content'),
-                        'content_type': agent.pending_download.get('content_type', 'application/octet-stream'),
+                        'filename': _pending_download.get('filename'),
+                        'content': _pending_download.get('content'),
+                        'content_type': _pending_download.get('content_type', 'application/octet-stream'),
                         'user_id': current_user.id,
                         'expires_at': datetime.utcnow() + timedelta(minutes=5)
                     }
 
                     # Build download URL
                     download_url = f'/api/download/{download_token}'
-
-                    # Clear the pending download
-                    agent.pending_download = None
 
                     logger.info(f"Download ready for user {current_user.id}: {download_storage[download_token]['filename']}")
 
