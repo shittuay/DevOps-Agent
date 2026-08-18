@@ -360,7 +360,9 @@
                                     <p>{{ baseline.resource_type.value }} • {{ baseline.resource_id[:20] }}...</p>
                                 </div>
                             </div>
-                            <button onclick="deleteBaseline('{{ baseline.resource_type.value }}', '{{ baseline.resource_id }}')"
+                            <button class="delete-baseline-btn"
+                                    data-resource-type="{{ baseline.resource_type.value }}"
+                                    data-resource-id="{{ baseline.resource_id }}"
                                     style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"
                                     title="Remove baseline">✕</button>
                         </div>
@@ -542,6 +544,17 @@
                 btn.textContent = 'Import';
             }
         }
+
+        // Delegated via data-* attributes + addEventListener rather than an
+        // inline onclick="deleteBaseline('...')" string — resource_id can come
+        // from an uploaded Terraform state file's arbitrary `id`/`arn` field
+        // (see import_terraform_state), and Jinja's HTML-attribute escaping
+        // does not neutralize a JS-string-context breakout inside onclick="".
+        document.querySelectorAll('.delete-baseline-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                deleteBaseline(btn.dataset.resourceType, btn.dataset.resourceId);
+            });
+        });
 
         async function deleteBaseline(resourceType, resourceId) {
             if (!confirm('Remove this baseline?')) return;

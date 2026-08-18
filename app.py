@@ -4862,15 +4862,23 @@ def delete_conversation(conversation_id):
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
 
+        # Delete every other row that FKs to this conversation — the DB enforces
+        # these constraints, so leaving any of them behind makes the conversation
+        # delete below fail with an IntegrityError (caught, rolled back, 500).
+        # ChatArtifact also FKs to chat_messages.id (message_id), so it must be
+        # deleted before ChatMessage or Postgres raises a ForeignKeyViolation on
+        # any conversation containing an artifact created with message_id set.
+        ChatArtifact.query.filter_by(
+            conversation_id=conversation_id,
+            user_id=current_user.id
+        ).delete()
+
         # Delete all messages in this conversation (include user_id for defense in depth)
         ChatMessage.query.filter_by(
             conversation_id=conversation_id,
             user_id=current_user.id
         ).delete()
 
-        # Delete every other row that FKs to this conversation — the DB enforces
-        # these constraints, so leaving any of them behind makes the conversation
-        # delete below fail with an IntegrityError (caught, rolled back, 500).
         UsageLog.query.filter_by(
             conversation_id=conversation_id,
             user_id=current_user.id
@@ -4880,10 +4888,6 @@ def delete_conversation(conversation_id):
             user_id=current_user.id
         ).delete()
         WorkflowExecution.query.filter_by(
-            conversation_id=conversation_id,
-            user_id=current_user.id
-        ).delete()
-        ChatArtifact.query.filter_by(
             conversation_id=conversation_id,
             user_id=current_user.id
         ).delete()

@@ -225,13 +225,21 @@ def delete_conversation(conversation_id):
             'message': 'Conversation not found'
         }), 404
 
+    # Delete every other row that FKs to this conversation — see app.py's
+    # delete_conversation() for why leaving any of these breaks the delete below.
+    # ChatArtifact also FKs to chat_messages.id (message_id), so it must be
+    # deleted before ChatMessage or Postgres raises a ForeignKeyViolation on
+    # any conversation containing an artifact created with message_id set.
+    ChatArtifact.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
+    ).delete()
+
     ChatMessage.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
     ).delete()
 
-    # Delete every other row that FKs to this conversation — see app.py's
-    # delete_conversation() for why leaving any of these breaks the delete below.
     UsageLog.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
@@ -241,10 +249,6 @@ def delete_conversation(conversation_id):
         user_id=user_id
     ).delete()
     WorkflowExecution.query.filter_by(
-        conversation_id=conversation_id,
-        user_id=user_id
-    ).delete()
-    ChatArtifact.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
     ).delete()
