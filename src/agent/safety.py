@@ -574,6 +574,12 @@ class SafetyValidator:
             'opsgenie_acknowledge_alert',
             'opsgenie_close_alert',
             'opsgenie_escalate_alert',
+            # Same provider_verb_noun gap for the create_ siblings above — both page a live
+            # on-call engineer/team by default (PagerDuty defaults urgency to 'high';
+            # OpsGenie accepts a responders list), same risk class as their already-medium
+            # update/acknowledge/close/escalate siblings.
+            'pagerduty_create_incident',
+            'opsgenie_create_alert',
         }
 
         # Check if tool is a pentest tool
