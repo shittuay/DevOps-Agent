@@ -225,13 +225,14 @@ def delete_conversation(conversation_id):
             'message': 'Conversation not found'
         }), 404
 
-    ChatMessage.query.filter_by(
+    # Delete every other row that FKs to this conversation — see app.py's
+    # delete_conversation() for why leaving any of these breaks the delete below.
+    # ChatArtifact.message_id also FKs to chat_messages.id with no cascade, so
+    # it must be deleted BEFORE the ChatMessage delete below, not after.
+    ChatArtifact.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
     ).delete()
-
-    # Delete every other row that FKs to this conversation — see app.py's
-    # delete_conversation() for why leaving any of these breaks the delete below.
     UsageLog.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
@@ -244,13 +245,14 @@ def delete_conversation(conversation_id):
         conversation_id=conversation_id,
         user_id=user_id
     ).delete()
-    ChatArtifact.query.filter_by(
-        conversation_id=conversation_id,
-        user_id=user_id
-    ).delete()
     ApprovalRequest.query.filter_by(
         conversation_id=conversation_id,
         requester_id=user_id
+    ).delete()
+
+    ChatMessage.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
     ).delete()
 
     db.session.delete(conversation)
