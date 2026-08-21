@@ -28,7 +28,7 @@ jobs:
         CODE=/var/www/devops-agent
         VENV=/var/www/devops-agent/venv
         # Locate DB: check .env first, then search common paths
-        DB_URL=$(grep -E '^DATABASE_URL' $CODE/.env 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+        export DB_URL=$(grep -E '^DATABASE_URL' $CODE/.env 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
         if echo "$DB_URL" | grep -q 'sqlite:///'; then
           REL=${DB_URL#sqlite:///}
           DB="$CODE/$REL"
@@ -79,15 +79,28 @@ jobs:
         echo ""
         echo "=== TOOL CALL FAILURES (last 7 days) ==="
         "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
-        import sys, sqlite3, json
+        import sys, os, json
         from collections import Counter
-        db = sys.argv[1]
-        con = sqlite3.connect(db)
-        rows = con.execute("""
-            SELECT tool_trace FROM chat_messages
-            WHERE tool_trace IS NOT NULL
-              AND timestamp >= datetime('now','-7 days')
-        """).fetchall()
+        db_url = os.environ.get('DB_URL', '')
+        if db_url.startswith('postgres'):
+            import psycopg2
+            pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+            con = psycopg2.connect(pg_url)
+            cur = con.cursor()
+            cur.execute("""
+                SELECT tool_trace FROM chat_messages
+                WHERE tool_trace IS NOT NULL
+                  AND timestamp >= NOW() - INTERVAL '7 days'
+            """)
+            rows = cur.fetchall()
+        else:
+            import sqlite3
+            con = sqlite3.connect(sys.argv[1])
+            rows = con.execute("""
+                SELECT tool_trace FROM chat_messages
+                WHERE tool_trace IS NOT NULL
+                  AND timestamp >= datetime('now','-7 days')
+            """).fetchall()
         failures = Counter()
         total_calls = 0
         for (trace,) in rows:
@@ -115,16 +128,30 @@ jobs:
         echo ""
         echo "=== GUARDRAIL VIOLATIONS ==="
         "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
-        import sys, sqlite3
-        db = sys.argv[1]
-        con = sqlite3.connect(db)
+        import sys, os
+        db_url = os.environ.get('DB_URL', '')
         try:
-            rows = con.execute("""
-                SELECT email, guardrail_violations, guardrail_blocked_until
-                FROM users
-                WHERE guardrail_violations > 0
-                ORDER BY guardrail_violations DESC
-            """).fetchall()
+            if db_url.startswith('postgres'):
+                import psycopg2
+                pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+                con = psycopg2.connect(pg_url)
+                cur = con.cursor()
+                cur.execute("""
+                    SELECT email, guardrail_violations, guardrail_blocked_until
+                    FROM users
+                    WHERE guardrail_violations > 0
+                    ORDER BY guardrail_violations DESC
+                """)
+                rows = cur.fetchall()
+            else:
+                import sqlite3
+                con = sqlite3.connect(sys.argv[1])
+                rows = con.execute("""
+                    SELECT email, guardrail_violations, guardrail_blocked_until
+                    FROM users
+                    WHERE guardrail_violations > 0
+                    ORDER BY guardrail_violations DESC
+                """).fetchall()
             if rows:
                 print(f"Users with violations: {len(rows)}")
                 for email, v, blocked in rows:
@@ -139,23 +166,44 @@ jobs:
         echo ""
         echo "=== ERROR PATTERNS IN ASSISTANT MESSAGES (last 7 days) ==="
         "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
-        import sys, sqlite3
+        import sys, os
         from collections import Counter
-        db = sys.argv[1]
-        con = sqlite3.connect(db)
-        rows = con.execute("""
-            SELECT content FROM chat_messages
-            WHERE role='assistant'
-              AND timestamp >= datetime('now','-7 days')
-              AND (
-                content LIKE '%error%' OR
-                content LIKE '%failed%' OR
-                content LIKE '%unavailable%' OR
-                content LIKE '%I cannot%' OR
-                content LIKE '%rate limit%' OR
-                content LIKE '%API error%'
-              )
-        """).fetchall()
+        db_url = os.environ.get('DB_URL', '')
+        if db_url.startswith('postgres'):
+            import psycopg2
+            pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+            con = psycopg2.connect(pg_url)
+            cur = con.cursor()
+            cur.execute("""
+                SELECT content FROM chat_messages
+                WHERE role='assistant'
+                  AND timestamp >= NOW() - INTERVAL '7 days'
+                  AND (
+                    content ILIKE '%error%' OR
+                    content ILIKE '%failed%' OR
+                    content ILIKE '%unavailable%' OR
+                    content ILIKE '%I cannot%' OR
+                    content ILIKE '%rate limit%' OR
+                    content ILIKE '%API error%'
+                  )
+            """)
+            rows = cur.fetchall()
+        else:
+            import sqlite3
+            con = sqlite3.connect(sys.argv[1])
+            rows = con.execute("""
+                SELECT content FROM chat_messages
+                WHERE role='assistant'
+                  AND timestamp >= datetime('now','-7 days')
+                  AND (
+                    content LIKE '%error%' OR
+                    content LIKE '%failed%' OR
+                    content LIKE '%unavailable%' OR
+                    content LIKE '%I cannot%' OR
+                    content LIKE '%rate limit%' OR
+                    content LIKE '%API error%'
+                  )
+            """).fetchall()
         patterns = Counter()
         for (content,) in rows:
             c = content.lower()
@@ -174,13 +222,27 @@ jobs:
         echo ""
         echo "=== OVERALL USAGE (last 7 days) ==="
         "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
-        import sys, sqlite3
-        db = sys.argv[1]
-        con = sqlite3.connect(db)
-        users    = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        convs    = con.execute("SELECT COUNT(*) FROM conversations WHERE created_at >= datetime('now','-7 days')").fetchone()[0]
-        msgs     = con.execute("SELECT COUNT(*) FROM chat_messages WHERE timestamp >= datetime('now','-7 days')").fetchone()[0]
-        usr_msgs = con.execute("SELECT COUNT(*) FROM chat_messages WHERE role='user' AND timestamp >= datetime('now','-7 days')").fetchone()[0]
+        import sys, os
+        db_url = os.environ.get('DB_URL', '')
+        if db_url.startswith('postgres'):
+            import psycopg2
+            pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+            con = psycopg2.connect(pg_url)
+            cur = con.cursor()
+            def one(sql):
+                cur.execute(sql)
+                return cur.fetchone()[0]
+            users    = one("SELECT COUNT(*) FROM users")
+            convs    = one("SELECT COUNT(*) FROM conversations WHERE created_at >= NOW() - INTERVAL '7 days'")
+            msgs     = one("SELECT COUNT(*) FROM chat_messages WHERE timestamp >= NOW() - INTERVAL '7 days'")
+            usr_msgs = one("SELECT COUNT(*) FROM chat_messages WHERE role='user' AND timestamp >= NOW() - INTERVAL '7 days'")
+        else:
+            import sqlite3
+            con = sqlite3.connect(sys.argv[1])
+            users    = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            convs    = con.execute("SELECT COUNT(*) FROM conversations WHERE created_at >= datetime('now','-7 days')").fetchone()[0]
+            msgs     = con.execute("SELECT COUNT(*) FROM chat_messages WHERE timestamp >= datetime('now','-7 days')").fetchone()[0]
+            usr_msgs = con.execute("SELECT COUNT(*) FROM chat_messages WHERE role='user' AND timestamp >= datetime('now','-7 days')").fetchone()[0]
         print(f"Total users: {users}")
         print(f"New conversations (7d): {convs}")
         print(f"Total messages (7d): {msgs}  (user: {usr_msgs}, assistant: {msgs - usr_msgs})")
