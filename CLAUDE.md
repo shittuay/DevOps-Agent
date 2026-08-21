@@ -427,26 +427,31 @@ layer on top that reads real files and applies the file-level exemption list.
 
 ## Concurrency Model: the shared `agent` singleton
 
-**The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
-1000`) does not match what's actually deployed.** Confirmed 2026-07-30 via the
-live instance's systemd unit (`devops-agent.service`) and its own startup log
-(`Using worker: sync`): production actually runs **3 plain sync workers**
-(`--workers 3`, no `--worker-class` — gunicorn's default), each a separate OS
-process with its own memory space, so `app.py`'s global `agent` is really 3
-independent per-process singletons, not one instance shared across every
-concurrent request. A sync worker fully blocks on one request at a time, so
-there's no within-process greenlet-interleaving race to begin with under this
-config — reconcile the Procfile with reality at some point (see
-CLAUDE_RUNBOOK.md's 524 incident entry), but don't assume it's live without
-checking `systemctl cat devops-agent` / the gunicorn startup log first.
+**Stale as of 2026-08-15 (commit db495f8, PR #141) — production now runs real
+intra-process thread concurrency.** The `devops-agent.service` systemd unit
+was changed from plain sync workers to `--worker-class gthread --workers 3
+--threads 8` (to let the `/api/chat` keep-alive loop and the agent-call
+background thread run concurrently within one worker without blocking other
+requests — see the Cloudflare keep-alive section above). That means each of
+the 3 worker processes now genuinely interleaves up to 8 concurrent OS
+threads against that process's single `agent` singleton — the "a sync worker
+fully blocks on one request at a time, so there's no within-process race"
+reasoning below **no longer holds**. Don't assume any particular worker class
+is live without checking `systemctl cat devops-agent` / the gunicorn startup
+log first — this has changed twice already (sync → gevent-in-Procfile-but-
+never-deployed → sync-in-practice → gthread) and reconciling the `Procfile`
+(still `--worker-class gevent --workers 1 --worker-connections 1000`) with
+reality remains outstanding (see CLAUDE_RUNBOOK.md's 524 incident entry).
 
-The rest of this section (the `_greenlet_local_property` fix) remains correct
-and worth keeping regardless of which worker class ends up running: it
-correctly isolates per-request state whether the mechanism is genuine
-greenlet-local storage (gevent) or simple thread/process-local storage (sync),
-so it's not wasted effort even though the original race it was built for
-assumed gevent specifically. The description below documents the gevent
-scenario the fix was originally designed against.
+The `_greenlet_local_property`/`threading.local()` isolation described below
+already protects correctly against real OS-thread concurrency, not just
+gevent greenlet interleaving — `threading.local()` is genuinely thread-local
+with or without gevent's monkey-patching — so no code change was needed when
+gthread landed. But treat that isolation as **load-bearing today**, not
+defense-in-depth for a hypothetical future config: any new per-request state
+added as a plain instance attribute instead of a `@property` (see below) is a
+live cross-request leak risk under the current deployment, not just a
+theoretical one.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in

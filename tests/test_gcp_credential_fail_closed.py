@@ -229,3 +229,43 @@ def test_every_gcp_client_construction_passes_credentials():
         "identity) instead of the requesting user's linked credentials:\n  "
         + "\n  ".join(offenders)
     )
+
+
+# `gcp_api_read`/`gcp_api_write` (the generic "call any GCP REST API" escape
+# hatch) build their client via `googleapiclient.discovery.build(...)`, not a
+# `*Client(...)` constructor, so they're invisible to the AST heuristic above.
+# They called `_get_user_gcp_credentials()` directly instead of routing through
+# `_get_gcp_credentials_kwargs()`, and passed the result straight through as
+# `credentials=credentials` with no None-check — `discovery.build()` treats an
+# explicit `credentials=None` exactly like an omitted argument and falls
+# through to Application Default Credentials. Found in a 2026-08-21 scheduled
+# audit; fixed by returning a fail-closed error before `discovery.build()` is
+# ever reached. These tests pin the behavioral contract directly since the
+# syntactic AST check can't: `credentials=credentials` is present either way,
+# the bug was that the variable could be `None`.
+
+
+def test_gcp_api_read_fails_closed_with_no_credentials():
+    from src.tools import gcp_tools
+
+    with patch.object(gcp_tools, '_get_user_gcp_credentials', return_value=(None, None)):
+        with patch('googleapiclient.discovery.build') as mock_build:
+            result = gcp_tools.gcp_api_read('compute', 'v1', 'instances', 'list', {'zone': 'us-central1-a'})
+
+    assert result['success'] is False
+    assert 'not configured' in result['error'].lower()
+    mock_build.assert_not_called()
+
+
+def test_gcp_api_write_fails_closed_with_no_credentials():
+    from src.tools import gcp_tools
+
+    with patch.object(gcp_tools, '_get_user_gcp_credentials', return_value=(None, None)):
+        with patch('googleapiclient.discovery.build') as mock_build:
+            result = gcp_tools.gcp_api_write(
+                'compute', 'v1', 'instances', 'delete', {'zone': 'us-central1-a', 'instance': 'x'}
+            )
+
+    assert result['success'] is False
+    assert 'not configured' in result['error'].lower()
+    mock_build.assert_not_called()
