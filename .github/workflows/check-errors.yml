@@ -25,8 +25,8 @@ jobs:
       run: |
         cat > /tmp/check.sh << 'SCRIPT'
         #!/bin/bash
-        CODE=/home/ubuntu/app/DevOps-Agent
-        VENV=/home/ubuntu/app/venv
+        CODE=/var/www/devops-agent
+        VENV=/var/www/devops-agent/venv
         # Locate DB: check .env first, then search common paths
         DB_URL=$(grep -E '^DATABASE_URL' $CODE/.env 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
         if echo "$DB_URL" | grep -q 'sqlite:///'; then
@@ -35,10 +35,21 @@ jobs:
         else
           DB=$(find /home/ubuntu /var/www -name "*.db" 2>/dev/null | head -1)
         fi
+        # VENV has no fallback like DB does above, so a wrong path here fails
+        # silently (sudo/python errors go to stderr, which this report doesn't
+        # capture) instead of erroring loudly - search for it if the primary
+        # path is missing so a future layout change can't reintroduce this.
+        if [ ! -x "$VENV/bin/python3" ]; then
+          FOUND_VENV=$(find /home/ubuntu /var/www -maxdepth 3 -type f -name python3 -path '*/venv/bin/*' 2>/dev/null | head -1)
+          if [ -n "$FOUND_VENV" ]; then
+            VENV=$(dirname "$(dirname "$FOUND_VENV")")
+          fi
+        fi
 
         echo "========================================"
         echo "DB path: $DB"
         echo "DB_URL: $DB_URL"
+        echo "VENV path: $VENV"
         echo "========================================"
 
         echo ""
@@ -67,7 +78,7 @@ jobs:
 
         echo ""
         echo "=== TOOL CALL FAILURES (last 7 days) ==="
-        sudo -u ubuntu "$VENV/bin/python3" - "$DB" << 'PYEOF'
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
         import sys, sqlite3, json
         from collections import Counter
         db = sys.argv[1]
@@ -103,7 +114,7 @@ jobs:
 
         echo ""
         echo "=== GUARDRAIL VIOLATIONS ==="
-        sudo -u ubuntu "$VENV/bin/python3" - "$DB" << 'PYEOF'
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
         import sys, sqlite3
         db = sys.argv[1]
         con = sqlite3.connect(db)
@@ -127,7 +138,7 @@ jobs:
 
         echo ""
         echo "=== ERROR PATTERNS IN ASSISTANT MESSAGES (last 7 days) ==="
-        sudo -u ubuntu "$VENV/bin/python3" - "$DB" << 'PYEOF'
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
         import sys, sqlite3
         from collections import Counter
         db = sys.argv[1]
@@ -162,7 +173,7 @@ jobs:
 
         echo ""
         echo "=== OVERALL USAGE (last 7 days) ==="
-        sudo -u ubuntu "$VENV/bin/python3" - "$DB" << 'PYEOF'
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
         import sys, sqlite3
         db = sys.argv[1]
         con = sqlite3.connect(db)
