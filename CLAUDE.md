@@ -427,26 +427,43 @@ layer on top that reads real files and applies the file-level exemption list.
 
 ## Concurrency Model: the shared `agent` singleton
 
-**The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
-1000`) does not match what's actually deployed.** Confirmed 2026-07-30 via the
-live instance's systemd unit (`devops-agent.service`) and its own startup log
-(`Using worker: sync`): production actually runs **3 plain sync workers**
-(`--workers 3`, no `--worker-class` — gunicorn's default), each a separate OS
-process with its own memory space, so `app.py`'s global `agent` is really 3
-independent per-process singletons, not one instance shared across every
-concurrent request. A sync worker fully blocks on one request at a time, so
-there's no within-process greenlet-interleaving race to begin with under this
-config — reconcile the Procfile with reality at some point (see
-CLAUDE_RUNBOOK.md's 524 incident entry), but don't assume it's live without
-checking `systemctl cat devops-agent` / the gunicorn startup log first.
+**As of `db495f8` (2026-08-15, the chat-keepalive fix, PR #141), `devops-agent.service`
+runs `--worker-class gthread --workers 3 --threads 8`** — real OS-thread concurrency
+within each of the 3 processes, up to 8 requests interleaving in one process's memory
+at once. This is a genuine change from the config this section previously documented
+(3 plain sync workers, one request at a time per process, confirmed live 2026-07-30)
+and it was **not called out in that PR's own CLAUDE.md diff** — found by a 2026-08-22
+scheduled audit reading the committed `devops-agent.service` diff directly, not the
+commit message. The switch is very likely intentional and correct: `/api/chat`'s
+keep-alive now holds a connection open for up to `CHAT_MAX_TURN_SECONDS` (840s) per
+turn, and a sync worker would have starved the whole pool on the 4th-plus concurrent
+long-running chat. But it means the "no within-process race" reasoning this section
+used to rely on **no longer holds** — real threads within one process can now
+genuinely interleave on shared state, not just across the 3 processes as before.
 
-The rest of this section (the `_greenlet_local_property` fix) remains correct
-and worth keeping regardless of which worker class ends up running: it
-correctly isolates per-request state whether the mechanism is genuine
-greenlet-local storage (gevent) or simple thread/process-local storage (sync),
-so it's not wasted effort even though the original race it was built for
-assumed gevent specifically. The description below documents the gevent
-scenario the fix was originally designed against.
+The `_greenlet_local_property` mechanism below is unaffected and remains correct:
+`threading.local()` isolates real OS threads exactly as well as it isolated
+gevent-patched ones, so every property listed below is still safely per-request.
+**What is NOT yet audited against this newly-real concurrency is other module-level
+mutable state that was previously "safe by accident"** because only cross-process
+(never cross-thread) interleaving was possible. Known candidates flagged by the
+2026-08-22 audit, not yet fixed:
+- `app.py`'s module-level `download_storage = {}` dict — writes to distinct
+  per-turn keys are fine under the GIL, but this is worth a second look if any code
+  path ever does a read-modify-write on it.
+- `services/model_failover.py`'s module-level `PROVIDER_HEALTH` dict — `status['failures'] += 1`
+  and similar are non-atomic read-modify-write ops on shared dict values; two
+  concurrent failures on the same provider can now genuinely race within one process
+  and undercount failures. Low severity (delays failover detection, not a security issue).
+- `services/credit_service.py`'s `CreditService.deduct()` — plain read-then-write on
+  `UserSubscription.credits_remaining` with no row lock (`with_for_update()`); two
+  overlapping turns for the same user can now race intra-process, not just
+  inter-process as before. Worth a locked/atomic update if this becomes a real
+  revenue-accuracy issue.
+
+None of these are known to be exploitable for privilege escalation or cross-user data
+exposure — they're accuracy/reliability races, not the class of bug the `agent`
+singleton fix below addresses. Treat this as a follow-up audit item, not an incident.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in
