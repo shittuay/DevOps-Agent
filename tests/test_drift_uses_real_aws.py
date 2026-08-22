@@ -165,6 +165,58 @@ def test_s3_bucket_state_read_from_aws(app, db_session, test_user, monkeypatch):
     assert drifted['versioning'] == (True, False)
 
 
+def test_s3_read_denial_fails_the_scan_instead_of_reporting_disabled(
+    app, db_session, test_user, monkeypatch
+):
+    """An AccessDenied on get_bucket_versioning must abort the scan, not be
+    silently read as 'versioning disabled' — that would fabricate a drift
+    finding out of an account the scan literally could not read. Regression
+    for `_quiet()` in `_fetch_s3_bucket` swallowing every ClientError instead
+    of only the specific 'never configured' codes."""
+    service = DriftDetectionService()
+    service.add_baseline(test_user.id, BaselineResource(
+        resource_type=ResourceType.S3_BUCKET,
+        resource_id='locked-bucket',
+        resource_name='locked-bucket',
+        expected_config={'versioning': True},
+    ))
+    patch_boto(monkeypatch, {'s3': FakeS3({'locked-bucket': {
+        'deny_versioning': True,
+    }})})
+
+    with pytest.raises(DriftScanError):
+        service.scan_for_drift(test_user.id)
+
+
+def test_terraform_import_skips_unsupported_resource_types(app, db_session, test_user):
+    """Importing a resource type with no live fetcher (e.g. aws_vpc) must not
+    create a baseline for it — `_get_actual_state` has no fetcher for it, so a
+    scan would raise DriftScanError the moment it reached that one baseline
+    and abort the ENTIRE scan, including every supported resource in the same
+    account. Regression for `_map_terraform_type` previously mapping types
+    `_get_actual_state` can't actually read."""
+    service = DriftDetectionService()
+    service.import_terraform_state(test_user.id, {
+        'resources': [
+            {
+                'type': 'aws_vpc',
+                'name': 'main',
+                'instances': [{'attributes': {'id': 'vpc-unsupported'}}],
+            },
+            {
+                'type': 'aws_instance',
+                'name': 'web',
+                'instances': [{'attributes': {'id': 'i-supported', 'instance_type': 't3.small'}}],
+            },
+        ],
+    })
+
+    baselines = service.get_baselines(test_user.id)
+    resource_ids = {b.resource_id for b in baselines}
+    assert 'vpc-unsupported' not in resource_ids
+    assert 'i-supported' in resource_ids
+
+
 def test_no_hardcoded_sample_resources_remain_in_source():
     """The sample baselines and canned state that produced the fictional report."""
     from pathlib import Path
