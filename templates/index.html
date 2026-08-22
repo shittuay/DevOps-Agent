@@ -2605,13 +2605,22 @@
         // chat (?wf_exec=<id>). Without this the row sits at 'running' until the
         // server-side staleness sweep reclassifies it 30 minutes later.
         function markWorkflowExecution(status) {
-            const execId = new URLSearchParams(window.location.search).get('wf_exec');
+            const url = new URL(window.location.href);
+            const execId = url.searchParams.get('wf_exec');
             if (!execId) return;
             fetch(`/api/workflows/executions/${execId}`, {
                 method: 'PATCH',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({status}),
             }).catch(() => {});
+            // Terminal states end this execution's lifecycle in this tab — strip
+            // wf_exec from the URL so any later, unrelated message sent in this
+            // same conversation doesn't re-read it and re-fire this PATCH,
+            // overwriting completed_at with that unrelated turn's timestamp.
+            if (status === 'completed' || status === 'failed') {
+                url.searchParams.delete('wf_exec');
+                window.history.replaceState({}, '', url.pathname + url.search);
+            }
         }
 
         async function sendMessage() {
@@ -2788,14 +2797,7 @@
                             if (_inp) { _inp.disabled = true; _inp.placeholder = 'Trial ended — upgrade to continue'; }
                             if (_btn) _btn.disabled = true;
                         }
-                        const _wfExec = new URLSearchParams(window.location.search).get('wf_exec');
-                        if (_wfExec) {
-                            fetch(`/api/workflows/executions/${_wfExec}`, {
-                                method: 'PATCH',
-                                headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({status: 'completed'}),
-                            }).catch(() => {});
-                        }
+                        markWorkflowExecution('completed');
                         if (fullText.trim()) {
                             const actionsRow = document.createElement('div');
                             actionsRow.className = 'message-actions';
@@ -2945,15 +2947,7 @@
                                     updateCreditsDisplay(evt.credits_remaining);
                                 }
                                 // Update workflow execution status if this chat was started by a workflow
-                                const _wfExec = new URLSearchParams(window.location.search).get('wf_exec');
-                                if (_wfExec) {
-                                    const _wfStatus = evt.error ? 'failed' : 'completed';
-                                    fetch(`/api/workflows/executions/${_wfExec}`, {
-                                        method: 'PATCH',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({status: _wfStatus}),
-                                    }).catch(() => {});
-                                }
+                                markWorkflowExecution(evt.error ? 'failed' : 'completed');
                                 if (evt.trial_ended) {
                                     const ctaDiv = document.createElement('div');
                                     ctaDiv.className = 'trial-ended-banner';
@@ -4000,11 +3994,7 @@
                 const input = document.getElementById('messageInput');
                 if (!input) return;
 
-                fetch(`/api/workflows/executions/${wfExec}`, {
-                    method: 'PATCH',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({status: 'running'}),
-                }).catch(() => {});
+                markWorkflowExecution('running');
 
                 input.value = prompt;
                 setTimeout(() => sendMessage(), 400);

@@ -1324,6 +1324,135 @@ the pre-fix source.
 instance via SSM to create the two missing `drift_baselines`/`drift_reports`
 tables so drift detection worked without waiting for a deploy.
 
+## Scheduled audit: seed_lock premature release + drift-dashboard self-XSS + stale `wf_exec` param (2026-08-18)
+
+A routine scheduled review (four parallel agents, scoped to everything changed
+since the 2026-08-11 audit: `git diff 07d87b7...db495f8`, covering drift
+detection, pre-built workflows, `app.py`'s chat-keepalive threading rework,
+and conversation-delete/model-router/schema-migration) found the drift and
+workflow IDOR/SSRF/guardrail surfaces clean, and turned up four real bugs.
+One of the four — `api/v1/conversations.py`'s and `app.py`'s
+`delete_conversation()` deleting `ChatMessage` rows before `ChatArtifact`
+rows, which FKs into `chat_messages.id` with no `ondelete` rule and raises
+`ForeignKeyViolation` on Postgres — was independently found and fixed by a
+concurrent scheduled session first (merged 2026-08-20, see that entry below);
+this session's branch had the same fix queued but rebased onto the
+already-merged version rather than duplicating it. The other three were novel
+and are fixed here:
+
+1. **`services/ai_infrastructure.py`'s `_get_or_create_system_user()` called
+   `db.session.commit()` from inside `seed_public_templates()`'s
+   `seed_lock()` block, releasing the Postgres advisory lock early.**
+   `seed_lock()` (`services/seed_lock.py`) takes `pg_advisory_xact_lock`,
+   which is transaction-scoped and releases on the *next* commit or rollback
+   — not on `seed_lock()`'s own commit specifically. `_get_or_create_system_user()`,
+   called from inside the lock when a fresh DB has no system user yet, did its
+   own intermediate commit to persist the new user, which released the
+   advisory lock immediately — before the template rows were even added, let
+   alone committed. From that point on, the remaining check-then-insert ran
+   completely unprotected, reopening the exact concurrent double-seed race
+   (multiple gunicorn workers each inserting the full catalog — the failure
+   mode `seed_lock` exists to close, see the 2026-08-12 "Serialize catalog
+   seeding" entry) on precisely the case that matters most: first-ever deploy
+   against a fresh database, when every worker needs to create the system
+   user simultaneously. Fixed by changing `db.session.commit()` to
+   `db.session.flush()` — `user.id` is still populated for the caller within
+   the same still-open transaction, and `seed_lock()`'s own commit at the end
+   persists the user and the templates atomically together. **Any helper
+   called from inside a `seed_lock()` block must not commit** — flush if it
+   needs an id back, and let the lock's own commit be the only one in the
+   block.
+
+2. **`templates/drift/dashboard.html`'s baseline-delete button had a
+   self-XSS primitive via `resource_id`.** The button used
+   `onclick="deleteBaseline('{{ baseline.resource_type.value }}',
+   '{{ baseline.resource_id }}')"` — Jinja's HTML-attribute autoescaping
+   encodes a literal `'` to `&#39;`, but the browser HTML-decodes an attribute
+   value *before* the JS parser sees it, so `&#39;` becomes a real `'` at
+   JS-string-parse time. HTML-escaping does not neutralize a JS-string-context
+   breakout inside an inline event handler. `resource_id` is attacker-
+   controllable: `import_terraform_state` (`services/drift_detection.py`,
+   reachable via `POST /drift/api/import/terraform`) sets it straight from a
+   user-uploaded Terraform state JSON's `id`/`arn` field with no validation,
+   and the manual `POST /drift/api/baselines` endpoint accepts it directly
+   from the request body. A `resource_id` like `x'); alert(document.cookie);
+   //` stored as a baseline executes as JS the next time the user's own
+   dashboard renders it. Baselines are strictly `user_id`-scoped and both
+   creation endpoints require the `approver` role, so impact is self-XSS
+   only — but it's a real injection primitive, and the pattern (raw
+   interpolation into an inline `onclick=""` string) is one other pages could
+   copy. Fixed by switching to `data-resource-type`/`data-resource-id`
+   attributes (a plain HTML-attribute context, where Jinja's escaping is
+   sufficient) plus a delegated `addEventListener` — no code change needed at
+   the call site itself. **Any Jinja value interpolated into an inline
+   `onclick="..."` (or other JS-string-context HTML attribute) needs
+   `data-*` + `addEventListener`, not `|escape` — HTML escaping alone doesn't
+   close this class of injection.**
+
+3. **`templates/index.html`'s workflow-completion tracking (`?wf_exec=<id>`)
+   never cleared the URL param, so any later unrelated message in the same
+   chat tab silently corrupted a finished workflow execution's status.**
+   `markWorkflowExecution(status)` and two duplicated inline PATCH blocks (the
+   Kimi-path success handler and the SSE `done` handler) all read `wf_exec`
+   fresh from `window.location.search` on every call — unlike the `starter`
+   param, which strips itself via `history.replaceState` after firing once.
+   Because the param was never removed, sending a second, ordinary chat
+   message in that same tab/conversation re-fired `PATCH
+   /api/workflows/executions/<wf_exec>` with whatever terminal status that
+   *new* turn produced, overwriting the original run's `completed_at`/status
+   on `/workflows`' "Recent Executions" list with the unrelated turn's
+   outcome. Not cross-user (the PATCH endpoint is still `user_id`-scoped) —
+   a data-corruption bug, not a security one. Fixed by having
+   `markWorkflowExecution()` strip `wf_exec` from the URL via
+   `history.replaceState` once it fires a terminal (`completed`/`failed`)
+   status, and replacing the two duplicated inline PATCH blocks (plus the
+   initial dispatch PATCH) with calls to the shared helper, closing a
+   duplication gap the same audit flagged.
+
+**Findings left open for a follow-up pass, not fixed here** (each is either a
+larger architectural call or needs a human decision, matching this repo's
+convention of not unilaterally changing behavior a scheduled pass wasn't
+asked to own):
+- `/api/chat` (unlike its `/api/chat/stream` sibling) has no in-flight/
+  duplicate-submission lock per conversation — two concurrent POSTs (two
+  tabs/devices, a client retry while a turn is still alive) can each
+  independently call `_finalize_turn()` and double-deduct credits. This diff's
+  own change (turns now legitimately run up to `CHAT_MAX_TURN_SECONDS`=840s
+  with only a spinner visible) makes the window more likely to be hit than
+  before.
+- `devops-agent.service`'s worker model changed to `--worker-class gthread
+  --workers 3 --threads 8` in the same commit that reworked the keepalive —
+  real intra-process thread concurrency is now live, which CLAUDE.md's
+  "Concurrency Model" section (still describing plain `--workers 3` sync
+  workers with no within-process race) doesn't reflect, and which raises the
+  odds of the pre-existing unlocked `CreditService.deduct`/
+  `UserSubscription.use_credit()` read-modify-write (no `SELECT ... FOR
+  UPDATE`, `services/credit_service.py`/`models.py`) actually losing a credit
+  decrement under load.
+- `Procfile`'s `--timeout 120` vs. the new `CHAT_MAX_TURN_SECONDS` default of
+  840s — the Procfile's own comment argues gevent's heartbeat-based timeout
+  model (not a hard per-request kill, given gunicorn's gevent worker
+  monkey-patches `threading`) makes this safe, and CLAUDE.md already
+  documents the Procfile as not matching what's actually deployed (real prod
+  runs `devops-agent.service`, not the Procfile) — flagged rather than
+  changed since verifying the gevent heartbeat semantics needs runtime
+  confirmation, not a code-reading pass.
+- `app.py`'s `_finalize_turn()`: the code after `db.session.commit()`
+  (download-token lookup, final balance/response-data build) isn't
+  exception-guarded, so a failure there reports the whole turn as failed to
+  the client even though it already succeeded and was already charged —
+  inviting a duplicate paid retry.
+- `services/drift_detection.py`: `capture_baselines_from_account` commits
+  once per resource (no batching), so a mid-scan failure (e.g. RDS
+  permission denied after EC2/security-group succeeded) leaves those earlier
+  baselines committed while the route reports the whole capture as failed,
+  with no indication to the user that partial state was written. Also,
+  `_apply_security_rules`'s `security_drifts = []` is dead — it only mutates
+  existing `DriftItem` objects in place and is never appended to, so
+  `drift_items.extend(security_drifts)` extends by nothing; pre-existing, not
+  touched by the diff that prompted this audit, but the name/return type
+  actively suggest it generates new findings, which it doesn't.
+
 ## Scheduled audit: GCP generic-API tools bypassed the fail-closed credential contract (FIXED 2026-08-21)
 
 Routine security/code-quality review covering the code merged since the last

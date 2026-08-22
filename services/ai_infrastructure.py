@@ -741,7 +741,16 @@ SYSTEM_TEMPLATE_OWNER_EMAIL = 'system@devopsagent.io'
 
 
 def _get_or_create_system_user():
-    """Owner for public starter templates (user_id is NOT NULL on the model)."""
+    """Owner for public starter templates (user_id is NOT NULL on the model).
+
+    Only ever called from inside seed_public_templates()'s seed_lock() block.
+    Must NOT commit: the Postgres advisory lock seed_lock() takes is
+    transaction-scoped (pg_advisory_xact_lock), so a commit here would release
+    it before the template rows are inserted, reopening the exact concurrent
+    double-seed race the lock exists to close. flush() instead, so `user.id`
+    is populated and visible within the same still-open transaction; the
+    caller's seed_lock() commits everything together at the end.
+    """
     from models import db, User
     user = User.query.filter_by(email=SYSTEM_TEMPLATE_OWNER_EMAIL).first()
     if user:
@@ -757,7 +766,7 @@ def _get_or_create_system_user():
     if hasattr(user, 'email_verified'):
         user.email_verified = True
     db.session.add(user)
-    db.session.commit()
+    db.session.flush()
     return user
 
 
