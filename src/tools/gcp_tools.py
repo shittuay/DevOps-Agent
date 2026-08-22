@@ -1790,6 +1790,8 @@ def gcp_api_read(
     try:
         from googleapiclient import discovery as gcp_discovery
         credentials, project_id = _get_user_gcp_credentials()
+        if not credentials:
+            return {'success': False, 'error': 'GCP credentials not configured. Please configure your GCP credentials in Settings.'}
         service = gcp_discovery.build(api_name, api_version, credentials=credentials)
         # Navigate dot-separated resource path: "projects.locations.functions" → service.projects().locations().functions()
         obj = service
@@ -1825,6 +1827,8 @@ def gcp_api_write(
     try:
         from googleapiclient import discovery as gcp_discovery
         credentials, project_id = _get_user_gcp_credentials()
+        if not credentials:
+            return {'success': False, 'error': 'GCP credentials not configured. Please configure your GCP credentials in Settings.'}
         service = gcp_discovery.build(api_name, api_version, credentials=credentials)
         obj = service
         for part in resource_path.split('.'):

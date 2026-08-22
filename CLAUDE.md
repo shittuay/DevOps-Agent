@@ -269,7 +269,7 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 `abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`, `register_targets`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -278,7 +278,12 @@ prefix isn't in the auto-detect list either); `ansible_vault_encrypt` joins its 
 `register_targets` joins its sibling `deregister_targets` (already auto-detected via the
 `deregister_` prefix) — it can redirect live production traffic to an arbitrary instance/IP via a
 load-balancer target group, but `register_` isn't an auto-detect prefix, so it defaulted to low
-risk until the 2026-08-08 scheduled audit caught the asymmetry.
+risk until the 2026-08-08 scheduled audit caught the asymmetry. `pagerduty_create_incident` and
+`opsgenie_create_alert` joined their already-medium `pagerduty_update_incident`/
+`opsgenie_acknowledge_alert`/`opsgenie_close_alert`/`opsgenie_escalate_alert` siblings after the
+2026-08-19 scheduled audit — both page a live on-call engineer/team by default (PagerDuty defaults
+`urgency` to `'high'`; OpsGenie's `create_alert` accepts a `responders` list), same
+`provider_verb_noun` shape that defeats prefix auto-detection as the other alerting gaps above.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -322,7 +327,15 @@ ipaddress/socket logic; `services/notification_service.py`'s `SlackClient`/`Team
 `app.py`'s `test_notification_channel` route were fixed to use it too (2026-07-25 — they were
 still using plain `assert_safe_url`/its default `safe_request()` validator, which let a
 user-configured Slack/Teams webhook or notification-channel-test URL reach RFC1918 addresses
-inside the app's own network — see CLAUDE_RUNBOOK.md). For clients that don't go through `requests` at all, disable redirects at that client's
+inside the app's own network — see CLAUDE_RUNBOOK.md). `app.py`'s `_validate_webhook_url()` (the
+creation-time check on `POST /api/notification-channels`, distinct from the `test_notification_channel`
+route above) had the same gap independently: it reimplemented its own SSRF check with
+`socket.gethostbyname()` (single IPv4 record only — misses IPv6/multi-record hosts) and
+`except (gaierror, ValueError): pass` — **failing open** on DNS resolution failure, the opposite of
+`assert_safe_external_webhook_url()`'s fail-closed `raise UnsafeUrlError`. Found by the 2026-08-19
+scheduled audit and fixed by delegating to `assert_safe_external_webhook_url()` directly instead of
+duplicating the ipaddress/socket logic — same lesson as `api_gateway.py`'s webhook guards above: a
+fix to one copy of duplicated SSRF logic doesn't reach sibling copies on its own. For clients that don't go through `requests` at all, disable redirects at that client's
 own level instead: `cicd_tools._disable_jenkins_redirects()` monkeypatches `python-jenkins`'s
 wrapped session (no `allow_redirects` param exposed by the library); `git_clone_repository` passes
 `multi_options=['-c', 'http.followRedirects=false']` to `Repo.clone_from()` (needs
@@ -396,6 +409,18 @@ same structural gap the SSRF/login-timing checks in `check_security_invariants.p
 close for their own patterns — it is not yet enforced by an automated check,** so don't assume a
 new git tool is safe just because sibling tools in the same file are guarded; verify it directly.
 
+**2026-08-12 follow-up — same gap, two more functions.** A scheduled audit found two functions
+that predate the fix above and were never covered: `git_add_remote`'s `name` (`repo.create_remote(name,
+url)` — a value like `name="-f"` is parsed by `git remote add` as an option instead of a literal
+remote name, triggering an implicit fetch from the caller-controlled URL immediately on add,
+before any confirmation step assumes data has been pulled) and `git_show_commit`'s `commit_sha`
+(`repo.commit(commit_sha)` — GitPython's rev-parse can fall through to the `git` binary for specs
+it can't resolve locally, the same dash-prefixed-positional ambiguity `_reject_flag_like`'s
+docstring warns about; its sibling `git_show_file_at_commit` already guarded the identical
+parameter). Both now call `_reject_flag_like()` and are classified medium-risk in `safety.py`.
+**Confirms the "not yet enforced by an automated check" gap above is real, not theoretical** — a
+security-focused audit still has to walk every bare-positional call site in this file by hand.
+
 ## Security invariants (`scripts/check_security_invariants.py`)
 
 SSRF gaps and login-timing side channels each got found and fixed independently, in a different
@@ -427,26 +452,43 @@ layer on top that reads real files and applies the file-level exemption list.
 
 ## Concurrency Model: the shared `agent` singleton
 
-**The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
-1000`) does not match what's actually deployed.** Confirmed 2026-07-30 via the
-live instance's systemd unit (`devops-agent.service`) and its own startup log
-(`Using worker: sync`): production actually runs **3 plain sync workers**
-(`--workers 3`, no `--worker-class` — gunicorn's default), each a separate OS
-process with its own memory space, so `app.py`'s global `agent` is really 3
-independent per-process singletons, not one instance shared across every
-concurrent request. A sync worker fully blocks on one request at a time, so
-there's no within-process greenlet-interleaving race to begin with under this
-config — reconcile the Procfile with reality at some point (see
-CLAUDE_RUNBOOK.md's 524 incident entry), but don't assume it's live without
-checking `systemctl cat devops-agent` / the gunicorn startup log first.
+**As of `db495f8` (2026-08-15, the chat-keepalive fix, PR #141), `devops-agent.service`
+runs `--worker-class gthread --workers 3 --threads 8`** — real OS-thread concurrency
+within each of the 3 processes, up to 8 requests interleaving in one process's memory
+at once. This is a genuine change from the config this section previously documented
+(3 plain sync workers, one request at a time per process, confirmed live 2026-07-30)
+and it was **not called out in that PR's own CLAUDE.md diff** — found by a 2026-08-22
+scheduled audit reading the committed `devops-agent.service` diff directly, not the
+commit message. The switch is very likely intentional and correct: `/api/chat`'s
+keep-alive now holds a connection open for up to `CHAT_MAX_TURN_SECONDS` (840s) per
+turn, and a sync worker would have starved the whole pool on the 4th-plus concurrent
+long-running chat. But it means the "no within-process race" reasoning this section
+used to rely on **no longer holds** — real threads within one process can now
+genuinely interleave on shared state, not just across the 3 processes as before.
 
-The rest of this section (the `_greenlet_local_property` fix) remains correct
-and worth keeping regardless of which worker class ends up running: it
-correctly isolates per-request state whether the mechanism is genuine
-greenlet-local storage (gevent) or simple thread/process-local storage (sync),
-so it's not wasted effort even though the original race it was built for
-assumed gevent specifically. The description below documents the gevent
-scenario the fix was originally designed against.
+The `_greenlet_local_property` mechanism below is unaffected and remains correct:
+`threading.local()` isolates real OS threads exactly as well as it isolated
+gevent-patched ones, so every property listed below is still safely per-request.
+**What is NOT yet audited against this newly-real concurrency is other module-level
+mutable state that was previously "safe by accident"** because only cross-process
+(never cross-thread) interleaving was possible. Known candidates flagged by the
+2026-08-22 audit, not yet fixed:
+- `app.py`'s module-level `download_storage = {}` dict — writes to distinct
+  per-turn keys are fine under the GIL, but this is worth a second look if any code
+  path ever does a read-modify-write on it.
+- `services/model_failover.py`'s module-level `PROVIDER_HEALTH` dict — `status['failures'] += 1`
+  and similar are non-atomic read-modify-write ops on shared dict values; two
+  concurrent failures on the same provider can now genuinely race within one process
+  and undercount failures. Low severity (delays failover detection, not a security issue).
+- `services/credit_service.py`'s `CreditService.deduct()` — plain read-then-write on
+  `UserSubscription.credits_remaining` with no row lock (`with_for_update()`); two
+  overlapping turns for the same user can now race intra-process, not just
+  inter-process as before. Worth a locked/atomic update if this becomes a real
+  revenue-accuracy issue.
+
+None of these are known to be exploitable for privilege escalation or cross-user data
+exposure — they're accuracy/reliability races, not the class of bug the `agent`
+singleton fix below addresses. Treat this as a follow-up audit item, not an incident.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in
@@ -481,6 +523,17 @@ entirely: `aws_tools._get_boto_client` hard-requires a user context, so an appro
 either failed closed with "Authentication required" or could pick up whatever context a prior
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
+
+**Two more instances of the same gap, found by a 2026-08-15 scheduled audit and fixed the same
+day:** `routes/api_gateway.py`'s `api_execute_tool()` (the `/v1/execute` developer-API direct tool
+endpoint) called `all_tools[tool_name]['handler'](**params)` with no context set at all — same
+fail-closed/stale-context risk as the `approval_service` bug, here on the Professional/Business-tier
+REST API path. `routes/mcp.py`'s `_handle_tools_call()` (the MCP connector's tool-call handler) did
+set context, but only via `aws_tools.set_user_context`/`clear_user_context` directly — AWS-only,
+so an MCP client calling an Azure/GCP/`devops_operations_tools` tool ran with no context for that
+provider. Both fixed by routing through `agent._set_cloud_user_context(user_id)` /
+`agent._clear_cloud_user_context()` (imported via `from app import agent`), the same helper
+`approval_service.py` uses, which covers all four providers.
 
 **`_set_cloud_user_context`/`_clear_cloud_user_context` (`core.py`) must set AND clear every
 provider's thread-local context, not just AWS/Azure/GCP.** `src/tools/devops_operations_tools.py`

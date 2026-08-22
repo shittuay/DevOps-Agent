@@ -227,19 +227,12 @@ def delete_conversation(conversation_id):
 
     # Delete every other row that FKs to this conversation — see app.py's
     # delete_conversation() for why leaving any of these breaks the delete below.
-    # ChatArtifact also FKs to chat_messages.id (message_id), so it must be
-    # deleted before ChatMessage or Postgres raises a ForeignKeyViolation on
-    # any conversation containing an artifact created with message_id set.
+    # ChatArtifact.message_id also FKs to chat_messages.id with no cascade, so
+    # it must be deleted BEFORE the ChatMessage delete below, not after.
     ChatArtifact.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
     ).delete()
-
-    ChatMessage.query.filter_by(
-        conversation_id=conversation_id,
-        user_id=user_id
-    ).delete()
-
     UsageLog.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
@@ -255,6 +248,11 @@ def delete_conversation(conversation_id):
     ApprovalRequest.query.filter_by(
         conversation_id=conversation_id,
         requester_id=user_id
+    ).delete()
+
+    ChatMessage.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
     ).delete()
 
     db.session.delete(conversation)
