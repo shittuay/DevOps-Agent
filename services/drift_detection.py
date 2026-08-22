@@ -227,20 +227,20 @@ class DriftDetectionService:
         logger.info(f"Imported {self.get_baseline_count(user_id)} resources from Terraform state")
 
     def _map_terraform_type(self, tf_type: str) -> Optional[ResourceType]:
-        """Map Terraform resource type to internal type."""
+        """Map Terraform resource type to internal type.
+
+        Only maps types `_get_actual_state` actually has a fetcher for. A
+        baseline for a type with no fetcher makes every future scan of the
+        WHOLE account raise DriftScanError the moment it reaches that one
+        baseline (scan_for_drift has no per-baseline error isolation), so
+        importing an unsupported type must be a no-op (same as an unknown
+        `tf_type` already is below), not a landmine for the next scan.
+        """
         mapping = {
             'aws_instance': ResourceType.EC2_INSTANCE,
             'aws_security_group': ResourceType.EC2_SECURITY_GROUP,
             'aws_s3_bucket': ResourceType.S3_BUCKET,
             'aws_db_instance': ResourceType.RDS_INSTANCE,
-            'aws_iam_role': ResourceType.IAM_ROLE,
-            'aws_iam_policy': ResourceType.IAM_POLICY,
-            'aws_lambda_function': ResourceType.LAMBDA_FUNCTION,
-            'aws_eks_cluster': ResourceType.EKS_CLUSTER,
-            'aws_vpc': ResourceType.VPC,
-            'aws_subnet': ResourceType.SUBNET,
-            'aws_lb': ResourceType.LOAD_BALANCER,
-            'aws_alb': ResourceType.LOAD_BALANCER,
         }
         return mapping.get(tf_type)
 
@@ -434,16 +434,23 @@ class DriftDetectionService:
                 return None
             raise
 
-        def _quiet(fn, default):
-            """Sub-config calls 404 when never configured — that's a real value, not an error."""
+        def _quiet(fn, default, not_configured_codes=()):
+            """Some sub-config calls raise a specific 'never configured' error code —
+            that's a real value (disabled/absent), not an error, so only THOSE codes
+            get swallowed. Anything else (AccessDenied, throttling, ...) means the
+            account couldn't be read and must propagate — an unreadable bucket must
+            never render as a clean/default finding, since that fabricates drift."""
             try:
                 return fn()
-            except ClientError:
-                return default
+            except ClientError as e:
+                if e.response['Error']['Code'] in not_configured_codes:
+                    return default
+                raise
 
-        versioning = _quiet(
-            lambda: s3.get_bucket_versioning(Bucket=resource_id).get('Status') == 'Enabled', False
-        )
+        # get_bucket_versioning never raises for "never enabled" (it just omits
+        # 'Status' from the response), so any ClientError here is a real read
+        # failure and must propagate rather than be swallowed as "disabled".
+        versioning = s3.get_bucket_versioning(Bucket=resource_id).get('Status') == 'Enabled'
         encryption = _quiet(
             lambda: (
                 s3.get_bucket_encryption(Bucket=resource_id)
@@ -451,10 +458,12 @@ class DriftDetectionService:
                 ['ApplyServerSideEncryptionByDefault']['SSEAlgorithm']
             ),
             None,
+            not_configured_codes=('ServerSideEncryptionConfigurationNotFoundError',),
         )
         pab = _quiet(
             lambda: s3.get_public_access_block(Bucket=resource_id)['PublicAccessBlockConfiguration'],
             {},
+            not_configured_codes=('NoSuchPublicAccessBlockConfiguration',),
         )
 
         return {

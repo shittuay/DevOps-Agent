@@ -453,17 +453,20 @@ layer on top that reads real files and applies the file-level exemption list.
 ## Concurrency Model: the shared `agent` singleton
 
 **The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
-1000`) does not match what's actually deployed.** Confirmed 2026-07-30 via the
-live instance's systemd unit (`devops-agent.service`) and its own startup log
-(`Using worker: sync`): production actually runs **3 plain sync workers**
-(`--workers 3`, no `--worker-class` — gunicorn's default), each a separate OS
-process with its own memory space, so `app.py`'s global `agent` is really 3
-independent per-process singletons, not one instance shared across every
-concurrent request. A sync worker fully blocks on one request at a time, so
-there's no within-process greenlet-interleaving race to begin with under this
-config — reconcile the Procfile with reality at some point (see
-CLAUDE_RUNBOOK.md's 524 incident entry), but don't assume it's live without
-checking `systemctl cat devops-agent` / the gunicorn startup log first.
+1000`) does not match what's actually deployed, and what's actually deployed has
+changed since this section was first written.** Confirmed 2026-07-30 via the live
+instance's systemd unit and startup log that production ran 3 plain sync workers
+at the time. As of the Cloudflare-524 keep-alive fix (`devops-agent.service`,
+committed alongside the `/api/chat` background-thread change described below),
+`ExecStart` now runs **`--worker-class gthread --workers 3 --threads 8`** — 3 OS
+processes, each handling up to 8 requests *concurrently on real threads within
+that process*, not one-at-a-time. This reverses the earlier "no within-process
+race" conclusion: a gthread worker genuinely interleaves requests on separate
+Python threads sharing one process's memory, which is exactly the scenario
+`threading.local()`-based isolation (below) is required for — it is not
+optional defense-in-depth under this config, it is load-bearing. Don't assume
+either worker class without checking `systemctl cat devops-agent` / the
+gunicorn startup log first, since this has already drifted once.
 
 The rest of this section (the `_greenlet_local_property` fix) remains correct
 and worth keeping regardless of which worker class ends up running: it

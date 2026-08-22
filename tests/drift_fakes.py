@@ -74,6 +74,10 @@ class FakeS3:
         return {}
 
     def get_bucket_versioning(self, Bucket):
+        if self.buckets[Bucket].get('deny_versioning'):
+            raise ClientError(
+                {'Error': {'Code': 'AccessDenied', 'Message': 'denied'}}, 'GetBucketVersioning'
+            )
         return {'Status': 'Enabled' if self.buckets[Bucket].get('versioning') else 'Suspended'}
 
     def get_bucket_encryption(self, Bucket):
