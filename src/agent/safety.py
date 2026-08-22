@@ -382,6 +382,7 @@ class SafetyValidator:
             'create_pubsub_subscription',
             # Git medium risk
             'git_clone_repository',
+            'git_add_remote',
             'git_switch_branch',
             'git_merge_branch',
             'git_rename_branch',
@@ -391,6 +392,7 @@ class SafetyValidator:
             'git_push',
             'git_cherry_pick',
             'git_push_tag',
+            'git_stash_apply',  # merges stashed changes into the working tree, can conflict/overwrite
             'git_stash_drop',
             'git_revert_commit',
             'git_rebase_branch',
@@ -401,6 +403,7 @@ class SafetyValidator:
             'get_diff',
             'git_diff_stat',
             'git_show_file_at_commit',
+            'git_show_commit',
             'git_blame_file',
             # GitHub PR medium risk
             'github_close_pull_request',
