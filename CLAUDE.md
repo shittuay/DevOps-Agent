@@ -452,31 +452,43 @@ layer on top that reads real files and applies the file-level exemption list.
 
 ## Concurrency Model: the shared `agent` singleton
 
-**The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
-1000`) does not match what's actually deployed, and what's actually deployed has
-changed since this section was first written.** Confirmed 2026-07-30 via the live
-instance's systemd unit and startup log that production ran 3 plain sync workers
-at the time. As of the Cloudflare-524 keep-alive fix (`devops-agent.service`,
-committed alongside the `/api/chat` background-thread change described below),
-`ExecStart` now runs **`--worker-class gthread --workers 3 --threads 8`** — 3 OS
-processes, each handling up to 8 requests *concurrently on real threads within
-that process*, not one-at-a-time. This reverses the earlier "no within-process
-race" conclusion: a gthread worker genuinely interleaves requests on separate
-Python threads sharing one process's memory, which is exactly the scenario
-`threading.local()`-based isolation (below) is required for — it is not
-optional defense-in-depth under this config, it is load-bearing. Don't assume
-either worker class without checking `systemctl cat devops-agent` / the
-gunicorn startup log first, since this has already drifted once.
+**As of `db495f8` (2026-08-15, the chat-keepalive fix, PR #141), `devops-agent.service`
+runs `--worker-class gthread --workers 3 --threads 8`** — real OS-thread concurrency
+within each of the 3 processes, up to 8 requests interleaving in one process's memory
+at once. This is a genuine change from the config this section previously documented
+(3 plain sync workers, one request at a time per process, confirmed live 2026-07-30)
+and it was **not called out in that PR's own CLAUDE.md diff** — found by a 2026-08-22
+scheduled audit reading the committed `devops-agent.service` diff directly, not the
+commit message. The switch is very likely intentional and correct: `/api/chat`'s
+keep-alive now holds a connection open for up to `CHAT_MAX_TURN_SECONDS` (840s) per
+turn, and a sync worker would have starved the whole pool on the 4th-plus concurrent
+long-running chat. But it means the "no within-process race" reasoning this section
+used to rely on **no longer holds** — real threads within one process can now
+genuinely interleave on shared state, not just across the 3 processes as before.
 
-The `_greenlet_local_property`/`threading.local()` isolation described below
-already protects correctly against real OS-thread concurrency, not just
-gevent greenlet interleaving — `threading.local()` is genuinely thread-local
-with or without gevent's monkey-patching — so no code change was needed when
-gthread landed. But treat that isolation as **load-bearing today**, not
-defense-in-depth for a hypothetical future config: any new per-request state
-added as a plain instance attribute instead of a `@property` (see below) is a
-live cross-request leak risk under the current deployment, not just a
-theoretical one.
+The `_greenlet_local_property` mechanism below is unaffected and remains correct:
+`threading.local()` isolates real OS threads exactly as well as it isolated
+gevent-patched ones, so every property listed below is still safely per-request.
+**What is NOT yet audited against this newly-real concurrency is other module-level
+mutable state that was previously "safe by accident"** because only cross-process
+(never cross-thread) interleaving was possible. Known candidates flagged by the
+2026-08-22 audit, not yet fixed:
+- `app.py`'s module-level `download_storage = {}` dict — writes to distinct
+  per-turn keys are fine under the GIL, but this is worth a second look if any code
+  path ever does a read-modify-write on it.
+- `services/model_failover.py`'s module-level `PROVIDER_HEALTH` dict — `status['failures'] += 1`
+  and similar are non-atomic read-modify-write ops on shared dict values; two
+  concurrent failures on the same provider can now genuinely race within one process
+  and undercount failures. Low severity (delays failover detection, not a security issue).
+- `services/credit_service.py`'s `CreditService.deduct()` — plain read-then-write on
+  `UserSubscription.credits_remaining` with no row lock (`with_for_update()`); two
+  overlapping turns for the same user can now race intra-process, not just
+  inter-process as before. Worth a locked/atomic update if this becomes a real
+  revenue-accuracy issue.
+
+None of these are known to be exploitable for privilege escalation or cross-user data
+exposure — they're accuracy/reliability races, not the class of bug the `agent`
+singleton fix below addresses. Treat this as a follow-up audit item, not an incident.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in

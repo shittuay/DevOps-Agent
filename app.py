@@ -3285,12 +3285,12 @@ def api_chat():
                 with app.app_context():
                     _agent_result['response_data'] = _finalize_turn()
             except Exception as finalize_error:
+                # No explicit rollback needed here: shutdown_session()
+                # (teardown_appcontext, below) already rolled back the
+                # session that raised when the `with` block above popped
+                # its context — a fresh app_context() here would only get a
+                # brand-new, already-clean scoped session.
                 logger.error(f"Error finishing chat response: {str(finalize_error)}", exc_info=True)
-                try:
-                    with app.app_context():
-                        db.session.rollback()
-                except Exception:
-                    pass
                 _agent_result['response_data'] = {'error': str(finalize_error)}
 
         import threading
