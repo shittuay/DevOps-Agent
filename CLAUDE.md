@@ -507,6 +507,17 @@ either failed closed with "Authentication required" or could pick up whatever co
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
 
+**Two more instances of the same gap, found by a 2026-08-15 scheduled audit and fixed the same
+day:** `routes/api_gateway.py`'s `api_execute_tool()` (the `/v1/execute` developer-API direct tool
+endpoint) called `all_tools[tool_name]['handler'](**params)` with no context set at all — same
+fail-closed/stale-context risk as the `approval_service` bug, here on the Professional/Business-tier
+REST API path. `routes/mcp.py`'s `_handle_tools_call()` (the MCP connector's tool-call handler) did
+set context, but only via `aws_tools.set_user_context`/`clear_user_context` directly — AWS-only,
+so an MCP client calling an Azure/GCP/`devops_operations_tools` tool ran with no context for that
+provider. Both fixed by routing through `agent._set_cloud_user_context(user_id)` /
+`agent._clear_cloud_user_context()` (imported via `from app import agent`), the same helper
+`approval_service.py` uses, which covers all four providers.
+
 **`_set_cloud_user_context`/`_clear_cloud_user_context` (`core.py`) must set AND clear every
 provider's thread-local context, not just AWS/Azure/GCP.** `src/tools/devops_operations_tools.py`
 (cost analysis, change governance, compliance tools) has the same `threading.local()`
