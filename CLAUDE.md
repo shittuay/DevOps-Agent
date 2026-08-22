@@ -269,7 +269,7 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 `abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`, `register_targets`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -278,7 +278,12 @@ prefix isn't in the auto-detect list either); `ansible_vault_encrypt` joins its 
 `register_targets` joins its sibling `deregister_targets` (already auto-detected via the
 `deregister_` prefix) — it can redirect live production traffic to an arbitrary instance/IP via a
 load-balancer target group, but `register_` isn't an auto-detect prefix, so it defaulted to low
-risk until the 2026-08-08 scheduled audit caught the asymmetry.
+risk until the 2026-08-08 scheduled audit caught the asymmetry. `pagerduty_create_incident` and
+`opsgenie_create_alert` joined their already-medium `pagerduty_update_incident`/
+`opsgenie_acknowledge_alert`/`opsgenie_close_alert`/`opsgenie_escalate_alert` siblings after the
+2026-08-19 scheduled audit — both page a live on-call engineer/team by default (PagerDuty defaults
+`urgency` to `'high'`; OpsGenie's `create_alert` accepts a `responders` list), same
+`provider_verb_noun` shape that defeats prefix auto-detection as the other alerting gaps above.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -322,7 +327,15 @@ ipaddress/socket logic; `services/notification_service.py`'s `SlackClient`/`Team
 `app.py`'s `test_notification_channel` route were fixed to use it too (2026-07-25 — they were
 still using plain `assert_safe_url`/its default `safe_request()` validator, which let a
 user-configured Slack/Teams webhook or notification-channel-test URL reach RFC1918 addresses
-inside the app's own network — see CLAUDE_RUNBOOK.md). For clients that don't go through `requests` at all, disable redirects at that client's
+inside the app's own network — see CLAUDE_RUNBOOK.md). `app.py`'s `_validate_webhook_url()` (the
+creation-time check on `POST /api/notification-channels`, distinct from the `test_notification_channel`
+route above) had the same gap independently: it reimplemented its own SSRF check with
+`socket.gethostbyname()` (single IPv4 record only — misses IPv6/multi-record hosts) and
+`except (gaierror, ValueError): pass` — **failing open** on DNS resolution failure, the opposite of
+`assert_safe_external_webhook_url()`'s fail-closed `raise UnsafeUrlError`. Found by the 2026-08-19
+scheduled audit and fixed by delegating to `assert_safe_external_webhook_url()` directly instead of
+duplicating the ipaddress/socket logic — same lesson as `api_gateway.py`'s webhook guards above: a
+fix to one copy of duplicated SSRF logic doesn't reach sibling copies on its own. For clients that don't go through `requests` at all, disable redirects at that client's
 own level instead: `cicd_tools._disable_jenkins_redirects()` monkeypatches `python-jenkins`'s
 wrapped session (no `allow_redirects` param exposed by the library); `git_clone_repository` passes
 `multi_options=['-c', 'http.followRedirects=false']` to `Repo.clone_from()` (needs

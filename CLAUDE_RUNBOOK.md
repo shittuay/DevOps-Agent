@@ -1320,3 +1320,50 @@ the pre-fix source.
 **Immediate unblock (same day):** manually ran `db.create_all()` on the EC2
 instance via SSM to create the two missing `drift_baselines`/`drift_reports`
 tables so drift detection worked without waiting for a deploy.
+
+## Scheduled audit: two unclassified alerting tools, an unbounded region-scan helper, and a fail-open webhook SSRF check (2026-08-19)
+
+Parallel sweep across the codebase's known risk classes: safety.py risk-classification coverage
+(all 742 registered tools), SSRF/login-timing invariant coverage, per-user data isolation (IDOR),
+git argument-injection guard coverage, and code duplication. Three real, independently-confirmed
+findings, fixed; everything else checked out clean (see below for what was verified with no gaps
+found).
+
+1. **`pagerduty_create_incident` / `opsgenie_create_alert` defaulted to low risk** (no confirmation
+   prompt) — the same `provider_verb_noun` gap shape documented for `pagerduty_update_incident` /
+   `opsgenie_acknowledge_alert` / `opsgenie_close_alert` / `opsgenie_escalate_alert` above, which
+   auto-detection's prefix matching doesn't catch. Both tools can page a live on-call engineer or
+   team (PagerDuty defaults `urgency` to `'high'`; OpsGenie's `create_alert` takes a `responders`
+   list) with zero human-in-the-loop confirmation. Fixed by adding both to `medium_risk_tools` in
+   `src/agent/safety.py`, alongside their already-medium siblings.
+
+2. **`aws_tools._parallel_region_scan()` — the shared helper backing 10 all-region scan tools
+   (DynamoDB, ElastiCache, API Gateway, Elastic Beanstalk, Lambda, RDS, ECS, EKS, and 2 EC2
+   variants) — lost the 25-second `as_completed(..., timeout=25)` bound that the original,
+   pre-refactor `list_ec2_all_regions()` still has.** It plain-iterated `for future in futures:
+   future.result()` with no timeout, so a single stalled regional API endpoint blocks the entire
+   tool call indefinitely — directly collides with this file's documented Cloudflare ~100s
+   idle-connection timeout problem (a hang here reads to the user exactly like the 524 incident
+   above). Fixed by adding the same `as_completed(futures, timeout=25)` back; every caller already
+   wraps the call in `try/except Exception`, so a `TimeoutError` surfaces as a normal
+   `{'success': False, 'error': ...}` response, same as any other failure. This is the duplication
+   pattern CLAUDE.md warns about generally: a later "cleanup" that consolidated 10 near-identical
+   functions into one shared helper silently dropped a safety property one of the originals had.
+
+3. **`app.py`'s `_validate_webhook_url()` (the creation-time check on `POST
+   /api/notification-channels`) reimplemented its own weaker, fail-open SSRF check** instead of
+   using `assert_safe_external_webhook_url()` — see the SSRF section of CLAUDE.md for the fix
+   (delegates to the shared helper now). This is the same "fix landed in one copy, not its
+   siblings" pattern the notification_service.py / `test_notification_channel` fixes on
+   2026-07-25 were for; this call site was simply missed by that earlier pass.
+
+**Checked and found clean (no changes needed):** all raw `requests.*` call sites (38, all carrying
+verified `# ssrf-safe:` exemptions or already routed through `safe_request()`); all `.check_password(`
+call sites (all in `routes/auth.py` or `tests/`); all four chat-to-agent entry points still run the
+full `sanitize_input → is_guardrail_blocked → validate_message → screen_message` chain; every
+`git_tools.py` function passing a caller-supplied ref/branch/pattern positionally to `repo.git.*`
+still calls `_reject_flag_like()` (functions without the call were checked individually and are
+structurally safe — value embedded in a `--flag=`, or placed after a literal `--` separator); no
+new IDOR-class gap in `services/compliance_service.py`, `multi_tenancy.py`, `approval_service.py`,
+or any other user/org-scoped service — the getters fixed in the 2026-07-27/08-01 entries above
+still filter correctly, and no newly-added getter repeats the pattern.
