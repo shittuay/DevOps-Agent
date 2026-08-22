@@ -10,9 +10,16 @@
       "Bash(git commit:*)",
       "Bash(python -m pytest:*)",
       "Bash(aws sts get-caller-identity *)",
-      "Bash(aws s3api create-bucket *)"
+      "Bash(aws s3api create-bucket *)",
+      "Bash(gh auth *)",
+      "Bash(gh pr *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enabledMcpjsonServers": [
+    "playwright"
+  ]
 }

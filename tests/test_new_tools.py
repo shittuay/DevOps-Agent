@@ -347,6 +347,11 @@ class TestSafetyClassifications:
     def test_opsgenie_escalate_alert_is_medium_risk(self):
         assert self._classify('opsgenie_escalate_alert') == 'medium'
 
+    # --- medium-risk: Git (merges stashed changes into the working tree,
+    # can conflict/overwrite — same risk class as git_merge_branch/git_cherry_pick) ---
+    def test_git_stash_apply_is_medium_risk(self):
+        assert self._classify('git_stash_apply') == 'medium'
+
     # --- production escalation ---
     def test_high_risk_on_production_escalates_to_critical(self):
         from src.agent.safety import SafetyValidator

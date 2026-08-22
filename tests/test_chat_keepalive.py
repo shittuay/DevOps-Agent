@@ -153,3 +153,160 @@ def test_successful_chat_still_deducts_credit_and_saves_message(app, chatting_cl
         user_id=test_user.id, role='assistant', content='A response to save.'
     ).first()
     assert saved is not None
+
+
+# ---------------------------------------------------------------------------
+# Turn-deadline + worker-thread finalization (2026-08-13)
+#
+# The keep-alive above commits a 200 to the client with its first whitespace
+# byte, long before the JSON body exists. So when a turn outlived gunicorn's
+# --timeout the arbiter killed the worker and the browser was left with a 200
+# whose body was nothing but whitespace — surfacing as a bare
+# "Unexpected end of JSON input". Two changes close that:
+#   * the view stops waiting at CHAT_MAX_TURN_SECONDS and emits a real JSON
+#     body, so the client always gets something parseable; and
+#   * the turn is recorded by the worker thread rather than the request
+#     generator, so a response cut short never loses work whose tools already
+#     changed real cloud infrastructure.
+# The second change also fixes tool attribution: last_tools_used /
+# pending_download are threading.local()-backed, so the request thread could
+# only ever see its own empty defaults.
+# ---------------------------------------------------------------------------
+
+def _thread_local_agent(process_message_isolated):
+    """A fake agent whose per-request state is genuinely thread-local.
+
+    MagicMock attributes are plain shared values, which cannot reproduce the
+    bug these tests cover — src/agent/core.py backs `last_tools_used` and
+    `pending_download` with threading.local() (_greenlet_local_property), so
+    only the thread that ran the turn can read what the turn set.
+    """
+    import threading as _threading
+
+    class _FakeAgent:
+        def __init__(self):
+            self.tool_definitions = []
+            self._local = _threading.local()
+
+        @property
+        def last_tools_used(self):
+            return getattr(self._local, 'tools', [])
+
+        @property
+        def pending_download(self):
+            return getattr(self._local, 'download', None)
+
+        @pending_download.setter
+        def pending_download(self, value):
+            self._local.download = value
+
+        def process_message_isolated(self, **kwargs):
+            return process_message_isolated(self, **kwargs)
+
+    return _FakeAgent()
+
+
+def test_turn_exceeding_deadline_returns_parseable_json_not_a_truncated_body(app, chatting_client):
+    def _very_slow(**kwargs):
+        time.sleep(1.5)
+        return "Finished eventually."
+
+    agent = _mock_agent(_very_slow)
+
+    with patch('app.agent', agent), \
+         patch('app.CHAT_KEEPALIVE_INTERVAL_SECONDS', 0.05), \
+         patch('app.CHAT_MAX_TURN_SECONDS', 0.1), \
+         patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
+        resp = chatting_client.post('/api/chat', json={'message': 'run a very long workflow'})
+        assert resp.status_code == 200
+        raw = resp.get_data(as_text=True)
+
+    # The whole point: whatever happens, the body parses. Before the deadline
+    # existed this was whitespace only and json.loads raised.
+    data = json.loads(raw)
+    assert data['still_running'] is True
+    assert data['response'], "the early return must still carry an explanation for the user"
+
+
+def test_turn_is_still_persisted_when_the_deadline_closes_the_response(app, chatting_client, test_user):
+    """The response ending early must not discard the turn — its tools may
+    already have created real infrastructure."""
+    from models import ChatMessage
+
+    def _very_slow(**kwargs):
+        time.sleep(0.8)
+        return "Late but real answer."
+
+    agent = _mock_agent(_very_slow)
+
+    with patch('app.agent', agent), \
+         patch('app.CHAT_KEEPALIVE_INTERVAL_SECONDS', 0.05), \
+         patch('app.CHAT_MAX_TURN_SECONDS', 0.1), \
+         patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
+        resp = chatting_client.post('/api/chat', json={'message': 'run a very long workflow'})
+        assert json.loads(resp.get_data(as_text=True))['still_running'] is True
+
+        # The worker thread is still running; it persists the turn on its own.
+        deadline = time.monotonic() + 10
+        saved = None
+        while time.monotonic() < deadline:
+            saved = ChatMessage.query.filter_by(
+                user_id=test_user.id, role='assistant', content='Late but real answer.'
+            ).first()
+            if saved is not None:
+                break
+            time.sleep(0.05)
+
+    assert saved is not None, (
+        "the agent turn finished after the response closed and was never recorded"
+    )
+
+
+def test_tools_used_are_attributed_to_the_usage_log(app, chatting_client, test_user):
+    """last_tools_used is thread-local: read from the request thread it is
+    always empty, which silently logged every /api/chat turn as a plain
+    agent_message with no tool name."""
+    from models import UsageLog
+
+    def _process(self, **kwargs):
+        self._local.tools = ['run_instances', 'create_security_group']
+        return "Launched an instance."
+
+    agent = _thread_local_agent(_process)
+
+    with patch('app.agent', agent), \
+         patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
+        resp = chatting_client.post('/api/chat', json={'message': 'launch an ec2 instance'})
+        assert resp.status_code == 200
+        assert resp.get_json()['response'] == "Launched an instance."
+
+    logs = UsageLog.query.filter_by(user_id=test_user.id).all()
+    tool_names = {log.tool_name for log in logs}
+    assert 'run_instances' in tool_names, (
+        f"tool attribution lost — usage logs recorded {tool_names}"
+    )
+    assert any(log.action_type == 'tool_use' for log in logs)
+
+
+def test_pending_download_from_the_worker_thread_reaches_the_client(app, chatting_client):
+    """pending_download is thread-local too — a generated keypair set during
+    the turn was invisible to the request thread, so the download link was
+    silently dropped."""
+    def _process(self, **kwargs):
+        self.pending_download = {
+            'filename': 'my-key.pem',
+            'content': 'PRIVATE KEY',
+            'content_type': 'application/x-pem-file',
+        }
+        return "Created a keypair."
+
+    agent = _thread_local_agent(_process)
+
+    with patch('app.agent', agent), \
+         patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
+        resp = chatting_client.post('/api/chat', json={'message': 'create a keypair'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+    assert data.get('download_filename') == 'my-key.pem'
+    assert data.get('download_url', '').startswith('/api/download/')

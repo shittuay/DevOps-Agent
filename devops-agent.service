@@ -9,9 +9,25 @@ Group=ubuntu
 WorkingDirectory=/var/www/devops-agent
 Environment="PATH=/var/www/devops-agent/venv/bin"
 EnvironmentFile=/var/www/devops-agent/.env
-ExecStart=/var/www/devops-agent/venv/bin/gunicorn --workers 4 --bind 127.0.0.1:8000 --timeout 300 app:app
+ExecStart=/var/www/devops-agent/venv/bin/gunicorn \
+  --worker-class gthread \
+  --workers 3 \
+  --threads 8 \
+  --bind 127.0.0.1:8000 \
+  --timeout 900 \
+  --graceful-timeout 300 \
+  --keep-alive 5 \
+  --log-level info \
+  --access-logfile /var/log/devops-agent-access.log \
+  --error-logfile /var/log/devops-agent-error.log \
+  app:app
 Restart=always
 RestartSec=10
+# A deploy must not guillotine an agent turn that is already changing real cloud
+# infrastructure. gunicorn is given --graceful-timeout 300 to drain in-flight
+# turns; systemd has to out-wait that or it SIGKILLs mid-drain (which is exactly
+# what truncated a workflow run on 2026-08-13 — see CLAUDE_RUNBOOK.md).
+TimeoutStopSec=330
 
 [Install]
 WantedBy=multi-user.target

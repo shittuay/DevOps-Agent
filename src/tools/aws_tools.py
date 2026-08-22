@@ -13254,7 +13254,7 @@ def _parallel_region_scan(service: str, scan_fn, creds: Dict) -> tuple:
     all_items, per_region, errors = [], {}, {}
     with ThreadPoolExecutor(max_workers=20) as pool:
         futures = {pool.submit(_worker, r): r for r in regions}
-        for future in futures:
+        for future in as_completed(futures, timeout=25):
             region_name, items, err = future.result()
             if err:
                 errors[region_name] = err

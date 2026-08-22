@@ -477,6 +477,7 @@ def git_add_remote(repo_path: str, name: str, url: str) -> Dict[str, Any]:
     try:
         if not _validate_git_url(url):
             return {'success': False, 'error': f'Invalid or disallowed git URL: {url}'}
+        _reject_flag_like(name, 'name')
 
         repo = _get_repo(repo_path)
         repo.create_remote(name, url)
@@ -498,6 +499,7 @@ def git_add_remote(repo_path: str, name: str, url: str) -> Dict[str, Any]:
 def git_show_commit(repo_path: str, commit_sha: str) -> Dict[str, Any]:
     """Show detailed information about a specific commit."""
     try:
+        _reject_flag_like(commit_sha, 'commit_sha')
         repo = _get_repo(repo_path)
         commit = repo.commit(commit_sha)
         return {
