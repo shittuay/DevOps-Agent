@@ -396,6 +396,18 @@ same structural gap the SSRF/login-timing checks in `check_security_invariants.p
 close for their own patterns — it is not yet enforced by an automated check,** so don't assume a
 new git tool is safe just because sibling tools in the same file are guarded; verify it directly.
 
+**2026-08-12 follow-up — same gap, two more functions.** A scheduled audit found two functions
+that predate the fix above and were never covered: `git_add_remote`'s `name` (`repo.create_remote(name,
+url)` — a value like `name="-f"` is parsed by `git remote add` as an option instead of a literal
+remote name, triggering an implicit fetch from the caller-controlled URL immediately on add,
+before any confirmation step assumes data has been pulled) and `git_show_commit`'s `commit_sha`
+(`repo.commit(commit_sha)` — GitPython's rev-parse can fall through to the `git` binary for specs
+it can't resolve locally, the same dash-prefixed-positional ambiguity `_reject_flag_like`'s
+docstring warns about; its sibling `git_show_file_at_commit` already guarded the identical
+parameter). Both now call `_reject_flag_like()` and are classified medium-risk in `safety.py`.
+**Confirms the "not yet enforced by an automated check" gap above is real, not theoretical** — a
+security-focused audit still has to walk every bare-positional call site in this file by hand.
+
 ## Security invariants (`scripts/check_security_invariants.py`)
 
 SSRF gaps and login-timing side channels each got found and fixed independently, in a different
@@ -534,6 +546,41 @@ the app context inside the thread, never pass a live ORM object across the
 boundary (same rule as `_dispatch_password_reset_email` and
 `services/notification_service.py`'s async Slack/Teams dispatch) — rather
 than a plain synchronous `jsonify(...)` return.
+
+**The keep-alive converts "the request failed" into "the request succeeded and
+then stopped mid-body", so the endpoint needs its own deadline and the client
+needs a truncated-body branch.** Flushing that first whitespace byte commits
+HTTP 200 *and the headers* to the browser ~15s in, long before the JSON body
+exists. Anything that kills the worker after that point — gunicorn's
+`--timeout`, a deploy restart, a dropped connection — leaves the client holding
+a 200 whose body is nothing but whitespace, and `response.json()` reports only
+`Unexpected end of JSON input`. The status code can no longer carry the failure.
+Three rules follow, all load-bearing (see CLAUDE_RUNBOOK.md's 2026-08-13 entry
+for the workflow run this cost):
+
+- **`CHAT_MAX_TURN_SECONDS`** (default 840, env-overridable) bounds the
+  keep-alive loop. It must stay comfortably under gunicorn's `--timeout` (900)
+  so the *app* decides when to close the response, not the arbiter. On expiry
+  the view emits a real JSON body with `still_running: true`; the turn keeps
+  going on its thread.
+- **Anything that must outlive the response belongs on the worker thread, not in
+  the generator.** `_finalize_turn()` (usage log, assistant message, credit
+  deduction, download token) is called by `_run_agent_call`, so a turn whose
+  tools already changed real cloud infrastructure is still recorded when the
+  client is gone. It re-queries every ORM object by id — never touch the request
+  thread's session or `current_user` from there.
+- **Read per-request agent state on the thread that produced it.**
+  `agent.last_tools_used` / `agent.pending_download` are
+  `threading.local()`-backed (`_greenlet_local_property`), so the request thread
+  sees only its own empty defaults. Reading them in the generator silently
+  logged every `/api/chat` turn as `action_type='agent_message'` with
+  `tool_name=None` and dropped generated keypair downloads entirely, from the
+  2026-07-30 keep-alive fix until 2026-08-13. Any new per-request agent state
+  read outside `_run_agent_call` has this same failure mode.
+
+Deploys must drain rather than guillotine: `--graceful-timeout 300` with
+systemd `TimeoutStopSec=330` (`devops-agent.service`). gunicorn's *default*
+graceful timeout is 30s, which no real agent turn can finish inside.
 
 ## Context Management & Progressive Tool Loading
 
