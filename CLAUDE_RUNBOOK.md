@@ -1194,6 +1194,76 @@ subprocess/timeout/cleanup control flow and `app.py` has 8 inline
 real but larger refactors than this pass's scope, left for a dedicated
 follow-up.
 
+## Scheduled audit: two more `git_tools.py` functions missing the flag-injection guard (2026-08-12)
+
+A routine scheduled review (four parallel agents covering per-user service
+IDOR, tool risk classification, SSRF/git-flag-injection guard coverage, and
+thread-local context leaks + code duplication) found three of the four areas
+clean: no exploitable IDOR in any `services/*.py` class or `routes/*.py`
+handler (two latent-but-not-currently-reachable footguns noted below), no
+tool-safety classification gaps in the `<provider>_<verb>_<noun>` shape (the
+class that produced `git_delete_branch`/`register_targets` previously), no
+SSRF gap in any non-`requests` network call, and no thread-local context
+leak or exploitable code duplication (`aws_tools.set_user_context()` being
+called directly from `pentest_tools.py` without a matching clear was noted
+as a minor pattern smell, not a live leak — the request's own
+`_clear_cloud_user_context()` still runs in every current call path).
+
+The git-flag-injection sweep found the real issue: `_reject_flag_like()`
+(the guard added 2026-08-01 and extended 2026-08-04 after a live-verified
+RCE) is opt-in per function, and two functions that predate both of those
+fixes had never been swept into it:
+
+1. **`git_add_remote(repo_path, name, url)`** — `name` reached
+   `repo.create_remote(name, url)` (→ `git remote add <name> <url>`) as a
+   bare positional with zero validation, unlike every other
+   branch/remote/tag-naming function in the file. `name="-f"` is parsed by
+   `git remote add` as the `-f` (fetch) flag instead of a literal remote
+   name, triggering an implicit fetch from the caller-supplied (and
+   SSRF-validated only for reachability, not trust) URL immediately on add —
+   before any confirmation step, which shows "add remote X" and has no way
+   to know X is a flag.
+2. **`git_show_commit(repo_path, commit_sha)`** — `commit_sha` reached
+   `repo.commit(commit_sha)` unguarded, even though its sibling
+   `git_show_file_at_commit` already guards the identical parameter name
+   before an equivalent `repo.git.show(...)` call. `repo.commit()` resolves
+   through GitPython's rev-parse machinery, which can fall through to the
+   `git` binary for revision specs it can't parse locally — the same
+   dash-prefixed-positional ambiguity the guard's own docstring warns about.
+
+**Fix:** both now call `_reject_flag_like()` before the git call (identical
+pattern to every other guarded function), and both are now classified
+medium-risk in `safety.py` (`git_add_remote` alongside `git_clone_repository`
+as a "fetches from a caller-supplied remote" tool; `git_show_commit`
+alongside `git_show_file_at_commit`/`git_blame_file` as a flag-guarded read
+tool). No test suite could be run in this environment (`pytest` not
+installed, no venv present) — verified only via `ast.parse()` syntax check
+on both edited files; a fresh session with a working test environment should
+run `tests/test_new_tools.py`/`tests/test_security_invariants.py` to confirm
+no regression.
+
+**Not changed, flagged for awareness only (not currently exploitable):**
+`services/multi_tenancy.py`'s `MultiTenancyService.__init__` stores
+`self.user_id` but no method ever reads it — every getter is a bare
+`Model.query.get(id)` with the entire ownership-check burden left to the
+caller (`routes/organizations.py` currently does this correctly everywhere).
+`services/api_gateway.py`'s `APIGatewayService` has the same shape, and
+several of its methods take an *optional* `user_id` param that **defaults to
+`None`, which skips the ownership check entirely** — every current call site
+passes `current_user.id`, so nothing is live-exploitable today, but a future
+call site that omits the parameter would silently grant cross-user access.
+Both are the same structural class as the `ComplianceService`/`view_team`
+bugs fixed earlier (`self.user_id` stored but not enforced) — worth a
+dedicated hardening pass (make `user_id` required, not optional, and have
+the service enforce it internally rather than trusting every caller) rather
+than a scheduled-audit-scope fix.
+
+**Lesson, same as the 2026-08-04 entry:** this guard is opt-in per function
+and still not enforced by an automated check — a security audit has to walk
+every bare-positional `repo.git.*`/`repo.<method>(...)` call site in this
+file by hand each time, not just spot-check the ones already known to be
+guarded.
+
 ## Drift detection stored everything in per-process memory (FIXED 2026-08-12)
 
 User-reported: "drift detection does not generate a report or findings if
