@@ -1323,6 +1323,70 @@ the pre-fix source.
 instance via SSM to create the two missing `drift_baselines`/`drift_reports`
 tables so drift detection worked without waiting for a deploy.
 
+## Scheduled audit: GCP generic-API tools bypassed the fail-closed credential contract (FIXED 2026-08-21)
+
+Routine security/code-quality review covering the code merged since the last
+scheduled audit (2026-08-11): drift baseline capture, workflow run dispatch,
+conversation delete, schema migration, and the chat keepalive rewrite (PR
+#141). Those areas checked out clean — no IDOR, SSRF, or fabricated-data
+issues found, and the `_run_agent_call`/`_finalize_turn` app-context and
+thread-local rules from the keepalive fix are all still respected.
+
+One real gap found in `src/tools/gcp_tools.py`: `gcp_api_read`/`gcp_api_write`
+(the generic "call any GCP REST API when no dedicated tool exists" escape
+hatch) called `_get_user_gcp_credentials()` directly and passed the result
+straight into `googleapiclient.discovery.build(api_name, api_version,
+credentials=credentials)` with no check that `credentials` was non-`None`.
+Every other client construction in this module goes through
+`_get_gcp_credentials_kwargs()`, which raises when the user has no linked GCP
+credentials — the fail-closed contract documented in CLAUDE.md's GCP Pattern
+section. `_get_user_gcp_credentials()` returns `(None, None)` when the user
+has no GCP credentials configured, and `discovery.build()` treats an explicit
+`credentials=None` exactly like an omitted argument, falling through to
+Application Default Credentials (the app server's own ambient identity) —
+the same bug class as the 2026-08-08 GCP credential-isolation fix, missed
+here because these two functions predate that fix's audit scope and build a
+client via `discovery.build()` rather than a `*Client()` constructor.
+
+**Why the existing structural guard didn't catch it:**
+`tests/test_gcp_credential_fail_closed.py`'s
+`test_every_gcp_client_construction_passes_credentials` AST check only
+matches calls whose callee name ends in `Client` — `discovery.build(...)`
+doesn't match. Even if it did, the check is purely syntactic ("a
+`credentials=` keyword is present"), not "the value is guaranteed non-None,"
+so it wouldn't have caught this shape either way: both functions already
+passed `credentials=credentials` syntactically, the bug was that the
+variable could be `None`.
+
+**Fix:** both functions now check `if not credentials:` and return the same
+fail-closed error dict every other credential-less GCP tool call in this
+codebase returns, before `discovery.build()` is ever reached. Two behavioral
+regression tests added directly (`test_gcp_api_read_fails_closed_with_no_credentials`,
+`test_gcp_api_write_fails_closed_with_no_credentials`) rather than extending
+the AST heuristic, since a syntactic check can't distinguish this case —
+verified failing against the pre-fix code (`discovery.build()` was reached
+and the call proceeded to `.list()`/`.delete()` on the un-credentialed
+service).
+
+**Also cleaned up as part of this pass:**
+- `src/agent/safety.py`'s `high_risk_tools` set had duplicate entries
+  (`execute_script`, `git_delete_branch`, `git_delete_tag`, `delete_eks_cluster`)
+  under separately-commented sections — harmless since it's a set literal,
+  but copy-paste drift. Deduped; confirmed all 34
+  `TestSafetyClassifications` tests still pass and no tool's risk
+  classification changed.
+- CLAUDE.md's "Concurrency Model" section still asserted production runs
+  plain sync workers with "no within-process race," which PR #141
+  (2026-08-15) made false: `devops-agent.service` now runs
+  `--worker-class gthread --workers 3 --threads 8`, giving each worker
+  process real concurrent OS threads against the shared `agent` singleton.
+  The existing `threading.local()`-based isolation already protects
+  correctly against real threads (not just gevent greenlets), so there was
+  no code bug — but the doc's "no race under this config" framing was stale
+  and could mislead a future change into treating that isolation as
+  optional. Updated to describe the current gthread config and mark the
+  isolation as load-bearing today, not defense-in-depth.
+
 ## Scheduled audit: two unclassified alerting tools, an unbounded region-scan helper, and a fail-open webhook SSRF check (2026-08-19)
 
 Parallel sweep across the codebase's known risk classes: safety.py risk-classification coverage

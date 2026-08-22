@@ -328,7 +328,6 @@ class SafetyValidator:
             'delete_eni',
             'disable_vpc_flow_logs',
             # EKS destructive
-            'delete_eks_cluster',
             'delete_eks_node_group',
             'delete_eks_fargate_profile',
             'delete_eks_access_entry',
@@ -343,10 +342,6 @@ class SafetyValidator:
             # Arbitrary code/command execution — same risk class as execute_command
             'ansible_playbook_run',
             'ansible_adhoc_command',
-            'execute_script',
-            # Git destructive (git_ prefix defeats the delete_ auto-detect fallback)
-            'git_delete_branch',
-            'git_delete_tag',
         }
 
         medium_risk_tools = {

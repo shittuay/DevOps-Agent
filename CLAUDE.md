@@ -468,13 +468,15 @@ optional defense-in-depth under this config, it is load-bearing. Don't assume
 either worker class without checking `systemctl cat devops-agent` / the
 gunicorn startup log first, since this has already drifted once.
 
-The rest of this section (the `_greenlet_local_property` fix) remains correct
-and worth keeping regardless of which worker class ends up running: it
-correctly isolates per-request state whether the mechanism is genuine
-greenlet-local storage (gevent) or simple thread/process-local storage (sync),
-so it's not wasted effort even though the original race it was built for
-assumed gevent specifically. The description below documents the gevent
-scenario the fix was originally designed against.
+The `_greenlet_local_property`/`threading.local()` isolation described below
+already protects correctly against real OS-thread concurrency, not just
+gevent greenlet interleaving — `threading.local()` is genuinely thread-local
+with or without gevent's monkey-patching — so no code change was needed when
+gthread landed. But treat that isolation as **load-bearing today**, not
+defense-in-depth for a hypothetical future config: any new per-request state
+added as a plain instance attribute instead of a `@property` (see below) is a
+live cross-request leak risk under the current deployment, not just a
+theoretical one.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in
