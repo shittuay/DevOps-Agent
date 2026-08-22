@@ -3258,19 +3258,6 @@ def api_chat():
                 _agent_result['response'] = resp
                 _agent_result['success'] = True
                 _agent_result['error_msg'] = None
-                # Read back per-request agent state HERE, on the same OS thread
-                # that set it — DevOpsAgent's per-request properties (conversation,
-                # pending_download, _last_tools_used, ...) are backed by
-                # threading.local() (see _greenlet_local_property in core.py), so
-                # they are invisible to the request-handling thread that joins this
-                # worker below. Reading them there always saw the unset default
-                # (empty tools list, no pending download) and silently broke
-                # tool-use usage logging, the first-tool-use conversion event, and
-                # generated-file downloads for every /api/chat caller (the Kimi/
-                # free-starter tier's chat path).
-                _agent_result['tools_used'] = list(agent.last_tools_used)
-                _agent_result['pending_download'] = agent.pending_download
-                agent.pending_download = None
             except Exception as agent_error:
                 _agent_result['response'] = f"Error processing request: {str(agent_error)}"
                 _agent_result['success'] = False
