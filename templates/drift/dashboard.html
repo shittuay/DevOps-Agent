@@ -248,10 +248,49 @@
                 <p>Compare your actual infrastructure against expected baselines to identify unauthorized changes, security issues, and configuration drift.</p>
             </div>
             <div style="display: flex; gap: 0.75rem;">
-                <button class="btn btn-secondary" onclick="importSampleBaselines()">Import Sample Data</button>
+                <button class="btn btn-secondary" onclick="captureBaselines()" id="captureBtn">
+                    Capture from AWS
+                </button>
+                <button class="btn btn-secondary" onclick="openTerraformImport()">
+                    Import Terraform State
+                </button>
                 <button class="btn btn-primary" onclick="runScan()" id="scanBtn">
                     Run Drift Scan
                 </button>
+            </div>
+        </div>
+
+        {% if not baselines %}
+        <div class="section" style="margin-bottom: 1.5rem;">
+            <div class="section-content">
+                <h4 style="margin: 0 0 0.5rem;">No baselines yet</h4>
+                <p style="margin: 0; color: var(--text-tertiary); font-size: 0.9rem;">
+                    A baseline is the configuration you expect a resource to have. Drift is
+                    anything that differs from it later. Start by capturing your current AWS
+                    resources as the baseline, or import a Terraform state to use what your
+                    code declares. Both read your connected AWS account &mdash; nothing is
+                    simulated.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div id="terraformImport" class="section" style="display: none; margin-bottom: 1.5rem;">
+            <div class="section-header">
+                <h3>Import Terraform State</h3>
+            </div>
+            <div class="section-content">
+                <p style="color: var(--text-tertiary); font-size: 0.9rem; margin-top: 0;">
+                    Paste the contents of your <code>terraform.tfstate</code>, or choose the file.
+                </p>
+                <input type="file" id="tfStateFile" accept=".tfstate,.json"
+                       onchange="loadTerraformFile(this)" style="margin-bottom: 0.75rem;">
+                <textarea id="tfStateText" rows="8" placeholder='{"version": 4, "resources": [...]}'
+                          style="width: 100%; font-family: monospace; font-size: 0.8rem;"></textarea>
+                <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
+                    <button class="btn btn-primary" onclick="importTerraform()" id="tfImportBtn">Import</button>
+                    <button class="btn btn-secondary" onclick="openTerraformImport(false)">Cancel</button>
+                </div>
             </div>
         </div>
 
@@ -412,22 +451,95 @@
             }
         }
 
-        async function importSampleBaselines() {
+        async function captureBaselines() {
+            const btn = document.getElementById('captureBtn');
+            btn.disabled = true;
+            btn.textContent = 'Reading AWS...';
+
             try {
-                const resp = await fetch('/drift/api/import/sample', {
+                const resp = await fetch('/drift/api/baselines/capture', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
                 });
                 const data = await resp.json();
 
                 if (data.success) {
-                    showMessage(`Imported ${data.imported} sample baselines`, 'success');
-                    setTimeout(() => location.reload(), 1000);
+                    if (data.captured === 0) {
+                        showMessage('No resources found in your AWS account to baseline.', 'error');
+                        btn.disabled = false;
+                        btn.textContent = 'Capture from AWS';
+                        return;
+                    }
+                    const parts = Object.entries(data.by_type)
+                        .filter(([, n]) => n > 0)
+                        .map(([type, n]) => `${n} ${type}`)
+                        .join(', ');
+                    showMessage(`Captured ${data.captured} baseline(s): ${parts}`, 'success');
+                    setTimeout(() => location.reload(), 1500);
                 } else {
-                    showMessage(data.error || 'Import failed', 'error');
+                    showMessage(data.error || 'Capture failed', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Capture from AWS';
                 }
             } catch (e) {
                 showMessage('Error: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Capture from AWS';
+            }
+        }
+
+        function openTerraformImport(show = true) {
+            document.getElementById('terraformImport').style.display = show ? '' : 'none';
+        }
+
+        function loadTerraformFile(input) {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => document.getElementById('tfStateText').value = e.target.result;
+            reader.readAsText(file);
+        }
+
+        async function importTerraform() {
+            const raw = document.getElementById('tfStateText').value.trim();
+            if (!raw) {
+                showMessage('Paste a Terraform state or choose a file first.', 'error');
+                return;
+            }
+
+            let state;
+            try {
+                state = JSON.parse(raw);
+            } catch (e) {
+                showMessage('That is not valid JSON: ' + e.message, 'error');
+                return;
+            }
+
+            const btn = document.getElementById('tfImportBtn');
+            btn.disabled = true;
+            btn.textContent = 'Importing...';
+
+            try {
+                const resp = await fetch('/drift/api/import/terraform', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ state })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    showMessage(`Imported ${data.imported} baseline(s) from Terraform state`, 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showMessage(data.error || 'Import failed', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Import';
+                }
+            } catch (e) {
+                showMessage('Error: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Import';
             }
         }
 

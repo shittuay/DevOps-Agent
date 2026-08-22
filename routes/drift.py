@@ -9,7 +9,7 @@ from flask_login import login_required, current_user
 import logging
 
 from services.drift_detection import (
-    get_drift_service, BaselineResource, ResourceType, DriftSeverity
+    get_drift_service, BaselineResource, ResourceType, DriftSeverity, DriftScanError
 )
 from services.rbac import approver_required
 
@@ -74,7 +74,17 @@ def api_scan():
             'error': 'No baselines configured. Import a Terraform state or add baselines first.'
         }), 400
 
-    report = service.scan_for_drift(current_user.id)
+    try:
+        report = service.scan_for_drift(current_user.id)
+    except DriftScanError as e:
+        # Could not read the account. Report that plainly — an unreadable account
+        # is not the same as a clean one, and must never be shown as findings.
+        logger.warning(f"Drift scan aborted for {current_user.email}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'scan_failed': True,
+        }), 502
 
     logger.info(f"Drift scan completed by {current_user.email}: {report.summary['total_drifts']} drifts found")
 
@@ -82,6 +92,42 @@ def api_scan():
         'success': True,
         'report_id': report.id,
         'summary': report.summary
+    })
+
+
+@drift_bp.route('/api/baselines/capture', methods=['POST'])
+@login_required
+@approver_required
+def api_capture_baselines():
+    """API: Snapshot the user's live cloud resources as baselines.
+
+    The cloud-account-native way to start using drift: pin what you actually
+    have, so any later change shows up. Terraform state import is the other path.
+    """
+    service = get_drift_service()
+
+    data = request.get_json(silent=True) or {}
+    requested = data.get('resource_types')
+    resource_types = None
+    if requested:
+        try:
+            resource_types = [ResourceType(rt) for rt in requested]
+        except ValueError as e:
+            return jsonify({'success': False, 'error': f'Unknown resource type: {e}'}), 400
+
+    try:
+        result = service.capture_baselines_from_account(current_user.id, resource_types)
+    except DriftScanError as e:
+        logger.warning(f"Baseline capture failed for {current_user.email}: {e}")
+        return jsonify({'success': False, 'error': str(e), 'scan_failed': True}), 502
+
+    logger.info(f"Baselines captured by {current_user.email}: {result['total']}")
+
+    return jsonify({
+        'success': True,
+        'captured': result['total'],
+        'by_type': result['by_type'],
+        'total_baselines': service.get_baseline_count(current_user.id),
     })
 
 
@@ -261,78 +307,4 @@ def api_import_terraform():
         'success': True,
         'imported': imported,
         'total_baselines': new_count
-    })
-
-
-@drift_bp.route('/api/import/sample', methods=['POST'])
-@login_required
-def api_import_sample():
-    """API: Import sample baselines for testing."""
-    service = get_drift_service()
-
-    # Add sample baselines
-    sample_baselines = [
-        BaselineResource(
-            resource_type=ResourceType.EC2_INSTANCE,
-            resource_id='i-0abc123def456',
-            resource_name='web-server-1',
-            expected_config={
-                'instance_type': 't3.small',
-                'state': 'running',
-                'security_groups': ['sg-12345'],
-                'tags': {'Environment': 'production'}
-            },
-            tags={'Environment': 'production', 'Team': 'platform'}
-        ),
-        BaselineResource(
-            resource_type=ResourceType.EC2_SECURITY_GROUP,
-            resource_id='sg-12345',
-            resource_name='web-sg',
-            expected_config={
-                'name': 'web-sg',
-                'vpc_id': 'vpc-12345',
-                'ingress': [
-                    {'port': 443, 'cidr': '10.0.0.0/8'},
-                    {'port': 80, 'cidr': '10.0.0.0/8'}
-                ]
-            },
-            tags={'Environment': 'production'}
-        ),
-        BaselineResource(
-            resource_type=ResourceType.S3_BUCKET,
-            resource_id='my-app-data-bucket',
-            resource_name='my-app-data-bucket',
-            expected_config={
-                'versioning': True,
-                'encryption': 'AES256',
-                'public_access_block': {
-                    'block_public_acls': True,
-                    'block_public_policy': True
-                }
-            },
-            tags={'Environment': 'production'}
-        ),
-        BaselineResource(
-            resource_type=ResourceType.RDS_INSTANCE,
-            resource_id='mydb-instance',
-            resource_name='production-database',
-            expected_config={
-                'engine': 'postgres',
-                'engine_version': '14.9',
-                'instance_class': 'db.t3.medium',
-                'publicly_accessible': False,
-                'storage_encrypted': True,
-                'multi_az': True
-            },
-            tags={'Environment': 'production'}
-        ),
-    ]
-
-    for baseline in sample_baselines:
-        service.add_baseline(current_user.id, baseline)
-
-    return jsonify({
-        'success': True,
-        'imported': len(sample_baselines),
-        'total_baselines': service.get_baseline_count(current_user.id)
     })

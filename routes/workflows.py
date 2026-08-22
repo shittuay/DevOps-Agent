@@ -1,6 +1,6 @@
 """Pre-built workflow templates — browse, execute, track."""
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -41,9 +41,17 @@ def execute_workflow(template_id: int):
     """
     Chat-dispatch execution:
     1. Validate template access
-    2. Create WorkflowExecution (status=running)
-    3. Create a new Conversation with the workflow steps as the first user message
-    4. Return conversation_id so the frontend redirects to /chat?cid=X
+    2. Create WorkflowExecution (status=queued)
+    3. Create an empty Conversation for the run
+    4. Return conversation_id + the prompt, so the chat page can send it through
+       the normal /api/chat/stream path
+
+    The prompt is deliberately NOT persisted as a ChatMessage here. Writing a user
+    message row does not run the agent — only /api/chat/stream does — so seeding
+    one produced a conversation that showed the prompt and then sat there forever
+    with the execution stuck at 'running'. The chat page now sends it as a real
+    message, which reuses guardrails, credit accounting, streaming, and the
+    execution status PATCH that were already working.
     """
     template = WorkflowTemplate.query.filter(
         (WorkflowTemplate.id == template_id) &
@@ -68,21 +76,13 @@ def execute_workflow(template_id: int):
     )
     db.session.add(conv)
 
-    # Seed with user message so chat stream picks it up
-    msg = ChatMessage(
-        conversation_id=conv_id,
-        user_id=current_user.id,   # NOT NULL — omitting it 500'd every execute
-        role='user',
-        content=prompt,
-    )
-    db.session.add(msg)
-
-    # Create execution record
+    # Create execution record. 'queued' until the chat page actually dispatches the
+    # prompt — it only becomes 'running' once the stream starts.
     execution = WorkflowExecution(
         user_id=current_user.id,
         template_id=template.id,
         conversation_id=conv_id,
-        status='running',
+        status='queued',
         started_at=datetime.utcnow(),
     )
     db.session.add(execution)
@@ -95,6 +95,7 @@ def execute_workflow(template_id: int):
     return jsonify({
         'execution_id': execution.id,
         'conversation_id': conv_id,
+        'prompt': prompt,
         'redirect_url': f'/chat?cid={conv_id}&wf_exec={execution.id}',
     })
 
@@ -109,13 +110,60 @@ def update_execution(execution_id: int):
 
     data = request.get_json(silent=True) or {}
     new_status = data.get('status')
-    if new_status not in ('completed', 'failed', 'timed_out'):
+    if new_status not in ('running', 'completed', 'failed', 'timed_out'):
         return jsonify({'error': 'Invalid status'}), 400
 
     execution.status = new_status
-    execution.completed_at = datetime.utcnow()
+    if new_status == 'running':
+        execution.started_at = datetime.utcnow()
+    else:
+        execution.completed_at = datetime.utcnow()
     db.session.commit()
     return jsonify(execution.to_dict())
+
+
+# An execution older than this with no assistant reply is not running any more —
+# the tab was closed, the stream died, or the dispatch never happened.
+STALE_EXECUTION_MINUTES = 30
+
+
+def _reconcile_stale_executions(executions):
+    """Correct executions left mid-flight by a browser that never reported back.
+
+    'completed'/'failed' are only ever written by the SSE done handler in the
+    page, so closing the tab stranded a row at 'running' forever — the dashboard
+    then showed "Running" for something that had long since stopped. Derive the
+    real outcome from the conversation instead: an assistant reply means it ran
+    to completion; nothing after the cutoff means it timed out.
+    """
+    cutoff = datetime.utcnow() - timedelta(minutes=STALE_EXECUTION_MINUTES)
+    changed = False
+
+    for ex in executions:
+        if ex.status not in ('queued', 'running'):
+            continue
+        if (ex.started_at or ex.created_at) > cutoff:
+            continue  # still plausibly in flight
+
+        last_reply = None
+        if ex.conversation_id:
+            last_reply = (
+                ChatMessage.query
+                .filter_by(conversation_id=ex.conversation_id, role='assistant')
+                .order_by(ChatMessage.timestamp.desc())
+                .first()
+            )
+
+        if last_reply:
+            ex.status = 'completed'
+            ex.completed_at = ex.completed_at or last_reply.timestamp
+        else:
+            ex.status = 'timed_out'
+            ex.completed_at = ex.completed_at or datetime.utcnow()
+        changed = True
+
+    if changed:
+        db.session.commit()
 
 
 @workflows_bp.route('/api/workflows/executions', methods=['GET'])
@@ -129,6 +177,7 @@ def list_executions():
         .limit(50)
         .all()
     )
+    _reconcile_stale_executions(executions)
     result = []
     for ex in executions:
         d = ex.to_dict()

@@ -55,6 +55,8 @@ services/
   learning_sandbox.py      # Mock tool results for sandbox/learning mode
   prevention_engine.py     # ProactiveRecommendation: SQL pattern analysis + Claude spec generation
   skills_engine.py         # Skills: frontmatter parsing, trigger matching, learned infra context
+  starter_templates.py     # Curated public infrastructure templates (data only)
+  starter_workflows.py     # Curated pre-built workflow templates + seed_workflow_templates()
 routes/
   incidents.py             # Incident dashboard, journal, correlation group APIs
   artifacts.py             # Chat artifact CRUD + markdown export
@@ -125,6 +127,37 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - **Pentest (12)**: nmap, nikto, sqlmap, ZAP, cloud security audits — require `pentest_config.enabled=True`
 - **Ansible (13)**: playbook run, ad-hoc, inventory, vault, galaxy
 - **Alerting (16)**: PagerDuty + OpsGenie incidents/alerts
+
+## Non-negotiable: every feature runs against a real cloud account
+
+**No feature may work in isolation.** Every feature in this app operates on the user's
+attached cloud account (AWS, Azure, or GCP). A feature must never produce results from
+hardcoded, sample, or simulated data when no cloud account is connected — if there is no
+account, it says so and does nothing. This applies to anything built here, not just tools:
+dashboards, reports, scans, recommendations, drift, cost, compliance.
+
+**Why this is stated as a rule:** canned output is indistinguishable from a real query, so
+the user acts on fiction. Found live 2026-08-12 — `DriftDetectionService._get_actual_state()`
+returned hardcoded dicts under a `# In a real implementation, this would call AWS APIs`
+comment, with no RDS branch at all, while `/api/import/sample` seeded fake baselines
+(`i-0abc123def456`, `sg-12345`, `production-database`). Every user got a byte-identical
+report, including a **critical** "security group open to `0.0.0.0/0`" alert that was a
+literal in the source, against an account with no database in it. See CLAUDE_RUNBOOK.md.
+
+**When building or reviewing a feature:**
+- Trace where its data comes from. If the answer is a literal in the source, it isn't done
+  — however finished the UI looks.
+- Tells to grep for: `# For now`, `# In a real implementation`, `simulated`, `sample_`,
+  hardcoded `i-0…` / `sg-…` / `vpc-…` ids.
+- Read live state through the per-user credential path
+  (`services/credential_service.get_user_boto_client(user_id, …)`, `aws_tools._get_boto_client()`,
+  or the Azure/GCP equivalents) — never ambient app credentials, never a stub.
+- No credentials → fail closed with "connect a cloud account". Never fall back to demo data.
+- **Distinguish "cannot read the account" from a finding.** They are opposite conclusions,
+  and reporting the first as the second is exactly how fabricated findings ship. Drift uses
+  `DriftScanError` for this; new features need an equivalent.
+- The only exception is sandbox mode (`UserPreferences.sandbox_mode`), which is explicit,
+  user-enabled, and labelled `[Sandbox]`. It is not a substitute for a missing account.
 
 ## Critical Security Patterns
 
@@ -513,6 +546,41 @@ the app context inside the thread, never pass a live ORM object across the
 boundary (same rule as `_dispatch_password_reset_email` and
 `services/notification_service.py`'s async Slack/Teams dispatch) — rather
 than a plain synchronous `jsonify(...)` return.
+
+**The keep-alive converts "the request failed" into "the request succeeded and
+then stopped mid-body", so the endpoint needs its own deadline and the client
+needs a truncated-body branch.** Flushing that first whitespace byte commits
+HTTP 200 *and the headers* to the browser ~15s in, long before the JSON body
+exists. Anything that kills the worker after that point — gunicorn's
+`--timeout`, a deploy restart, a dropped connection — leaves the client holding
+a 200 whose body is nothing but whitespace, and `response.json()` reports only
+`Unexpected end of JSON input`. The status code can no longer carry the failure.
+Three rules follow, all load-bearing (see CLAUDE_RUNBOOK.md's 2026-08-13 entry
+for the workflow run this cost):
+
+- **`CHAT_MAX_TURN_SECONDS`** (default 840, env-overridable) bounds the
+  keep-alive loop. It must stay comfortably under gunicorn's `--timeout` (900)
+  so the *app* decides when to close the response, not the arbiter. On expiry
+  the view emits a real JSON body with `still_running: true`; the turn keeps
+  going on its thread.
+- **Anything that must outlive the response belongs on the worker thread, not in
+  the generator.** `_finalize_turn()` (usage log, assistant message, credit
+  deduction, download token) is called by `_run_agent_call`, so a turn whose
+  tools already changed real cloud infrastructure is still recorded when the
+  client is gone. It re-queries every ORM object by id — never touch the request
+  thread's session or `current_user` from there.
+- **Read per-request agent state on the thread that produced it.**
+  `agent.last_tools_used` / `agent.pending_download` are
+  `threading.local()`-backed (`_greenlet_local_property`), so the request thread
+  sees only its own empty defaults. Reading them in the generator silently
+  logged every `/api/chat` turn as `action_type='agent_message'` with
+  `tool_name=None` and dropped generated keypair downloads entirely, from the
+  2026-07-30 keep-alive fix until 2026-08-13. Any new per-request agent state
+  read outside `_run_agent_call` has this same failure mode.
+
+Deploys must drain rather than guillotine: `--graceful-timeout 300` with
+systemd `TimeoutStopSec=330` (`devops-agent.service`). gunicorn's *default*
+graceful timeout is 30s, which no real agent turn can finish inside.
 
 ## Context Management & Progressive Tool Loading
 
@@ -1001,6 +1069,14 @@ GET  /api/incidents/<id>/related         → incidents sharing same correlation_
 
 **URL context shortcut:** Opening `/chat?ctx=resource&type=ec2&id=i-xxx&name=web-01&action=investigate` pre-fills the chat input and sets resource context automatically. The topology map uses this — hovering a node shows "Investigate →" which opens chat with that resource.
 
+**`?cid=<conversation_id>`** opens that specific conversation. It routes through
+`loadConversation(cid)`, which hits `GET /api/conversations/<id>` — that endpoint
+verifies ownership **and** sets `session['conversation_id']`, so it both renders the
+history and binds the session, which is what makes anything sent next land in that
+conversation. The client never sends a conversation id with a chat message; the
+server resolves it from the session alone. Adding `&wf_exec=<id>` additionally
+auto-sends a workflow prompt stashed in `sessionStorage` — see the Workflows note below.
+
 **New model:** `ChatArtifact` (fields: `artifact_type`, `title`, `content`, `version`, `is_latest`, `parent_id`)
 **New columns on `ChatMessage`:** `tool_trace` (JSONB), `page_context` (VARCHAR 100)
 
@@ -1015,6 +1091,56 @@ GET    /api/chat/artifacts/<id>/export   → download as .md file
 ```
 
 ---
+
+### Drift Detection (`/drift`)
+
+Service `services/drift_detection.py`, routes `routes/drift.py`. Reads live AWS through
+`credential_service.get_user_boto_client(user_id, …)` — never ambient credentials, never
+canned data (see the standing rule at the top of this file, and CLAUDE_RUNBOOK.md's
+2026-08-12 entry for what happened when it did).
+
+**Two ways to create baselines, both cloud-backed:**
+- `POST /drift/api/baselines/capture` → `capture_baselines_from_account()` snapshots the
+  account's current EC2 / security groups / S3 / RDS as the expected state. Optional
+  `resource_types` filter.
+- `POST /drift/api/import/terraform` → baselines from a `terraform.tfstate`.
+
+**Capture and scan MUST share the `_normalize_*` helpers.** `_fetch_*` (single resource,
+used by scans) and `capture_baselines_from_account` (paginated lists) both funnel through
+`_normalize_ec2_instance` / `_normalize_security_group` / `_normalize_rds_instance`. If
+capture wrote a different key shape than a scan reads back, every captured baseline would
+report drift the instant it was created — `tests/test_drift_baseline_capture.py::
+test_captured_baseline_scans_clean` is the guard.
+
+**Semantics worth preserving:**
+- A resource that genuinely doesn't exist → `_fetch_*` returns `None` → **one** REMOVED
+  finding. Never let a missing resource become an empty dict; `_compare_configs` reads
+  that as "every expected property was removed" (one absent RDS produced 6 findings).
+- Cannot read the account → `DriftScanError`, surfaced as 502 `scan_failed`. An unreadable
+  account is not a clean one and must never render as findings.
+- A baseline is a **subset** of pinned properties; live properties absent from it are not
+  drift. Don't reintroduce an "added property" check.
+
+### Pre-built Workflows (`/workflows`)
+
+Catalog in `services/starter_workflows.py` (seeded at import — see "Seeded catalogs"),
+routes in `routes/workflows.py`.
+
+**Running a workflow is a chat dispatch, and the dispatch happens in the browser.**
+`POST /api/workflows/<id>/execute` creates an empty `Conversation`, a `WorkflowExecution`
+with status `queued`, and returns `{conversation_id, execution_id, prompt, redirect_url}`.
+It deliberately does **not** persist the prompt as a `ChatMessage`: writing a user message
+row does not run the agent — only `/api/chat/stream` does — so a seeded row produces a
+conversation that displays the prompt and then does nothing forever. `workflows.html`
+stashes the prompt in `sessionStorage` under `wf_prompt_<execution_id>`, and the chat
+page's `?cid=` handler sends it via the normal `sendMessage()` path. Keying by execution
+id is load-bearing: it's what stops "View Chat" on a finished run from re-executing it.
+
+**Execution status must never depend solely on the browser.** `completed`/`failed` are
+written by the SSE `done` handler in the page, so a closed tab would strand a row at
+`running` forever. `list_executions` reconciles on read: past `STALE_EXECUTION_MINUTES`
+(30), an assistant reply in the conversation means `completed`, none means `timed_out`.
+Any new status a client reports must have an equivalent server-derivable fallback.
 
 ### Proactive Prevention Engine
 **Access:** `/optimization/prevention` — click "Run Analysis" to scan
@@ -1133,6 +1259,33 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.
 
 ---
+
+### Seeded catalogs (import-time, not `scripts/`)
+
+Any table a page needs non-empty to render must be seeded **at import in `app.py`**,
+not by a script under `scripts/`. Gunicorn imports the module and never runs the
+`__main__` block, and nothing in the deploy path runs `scripts/*.py`, so a
+script-only seed leaves the table empty in production forever. This has now bitten
+two separate catalogs (infrastructure templates, then pre-built workflows — see
+CLAUDE_RUNBOOK.md's 2026-08-12 entry).
+
+Pattern: put the data + an idempotent `seed_*()` (skip by name, return the count
+added) in `services/starter_*.py`, call it from the import-time block in `app.py`
+next to `seed_public_templates()` / `seed_workflow_templates()` inside a non-fatal
+`try/except`, and leave `scripts/seed_*.py` as a thin CLI wrapper. The data cannot
+live in `scripts/` — those modules do `from app import app, db`, so importing one
+from `app.py` is circular. Current seeded catalogs: `services/starter_templates.py`
+(`InfrastructureTemplate`), `services/starter_workflows.py` (`WorkflowTemplate`).
+
+**The check-then-insert MUST run inside `services/seed_lock.py`'s `seed_lock(key)`.**
+Production runs 3 sync gunicorn workers and all of them import `app.py` — and
+therefore seed — at the same moment. "Read existing names, insert the rest" is not
+idempotent across processes: each worker's read returns empty, so each inserts the
+full catalog. This is not theoretical, it happened on the first deploy of the
+workflow seed (8 templates became 16). `seed_lock` takes a Postgres
+transaction-level advisory lock (`pg_advisory_xact_lock`, auto-released on
+commit/rollback so a crashed worker can't strand it) and is a no-op on SQLite,
+which is single-process. Give each catalog its own fixed, non-colliding lock key.
 
 ### Database Migration
 **Auto-migration at startup:** Every time `app.py` starts, it runs `db.create_all()` (new tables) then inspects all SQLAlchemy models and runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for any columns in the model not yet in the DB. Output: `Auto-migration: added N column(s): table.column, ...`

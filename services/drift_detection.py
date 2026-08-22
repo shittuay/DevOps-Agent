@@ -15,6 +15,15 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
+class DriftScanError(Exception):
+    """Raised when live state cannot be read, so a scan must abort.
+
+    Kept distinct from drift itself: "I could not read your account" and
+    "your account has drifted" are opposite conclusions, and reporting the
+    first as the second is how this feature came to invent findings.
+    """
+
+
 class DriftSeverity(Enum):
     """Severity of detected drift."""
     INFO = "info"
@@ -99,9 +108,11 @@ class DriftDetectionService:
     """
 
     def __init__(self):
-        # Keyed by user_id for data isolation
-        self.baselines: dict[int, dict[str, BaselineResource]] = {}
-        self.reports: dict[int, list[DriftReport]] = {}
+        # Baselines and reports are persisted to the DB (DriftBaselineModel /
+        # DriftReportModel) - see those models' docstrings for why: this
+        # service is a module-level singleton, and production runs multiple
+        # gunicorn workers, so per-process dicts made baselines/reports
+        # invisible across workers and wiped them on every deploy.
         self.drift_rules: list[dict] = []
         self._load_default_rules()
 
@@ -152,18 +163,44 @@ class DriftDetectionService:
 
     def add_baseline(self, user_id: int, resource: BaselineResource):
         """Add or update a baseline resource."""
+        from models import db, DriftBaselineModel
+
+        row = DriftBaselineModel.query.filter_by(
+            user_id=user_id,
+            resource_type=resource.resource_type.value,
+            resource_id=resource.resource_id
+        ).first()
+
+        if row is None:
+            row = DriftBaselineModel(
+                user_id=user_id,
+                resource_type=resource.resource_type.value,
+                resource_id=resource.resource_id
+            )
+            db.session.add(row)
+
+        row.resource_name = resource.resource_name
+        row.expected_config = resource.expected_config
+        row.tags = resource.tags
+        row.last_updated = resource.last_updated
+        db.session.commit()
+
         key = f"{resource.resource_type.value}:{resource.resource_id}"
-        user_baselines = self.baselines.setdefault(user_id, {})
-        user_baselines[key] = resource
         logger.info(f"Baseline added/updated: {key}")
 
     def remove_baseline(self, user_id: int, resource_type: ResourceType, resource_id: str):
         """Remove a baseline resource."""
-        key = f"{resource_type.value}:{resource_id}"
-        user_baselines = self.baselines.get(user_id, {})
-        if key in user_baselines:
-            del user_baselines[key]
-            logger.info(f"Baseline removed: {key}")
+        from models import db, DriftBaselineModel
+
+        deleted = DriftBaselineModel.query.filter_by(
+            user_id=user_id,
+            resource_type=resource_type.value,
+            resource_id=resource_id
+        ).delete()
+        db.session.commit()
+
+        if deleted:
+            logger.info(f"Baseline removed: {resource_type.value}:{resource_id}")
 
     def import_terraform_state(self, user_id: int, state_data: dict):
         """Import baselines from Terraform state."""
@@ -187,8 +224,7 @@ class DriftDetectionService:
                         tags=attributes.get('tags', {})
                     ))
 
-        user_baselines = self.baselines.get(user_id, {})
-        logger.info(f"Imported {len(user_baselines)} resources from Terraform state")
+        logger.info(f"Imported {self.get_baseline_count(user_id)} resources from Terraform state")
 
     def _map_terraform_type(self, tf_type: str) -> Optional[ResourceType]:
         """Map Terraform resource type to internal type."""
@@ -209,18 +245,25 @@ class DriftDetectionService:
         return mapping.get(tf_type)
 
     def scan_for_drift(self, user_id: int) -> DriftReport:
-        """Scan all baselined resources for drift."""
+        """Scan all baselined resources for drift against the user's live cloud account.
+
+        Raises DriftScanError if the account can't be read (no credentials, denied
+        permissions, unsupported resource type). A scan that cannot see the real
+        infrastructure must fail, not emit findings — see CLAUDE.md's "every feature
+        runs against a real cloud account".
+        """
         import uuid
-        import time
 
         report_id = str(uuid.uuid4())[:8]
         scan_start = datetime.utcnow()
         drift_items = []
-        user_baselines = self.baselines.get(user_id, {})
+        user_baselines = self.get_baselines(user_id)
 
-        for key, baseline in user_baselines.items():
+        for baseline in user_baselines:
             # Get actual state
-            actual_config = self._get_actual_state(baseline.resource_type, baseline.resource_id)
+            actual_config = self._get_actual_state(
+                user_id, baseline.resource_type, baseline.resource_id
+            )
 
             if actual_config is None:
                 # Resource no longer exists
@@ -268,48 +311,290 @@ class DriftDetectionService:
             summary=self._build_summary(drift_items)
         )
 
-        user_reports = self.reports.setdefault(user_id, [])
-        user_reports.append(report)
+        self._save_report(user_id, report)
         logger.info(f"Drift scan completed: {len(drift_items)} drifts found in {report.drifted_resources} resources")
 
         return report
 
-    def _get_actual_state(self, resource_type: ResourceType, resource_id: str) -> Optional[dict]:
-        """Get actual state of a resource from AWS."""
-        # In a real implementation, this would call AWS APIs
-        # For now, return simulated data
+    def _get_actual_state(self, user_id: int, resource_type: ResourceType,
+                          resource_id: str) -> Optional[dict]:
+        """Read a resource's live state from AWS using the user's own credentials.
 
-        # Simulate some resources existing with slight changes
-        if resource_type == ResourceType.EC2_INSTANCE:
-            return {
-                'id': resource_id,
-                'instance_type': 't3.medium',  # May have changed
-                'state': 'running',
-                'security_groups': ['sg-12345'],
-                'tags': {'Environment': 'production'}
-            }
-        elif resource_type == ResourceType.EC2_SECURITY_GROUP:
-            return {
-                'id': resource_id,
-                'name': 'web-sg',
-                'vpc_id': 'vpc-12345',
-                'ingress': [
-                    {'port': 443, 'cidr': '0.0.0.0/0'},  # Changed!
-                    {'port': 80, 'cidr': '10.0.0.0/8'}
-                ]
-            }
-        elif resource_type == ResourceType.S3_BUCKET:
-            return {
-                'name': resource_id,
-                'versioning': True,
-                'encryption': 'AES256',
-                'public_access_block': {
-                    'block_public_acls': True,
-                    'block_public_policy': True
-                }
-            }
+        Returns the normalized config, or None when the resource does not exist
+        (the caller turns that into a single REMOVED finding). Raises
+        DriftScanError when the account can't be read at all — an unreadable
+        account must abort the scan, never be reported as drift.
 
-        return {}
+        This previously returned hardcoded dicts and no RDS branch at all, so
+        every user got an identical fictional report — including a critical
+        "security group open to 0.0.0.0/0" alert that was a literal in the
+        source, and 6 phantom "property removed" rows for RDS (the missing
+        branch fell through to `return {}`, which _compare_configs reads as
+        "every expected property vanished").
+        """
+        from services.credential_service import get_user_boto_client
+
+        try:
+            if resource_type == ResourceType.EC2_INSTANCE:
+                return self._fetch_ec2_instance(get_user_boto_client(user_id, 'ec2'), resource_id)
+            if resource_type == ResourceType.EC2_SECURITY_GROUP:
+                return self._fetch_security_group(get_user_boto_client(user_id, 'ec2'), resource_id)
+            if resource_type == ResourceType.S3_BUCKET:
+                return self._fetch_s3_bucket(get_user_boto_client(user_id, 's3'), resource_id)
+            if resource_type == ResourceType.RDS_INSTANCE:
+                return self._fetch_rds_instance(get_user_boto_client(user_id, 'rds'), resource_id)
+        except DriftScanError:
+            raise
+        except Exception as e:
+            # Credential/permission/network failures are not drift.
+            raise DriftScanError(
+                f"Could not read {resource_type.value} '{resource_id}' from AWS: {e}"
+            ) from e
+
+        raise DriftScanError(
+            f"Drift detection does not support {resource_type.value} yet — "
+            "remove this baseline or add a fetcher for it."
+        )
+
+    @staticmethod
+    def _fetch_ec2_instance(ec2, resource_id: str) -> Optional[dict]:
+        from botocore.exceptions import ClientError
+        try:
+            resp = ec2.describe_instances(InstanceIds=[resource_id])
+        except ClientError as e:
+            if e.response['Error']['Code'] in ('InvalidInstanceID.NotFound', 'InvalidInstanceID.Malformed'):
+                return None
+            raise
+
+        reservations = resp.get('Reservations', [])
+        instances = reservations[0].get('Instances', []) if reservations else []
+        if not instances:
+            return None
+        return DriftDetectionService._normalize_ec2_instance(instances[0])
+
+    @staticmethod
+    def _normalize_ec2_instance(inst: dict) -> Optional[dict]:
+        """Shared by scan and capture. Both MUST use this: if a captured baseline
+        had a different key set than a scan produces, every baseline would show
+        drift the instant it was created."""
+        state = (inst.get('State') or {}).get('Name')
+        # A terminated instance is gone for drift purposes.
+        if state == 'terminated':
+            return None
+
+        return {
+            'id': inst.get('InstanceId'),
+            'instance_type': inst.get('InstanceType'),
+            'state': state,
+            'security_groups': [g.get('GroupId') for g in inst.get('SecurityGroups', [])],
+            'tags': {t['Key']: t['Value'] for t in inst.get('Tags', [])},
+        }
+
+    @staticmethod
+    def _fetch_security_group(ec2, resource_id: str) -> Optional[dict]:
+        from botocore.exceptions import ClientError
+        try:
+            resp = ec2.describe_security_groups(GroupIds=[resource_id])
+        except ClientError as e:
+            if e.response['Error']['Code'] in ('InvalidGroup.NotFound', 'InvalidGroupId.Malformed'):
+                return None
+            raise
+
+        groups = resp.get('SecurityGroups', [])
+        if not groups:
+            return None
+        return DriftDetectionService._normalize_security_group(groups[0])
+
+    @staticmethod
+    def _normalize_security_group(sg: dict) -> dict:
+        # Flatten to the {port, cidr} shape baselines are written in. One rule can
+        # carry several CIDRs, so it expands to one entry each.
+        ingress = []
+        for perm in sg.get('IpPermissions', []):
+            port = perm.get('FromPort')
+            for rng in perm.get('IpRanges', []):
+                ingress.append({'port': port, 'cidr': rng.get('CidrIp')})
+            for rng in perm.get('Ipv6Ranges', []):
+                ingress.append({'port': port, 'cidr': rng.get('CidrIpv6')})
+
+        return {
+            'id': sg.get('GroupId'),
+            'name': sg.get('GroupName'),
+            'vpc_id': sg.get('VpcId'),
+            'ingress': ingress,
+        }
+
+    @staticmethod
+    def _fetch_s3_bucket(s3, resource_id: str) -> Optional[dict]:
+        from botocore.exceptions import ClientError
+        try:
+            s3.head_bucket(Bucket=resource_id)
+        except ClientError as e:
+            if e.response['Error']['Code'] in ('404', 'NoSuchBucket'):
+                return None
+            raise
+
+        def _quiet(fn, default):
+            """Sub-config calls 404 when never configured — that's a real value, not an error."""
+            try:
+                return fn()
+            except ClientError:
+                return default
+
+        versioning = _quiet(
+            lambda: s3.get_bucket_versioning(Bucket=resource_id).get('Status') == 'Enabled', False
+        )
+        encryption = _quiet(
+            lambda: (
+                s3.get_bucket_encryption(Bucket=resource_id)
+                ['ServerSideEncryptionConfiguration']['Rules'][0]
+                ['ApplyServerSideEncryptionByDefault']['SSEAlgorithm']
+            ),
+            None,
+        )
+        pab = _quiet(
+            lambda: s3.get_public_access_block(Bucket=resource_id)['PublicAccessBlockConfiguration'],
+            {},
+        )
+
+        return {
+            'name': resource_id,
+            'versioning': versioning,
+            'encryption': encryption,
+            'public_access_block': {
+                'block_public_acls': pab.get('BlockPublicAcls', False),
+                'block_public_policy': pab.get('BlockPublicPolicy', False),
+            },
+        }
+
+    @staticmethod
+    def _fetch_rds_instance(rds, resource_id: str) -> Optional[dict]:
+        from botocore.exceptions import ClientError
+        try:
+            resp = rds.describe_db_instances(DBInstanceIdentifier=resource_id)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'DBInstanceNotFound':
+                return None
+            raise
+
+        instances = resp.get('DBInstances', [])
+        if not instances:
+            return None
+        return DriftDetectionService._normalize_rds_instance(instances[0])
+
+    @staticmethod
+    def _normalize_rds_instance(db: dict) -> dict:
+        return {
+            'id': db.get('DBInstanceIdentifier'),
+            'engine': db.get('Engine'),
+            'engine_version': db.get('EngineVersion'),
+            'instance_class': db.get('DBInstanceClass'),
+            'publicly_accessible': db.get('PubliclyAccessible'),
+            'storage_encrypted': db.get('StorageEncrypted'),
+            'multi_az': db.get('MultiAZ'),
+        }
+
+    def capture_baselines_from_account(self, user_id: int,
+                                       resource_types: Optional[list] = None) -> dict:
+        """Snapshot the user's live cloud resources as baselines.
+
+        This is the cloud-account-native way to get started: pin what you have
+        right now, then any later change shows as drift. Terraform state import
+        is the other path, for infrastructure that's already declared.
+
+        Reuses the same normalizers the scan uses, so a freshly captured baseline
+        compares clean. Raises DriftScanError when the account can't be read.
+        """
+        from services.credential_service import get_user_boto_client
+
+        wanted = set(resource_types or [
+            ResourceType.EC2_INSTANCE, ResourceType.EC2_SECURITY_GROUP,
+            ResourceType.S3_BUCKET, ResourceType.RDS_INSTANCE,
+        ])
+        captured = {}
+
+        try:
+            if ResourceType.EC2_INSTANCE in wanted or ResourceType.EC2_SECURITY_GROUP in wanted:
+                ec2 = get_user_boto_client(user_id, 'ec2')
+
+            if ResourceType.EC2_INSTANCE in wanted:
+                count = 0
+                for page in ec2.get_paginator('describe_instances').paginate():
+                    for reservation in page.get('Reservations', []):
+                        for inst in reservation.get('Instances', []):
+                            config = self._normalize_ec2_instance(inst)
+                            if config is None:
+                                continue  # terminated
+                            self.add_baseline(user_id, BaselineResource(
+                                resource_type=ResourceType.EC2_INSTANCE,
+                                resource_id=inst['InstanceId'],
+                                resource_name=config['tags'].get('Name') or inst['InstanceId'],
+                                expected_config=config,
+                                tags=config['tags'],
+                            ))
+                            count += 1
+                captured['ec2_instance'] = count
+
+            if ResourceType.EC2_SECURITY_GROUP in wanted:
+                count = 0
+                for page in ec2.get_paginator('describe_security_groups').paginate():
+                    for sg in page.get('SecurityGroups', []):
+                        config = self._normalize_security_group(sg)
+                        self.add_baseline(user_id, BaselineResource(
+                            resource_type=ResourceType.EC2_SECURITY_GROUP,
+                            resource_id=sg['GroupId'],
+                            resource_name=sg.get('GroupName') or sg['GroupId'],
+                            expected_config=config,
+                        ))
+                        count += 1
+                captured['security_group'] = count
+
+            if ResourceType.RDS_INSTANCE in wanted:
+                rds = get_user_boto_client(user_id, 'rds')
+                count = 0
+                for page in rds.get_paginator('describe_db_instances').paginate():
+                    for db in page.get('DBInstances', []):
+                        config = self._normalize_rds_instance(db)
+                        self.add_baseline(user_id, BaselineResource(
+                            resource_type=ResourceType.RDS_INSTANCE,
+                            resource_id=db['DBInstanceIdentifier'],
+                            resource_name=db['DBInstanceIdentifier'],
+                            expected_config=config,
+                        ))
+                        count += 1
+                captured['rds_instance'] = count
+
+            if ResourceType.S3_BUCKET in wanted:
+                s3 = get_user_boto_client(user_id, 's3')
+                count = 0
+                for bucket in s3.list_buckets().get('Buckets', []):
+                    name = bucket['Name']
+                    # Per-bucket sub-config calls; skip anything we can't read
+                    # (cross-region/denied) rather than pinning a half-empty baseline.
+                    try:
+                        config = self._fetch_s3_bucket(s3, name)
+                    except Exception:
+                        logger.warning(f"Skipping bucket {name} during capture - not readable")
+                        continue
+                    if config is None:
+                        continue
+                    self.add_baseline(user_id, BaselineResource(
+                        resource_type=ResourceType.S3_BUCKET,
+                        resource_id=name,
+                        resource_name=name,
+                        expected_config=config,
+                    ))
+                    count += 1
+                captured['s3_bucket'] = count
+
+        except DriftScanError:
+            raise
+        except Exception as e:
+            raise DriftScanError(f"Could not read your AWS account: {e}") from e
+
+        total = sum(captured.values())
+        logger.info(f"Captured {total} baseline(s) from AWS for user {user_id}: {captured}")
+        return {'total': total, 'by_type': captured}
 
     def _compare_configs(self, expected: dict, actual: dict, resource_type: ResourceType,
                          resource_id: str, resource_name: str, report_id: str,
@@ -318,12 +603,17 @@ class DriftDetectionService:
         drift_items = []
         idx = start_idx
 
+        _MISSING = object()
+
         for key, expected_value in expected.items():
             current_path = f"{path}.{key}" if path else key
-            actual_value = actual.get(key)
+            # Sentinel, not .get(key): a live value that is legitimately None
+            # (e.g. an unencrypted bucket) is a changed value, not a removed property.
+            actual_value = actual.get(key, _MISSING)
 
-            if actual_value is None:
+            if actual_value is _MISSING:
                 # Property removed
+                actual_value = None
                 drift_items.append(DriftItem(
                     id=f"drift-{report_id}-{idx}",
                     resource_type=resource_type,
@@ -363,25 +653,10 @@ class DriftDetectionService:
                 ))
                 idx += 1
 
-        # Check for added properties
-        for key, actual_value in actual.items():
-            if key not in expected:
-                current_path = f"{path}.{key}" if path else key
-                drift_items.append(DriftItem(
-                    id=f"drift-{report_id}-{idx}",
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    resource_name=resource_name,
-                    drift_type=DriftType.ADDED,
-                    severity=DriftSeverity.LOW,
-                    expected_value=None,
-                    actual_value=actual_value,
-                    property_path=current_path,
-                    description=f"New property '{key}' was added",
-                    remediation_suggestion=f"Remove property '{key}' or update baseline"
-                ))
-                idx += 1
-
+        # Properties present live but absent from the baseline are NOT drift. A
+        # baseline is a subset of the properties you chose to pin; every real
+        # resource carries many more. Reporting them produced pure noise with
+        # impossible remediation ("Remove property 'id'" for an EC2 instance id).
         return drift_items
 
     def _get_property_severity(self, resource_type: ResourceType, property_name: str) -> DriftSeverity:
@@ -450,30 +725,109 @@ class DriftDetectionService:
             'security_issues': sum(1 for d in drift_items if d.drift_type == DriftType.SECURITY)
         }
 
+    def _save_report(self, user_id: int, report: DriftReport):
+        """Persist a scan result to the DB."""
+        from models import db, DriftReportModel
+
+        row = DriftReportModel(
+            id=report.id,
+            user_id=user_id,
+            scan_started=report.scan_started,
+            scan_completed=report.scan_completed,
+            total_resources=report.total_resources,
+            drifted_resources=report.drifted_resources,
+            drift_items=[self._drift_item_to_dict(d) for d in report.drift_items],
+            summary=report.summary
+        )
+        db.session.add(row)
+        db.session.commit()
+
+    @staticmethod
+    def _drift_item_to_dict(item: DriftItem) -> dict:
+        return {
+            'id': item.id,
+            'resource_type': item.resource_type.value,
+            'resource_id': item.resource_id,
+            'resource_name': item.resource_name,
+            'drift_type': item.drift_type.value,
+            'severity': item.severity.value,
+            'expected_value': item.expected_value,
+            'actual_value': item.actual_value,
+            'property_path': item.property_path,
+            'description': item.description,
+            'detected_at': item.detected_at.isoformat(),
+            'remediation_suggestion': item.remediation_suggestion
+        }
+
+    @staticmethod
+    def _drift_item_from_dict(d: dict) -> DriftItem:
+        return DriftItem(
+            id=d['id'],
+            resource_type=ResourceType(d['resource_type']),
+            resource_id=d['resource_id'],
+            resource_name=d['resource_name'],
+            drift_type=DriftType(d['drift_type']),
+            severity=DriftSeverity(d['severity']),
+            expected_value=d['expected_value'],
+            actual_value=d['actual_value'],
+            property_path=d['property_path'],
+            description=d['description'],
+            detected_at=datetime.fromisoformat(d['detected_at']),
+            remediation_suggestion=d.get('remediation_suggestion', '')
+        )
+
+    @classmethod
+    def _report_from_row(cls, row) -> DriftReport:
+        return DriftReport(
+            id=row.id,
+            scan_started=row.scan_started,
+            scan_completed=row.scan_completed,
+            total_resources=row.total_resources,
+            drifted_resources=row.drifted_resources,
+            drift_items=[cls._drift_item_from_dict(d) for d in (row.drift_items or [])],
+            summary=row.summary or {}
+        )
+
     def get_report(self, user_id: int, report_id: str) -> Optional[DriftReport]:
         """Get a specific drift report."""
-        user_reports = self.reports.get(user_id, [])
-        for report in user_reports:
-            if report.id == report_id:
-                return report
-        return None
+        from models import DriftReportModel
+
+        row = DriftReportModel.query.filter_by(id=report_id, user_id=user_id).first()
+        return self._report_from_row(row) if row else None
 
     def get_recent_reports(self, user_id: int, limit: int = 10) -> list[DriftReport]:
         """Get recent drift reports."""
-        user_reports = self.reports.get(user_id, [])
-        return sorted(user_reports, key=lambda r: r.scan_completed, reverse=True)[:limit]
+        from models import DriftReportModel
+
+        rows = DriftReportModel.query.filter_by(user_id=user_id) \
+            .order_by(DriftReportModel.scan_completed.desc()).limit(limit).all()
+        return [self._report_from_row(row) for row in rows]
 
     def get_baseline_count(self, user_id: int) -> int:
         """Get number of baselined resources."""
-        return len(self.baselines.get(user_id, {}))
+        from models import DriftBaselineModel
+
+        return DriftBaselineModel.query.filter_by(user_id=user_id).count()
 
     def get_baselines(self, user_id: int, resource_type: Optional[ResourceType] = None) -> list[BaselineResource]:
         """Get all baselines, optionally filtered by type."""
-        user_baselines = self.baselines.get(user_id, {})
-        baselines = list(user_baselines.values())
+        from models import DriftBaselineModel
+
+        query = DriftBaselineModel.query.filter_by(user_id=user_id)
         if resource_type:
-            baselines = [b for b in baselines if b.resource_type == resource_type]
-        return baselines
+            query = query.filter_by(resource_type=resource_type.value)
+
+        return [
+            BaselineResource(
+                resource_type=ResourceType(row.resource_type),
+                resource_id=row.resource_id,
+                resource_name=row.resource_name,
+                expected_config=row.expected_config or {},
+                tags=row.tags or {},
+                last_updated=row.last_updated
+            )
+            for row in query.all()
+        ]
 
 
 # Global instance
