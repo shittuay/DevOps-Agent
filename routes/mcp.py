@@ -661,14 +661,19 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
         # with zero operational visibility — log it.
         logger.error(f"MCP safety validator raised for tool '{tool_name}', executing without a safety gate: {e}")
 
-    # Execute the tool handler with user context set
+    # Execute the tool handler with user context set. Use the agent's
+    # _set_cloud_user_context (covers AWS, Azure, GCP, and
+    # devops_operations_tools — see CLAUDE.md's Concurrency Model section)
+    # rather than aws_tools.set_user_context alone, which left every non-AWS
+    # tool call through this MCP path with no user context to resolve
+    # credentials against.
     try:
-        from src.tools.aws_tools import set_user_context, clear_user_context
-        set_user_context(user_id)
+        from app import agent as _agent
+        _agent._set_cloud_user_context(user_id)
         try:
             result = tool['handler'](**arguments)
         finally:
-            clear_user_context()
+            _agent._clear_cloud_user_context()
     except TypeError as e:
         return _err(req_id, -32602, f"Invalid tool arguments: {e}")
     except Exception as e:

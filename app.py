@@ -2414,9 +2414,7 @@ def get_cloud_credentials_status():
 
 def _validate_webhook_url(webhook_url: str, channel_type: str) -> str | None:
     """Return an error string if the URL fails SSRF/validation checks, else None."""
-    from urllib.parse import urlparse
-    import ipaddress
-    import socket as _socket
+    from src.utils.network_safety import assert_safe_external_webhook_url, UnsafeUrlError
 
     if not webhook_url.startswith('https://'):
         return 'Webhook URL must use HTTPS'
@@ -2427,15 +2425,10 @@ def _validate_webhook_url(webhook_url: str, channel_type: str) -> str | None:
             'go to your Slack workspace → Apps → Incoming Webhooks to generate one'
         )
 
-    parsed = urlparse(webhook_url)
-    if not parsed.hostname:
-        return 'Invalid webhook URL'
     try:
-        ip = ipaddress.ip_address(_socket.gethostbyname(parsed.hostname))
-        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
-            return 'Webhook URL must not point to a private or reserved IP address'
-    except (_socket.gaierror, ValueError):
-        pass
+        assert_safe_external_webhook_url(webhook_url)
+    except UnsafeUrlError as e:
+        return str(e)
 
     return None
 

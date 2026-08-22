@@ -611,6 +611,15 @@ def api_execute_tool():
             f"key={api_key_record.id} tool={tool_name} risk={validation.risk_level} params={params}"
         )
 
+    # Set the requester's cloud credential context before running the tool —
+    # without it, aws_tools._get_boto_client (and the Azure/GCP equivalents)
+    # have no user to resolve credentials for; they either fail closed or,
+    # worse, run against whatever context a previous request left on this
+    # worker (see services/approval_service.py::_execute_tool for the same
+    # pattern, and CLAUDE.md's "Any code path that runs a tool outside
+    # process_message_isolated/process_message_streaming" note).
+    from app import agent as _agent
+    _agent._set_cloud_user_context(user_id)
     try:
         result = all_tools[tool_name]['handler'](**params)
     except TypeError as e:
@@ -618,6 +627,8 @@ def api_execute_tool():
     except Exception as e:
         current_app.logger.error(f"Tool execution error {tool_name}: {e}", exc_info=True)
         return jsonify({'error': f'Tool execution failed: {e}'}), 500
+    finally:
+        _agent._clear_cloud_user_context()
 
     db.session.add(UsageLog(
         user_id=user_id, action_type='api_tool_use',
