@@ -352,6 +352,24 @@ class TestSafetyClassifications:
     def test_git_stash_apply_is_medium_risk(self):
         assert self._classify('git_stash_apply') == 'medium'
 
+    # --- high-risk: AWS secret/credential disclosure (same class as get_secret_value) ---
+    def test_create_ec2_keypair_is_high_risk(self):
+        # Returns the raw PEM private key material directly in the tool result.
+        assert self._classify('create_ec2_keypair') == 'high'
+
+    def test_generate_s3_presigned_url_is_high_risk(self):
+        # Generates an unauthenticated bearer URL (up to 7 days) for get_object
+        # or put_object with no further AWS auth required.
+        assert self._classify('generate_s3_presigned_url') == 'high'
+
+    # --- medium-risk: AWS SNS (same "pages/redirects to an external endpoint
+    # with no confirmation" shape as the alerting tools above) ---
+    def test_publish_sns_message_is_medium_risk(self):
+        assert self._classify('publish_sns_message') == 'medium'
+
+    def test_subscribe_sns_topic_is_medium_risk(self):
+        assert self._classify('subscribe_sns_topic') == 'medium'
+
     # --- production escalation ---
     def test_high_risk_on_production_escalates_to_critical(self):
         from src.agent.safety import SafetyValidator

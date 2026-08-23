@@ -251,6 +251,16 @@ class SafetyValidator:
             # decrypted material (AWS has no secretsmanager:GetSecretValue/ssm:GetParameter
             # WithDecryption equivalent; GitHub's list_github_secrets never exposes values).
             'get_secret_value',
+            # Same disclosure class as get_secret_value: returns the raw PEM private key
+            # material directly in the tool result (chat/tool-trace/LLM-provider path) —
+            # unlike delete_ec2_keypair (already high-risk), the create path that actually
+            # discloses the secret had no confirmation gate.
+            'create_ec2_keypair',
+            # Generates an unauthenticated bearer URL (up to 7 days) for get_object OR
+            # put_object on an S3 object — anyone holding the URL can read or overwrite it
+            # with no further AWS auth, the same live-access-credential disclosure class as
+            # get_secret_value/create_ec2_keypair.
+            'generate_s3_presigned_url',
             'delete_cloud_run_service',
             'delete_gke_cluster',
             'delete_firewall_rule',
@@ -578,6 +588,12 @@ class SafetyValidator:
             # update/acknowledge/close/escalate siblings.
             'pagerduty_create_incident',
             'opsgenie_create_alert',
+            # Same "pages/redirects to an external endpoint with no confirmation" risk class
+            # as the alerting tools above: publish_sns_message can page arbitrary email/SMS/
+            # HTTP subscribers with caller-controlled content; subscribe_sns_topic can point
+            # future topic messages at an arbitrary external endpoint the caller supplies.
+            'publish_sns_message',
+            'subscribe_sns_topic',
         }
 
         # Check if tool is a pentest tool
