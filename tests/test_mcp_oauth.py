@@ -433,6 +433,60 @@ class TestOAuthFlowEndToEnd:
         assert resp.status_code == 400
         assert resp.get_json()['error'] == 'invalid_request'
 
+    def test_builtin_client_id_rejects_arbitrary_https_redirect_uri(self, client):
+        """The well-known default client_id ('claude-connector', printed in this
+        module's own docstring) must not accept an arbitrary attacker-controlled
+        https redirect_uri — otherwise anyone can start /authorize with that
+        client_id and their own redirect_uri, phish a victim through the genuine
+        login form, and have the authorization code delivered to their server."""
+        from routes.mcp import OAUTH_CLIENT_ID
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': OAUTH_CLIENT_ID,
+            'redirect_uri': 'https://attacker.example.com/cb',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'invalid_request'
+
+    def test_builtin_client_id_allows_configured_redirect_uri(self, client):
+        from routes.mcp import OAUTH_CLIENT_ID
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': OAUTH_CLIENT_ID,
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 200
+
+    def test_builtin_client_id_allows_loopback_redirect_uri(self, client):
+        from routes.mcp import OAUTH_CLIENT_ID
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': OAUTH_CLIENT_ID,
+            'redirect_uri': 'http://localhost:54321/callback',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 200
+
+    def test_registration_without_redirect_uris_rejected(self, client):
+        """A DCR client with no redirect_uris on file has nothing for /authorize
+        to validate a requested redirect_uri against — reject it at registration
+        instead of letting that client_id later accept any redirect_uri."""
+        resp = client.post('/mcp/oauth/register', json={'client_name': 'no-redirects-client'})
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'invalid_client_metadata'
+
+        resp2 = client.post('/mcp/oauth/register', json={
+            'client_name': 'empty-redirects-client',
+            'redirect_uris': [],
+        })
+        assert resp2.status_code == 400
+        assert resp2.get_json()['error'] == 'invalid_client_metadata'
+
     def test_wrong_pkce_verifier_rejected(self, client, test_user):
         reg = client.post('/mcp/oauth/register', json={
             'client_name': 'any-public-client',

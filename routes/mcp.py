@@ -94,6 +94,22 @@ SERVER_VERSION = "1.0.4"
 OAUTH_CLIENT_ID     = os.environ.get('MCP_OAUTH_CLIENT_ID',     'claude-connector')
 OAUTH_CLIENT_SECRET = os.environ.get('MCP_OAUTH_CLIENT_SECRET', 'devopsagent-mcp-secret-2026')
 
+# Non-loopback redirect_uris the built-in client above may use. OAUTH_CLIENT_ID
+# is a stable, publicly-known default (printed in this module's own docstring)
+# with no per-registration record the way a DCR client has — treating it as
+# "any https redirect_uri is fine" (the previous behavior) would let anyone
+# start the /authorize flow with client_id=claude-connector and their own
+# redirect_uri, phish a victim through the genuine login form, and have the
+# authorization code delivered straight to an attacker-controlled server
+# (see CLAUDE_RUNBOOK.md's MCP OAuth redirect_uri entry). Loopback redirects
+# are exempted below (RFC 8252 §7.3 — dynamic ports) since they can only ever
+# land back on the requesting user's own machine, not an attacker's server.
+_BUILTIN_CLIENT_REDIRECT_URIS = [
+    uri.strip() for uri in os.environ.get(
+        'MCP_OAUTH_CLIENT_REDIRECT_URIS', 'https://claude.ai/api/mcp/auth_callback'
+    ).split(',') if uri.strip()
+]
+
 # in-memory stores (restart clears them — users just re-auth)
 _oauth_codes:   Dict[str, Dict[str, Any]] = {}   # code  → {user_id, expires, redirect_uri}
 _oauth_tokens:  Dict[str, int]            = {}   # token → user_id  (L1 cache; DB is source of truth)
@@ -1026,13 +1042,14 @@ def oauth_authorize():
     # legitimately-authenticated victim's auth code to an attacker-controlled
     # URL (authorization code interception / account takeover).
     client_name = None
-    allowed_redirect_uris = None
-    if client_id != OAUTH_CLIENT_ID:
+    is_builtin_client = (client_id == OAUTH_CLIENT_ID)
+    allowed_redirect_uris = []
+    if not is_builtin_client:
         client_record = _lookup_client_db(client_id)
         if client_record is None:
             return jsonify({'error': 'invalid_client',
                             'error_description': 'Unknown client_id — register via /mcp/oauth/register first'}), 400
-        allowed_redirect_uris = client_record.get('redirect_uris') or None
+        allowed_redirect_uris = client_record.get('redirect_uris') or []
         client_name = client_record.get('client_name')
 
     # Redirect target guard: https for real clients, plain http only for
@@ -1044,9 +1061,21 @@ def oauth_authorize():
         if parsed.scheme != 'https' and not (parsed.scheme == 'http' and is_loopback):
             return jsonify({'error': 'invalid_request',
                             'error_description': 'redirect_uri must be https (or http on loopback)'}), 400
-        if allowed_redirect_uris and redirect_uri not in allowed_redirect_uris:
-            return jsonify({'error': 'invalid_request',
-                            'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
+        if is_builtin_client:
+            # No per-registration record exists for the built-in client, so
+            # it's checked against the fixed allowlist above instead —
+            # loopback is exempt from it for the RFC 8252 reason noted there.
+            if not is_loopback and redirect_uri not in _BUILTIN_CLIENT_REDIRECT_URIS:
+                return jsonify({'error': 'invalid_request',
+                                'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
+        else:
+            # Fail closed: a client with no non-empty redirect_uris on file
+            # must never be treated as "no restriction configured" — that
+            # was exactly the gap that made the check above a no-op for any
+            # client registered without a redirect_uris list.
+            if redirect_uri not in allowed_redirect_uris:
+                return jsonify({'error': 'invalid_request',
+                                'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
 
     if request.method == 'GET':
         return render_template_string(_AUTHORIZE_HTML,
@@ -1223,6 +1252,19 @@ def oauth_register():
     body = request.get_json(silent=True) or {}
     redirect_uris = body.get('redirect_uris', [])
     client_name = body.get('client_name', 'MCP Client')
+
+    # A client with no redirect_uris on file can never be validated against
+    # an allowlist at /authorize — reject it up front (RFC 7591 §3.2.2
+    # invalid_client_metadata) rather than silently letting that client_id
+    # redirect an authorization code anywhere later.
+    if not redirect_uris:
+        resp = jsonify({'error': 'invalid_client_metadata',
+                        'error_description': 'redirect_uris is required and must be non-empty'})
+        resp.status_code = 400
+        for k, v in _cors_headers().items():
+            resp.headers[k] = v
+        return resp
+
     client_id = _find_existing_client_by_redirect_uris(redirect_uris)
     if client_id:
         logger.info(f"MCP: reusing existing OAuth client {client_id!r} ({client_name}) for repeat registration")
