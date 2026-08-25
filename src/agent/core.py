@@ -939,7 +939,13 @@ class DevOpsAgent:
             for msg in conversation_history:
                 if msg['role'] == 'user':
                     self.conversation.add_user_message(msg['content'])
-                elif msg['role'] == 'assistant':
+                elif msg['role'] == 'assistant' and msg.get('content', '').strip():
+                    # An empty prior assistant turn (see CLAUDE_RUNBOOK.md's 2026-08-25
+                    # entry — pre-fix rows in the DB can still have this) must not be
+                    # replayed into history: Kimi's API rejects a plain assistant message
+                    # with empty content ("message ... must not be empty"), and it carries
+                    # no information either way, so just drop it rather than persisting a
+                    # request-breaking artifact into every future turn of this conversation.
                     self.conversation.add_assistant_message([{
                         'type': 'text',
                         'text': msg['content']
@@ -1022,7 +1028,13 @@ class DevOpsAgent:
             for msg in conversation_history:
                 if msg['role'] == 'user':
                     self.conversation.add_user_message(msg['content'])
-                elif msg['role'] == 'assistant':
+                elif msg['role'] == 'assistant' and msg.get('content', '').strip():
+                    # An empty prior assistant turn (see CLAUDE_RUNBOOK.md's 2026-08-25
+                    # entry — pre-fix rows in the DB can still have this) must not be
+                    # replayed into history: Kimi's API rejects a plain assistant message
+                    # with empty content ("message ... must not be empty"), and it carries
+                    # no information either way, so just drop it rather than persisting a
+                    # request-breaking artifact into every future turn of this conversation.
                     self.conversation.add_assistant_message([{
                         'type': 'text',
                         'text': msg['content']
