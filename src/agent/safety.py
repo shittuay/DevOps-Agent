@@ -368,6 +368,12 @@ class SafetyValidator:
             'revoke_security_group_ingress',
             'register_targets',
             'deregister_targets',
+            # 'create_' prefix isn't a monitored auto-detect prefix (only delete_/terminate_/
+            # destroy_/remove_/drop_/purge_ are), but this tool defaults action='UPSERT', which
+            # silently overwrites any existing live DNS record with the same name/type —
+            # redirecting production traffic with zero confirmation. Its delete_route53_record
+            # sibling is already high-risk via the delete_ prefix.
+            'create_route53_record',
             'release_elastic_ip',
             'update_secret',
             'update_lambda_function_config',
