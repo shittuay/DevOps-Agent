@@ -198,10 +198,14 @@ def get_tools() -> List[Dict[str, Any]]:
         {
             'name': 'execute_command',
             'description': (
-                'Execute a shell command safely with timeout protection. '
-                'Use this for running system commands, checking status, '
-                'or performing operations that don\'t have dedicated tools. '
-                'The command will be executed with a timeout to prevent hanging.'
+                'Execute a shell command LOCALLY on the server hosting this agent — '
+                'NOT on any EC2 instance, Kubernetes pod, container, or other remote '
+                'resource. Use only for local diagnostics (e.g. checking a CLI tool\'s '
+                'version) or local git/terraform/ansible/docker-cli operations that '
+                'don\'t have a dedicated tool. To run a command ON a remote target, use '
+                'the target\'s own tool instead: ssm_run_command for an EC2 instance, '
+                'docker_exec for a container, exec_pod_command for a Kubernetes pod. '
+                'This tool cannot reach any of those.'
             ),
             'input_schema': {
                 'type': 'object',
