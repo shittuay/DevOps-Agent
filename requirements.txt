@@ -10,6 +10,7 @@ Flask-SocketIO==5.3.6
 gunicorn==23.0.0
 gevent==25.4.2  # security floor: PVE-2025-76839 / Safety ID 76839 (HTTP request smuggling in pywsgi)
 serverless-wsgi==3.0.3
+prometheus-client==0.26.0
 
 # Caching & Message Queue
 redis==5.0.1

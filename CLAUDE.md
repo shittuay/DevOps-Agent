@@ -881,6 +881,54 @@ Optional:
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi API key (required for Kimi model provider)
 - `KIMI_MODEL` - Kimi model override (default: `kimi-k3`, the latest). Valid Moonshot ids (verified live via `/v1/models` 2026-07-22): `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5` (no bare `kimi-k2.7`).
+- `METRICS_TOKEN` - Bearer token gating `/metrics` (see Prometheus Metrics section below). Unset = endpoint returns 403, disabled by default.
+- `PROMETHEUS_MULTIPROC_DIR` - Set in `devops-agent.service` (not `.env`) to enable multiprocess metric aggregation across gunicorn's 3 workers. Unset in local dev/tests — falls back to a single process-local registry.
+
+### Prometheus Metrics (`/metrics`)
+
+`routes/metrics.py` + `services/metrics_service.py`. Records `http_requests_total`
+and `http_request_duration_seconds` (labeled `method`, `endpoint`, and `status`
+on the counter) for every request via `before_request`/`after_request` hooks
+wired in `app.py`. `endpoint` is Flask's matched route name (`request.endpoint`),
+not the raw path — unmatched routes (404s, bot path-scans) collapse into one
+`unmatched` label instead of creating unbounded cardinality from raw paths.
+Duration buckets extend to 900s (`_DURATION_BUCKETS` in `metrics_service.py`)
+to keep resolution on slow `/api/chat` turns, which legitimately run up to
+`CHAT_MAX_TURN_SECONDS` (840s) — default prometheus_client buckets top out
+at 10s and would collapse all of those into `+Inf`.
+
+**Auth:** `/metrics` requires `Authorization: Bearer <METRICS_TOKEN>` — nginx.conf
+proxies every path straight through to the app (no reverse-proxy scoping the
+way node_exporter's `127.0.0.1`-only bind does), so this can't rely on network
+position the way host-level monitoring does. Same shape as the existing
+`/init-database-secret-endpoint-12345` token gate. Set `METRICS_TOKEN` in the
+box's `.env` (not `MANAGED_SECRET_KEYS` — `init_secrets()` only overwrites keys
+in that list, so a plain `.env` value is left alone in production).
+
+**Multiprocess aggregation is required, not optional, in production.**
+`devops-agent.service` runs `--workers 3` (3 OS processes) — a bare
+`prometheus_client` registry is process-local, so scraping through gunicorn
+would return whichever worker handled that request, with counters appearing
+to jump or reset across scrapes. `render_metrics()` uses `MultiProcessCollector`
+when `PROMETHEUS_MULTIPROC_DIR` is set. Three pieces have to stay in sync or
+this silently breaks:
+1. `PROMETHEUS_MULTIPROC_DIR` set in the systemd unit (must exist before the
+   metric objects are created at module import time — set via `Environment=`,
+   not `.env`, so it's present before gunicorn even forks).
+2. `ExecStartPre` wipes and recreates that directory on every start — a stale
+   file from a previous run's PID would otherwise be misread as a live
+   worker's counters.
+3. `gunicorn.conf.py`'s `child_exit` hook calls `multiprocess.mark_process_dead(worker.pid)`
+   — without it, a crashed or recycled worker's metric file is never marked
+   dead and gets double-counted alongside its replacement's for the rest of
+   that service's uptime. Wired via `ExecStart --config gunicorn.conf.py`.
+
+**Deploy gap:** `ci.yml`'s deploy job only does `git reset --hard` + `pip install`
++ `systemctl restart` — it does not copy `devops-agent.service` to
+`/etc/systemd/system/` or run `daemon-reload`. Any future change to the systemd
+unit (this one included) must be applied to the box manually via SSM, same as
+this feature's initial rollout — the repo copy is documentation of the intended
+unit, not the deployed one, until this gap is closed.
 
 ### Email / SMS MFA delivery (`email`/`sms` mfa_method)
 
