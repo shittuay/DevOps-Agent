@@ -3137,6 +3137,14 @@ def api_chat():
             response = sanitize_output(response)
             response = redact_secrets(response)
 
+            # An empty assistant turn (e.g. a tool-only reply where the model never
+            # produced closing text) must never be persisted as-is — reloaded into a
+            # later turn's history, an empty assistant message breaks Kimi's API
+            # ("message ... with role 'assistant' must not be empty") and is rejected
+            # by Anthropic's API the same way. See CLAUDE_RUNBOOK.md's 2026-08-25 entry.
+            if not response or not response.strip():
+                response = "(No response text was generated for this turn.)"
+
             # Save assistant response
             assistant_message = ChatMessage(
                 user_id=_user_id,
@@ -3852,6 +3860,14 @@ def api_chat_stream():
                 complete = ''.join(full_response)
                 complete = sanitize_output(complete)
                 complete = redact_secrets(complete)
+
+                # An empty assistant turn (e.g. a tool-only reply where the model never
+                # streamed closing text) must never be persisted as-is — reloaded into a
+                # later turn's history, an empty assistant message breaks Kimi's API
+                # ("message ... with role 'assistant' must not be empty") and is rejected
+                # by Anthropic's API the same way. See CLAUDE_RUNBOOK.md's 2026-08-25 entry.
+                if not complete or not complete.strip():
+                    complete = "(No response text was generated for this turn.)"
 
                 # Save assistant response in app context
                 # Capture all tool events for the trace (accumulated in _tool_events_log)
