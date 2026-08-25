@@ -324,6 +324,11 @@ app.register_blueprint(changes_bp)
 from routes.curriculum import curriculum_bp
 app.register_blueprint(curriculum_bp)
 
+from routes.metrics import metrics_bp
+app.register_blueprint(metrics_bp)
+from services import metrics_service
+metrics_service.init_app(app)
+
 # Pre-built workflow templates
 from routes.workflows import workflows_bp
 app.register_blueprint(workflows_bp)
