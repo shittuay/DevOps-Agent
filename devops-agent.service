@@ -7,7 +7,8 @@ Requires=postgresql.service
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/var/www/devops-agent
-Environment="PATH=/var/www/devops-agent/venv/bin"
+Environment="PATH=/var/www/devops-agent/venv/bin:/usr/bin:/usr/local/bin:/bin"
+Environment="GIT_PYTHON_GIT_EXECUTABLE=/usr/bin/git"
 Environment="PROMETHEUS_MULTIPROC_DIR=/var/www/devops-agent/prometheus_multiproc"
 EnvironmentFile=/var/www/devops-agent/.env
 # Multiprocess Prometheus metrics require this directory empty at startup —
