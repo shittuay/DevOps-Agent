@@ -9923,6 +9923,7 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
 
         # Get ALB and NLB (ELBv2)
         modern_lbs = []
+        errors = {}
         try:
             response = elbv2.describe_load_balancers()
             for lb in response.get('LoadBalancers', []):
@@ -9946,8 +9947,12 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
                     'target_groups': target_group_count,
                     'ip_address_type': lb.get('IpAddressType', 'ipv4')
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            # A failed describe_load_balancers call (permissions, throttling) must not
+            # look identical to "this account has zero modern load balancers" — surface
+            # it in `errors` rather than silently reporting a clean/empty result.
+            logger.warning(f"list_load_balancers: ELBv2 describe_load_balancers failed: {e}")
+            errors['modern'] = str(e)
 
         # Get Classic Load Balancers
         classic_lbs = []
@@ -9966,12 +9971,13 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
                     'health_check_target': lb.get('HealthCheck', {}).get('Target', 'N/A'),
                     'health_check_interval': lb.get('HealthCheck', {}).get('Interval', 30)
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"list_load_balancers: classic ELB describe_load_balancers failed: {e}")
+            errors['classic'] = str(e)
 
         all_lbs = modern_lbs + classic_lbs
 
-        return {
+        result = {
             'success': True,
             'count': len(all_lbs),
             'load_balancers': all_lbs,
@@ -9981,6 +9987,9 @@ def list_load_balancers(region: Optional[str] = None) -> Dict[str, Any]:
             },
             'region': _get_effective_region(region)
         }
+        if errors:
+            result['errors'] = errors
+        return result
 
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
@@ -11001,6 +11010,7 @@ def list_waf_web_acls(region: Optional[str] = None) -> Dict[str, Any]:
 
         # List regional Web ACLs
         web_acls = []
+        errors = {}
         try:
             response = wafv2.list_web_acls(Scope='REGIONAL')
             for acl in response.get('WebACLs', []):
@@ -11012,10 +11022,16 @@ def list_waf_web_acls(region: Optional[str] = None) -> Dict[str, Any]:
                     'description': acl.get('Description', 'N/A'),
                     'lock_token': acl.get('LockToken', 'N/A')
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            # A failed list_web_acls call (permissions, throttling) must not look
+            # identical to "this region has zero regional Web ACLs" — surface it
+            # rather than silently reporting a clean/empty result.
+            logger.warning(f"list_waf_web_acls: REGIONAL list_web_acls failed: {e}")
+            errors['regional'] = str(e)
 
-        # List CloudFront (global) Web ACLs
+        # List CloudFront (global) Web ACLs. AWS requires the CLOUDFRONT scope be
+        # queried from us-east-1 specifically — a WAFInvalidParameterException from
+        # any other region is expected, not a real read failure, so don't surface it.
         try:
             response = wafv2.list_web_acls(Scope='CLOUDFRONT')
             for acl in response.get('WebACLs', []):
@@ -11027,15 +11043,23 @@ def list_waf_web_acls(region: Optional[str] = None) -> Dict[str, Any]:
                     'description': acl.get('Description', 'N/A'),
                     'lock_token': acl.get('LockToken', 'N/A')
                 })
-        except Exception:
-            pass
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code') != 'WAFInvalidParameterException':
+                logger.warning(f"list_waf_web_acls: CLOUDFRONT list_web_acls failed: {e}")
+                errors['cloudfront'] = str(e)
+        except Exception as e:
+            logger.warning(f"list_waf_web_acls: CLOUDFRONT list_web_acls failed: {e}")
+            errors['cloudfront'] = str(e)
 
-        return {
+        result = {
             'success': True,
             'count': len(web_acls),
             'web_acls': web_acls,
             'region': _get_effective_region(region)
         }
+        if errors:
+            result['errors'] = errors
+        return result
 
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
