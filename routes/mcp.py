@@ -94,6 +94,20 @@ SERVER_VERSION = "1.0.4"
 OAUTH_CLIENT_ID     = os.environ.get('MCP_OAUTH_CLIENT_ID',     'claude-connector')
 OAUTH_CLIENT_SECRET = os.environ.get('MCP_OAUTH_CLIENT_SECRET', 'devopsagent-mcp-secret-2026')
 
+# Redirect URIs the built-in client is allowed to send an authorization code
+# to. Both OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET are published in
+# templates/docs.html for the self-service "Connect via Claude.ai
+# (Connectors)" flow, so this client cannot rely on the secret as its actual
+# security boundary — the redirect_uri allowlist below is what actually
+# stops an attacker from pointing a victim's authorization code at an
+# attacker-controlled origin (see CLAUDE_RUNBOOK.md's 2026-08-30 entry).
+_BUILTIN_CLIENT_REDIRECT_URIS = frozenset(
+    u.strip() for u in os.environ.get(
+        'MCP_OAUTH_BUILTIN_REDIRECT_URIS',
+        'https://claude.ai/api/mcp/auth_callback',
+    ).split(',') if u.strip()
+)
+
 # in-memory stores (restart clears them — users just re-auth)
 _oauth_codes:   Dict[str, Dict[str, Any]] = {}   # code  → {user_id, expires, redirect_uri}
 _oauth_tokens:  Dict[str, int]            = {}   # token → user_id  (L1 cache; DB is source of truth)
@@ -1024,10 +1038,15 @@ def oauth_authorize():
     # here would let an attacker reuse a real client's client_id together with
     # a redirect_uri that client never registered — redirecting a
     # legitimately-authenticated victim's auth code to an attacker-controlled
-    # URL (authorization code interception / account takeover).
+    # URL (authorization code interception / account takeover). The built-in
+    # client_id is just as exploitable this way as a registered one — its
+    # allowlist is the fixed _BUILTIN_CLIENT_REDIRECT_URIS set rather than a
+    # DB lookup, but it MUST still be enforced (never left as None, which
+    # would skip the check below entirely).
     client_name = None
-    allowed_redirect_uris = None
-    if client_id != OAUTH_CLIENT_ID:
+    if client_id == OAUTH_CLIENT_ID:
+        allowed_redirect_uris = _BUILTIN_CLIENT_REDIRECT_URIS
+    else:
         client_record = _lookup_client_db(client_id)
         if client_record is None:
             return jsonify({'error': 'invalid_client',
