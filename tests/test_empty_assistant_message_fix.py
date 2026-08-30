@@ -13,9 +13,17 @@ scaffolding. Kimi rejects a non-tool-call assistant message with empty content.
 
 This test exercises the retroactive-protection half of the fix: an empty
 assistant entry already sitting in conversation_history (from before the fix)
-must be dropped when rebuilding the in-memory conversation, not replayed.
+must be replaced with a non-empty placeholder when rebuilding the in-memory
+conversation — not dropped outright. An earlier version of this fix dropped
+the turn instead of replacing it, which collapsed the surrounding user turns
+into two consecutive 'user'-role messages with no assistant turn between them;
+both Kimi and Anthropic require strict role alternation, so that traded one
+guaranteed 400 for another. See CLAUDE_RUNBOOK.md's 2026-08-25 entry and its
+2026-08-26 follow-up.
 """
 from unittest.mock import MagicMock, patch
+
+from src.agent.core import EMPTY_ASSISTANT_PLACEHOLDER
 
 
 def _make_agent():
@@ -40,7 +48,7 @@ def _poisoned_history():
 
 
 class TestEmptyAssistantHistoryDropped:
-    def test_isolated_skips_empty_assistant_history_entry(self):
+    def test_isolated_replaces_empty_assistant_history_entry(self):
         captured = []
 
         def fake_call_claude(self_inner, *args, **kwargs):
@@ -57,11 +65,19 @@ class TestEmptyAssistantHistoryDropped:
             )
 
         assistant_msgs = [m for m in captured if m['role'] == 'assistant']
-        assert assistant_msgs == [], (
-            "empty-content assistant history entry must be dropped, not replayed"
+        assert len(assistant_msgs) == 1, (
+            "empty-content assistant history entry must be replaced, not dropped"
+        )
+        assert assistant_msgs[0]['content'] == [
+            {'type': 'text', 'text': EMPTY_ASSISTANT_PLACEHOLDER}
+        ]
+        roles = [m['role'] for m in captured]
+        assert roles == ['user', 'assistant', 'user', 'user'], (
+            "replayed history must strictly alternate roles: dropping the empty "
+            f"turn instead of replacing it produces consecutive user turns, got {roles!r}"
         )
 
-    def test_streaming_skips_empty_assistant_history_entry(self):
+    def test_streaming_replaces_empty_assistant_history_entry(self):
         captured = []
 
         def fake_call_kimi_streaming(self_inner, *args, **kwargs):
@@ -79,8 +95,16 @@ class TestEmptyAssistantHistoryDropped:
             ))
 
         assistant_msgs = [m for m in captured if m['role'] == 'assistant']
-        assert assistant_msgs == [], (
-            "empty-content assistant history entry must be dropped, not replayed"
+        assert len(assistant_msgs) == 1, (
+            "empty-content assistant history entry must be replaced, not dropped"
+        )
+        assert assistant_msgs[0]['content'] == [
+            {'type': 'text', 'text': EMPTY_ASSISTANT_PLACEHOLDER}
+        ]
+        roles = [m['role'] for m in captured]
+        assert roles == ['user', 'assistant', 'user', 'user'], (
+            "replayed history must strictly alternate roles: dropping the empty "
+            f"turn instead of replacing it produces consecutive user turns, got {roles!r}"
         )
 
     def test_non_empty_assistant_history_entry_still_included(self):

@@ -407,9 +407,6 @@ def docker_compose_up(compose_file: str, project_name: Optional[str] = None, det
         Dictionary with result
     """
     try:
-        import subprocess
-        import os
-
         command = ['docker-compose', '-f', compose_file]
 
         if project_name:
@@ -451,8 +448,6 @@ def docker_compose_down(compose_file: str, project_name: Optional[str] = None, v
         Dictionary with result
     """
     try:
-        import subprocess
-
         command = ['docker-compose', '-f', compose_file]
 
         if project_name:

@@ -19,6 +19,13 @@ from .prompt_cache import (
 )
 
 
+# Placeholder substituted for an assistant turn with no text content — either when
+# persisting a new response (app.py's save path) or when replaying a legacy poisoned
+# row from history (see CLAUDE_RUNBOOK.md's 2026-08-25 entry). Kimi's API rejects a
+# plain assistant message with empty content, and Anthropic's API requires strict
+# user/assistant alternation, so an empty turn must be replaced, never dropped.
+EMPTY_ASSISTANT_PLACEHOLDER = "(No response text was generated for this turn.)"
+
 # Strong hallucination signals — always replace response, regardless of tools_called_this_turn
 # These are explicit fabrication markers that should NEVER appear in real responses
 _STRONG_HALLUCINATION_PATTERNS = [
@@ -939,16 +946,20 @@ class DevOpsAgent:
             for msg in conversation_history:
                 if msg['role'] == 'user':
                     self.conversation.add_user_message(msg['content'])
-                elif msg['role'] == 'assistant' and msg.get('content', '').strip():
+                elif msg['role'] == 'assistant':
                     # An empty prior assistant turn (see CLAUDE_RUNBOOK.md's 2026-08-25
                     # entry — pre-fix rows in the DB can still have this) must not be
-                    # replayed into history: Kimi's API rejects a plain assistant message
-                    # with empty content ("message ... must not be empty"), and it carries
-                    # no information either way, so just drop it rather than persisting a
-                    # request-breaking artifact into every future turn of this conversation.
+                    # replayed as-is: Kimi's API rejects a plain assistant message with
+                    # empty content ("message ... must not be empty"), and Anthropic's
+                    # API is stricter still — it requires user/assistant roles to
+                    # strictly alternate, so *dropping* the turn instead of replacing
+                    # its content collapses the surrounding user turns into consecutive
+                    # entries and trades one 400 for another. Substitute the same
+                    # placeholder text app.py's save path uses for empty responses.
+                    text = msg.get('content', '').strip() or EMPTY_ASSISTANT_PLACEHOLDER
                     self.conversation.add_assistant_message([{
                         'type': 'text',
-                        'text': msg['content']
+                        'text': text
                     }])
 
             # Add the new user message
@@ -1028,16 +1039,20 @@ class DevOpsAgent:
             for msg in conversation_history:
                 if msg['role'] == 'user':
                     self.conversation.add_user_message(msg['content'])
-                elif msg['role'] == 'assistant' and msg.get('content', '').strip():
+                elif msg['role'] == 'assistant':
                     # An empty prior assistant turn (see CLAUDE_RUNBOOK.md's 2026-08-25
                     # entry — pre-fix rows in the DB can still have this) must not be
-                    # replayed into history: Kimi's API rejects a plain assistant message
-                    # with empty content ("message ... must not be empty"), and it carries
-                    # no information either way, so just drop it rather than persisting a
-                    # request-breaking artifact into every future turn of this conversation.
+                    # replayed as-is: Kimi's API rejects a plain assistant message with
+                    # empty content ("message ... must not be empty"), and Anthropic's
+                    # API is stricter still — it requires user/assistant roles to
+                    # strictly alternate, so *dropping* the turn instead of replacing
+                    # its content collapses the surrounding user turns into consecutive
+                    # entries and trades one 400 for another. Substitute the same
+                    # placeholder text app.py's save path uses for empty responses.
+                    text = msg.get('content', '').strip() or EMPTY_ASSISTANT_PLACEHOLDER
                     self.conversation.add_assistant_message([{
                         'type': 'text',
-                        'text': msg['content']
+                        'text': text
                     }])
 
             self.conversation.add_user_message(user_message)
