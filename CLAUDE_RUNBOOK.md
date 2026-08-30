@@ -1566,3 +1566,64 @@ structurally safe — value embedded in a `--flag=`, or placed after a literal `
 new IDOR-class gap in `services/compliance_service.py`, `multi_tenancy.py`, `approval_service.py`,
 or any other user/org-scoped service — the getters fixed in the 2026-07-27/08-01 entries above
 still filter correctly, and no newly-added getter repeats the pattern.
+
+## Scheduled audit: MCP OAuth authorization-code interception via the built-in client (FIXED 2026-08-30)
+
+Focused audit rotation landed on `routes/mcp.py` OAuth flows (no commits in the prior 26h, so the
+day-of-month rotation picked area 0). Found and fixed one critical, live-exploitable bug; no other
+issues in the file.
+
+**`oauth_authorize()`'s redirect_uri allowlist was silently skipped for the built-in confidential
+client.** The check was:
+```python
+allowed_redirect_uris = None
+if client_id != OAUTH_CLIENT_ID:
+    ...
+    allowed_redirect_uris = client_record.get('redirect_uris') or None
+...
+if allowed_redirect_uris and redirect_uri not in allowed_redirect_uris:  # None → never runs
+```
+For every dynamically-registered client (`POST /mcp/oauth/register`), `redirect_uri` is correctly
+checked against the exact URIs that client registered. But `OAUTH_CLIENT_ID` (the built-in
+`claude-connector` client used by the "Connect via Claude.ai (Connectors)" self-service flow
+documented in `templates/docs.html`) took the `if client_id != OAUTH_CLIENT_ID` false branch,
+leaving `allowed_redirect_uris` as `None` — so the membership check was unconditionally skipped for
+it. Any `https://` URL (or `http://localhost`) was accepted as this client's redirect target.
+
+This was a complete, working account-takeover chain, not just a theoretical gap, because
+`OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` are both **published in `templates/docs.html`** for
+users to paste into claude.ai's "Add custom connector" form — so an attacker doesn't need to guess
+either value. And the token endpoint's PKCE branch (`is_public_pkce = bool(code_verifier)`) issues a
+token with no `client_secret` at all when a `code_verifier` is present — the "confidential" client
+designation provides no actual protection once PKCE is in play. Full exploit:
+1. Attacker generates their own PKCE pair and sends a victim a link to
+   `/mcp/oauth/authorize?client_id=claude-connector&redirect_uri=https://attacker.example/cb&code_challenge=<attacker's>&...`
+   — the domain in the link is the real `devopsagent.io`, so it looks legitimate.
+2. Victim logs in for real; the server redirects the authorization `code` to the attacker's
+   `redirect_uri` (no allowlist blocked this).
+3. Attacker exchanges that code at `/mcp/oauth/token` with their own known `code_verifier` — no
+   `client_secret` required (`is_public_pkce` short-circuits `is_known_confidential`).
+4. Attacker now holds a valid access token for the victim's account, with full MCP tool access
+   (351 AWS tools, Kubernetes, Terraform, etc.) against whatever cloud credentials the victim has
+   connected.
+
+No existing test exercised this path — every `redirect_uri` test in `tests/test_mcp_oauth.py` used a
+dynamically-registered `client_id`, never `OAUTH_CLIENT_ID` directly.
+
+**Fix:** give the built-in client a real, fixed redirect_uri allowlist
+(`_BUILTIN_CLIENT_REDIRECT_URIS` in `routes/mcp.py`, defaulting to the one documented callback
+`https://claude.ai/api/mcp/auth_callback`, overridable via `MCP_OAUTH_BUILTIN_REDIRECT_URIS` — comma
+separated) and enforce it through the exact same `allowed_redirect_uris` membership check registered
+clients already go through, rather than leaving it `None`. Added
+`test_builtin_client_id_rejects_attacker_redirect_uri` (proves the fix — asserts 400 for an
+attacker-controlled redirect_uri under the built-in client_id) and
+`test_builtin_client_id_accepts_documented_redirect_uri` (proves no regression — the documented
+claude.ai connector flow still gets a 302 with the auth code) to `tests/test_mcp_oauth.py`.
+
+**Lesson for any future OAuth/DCR-style code in this file:** a "known" or "built-in" client_id is
+not inherently more trustworthy than a registered one just because it's a fixed constant — if
+anything, a built-in client whose id/secret are published in the app's own docs (for legitimate
+self-service reasons) needs its redirect_uri allowlist enforced *more* strictly, since the secret
+provides no real boundary once PKCE is available to public clients. Any `if client_id != KNOWN_ID:
+... else: <no check>` pattern that special-cases a "trusted" identity out of a validation an
+untrusted path already goes through is worth treating as a bug until proven otherwise.
