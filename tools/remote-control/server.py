@@ -3,6 +3,8 @@ DevOps Agent — Remote Control Server
 Access from your phone at http://<your-ip>:9090
 """
 
+import hmac
+import secrets
 import subprocess
 import threading
 import socket
@@ -11,6 +13,14 @@ import json
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
+
+# Binds to 0.0.0.0 by design (phone access over WiFi) with a fixed set of
+# shell commands behind /run/<action_id> — anyone on the same network (or a
+# malicious page in the developer's own browser, via a plain cross-origin
+# POST, no preflight required) could otherwise trigger git_pull/run_app/
+# stop_app with no auth at all. Gate every endpoint behind a random token
+# generated at startup — REMOTE_CONTROL_TOKEN lets it survive a restart.
+AUTH_TOKEN = os.environ.get("REMOTE_CONTROL_TOKEN") or secrets.token_urlsafe(24)
 
 # ─── Quick Actions ────────────────────────────────────────────────────────────
 # Customize these to suit your workflow.
@@ -406,6 +416,8 @@ header {
 
 <script>
 const ACTIONS = __ACTIONS_JSON__;
+const AUTH_TOKEN = __AUTH_TOKEN__;
+const AUTH_HEADERS = { 'X-Auth-Token': AUTH_TOKEN };
 let pollTimer = null;
 let appStatusTimer = null;
 
@@ -432,7 +444,7 @@ function runAction(id, label, icon) {
   btn.classList.add('running');
   openSheet(icon + ' ' + label);
 
-  fetch('/run/' + id, { method: 'POST' })
+  fetch('/run/' + id, { method: 'POST', headers: AUTH_HEADERS })
     .then(r => r.json())
     .then(() => pollOutput(id, btn, label))
     .catch(e => {
@@ -481,7 +493,7 @@ function appendOutput(lines) {
 }
 
 function pollOutput(id, btn, label) {
-  fetch('/output/' + id)
+  fetch('/output/' + id, { headers: AUTH_HEADERS })
     .then(r => r.json())
     .then(data => {
       const el = document.getElementById('output');
@@ -522,7 +534,7 @@ function showToast(msg, type) {
 
 // ── App Status ────────────────────────────────────────────────────────────────
 function checkAppStatus() {
-  fetch('/app-status')
+  fetch('/app-status', { headers: AUTH_HEADERS })
     .then(r => r.json())
     .then(data => {
       const pill = document.getElementById('app-status-pill');
@@ -569,16 +581,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", len(body))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
+
+    def _authorized(self, parsed):
+        provided = self.headers.get("X-Auth-Token") or parse_qs(parsed.query).get("token", [""])[0]
+        return hmac.compare_digest(provided, AUTH_TOKEN)
+
+    def _reject(self):
+        self.send_json({"error": "unauthorized"}, 401)
 
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
 
         if path == "/" or path == "/index.html":
-            body = HTML_TEMPLATE.encode()
+            if not self._authorized(parsed):
+                self._reject()
+                return
+            body = HTML_TEMPLATE.replace("__AUTH_TOKEN__", json.dumps(AUTH_TOKEN)).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", len(body))
@@ -586,6 +607,9 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == "/app-status":
+            if not self._authorized(parsed):
+                self._reject()
+                return
             import urllib.request
             try:
                 urllib.request.urlopen("http://localhost:5000/health", timeout=2)
@@ -594,6 +618,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"online": False})
 
         elif path.startswith("/output/"):
+            if not self._authorized(parsed):
+                self._reject()
+                return
             action_id = path[len("/output/"):]
             with output_lock:
                 data = dict(output_store.get(action_id, {"lines": [], "done": True, "rc": 0}))
@@ -609,6 +636,9 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
 
         if path.startswith("/run/"):
+            if not self._authorized(parsed):
+                self._reject()
+                return
             action_id = path[len("/run/"):]
             action = next((a for a in ACTIONS if a["id"] == action_id), None)
             if not action:
@@ -639,8 +669,8 @@ if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     print(f"\n  DevOps Agent Remote Control")
     print(f"  -----------------------------")
-    print(f"  Open on your phone: http://{ip}:{PORT}")
-    print(f"  (must be on the same WiFi)")
+    print(f"  Open on your phone: http://{ip}:{PORT}/?token={AUTH_TOKEN}")
+    print(f"  (must be on the same WiFi — the token above is required, keep this link private)")
     print(f"\n  Press Ctrl+C to stop\n")
     try:
         server.serve_forever()
