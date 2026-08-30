@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from functools import wraps
 import time
 from services.credit_service import CreditService
+from services.chat_service import ensure_non_empty_response
 
 api_gateway_bp = Blueprint('api_gateway', __name__, url_prefix='/api-gateway')
 
@@ -759,7 +760,7 @@ def api_agent_stream():
                     full_response.append(chunk)
                     yield f"data: {_json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
 
-            response_text = ''.join(full_response)
+            response_text = ensure_non_empty_response(''.join(full_response))
             tools_used = getattr(agent_instance, 'last_tools_used', [])
 
             with current_app.app_context():
@@ -909,6 +910,7 @@ def api_agent():
             provider=provider if provider == 'kimi' else None,
             model_override=model_config.model,
         )
+        response_text = ensure_non_empty_response(response_text)
         tools_used = agent_instance.last_tools_used
         success = True
     except Exception as e:
