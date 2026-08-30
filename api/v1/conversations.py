@@ -406,11 +406,12 @@ def send_message(conversation_id):
 
     is_first = conversation.title == 'New Chat'
 
+    from services.chat_service import ensure_non_empty_response
     assistant_message = ChatMessage(
         user_id=user_id,
         conversation_id=conversation_id,
         role='assistant',
-        content=response
+        content=ensure_non_empty_response(response)
     )
     db.session.add(assistant_message)
 
@@ -670,7 +671,8 @@ def api_v1_chat_stream():
                 full_response.append(note)
                 yield f"data: {json.dumps({'type': 'chunk', 'content': note})}\n\n"
 
-            complete = ''.join(full_response)
+            from services.chat_service import ensure_non_empty_response
+            complete = ensure_non_empty_response(''.join(full_response))
 
             # Save to DB
             with app.app_context():

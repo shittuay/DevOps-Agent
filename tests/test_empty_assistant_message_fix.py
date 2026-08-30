@@ -108,3 +108,70 @@ class TestEmptyAssistantHistoryDropped:
         assistant_msgs = [m for m in captured if m['role'] == 'assistant']
         assert len(assistant_msgs) == 1
         assert assistant_msgs[0]['content'] == [{'type': 'text', 'text': 'hi there'}]
+
+
+class TestEnsureNonEmptyResponse:
+    """services.chat_service.ensure_non_empty_response — the write-side half of the
+    fix. Every ChatMessage(role='assistant', ...) save point across app.py's
+    /api/chat + /api/chat/stream, routes/api_gateway.py's /v1/agent + /v1/agent/stream,
+    and api/v1/conversations.py's send_message + api_v1_chat_stream must route an
+    agent-generated response through this helper before persisting it — a save point
+    that skips it reintroduces the empty-content row this whole fix exists to prevent.
+    """
+
+    def test_empty_string_replaced(self):
+        from services.chat_service import ensure_non_empty_response, EMPTY_ASSISTANT_PLACEHOLDER
+        assert ensure_non_empty_response('') == EMPTY_ASSISTANT_PLACEHOLDER
+
+    def test_whitespace_only_replaced(self):
+        from services.chat_service import ensure_non_empty_response, EMPTY_ASSISTANT_PLACEHOLDER
+        assert ensure_non_empty_response('   \n\t  ') == EMPTY_ASSISTANT_PLACEHOLDER
+
+    def test_none_replaced(self):
+        from services.chat_service import ensure_non_empty_response, EMPTY_ASSISTANT_PLACEHOLDER
+        assert ensure_non_empty_response(None) == EMPTY_ASSISTANT_PLACEHOLDER
+
+    def test_real_response_passed_through_unchanged(self):
+        from services.chat_service import ensure_non_empty_response
+        assert ensure_non_empty_response('Here are your EC2 instances...') == \
+            'Here are your EC2 instances...'
+
+    def test_all_assistant_save_points_route_through_the_helper(self):
+        """Regression guard for the exact gap this class exists to close: PR #154
+        fixed app.py's two save points but left four sibling save points in
+        routes/api_gateway.py and api/v1/conversations.py constructing
+        ChatMessage(role='assistant', ...) directly from unguarded agent output.
+        Assert the helper is imported everywhere a ChatMessage(role='assistant', ...)
+        is built from agent-generated text, so a future save point added to any of
+        these files is caught here if it forgets to route through it."""
+        import ast
+
+        targets = [
+            'app.py',
+            'routes/api_gateway.py',
+            'api/v1/conversations.py',
+        ]
+        import os
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        for rel_path in targets:
+            path = os.path.join(repo_root, rel_path)
+            with open(path, 'r', encoding='utf-8') as f:
+                source = f.read()
+            tree = ast.parse(source, filename=rel_path)
+
+            imports_helper = False
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    names = [alias.name for alias in node.names]
+                    if 'ensure_non_empty_response' in names or any(
+                        n == 'chat_service' for n in names
+                    ):
+                        imports_helper = True
+                        break
+
+            assert imports_helper, (
+                f"{rel_path} builds ChatMessage(role='assistant', ...) from agent "
+                "output but does not import ensure_non_empty_response — see "
+                "services/chat_service.py's docstring."
+            )
