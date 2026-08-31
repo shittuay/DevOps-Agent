@@ -369,6 +369,11 @@ class TestSafetyClassifications:
 
     def test_subscribe_sns_topic_is_medium_risk(self):
         assert self._classify('subscribe_sns_topic') == 'medium'
+    # --- medium-risk: Route53 (create_ prefix isn't a monitored auto-detect
+    # prefix, but this tool defaults action='UPSERT', silently overwriting any
+    # existing live DNS record with the same name/type with zero confirmation) ---
+    def test_create_route53_record_is_medium_risk(self):
+        assert self._classify('create_route53_record') == 'medium'
 
     # --- production escalation ---
     def test_high_risk_on_production_escalates_to_critical(self):

@@ -53,14 +53,6 @@ def _get_azure_client(service_type: str, credential=None, user_id: Optional[int]
         Exception: If user context is not set or credentials are not configured
     """
     try:
-        from azure.mgmt.compute import ComputeManagementClient
-        from azure.mgmt.storage import StorageManagementClient
-        from azure.mgmt.network import NetworkManagementClient
-        from azure.mgmt.resource import ResourceManagementClient
-        from azure.mgmt.monitor import MonitorManagementClient
-        from azure.mgmt.containerinstance import ContainerInstanceManagementClient
-        from azure.mgmt.sql import SqlManagementClient
-
         # Try to get user_id from Flask context if not provided
         if user_id is None:
             user_id = _get_current_user_id()
@@ -84,19 +76,41 @@ def _get_azure_client(service_type: str, credential=None, user_id: Optional[int]
                 "Azure credentials not configured. Please add your Azure credentials in Settings > Cloud Credentials."
             )
 
-        clients = {
-            'compute': ComputeManagementClient(credential, subscription_id),
-            'storage': StorageManagementClient(credential, subscription_id),
-            'network': NetworkManagementClient(credential, subscription_id),
-            'resource': ResourceManagementClient(credential, subscription_id),
-            'monitor': MonitorManagementClient(credential, subscription_id),
-            'container': ContainerInstanceManagementClient(credential, subscription_id),
-            'sql': SqlManagementClient(credential, subscription_id),
-        }
+        # Import and construct ONLY the requested service's client — mirrors the
+        # fix already applied to gcp_tools.py's _get_gcp_client(). This used to
+        # import all seven azure-mgmt-* SDKs up front and eagerly construct all
+        # seven clients regardless of which service_type was requested, so one
+        # broken/missing package or one failed client construction (of the six
+        # that get discarded) took down every Azure tool, not just the one
+        # actually in use.
+        if service_type == 'compute':
+            from azure.mgmt.compute import ComputeManagementClient
+            return ComputeManagementClient(credential, subscription_id)
+        if service_type == 'storage':
+            from azure.mgmt.storage import StorageManagementClient
+            return StorageManagementClient(credential, subscription_id)
+        if service_type == 'network':
+            from azure.mgmt.network import NetworkManagementClient
+            return NetworkManagementClient(credential, subscription_id)
+        if service_type == 'resource':
+            from azure.mgmt.resource import ResourceManagementClient
+            return ResourceManagementClient(credential, subscription_id)
+        if service_type == 'monitor':
+            from azure.mgmt.monitor import MonitorManagementClient
+            return MonitorManagementClient(credential, subscription_id)
+        if service_type == 'container':
+            from azure.mgmt.containerinstance import ContainerInstanceManagementClient
+            return ContainerInstanceManagementClient(credential, subscription_id)
+        if service_type == 'sql':
+            from azure.mgmt.sql import SqlManagementClient
+            return SqlManagementClient(credential, subscription_id)
 
-        return clients.get(service_type)
-    except ImportError:
-        raise Exception("Azure SDK not installed. Install with: pip install azure-mgmt-compute azure-mgmt-storage azure-mgmt-network azure-mgmt-resource azure-mgmt-monitor azure-identity")
+        raise Exception(
+            f"Unknown Azure service type: {service_type!r} "
+            "(expected one of: compute, storage, network, resource, monitor, container, sql)"
+        )
+    except ImportError as e:
+        raise Exception(f"Azure SDK package for '{service_type}' not installed: {e}")
     except Exception as e:
         raise Exception(f"Failed to create Azure client: {str(e)}")
 
