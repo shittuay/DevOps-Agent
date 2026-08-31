@@ -261,6 +261,14 @@ class SafetyValidator:
             # with no further AWS auth, the same live-access-credential disclosure class as
             # get_secret_value/create_ec2_keypair.
             'generate_s3_presigned_url',
+            # Same disclosure class as get_secret_value/create_ec2_keypair/
+            # generate_s3_presigned_url: returns the raw storage account key values
+            # directly in the tool result. Azure storage account keys are full-access
+            # shared-key credentials (read/write/delete on every blob/table/queue/file
+            # in the account) — its sibling regenerate_storage_key (which discloses the
+            # *new* key) was already high-risk, but the read path disclosing the
+            # *existing* keys was missed.
+            'list_storage_account_keys',
             'delete_cloud_run_service',
             'delete_gke_cluster',
             'delete_firewall_rule',

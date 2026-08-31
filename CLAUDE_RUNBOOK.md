@@ -1693,3 +1693,65 @@ reports zero violations; the `/metrics` token comparison (`routes/metrics.py`) a
 `hmac.compare_digest`, not a plain `==`; no new tools, seeded catalogs, or thread-local context
 modules were added in the reviewed window, so patterns 3–8 from the audit checklist had nothing new
 to check.
+
+## Scheduled audit: unclassified Azure key-disclosure tool, plus a duplication sweep (2026-08-31)
+
+Three parallel passes, cross-referencing every recurring bug class this file tracks: (1) every tool
+across all 17 `src/tools/*_tools.py` modules against `src/agent/safety.py`'s risk classification;
+(2) SSRF guard coverage for non-`requests` network calls (`ssl`/`socket`/`urllib`/SDK internal HTTP
+clients) plus `git_tools.py`'s flag-injection guard (`_reject_flag_like`) coverage; (3) per-user
+service-class getter isolation (the `compliance_service.py` getter shape) and org-membership route
+guards, plus a duplication/dead-code sweep. One real, confirmed vulnerability found and fixed; three
+duplication/dead-code items flagged, not fixed.
+
+1. **`list_storage_account_keys` (Azure, `src/tools/azure_tools.py:987`) was unclassified and
+   defaulted to low risk despite disclosing raw storage account key values.** Its name doesn't
+   start with a destructive-verb auto-detect prefix (`list_` isn't monitored), and it was never
+   added to `high_risk_tools` — but it calls `storage_client.storage_accounts.list_keys(...)` and
+   returns `k.value` for every key in the tool result. Azure storage account keys are full-access
+   shared-key credentials over every blob/table/queue/file in the account, the same disclosure class
+   as `get_secret_value`/`create_ec2_keypair`/`generate_s3_presigned_url` (all already high-risk).
+   Its sibling `regenerate_storage_key`, which discloses the *new* key value, was already correctly
+   medium-risk — the read path disclosing the *existing* keys was the one left unguarded, the same
+   "one path fixed, disclosure-equivalent sibling missed" shape as the `create_ec2_keypair`/
+   `delete_ec2_keypair` gap from the 2026-08-23 audit. **Fixed:** added to `high_risk_tools` in
+   `src/agent/safety.py`.
+
+2. **Checked and found clean — every other angle of this audit:** all ~743 tool names cross-checked
+   against `safety.py`'s explicit sets, auto-detect prefixes, and the three action-aware special
+   cases turned up no other unclassified destructive/paging/secret-disclosing/hidden-overwrite tool.
+   `scripts/check_security_invariants.py` reports zero SSRF violations; no caller-influenced
+   `ssl`/`socket`/`urllib`/SDK-internal-client host was found unguarded (the GitLab functions in
+   `cicd_tools.py` and `aws_tools.associate_eks_oidc_provider`'s raw `ssl.get_server_certificate`
+   call are both already correctly guarded). Every `git_tools.py` function that passes a
+   caller-supplied ref/branch/remote/commit/tag as a bare positional argument to `repo.git.*` already
+   calls `_reject_flag_like()` (this pass additionally confirmed `get_commit_history`, `git_fetch`,
+   `git_create_branch`, and `git_create_tag` are also correctly guarded, beyond the previously
+   itemized list); the remaining unguarded string parameters are safe by construction (consumed as a
+   preceding flag's value, or placed after a literal `--` separator). `compliance_service.py`'s three
+   previously-fixed getters remain correctly filtered, no fourth unfiltered getter exists, and every
+   other per-user service class either filters on `self.user_id` or pushes the check to an
+   `org_admin_required`/explicit-membership-guarded route — no new IDOR-shaped gap found.
+
+**Flagged, not fixed — duplication with a silent behavioral divergence, needs its own reviewed
+change:**
+- `create_or_update_recommendation` is duplicated byte-for-byte in both `services/cost_explorer.py`
+  (line ~395) and `services/infrastructure_sync.py` (line ~1352) — except `infrastructure_sync.py`'s
+  copy returns a `True`/`False` new-row-created flag and `cost_explorer.py`'s copy has no return
+  statement at all (implicitly `None`). A future caller that branches on the return value gets a
+  different result depending on which module it imported from.
+- Similarly, `_get_smaller_instance_type` (`cost_explorer.py:423`) and `get_smaller_instance_type`
+  (`infrastructure_sync.py:1408`) have drifted: the former downsizes through 4 tiers
+  (`2xlarge→xlarge→large→medium→small`), the latter only 3 (`2xlarge→xlarge→large`, and matches on a
+  bare `'large'` substring rather than `.large`). Same recommendation, different answer depending on
+  call site.
+- `services/api_gateway.py:499` defines a second, unused `require_api_key(scopes=[...])` decorator
+  (multi-scope list, rate-limit check, sets `g.api_key`) — no route imports it; every real API-key
+  route (`api/v1/*.py`, 6 files) uses the differently-shaped `require_api_key` from
+  `services/api_key_service.py:268` (single `scope` string, IP check, sets `g.api_user`). Two
+  same-named decorators with diverging semantics for the same concern is a landmine for a future
+  route wired to the wrong one. Worth deleting the dead copy or consolidating.
+- Minor: `AnalyticsService`'s dashboard/widget CRUD surface (`add_widget`, `get_dashboard`,
+  `update_dashboard`, `delete_dashboard`, `get_widget`, `update_widget`, `delete_widget` in
+  `services/analytics_service.py`) has zero route callers in `routes/analytics.py` — dead but
+  correctly-scoped code, not a live bug.
