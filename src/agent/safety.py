@@ -428,6 +428,13 @@ class SafetyValidator:
             'github_invite_collaborator',
             'github_close_issue',
             'github_create_release',
+            # 'create_' prefix isn't a monitored auto-detect prefix, and this tool's
+            # `private` param defaults to False — same silently-permissive-default shape
+            # as create_route53_record's action='UPSERT' above, but here it means a new
+            # repo (potentially containing proprietary code or early secrets) is public
+            # on GitHub by default with zero confirmation unless the caller explicitly
+            # passes private=True.
+            'github_create_repo',
             # CI/CD medium risk
             'disable_jenkins_job',
             'enable_jenkins_job',

@@ -375,6 +375,12 @@ class TestSafetyClassifications:
     def test_create_route53_record_is_medium_risk(self):
         assert self._classify('create_route53_record') == 'medium'
 
+    # --- medium-risk: GitHub (create_ prefix isn't a monitored auto-detect
+    # prefix, and this tool's `private` param defaults to False, so a new repo
+    # is public on GitHub by default with zero confirmation) ---
+    def test_github_create_repo_is_medium_risk(self):
+        assert self._classify('github_create_repo') == 'medium'
+
     # --- production escalation ---
     def test_high_risk_on_production_escalates_to_critical(self):
         from src.agent.safety import SafetyValidator
