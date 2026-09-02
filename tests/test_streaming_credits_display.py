@@ -18,7 +18,7 @@ import re
 
 
 def _app_source() -> str:
-    with open('app.py') as f:
+    with open('app.py', encoding='utf-8') as f:
         return f.read()
 
 
@@ -57,7 +57,7 @@ def test_frontend_lockout_gated_on_trial_ended_not_raw_zero():
     sets only when credits are genuinely exhausted — not on a raw
     credits_remaining === 0 check, which a generic error response could
     satisfy for reasons unrelated to the real balance."""
-    with open('templates/index.html') as f:
+    with open('templates/index.html', encoding='utf-8') as f:
         html = f.read()
     assert 'data.credits_remaining === 0' not in html, (
         "lockout must not key off a raw credits_remaining === 0 check"
@@ -72,7 +72,7 @@ def test_streaming_done_handler_only_locks_on_explicit_trial_ended():
     never vulnerable to this exact bug, since it already gates the lockout
     banner on evt.trial_ended rather than evt.credits_remaining — this locks
     that invariant in so it can't regress alongside the other fix."""
-    with open('templates/index.html') as f:
+    with open('templates/index.html', encoding='utf-8') as f:
         html = f.read()
     idx = html.find("evt.type === 'done'")
     assert idx != -1

@@ -485,6 +485,9 @@ class DevOpsAgent:
     _pending_approval = _greenlet_local_property('_pending_approval')
     _last_tools_used = _greenlet_local_property('_last_tools_used', default_factory=list)
     _tool_event_callback = _greenlet_local_property('_tool_event_callback')
+    # Per-turn count of consecutive identical failing tool calls, keyed by
+    # (tool_name, canonical args). See _repeat_guard_blocked.
+    _repeat_guard = _greenlet_local_property('_repeat_guard', default_factory=dict)
 
     def __init__(self, config: ConfigManager):
         """
@@ -709,6 +712,51 @@ class DevOpsAgent:
                     handler=tool['handler']
                 )
                 self.tool_categories[tool['name']] = classify_tool(tool['name'], module_category)
+
+    # A tool that fails this many times with byte-identical arguments in one
+    # turn is not going to start working. Observed 2026-09-02: Kimi called
+    # nmap_port_scan 150 times in 71s against an unset PENTEST_ALLOWED_TARGETS
+    # whitelist, burning the user's credits, because nothing detected that the
+    # retry was identical to the failure before it.
+    MAX_IDENTICAL_TOOL_FAILURES = 3
+
+    @staticmethod
+    def _repeat_key(tool_name: str, tool_input: Dict[str, Any]) -> str:
+        try:
+            return f"{tool_name}:{json.dumps(tool_input, sort_keys=True, default=str)}"
+        except Exception:
+            return f"{tool_name}:{tool_input!r}"
+
+    def _repeat_guard_blocked(self, tool_name: str, tool_input: Dict[str, Any]) -> bool:
+        """True once this exact call has already failed MAX_IDENTICAL_TOOL_FAILURES times."""
+        key = self._repeat_key(tool_name, tool_input)
+        return self._repeat_guard.get(key, 0) >= self.MAX_IDENTICAL_TOOL_FAILURES
+
+    def _repeat_guard_result(self, tool_name: str) -> Dict[str, Any]:
+        return {
+            'success': False,
+            'error': (
+                f"'{tool_name}' has already failed {self.MAX_IDENTICAL_TOOL_FAILURES} "
+                f"times this turn with identical arguments. Do not call it again. "
+                f"Use a different tool, or stop and explain the problem to the user."
+            ),
+            'repeat_guard': True,
+        }
+
+    def _repeat_guard_record(self, tool_name: str, tool_input: Dict[str, Any], result: Any) -> None:
+        """Count a failure for this exact call; clear the count on success."""
+        key = self._repeat_key(tool_name, tool_input)
+        guard = self._repeat_guard
+        failed = isinstance(result, dict) and not result.get('success', True)
+        if failed:
+            guard[key] = guard.get(key, 0) + 1
+            if guard[key] == self.MAX_IDENTICAL_TOOL_FAILURES:
+                self.logger.warning(
+                    f"Repeat guard armed for '{tool_name}' after "
+                    f"{self.MAX_IDENTICAL_TOOL_FAILURES} identical failures this turn"
+                )
+        else:
+            guard.pop(key, None)
 
     def _maybe_select_tools(self, user_message: str, max_tools: Optional[int] = None) -> None:
         """
@@ -1055,6 +1103,9 @@ class DevOpsAgent:
             self.conversation.add_user_message(user_message)
 
             # Progressive tool loading: narrow the tool set to what's relevant.
+            # Fresh per turn: gthread reuses worker threads, so a stale
+            # count from a previous request would block a legitimate call.
+            self._repeat_guard = {}
             self._maybe_select_tools(user_message, max_tools)
 
             # Reset per-request tool tracking
@@ -1147,6 +1198,9 @@ class DevOpsAgent:
             self.conversation.add_user_message(user_message)
 
             # Progressive tool loading: narrow the tool set to what's relevant.
+            # Fresh per turn: gthread reuses worker threads, so a stale
+            # count from a previous request would block a legitimate call.
+            self._repeat_guard = {}
             self._maybe_select_tools(user_message, max_tools)
 
             # Route to Kimi streaming if requested
@@ -1563,7 +1617,9 @@ class DevOpsAgent:
 
                         # Validate tool call safety
                         validation = self.safety_validator.validate_tool_call(tool_name, tool_input)
-                        if not validation.is_safe:
+                        if self._repeat_guard_blocked(tool_name, tool_input):
+                            result = self._repeat_guard_result(tool_name)
+                        elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
                         elif validation.requires_confirmation:
                             result = {'success': False, 'error': 'High-risk operation requires approval'}
@@ -1618,6 +1674,7 @@ class DevOpsAgent:
                         else:
                             result = self._not_offered_result(tool_name)
 
+                        self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
                         if not getattr(self, '_trust_tool_results', True):
                             result_str = _validate_tool_result_ids(result_str)
@@ -1811,7 +1868,9 @@ class DevOpsAgent:
                         self.logger.info(f"Kimi streaming tool call: {tool_name}")
 
                         validation = self.safety_validator.validate_tool_call(tool_name, tool_input)
-                        if not validation.is_safe:
+                        if self._repeat_guard_blocked(tool_name, tool_input):
+                            result = self._repeat_guard_result(tool_name)
+                        elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
                         elif validation.requires_confirmation:
                             # Approver/admin self-approve; regular users get queued for review
@@ -1879,6 +1938,7 @@ class DevOpsAgent:
                         else:
                             result = self._not_offered_result(tool_name)
 
+                        self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
                         if not getattr(self, '_trust_tool_results', True):
                             result_str = _validate_tool_result_ids(result_str)
@@ -1934,6 +1994,12 @@ class DevOpsAgent:
 
                 # Validate tool call safety
                 validation = self.safety_validator.validate_tool_call(tool_name, tool_input)
+
+                if self._repeat_guard_blocked(tool_name, tool_input):
+                    self.conversation.add_tool_result(
+                        tool_use_id, json.dumps(self._repeat_guard_result(tool_name))
+                    )
+                    continue
 
                 if not validation.is_safe:
                     result = {
@@ -2022,6 +2088,7 @@ class DevOpsAgent:
                     }
 
                 # Add tool result to conversation (exclude download_file from Claude's view)
+                self._repeat_guard_record(tool_name, tool_input, result)
                 result_for_claude = result.copy() if isinstance(result, dict) else result
                 if isinstance(result_for_claude, dict) and 'download_file' in result_for_claude:
                     # Remove the actual file content from Claude's context to save tokens

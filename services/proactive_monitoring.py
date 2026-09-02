@@ -18,6 +18,12 @@ from dataclasses import dataclass, field
 import uuid
 import requests
 
+# Prometheus circuit-breaker state. Module-level so it survives the
+# per-request service instances the scheduler creates.
+_PROM_COOLDOWN_SECONDS = 300
+_PROM_UNAVAILABLE_UNTIL = 0.0
+_PROM_OUTAGE_LOGGED = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -155,6 +161,16 @@ class MetricCollector:
             return None
 
     def _collect_prometheus(self, query: str) -> Optional[float]:
+        # Circuit breaker. The monitoring tick fires 8 Prometheus queries every
+        # 60s for every active user; with nothing listening on :9090 that was
+        # 8 stack-trace warnings per tick, forever (observed on prod 2026-09-02,
+        # where no Prometheus is deployed at all). One warning per outage, then
+        # silence until the cooldown expires.
+        global _PROM_UNAVAILABLE_UNTIL, _PROM_OUTAGE_LOGGED
+        now = time.monotonic()
+        if now < _PROM_UNAVAILABLE_UNTIL:
+            return None
+
         prometheus_url = os.environ.get('PROMETHEUS_URL', self.config.get("prometheus_url", "http://localhost:9090"))
         try:
             # ssrf-safe: prometheus_url/Datadog: operator env var / hardcoded host — monitoring_service is instantiated with no config dict, so this is never end-user-reachable input
@@ -164,6 +180,8 @@ class MetricCollector:
                 timeout=10
             )
             response.raise_for_status()
+            _PROM_UNAVAILABLE_UNTIL = 0.0
+            _PROM_OUTAGE_LOGGED = False
             data = response.json()
             if data.get("status") == "success":
                 results = data.get("data", {}).get("result", [])
@@ -172,7 +190,14 @@ class MetricCollector:
                     return float(value) if value is not None else None
             return None
         except requests.RequestException as e:
-            logger.warning(f"Prometheus query failed: {e}")
+            _PROM_UNAVAILABLE_UNTIL = now + _PROM_COOLDOWN_SECONDS
+            if not _PROM_OUTAGE_LOGGED:
+                logger.warning(
+                    f"Prometheus unreachable at {prometheus_url} — suppressing further "
+                    f"queries for {_PROM_COOLDOWN_SECONDS}s. Set PROMETHEUS_URL, or ignore "
+                    f"if Prometheus is not deployed. Cause: {e}"
+                )
+                _PROM_OUTAGE_LOGGED = True
             return None
 
     def _collect_cloudwatch(self, query: str, user_id: Optional[int] = None) -> Optional[float]:
