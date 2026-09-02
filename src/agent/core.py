@@ -722,13 +722,49 @@ class DevOpsAgent:
             return
         cap = max_tools or self.config.get('tool_selection.max_tools', 100)
         subset = select_tool_definitions(
-            self.tool_definitions, self.tool_categories, user_message, cap
+            self.tool_definitions, self.tool_categories, user_message, cap,
+            history_messages=self._prior_user_message_texts(),
+            connected_providers=self._connected_providers_for_selection(),
         )
         if subset:
             self.logger.info(
                 f"Progressive tool loading: {len(subset)}/{len(self.tool_definitions)} tools selected"
             )
             self._tools_override = subset
+
+    def _prior_user_message_texts(self) -> List[str]:
+        """Text of earlier user turns in the current conversation (excluding the
+        message just added), oldest first. Feeds conversation-aware tool selection
+        so follow-ups like "yes go ahead" keep the previous turn's tool set."""
+        conversation = getattr(self, 'conversation', None)
+        messages = getattr(conversation, 'messages', None) or []
+        texts: List[str] = []
+        for msg in messages[:-1]:
+            if getattr(msg, 'role', None) != 'user':
+                continue
+            content = getattr(msg, 'content', None)
+            if isinstance(content, str):
+                texts.append(content)
+            elif isinstance(content, list):
+                texts.append(' '.join(
+                    b.get('text', '') for b in content
+                    if isinstance(b, dict) and b.get('type') == 'text'
+                ))
+        return texts
+
+    def _connected_providers_for_selection(self) -> Optional[Dict[str, bool]]:
+        """Which cloud accounts the current user has linked, for narrowing
+        provider-agnostic tool selection. ``None`` (no filtering) in sandbox
+        mode, with no user, or when the lookup fails for any reason."""
+        user_id = getattr(self, '_current_user_id', None)
+        if not user_id or getattr(self, '_sandbox_mode', False):
+            return None
+        try:
+            from services.credential_service import get_user_configured_providers
+            return get_user_configured_providers(user_id)
+        except Exception as e:
+            self.logger.debug(f"Connected-provider lookup skipped: {e}")
+            return None
 
     def _search_tools_handler(self, query: str, limit: int = 25) -> Dict[str, Any]:
         """
@@ -1336,6 +1372,20 @@ class DevOpsAgent:
             for t in tools
         ]
 
+    def _current_oai_tools(self) -> List[Dict[str, Any]]:
+        """OpenAI-format tool list for *this* iteration of a Kimi tool loop.
+
+        Must be re-evaluated every iteration, not once per turn: the
+        ``search_tools`` handler appends recovered tools to ``_tools_override``
+        mid-loop, and a list built before the loop never carried them to the
+        model — it was told "these tools are now available" and then sent a
+        request that still lacked them.
+        """
+        _override = getattr(self, '_tools_override', None)
+        if _override is not None:
+            return self._convert_tool_list_to_openai_format(_override)
+        return self._convert_tools_to_openai_format()
+
     def _convert_tools_to_openai_format(self) -> List[Dict[str, Any]]:
         """Convert Anthropic tool definitions to OpenAI function-calling format (cached)."""
         if self._cached_oai_tools is not None:
@@ -1381,12 +1431,6 @@ class DevOpsAgent:
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         from services.model_router import DEFAULT_KIMI_MODEL
         model = model_override or os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
-        _override = getattr(self, '_tools_override', None)
-        oai_tools = (
-            self._convert_tool_list_to_openai_format(_override)
-            if _override is not None
-            else self._convert_tools_to_openai_format()
-        )
 
         system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
@@ -1418,6 +1462,7 @@ class DevOpsAgent:
             self.logger.debug(f"Kimi API call iteration {iteration}")
 
             try:
+                oai_tools = self._current_oai_tools()
                 params = {
                     'model': model,
                     'messages': messages,
@@ -1587,12 +1632,6 @@ class DevOpsAgent:
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         from services.model_router import DEFAULT_KIMI_MODEL
         model = model_override or os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
-        _override = getattr(self, '_tools_override', None)
-        oai_tools = (
-            self._convert_tool_list_to_openai_format(_override)
-            if _override is not None
-            else self._convert_tools_to_openai_format()
-        )
 
         system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
@@ -1616,6 +1655,7 @@ class DevOpsAgent:
         tools_called_this_turn = False
         for iteration in range(max_iterations):
             try:
+                oai_tools = self._current_oai_tools()
                 params = {
                     'model': model,
                     'messages': messages,
