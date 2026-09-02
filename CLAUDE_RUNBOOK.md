@@ -1987,3 +1987,55 @@ easy-to-grab wrong answer that a struggling model reaches for. The fix for
 (replaces the old `test_escape_hatches_always_present`, which encoded the
 bug), `test_escape_hatches_scoped_to_each_provider_named`,
 `test_kubernetes_request_gets_only_the_k8s_hatch`.
+
+## "It says I have 0 credits" when the real balance was 15 (2026-09-02)
+
+**Live report:** "still complaining about credits, when i have 15 credits."
+Queried the account directly (the credits snapshot section above, once moved
+early enough to survive the SSM output cap): `remaining=15` — the DB and the
+user agreed. So the credit *gate* (`subscription.has_credits()`, checked
+identically on both `/api/chat` and `/api/chat/stream`) was never the problem;
+it correctly evaluates true at 15 and lets the turn through.
+
+**Root cause:** `/api/chat/stream`'s generic `except Exception as e:` handler
+— the catch-all for any unrelated failure mid-turn (a provider timeout, a
+tool crash, a malformed JSON response) — hardcoded
+`{'type': 'done', 'credits_remaining': 0, 'error': True}` regardless of the
+user's actual balance. The SSE `done` handler in `templates/index.html` calls
+`updateCreditsDisplay(evt.credits_remaining)` unconditionally whenever the
+field is present, so the header badge got overwritten to 0 on **any**
+transient error, with no relationship to the real number.
+
+**Fix (`app.py`):** the handler now looks up `CreditService.balance(uid)`
+inside the `app.app_context()` block it already enters to roll back the
+session, and reports the real number — or omits `credits_remaining` entirely
+if that lookup itself fails, since the frontend already treats "field absent"
+as "leave the display alone."
+
+**Frontend hardening, defense-in-depth (`templates/index.html`):** the
+*non-streaming* `/api/chat` response handler had the more dangerous sibling
+of this same pattern — it triggered a **full input lockout** (disabled
+message box, disabled send button, "Trial ended" placeholder, upgrade
+banner) on a bare `data.credits_remaining === 0` check, with no relation to
+`data.trial_ended`. Nothing in the current codebase was found to send a
+false 0 through that specific path, but the check itself was one bug away
+from turning "an unrelated error happened" into "your account looks
+permanently locked until you reload the page." Changed to gate on
+`data.trial_ended` explicitly, matching the (already-safe) SSE `done` handler
+a few hundred lines below it, which never checked the raw number in the
+first place.
+
+**Lesson:** a UI element wired to "the balance is exactly 0" is implicitly
+trusting every code path that can produce that number to mean the same
+thing. A generic error handler and a real credit-exhaustion check are not
+the same event, and hardcoding a sentinel value that happens to coincide
+with a real value's meaning (0 credits = 0 the number) is the same shape of
+bug as the escape-hatch and tool-enforcement fixes above: treat generic
+fallback behavior as low-risk just because it's simple, and it becomes
+exactly the path that misfires.
+
+**Tests:** `tests/test_streaming_credits_display.py` — verified failing
+against the pre-fix `app.py` (both backend cases), passing after. Follows
+this codebase's existing pattern (`tests/test_sandbox_activation.py`) of a
+source-level check for logic embedded in app.py's route closures, which
+aren't practical to exercise via a full SSE test client.

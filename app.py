@@ -3955,12 +3955,33 @@ def api_chat_stream():
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             except Exception as e:
+                # Report the REAL balance here, not a hardcoded 0. This handler
+                # fires for any unrelated failure (a provider timeout, a tool
+                # crash, a malformed response) — none of which mean the user's
+                # credits are exhausted. The frontend's `credits_remaining === 0`
+                # check (templates/index.html) treats that value as "trial
+                # ended": it disables the message input/send button and shows
+                # an upgrade banner, with no way to dismiss it short of a page
+                # reload. A user with real credits left got permanently locked
+                # out of chat by an unrelated transient error. See
+                # CLAUDE_RUNBOOK.md's 2026-09-02 entry.
                 with app.app_context():
                     db.session.rollback()
+                    try:
+                        _real_balance = CreditService.balance(uid)
+                    except Exception:
+                        _real_balance = None
                 try:
                     yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-                    # Always send done so the frontend doesn't hang waiting for stream close
-                    yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': 0, 'error': True})}\n\n"
+                    # Always send done so the frontend doesn't hang waiting for stream close.
+                    # Omit credits_remaining entirely if the balance lookup itself
+                    # failed — the frontend already treats "undefined" as "leave the
+                    # current display alone" (see the `!== undefined` checks), which
+                    # is strictly safer here than guessing a number.
+                    _done_payload = {'type': 'done', 'error': True}
+                    if _real_balance is not None:
+                        _done_payload['credits_remaining'] = _real_balance
+                    yield f"data: {_json.dumps(_done_payload)}\n\n"
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             finally:
