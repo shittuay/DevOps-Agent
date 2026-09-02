@@ -52,6 +52,63 @@ jobs:
         echo "VENV path: $VENV"
         echo "========================================"
 
+        echo ""
+        echo "=== SUBSCRIPTION / CREDITS SNAPSHOT (per user) ==="
+        # Placed early, before any section whose output could push this past
+        # SSM RunShellScript's ~24KB captured-output cap — the first attempt
+        # at this section was positioned near the end of the script and its
+        # output never appeared at all (silently truncated, no error), the
+        # exact failure mode this section exists to avoid for itself.
+        #
+        # For diagnosing "the app shows N credits but the chat says 0"
+        # reports: credits_remaining/used are the live DB values
+        # CreditService.balance() and the /chat page render both read
+        # directly, with no caching layer in between — a mismatch the user
+        # sees is a real state difference, not a stale display, unless the
+        # two reads happen far enough apart for real usage to land between
+        # them (e.g. a retried request in the same conversation).
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
+        import sys, os
+        db_url = os.environ.get('DB_URL', '')
+        try:
+            if db_url.startswith('postgres'):
+                import psycopg2
+                pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+                con = psycopg2.connect(pg_url)
+                cur = con.cursor()
+                cur.execute("""
+                    SELECT u.email, t.name, s.credits_remaining, s.credits_used_this_month,
+                           s.total_credits_used, s.last_reset_date, s.current_period_end,
+                           s.payment_status, s.updated_at
+                    FROM user_subscriptions s
+                    JOIN users u ON u.id = s.user_id
+                    JOIN subscription_tiers t ON t.id = s.tier_id
+                    ORDER BY s.updated_at DESC
+                """)
+                rows = cur.fetchall()
+            else:
+                import sqlite3
+                con = sqlite3.connect(sys.argv[1])
+                rows = con.execute("""
+                    SELECT u.email, t.name, s.credits_remaining, s.credits_used_this_month,
+                           s.total_credits_used, s.last_reset_date, s.current_period_end,
+                           s.payment_status, s.updated_at
+                    FROM user_subscriptions s
+                    JOIN users u ON u.id = s.user_id
+                    JOIN subscription_tiers t ON t.id = s.tier_id
+                    ORDER BY s.updated_at DESC
+                """).fetchall()
+            if not rows:
+                print("No subscription rows found.")
+            for email, tier, remaining, used_month, used_total, reset, period_end, pay_status, updated in rows:
+                print(f"  {email} | tier={tier} | remaining={remaining} | used_this_month={used_month} "
+                      f"| used_total={used_total} | last_reset={reset} | period_end={period_end} "
+                      f"| payment_status={pay_status} | updated_at={updated}")
+            con.close()
+        except Exception as e:
+            print(f"Query error: {e}")
+        PYEOF
+
         # gunicorn is started with --error-logfile /var/log/devops-agent-error.log and
         # --access-logfile /var/log/devops-agent-access.log (devops-agent.service), so
         # the app's own log lines never reach journald — every journalctl section this
@@ -335,56 +392,6 @@ jobs:
         print(f"New conversations (7d): {convs}")
         print(f"Total messages (7d): {msgs}  (user: {usr_msgs}, assistant: {msgs - usr_msgs})")
         con.close()
-        PYEOF
-
-        echo ""
-        echo "=== SUBSCRIPTION / CREDITS SNAPSHOT (per user) ==="
-        # For diagnosing "the app shows N credits but the chat says 0" reports:
-        # credits_remaining/used are the live DB values CreditService.balance()
-        # and the /chat page render both read directly, with no caching layer
-        # in between — a mismatch the user sees is a real state difference,
-        # not a stale display, unless the two reads happen far enough apart
-        # for real usage to land between them.
-        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
-        import sys, os
-        db_url = os.environ.get('DB_URL', '')
-        try:
-            if db_url.startswith('postgres'):
-                import psycopg2
-                pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
-                con = psycopg2.connect(pg_url)
-                cur = con.cursor()
-                cur.execute("""
-                    SELECT u.email, t.name, s.credits_remaining, s.credits_used_this_month,
-                           s.total_credits_used, s.last_reset_date, s.current_period_end,
-                           s.payment_status
-                    FROM user_subscriptions s
-                    JOIN users u ON u.id = s.user_id
-                    JOIN subscription_tiers t ON t.id = s.tier_id
-                    ORDER BY s.updated_at DESC
-                """)
-                rows = cur.fetchall()
-            else:
-                import sqlite3
-                con = sqlite3.connect(sys.argv[1])
-                rows = con.execute("""
-                    SELECT u.email, t.name, s.credits_remaining, s.credits_used_this_month,
-                           s.total_credits_used, s.last_reset_date, s.current_period_end,
-                           s.payment_status
-                    FROM user_subscriptions s
-                    JOIN users u ON u.id = s.user_id
-                    JOIN subscription_tiers t ON t.id = s.tier_id
-                    ORDER BY s.updated_at DESC
-                """).fetchall()
-            if not rows:
-                print("No subscription rows found.")
-            for email, tier, remaining, used_month, used_total, reset, period_end, pay_status in rows:
-                print(f"  {email} | tier={tier} | remaining={remaining} | used_this_month={used_month} "
-                      f"| used_total={used_total} | last_reset={reset} | period_end={period_end} "
-                      f"| payment_status={pay_status}")
-            con.close()
-        except Exception as e:
-            print(f"Query error: {e}")
         PYEOF
 
         echo ""
