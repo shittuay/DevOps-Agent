@@ -2055,6 +2055,23 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
     is_git = tn.startswith('git_') and not any(k in tn for k in ('docker', 'ansible', 'terraform', 'github'))
     is_resize_ec2 = 'resize_ec2' in tn
 
+    # find_ami must return a usable ami_id: it is the lookup step create_ec2_instance
+    # depends on, so a generic "[Sandbox] executed" fallback would break the chain
+    # mid-flow for a learner walking through launching an instance.
+    if tn == 'find_ami':
+        distro = (tool_input.get('distro') or 'ubuntu').lower()
+        version = tool_input.get('version') or {'ubuntu': '24.04', 'debian': '12', 'rhel': '9'}.get(distro, 'latest')
+        return {
+            'success': True, 'simulated': True,
+            'ami_id': 'ami-' + _rand_id(length=17),
+            'name': f'{distro}-{version}-amd64-server-20260901',
+            'architecture': tool_input.get('architecture', 'x86_64'),
+            'publisher': {'ubuntu': 'Canonical', 'amazon-linux': 'Amazon'}.get(distro, distro.title()),
+            'region': tool_input.get('region', 'us-east-1'),
+            'alternates': [],
+            'message': f'[Sandbox] Newest {distro} {version} AMI. Pass this as ami_id to create_ec2_instance.',
+        }
+
     if is_git:
         return _mock_git(tn, tool_input)
     if is_jenkins:

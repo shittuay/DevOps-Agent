@@ -28,7 +28,7 @@ src/
     tool_selection.py # Progressive tool loading (classify_tool, select_tool_definitions)
     guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
-    aws_tools.py         # 351 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
+    aws_tools.py         # 352 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
     kubernetes_tools.py  # 76 K8s tools (pods, deployments, services, namespaces, etc.)
     azure_tools.py       # 38 Azure tools (VMs, storage, SQL, NSGs, containers, etc.)
     gcp_tools.py         # 42 GCP tools (Compute, GCS, Cloud SQL, GKE, Cloud Run, etc.)
@@ -78,14 +78,27 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (745 total, 17 modules)
+## Tool Inventory (746 total, 17 modules)
 
 > Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`.
 > Two modules below are not detailed in the per-provider sections:
 > `command_tools` (2) and `devops_operations_tools` (10).
 
-### AWS (351 tools)
+### AWS (352 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
+
+**`find_ami` is the AMI-resolution step `create_ec2_instance` depends on.**
+`create_ec2_instance` requires a concrete `ami_id` and cannot turn "ubuntu" into
+one. Until 2026-09-02 nothing in the catalog could: the only AMI tools were
+`create_ami` (images a running instance) and `deregister_ami`. A plain "create an
+ec2 instance using ubuntu on a t2.micro" was therefore **unsatisfiable**, and the
+model guessed — in production it called `list_iam_roles`, and on an earlier turn
+`gcp_api_read`/`gcp_api_write`, against the user's real account (see
+CLAUDE_RUNBOOK.md's 2026-09-02 entry). `find_ami` resolves distro + version to the
+newest matching AMI and **pins the distribution vendor's own owner account**
+(`_AMI_OWNERS`) — never match an AMI by name alone, since anyone can publish a
+public image with a lookalike name. Add new distros to `_AMI_OWNERS` /
+`_AMI_NAME_PATTERNS` together, and only with a verified owner id.
 
 ### Kubernetes (76 tools)
 Pods (list, describe, logs, delete, exec), Deployments (list, describe, create, update image, delete), Services (list, create, delete), Namespaces (list, get, create, delete), ConfigMaps (create, delete), Secrets (create, delete), Ingress (create, delete), Nodes (list, cordon, uncordon), Jobs (create, delete).
@@ -675,7 +688,7 @@ caching). All have safe fallbacks and kill-switches and are unit-tested in
   and `process_message_streaming` construct `ConversationManager(token_budget=...)`.
 
 ### Progressive tool loading (`src/agent/tool_selection.py`)
-Stops shipping all ~745 tool schemas on every request (token cost + worse tool
+Stops shipping all ~746 tool schemas on every request (token cost + worse tool
 selection). Rides the **existing `_tools_override` hook** — no new plumbing.
 - `classify_tool(name, module_category)` — AWS tools classified at the **service
   level** (`aws.ec2`, `aws.s3`, ...) so a single-service query selects ~30 tools
@@ -694,7 +707,7 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
      Azure+GCP tools to an AWS-only account.
   3. **`history_messages`** — the last `HISTORY_WINDOW` (6) user turns. Without
      this, follow-ups that carry no keywords of their own ("yes go ahead", "now
-     delete it") matched nothing and fell back to shipping all ~745 schemas,
+     delete it") matched nothing and fell back to shipping all ~746 schemas,
      which is the single largest avoidable latency source on the Kimi path.
 - **`ALWAYS_TOOL_NAMES`** — `search_tools` plus the eight provider-generic
   escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`, `k8s_*`). The
@@ -712,9 +725,27 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
 - `core._maybe_select_tools(message, max_tools)` runs after the user message is
   added in both entry points; it's a no-op if a caller passed an explicit
   `tools_override` or if `tool_selection.enabled` is false.
+- **Execution is restricted to the tools actually offered.** `core._is_tool_offered()`
+  gates every one of the 5 tool-execution sites (2 Kimi non-streaming, 2 Kimi
+  streaming, 1 Claude). Membership used to be tested against the full ~746-tool
+  registry (`tool_name in self.tools`), so a model that emitted a name selection had
+  deliberately withheld still got a real call against the user's cloud account —
+  observed in production 2026-09-02. A withheld name now returns
+  `_not_offered_result()`, which names `search_tools` as the recovery path; a
+  genuinely nonexistent name still reports "Unknown tool". When `_tools_override`
+  is `None` (full catalog sent) everything is allowed, so this is a no-op with
+  progressive loading disabled. **Direct-execution paths outside the agent loop
+  (`services/approval_service._execute_tool`, `routes/api_gateway.api_execute_tool`,
+  `routes/mcp._handle_tools_call`) set no override and are unaffected** — they are
+  authorized by their own gates, not by tool selection.
 - **`search_tools` meta-tool** (registered in `core.__init__`, category `meta`):
   the ToolSearch escape hatch — searches the full catalog and expands
   `self._tools_override` so any filtered-out tool becomes callable next turn.
+  **Scoring is whole-word with the tool name weighted 10x over the description**
+  (partial name hits for terms of 4+ chars score 5). A plain substring test let
+  short terms match inside unrelated words — "ami" hits "dyn-ami-c", which ranked
+  `list_eks_clusters` above `create_ami` for the query "ubuntu ami", so the one
+  recovery path from a filtered tool set returned junk.
   **Both Kimi tool loops must rebuild their OpenAI-format tool list on every
   iteration** via `core._current_oai_tools()`, never once before the loop. The
   handler appends recovered tools to `_tools_override` mid-loop and tells the
@@ -792,7 +823,7 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **745** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **746** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:

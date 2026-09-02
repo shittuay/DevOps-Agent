@@ -11489,6 +11489,115 @@ def resize_ebs_volume(
         return {'success': False, 'error': str(e)}
 
 
+# Canonical AMI publishers, by the owner alias/account the AMI is published under.
+# Looking an AMI up by name alone is unsafe: anyone can publish a public image whose
+# name mimics a distro's, so an unfiltered describe_images can return an impostor.
+# Every entry here is the distro vendor's own well-known owner id/alias.
+_AMI_OWNERS: Dict[str, Dict[str, Any]] = {
+    'ubuntu': {'owners': ['099720109477'], 'publisher': 'Canonical'},
+    'amazon-linux': {'owners': ['amazon'], 'publisher': 'Amazon'},
+    'debian': {'owners': ['136693071363'], 'publisher': 'Debian'},
+    'rhel': {'owners': ['309956199498'], 'publisher': 'Red Hat'},
+    'suse': {'owners': ['013907871322'], 'publisher': 'SUSE'},
+    'windows': {'owners': ['amazon'], 'publisher': 'Amazon (Windows)'},
+}
+
+# Default name patterns per distro. `{version}` is substituted from the caller's
+# `version` argument, or replaced by a wildcard when they don't pin one.
+_AMI_NAME_PATTERNS: Dict[str, str] = {
+    'ubuntu': 'ubuntu/images/hvm-ssd*/ubuntu-*-{version}-amd64-server-*',
+    'amazon-linux': 'al2023-ami-2023.*-x86_64',
+    'debian': 'debian-{version}-amd64-*',
+    'rhel': 'RHEL-{version}*_HVM-*-x86_64-*',
+    'suse': 'suse-sles-{version}-v*-hvm-ssd-x86_64',
+    'windows': 'Windows_Server-{version}-English-Full-Base-*',
+}
+
+
+def find_ami(
+    distro: str = 'ubuntu',
+    version: Optional[str] = None,
+    architecture: str = 'x86_64',
+    region: Optional[str] = None,
+    limit: int = 5
+) -> Dict[str, Any]:
+    """
+    Find the most recent official AMI ID for a Linux/Windows distribution.
+
+    This is the lookup step that must precede create_ec2_instance, which requires
+    a concrete ami_id and has no way to resolve a distro name on its own. Results
+    are restricted to the distribution vendor's own AWS owner id, so a public
+    image with a lookalike name can never be returned.
+
+    Args:
+        distro: One of ubuntu, amazon-linux, debian, rhel, suse, windows
+        version: Version to pin (e.g. '24.04', '12', '9'). Newest if omitted.
+        architecture: x86_64 (default) or arm64
+        region: AWS region (defaults to the caller's configured region)
+        limit: How many matching AMIs to return, newest first
+
+    Returns:
+        Dict with the newest matching AMI plus a few alternates.
+    """
+    key = (distro or '').strip().lower()
+    if key not in _AMI_OWNERS:
+        return {
+            'success': False,
+            'error': f'Unknown distro "{distro}". Supported: {", ".join(sorted(_AMI_OWNERS))}. '
+                     'For anything else use aws_api_read("ec2", "describe_images", {...}) '
+                     'with an explicit Owners filter.'
+        }
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        pattern = _AMI_NAME_PATTERNS[key].replace('{version}', version.strip() if version else '*')
+        response = ec2.describe_images(
+            Owners=_AMI_OWNERS[key]['owners'],
+            Filters=[
+                {'Name': 'name', 'Values': [pattern]},
+                {'Name': 'state', 'Values': ['available']},
+                {'Name': 'architecture', 'Values': [architecture]},
+                {'Name': 'virtualization-type', 'Values': ['hvm']},
+            ],
+        )
+        images = sorted(
+            response.get('Images', []),
+            key=lambda i: i.get('CreationDate', ''),
+            reverse=True
+        )
+        if not images:
+            return {
+                'success': False,
+                'error': f'No {_AMI_OWNERS[key]["publisher"]} AMI matched '
+                         f'{"version " + version if version else "any version"} '
+                         f'({architecture}) in {_get_effective_region(region)}. '
+                         'Try omitting the version, or a different architecture/region.'
+            }
+        newest = images[0]
+        return {
+            'success': True,
+            'ami_id': newest['ImageId'],
+            'name': newest.get('Name'),
+            'description': newest.get('Description'),
+            'creation_date': newest.get('CreationDate'),
+            'architecture': newest.get('Architecture'),
+            'publisher': _AMI_OWNERS[key]['publisher'],
+            'region': _get_effective_region(region),
+            'alternates': [
+                {'ami_id': i['ImageId'], 'name': i.get('Name'), 'creation_date': i.get('CreationDate')}
+                for i in images[1:max(1, limit)]
+            ],
+            'message': f'Newest {_AMI_OWNERS[key]["publisher"]} {distro} AMI in '
+                       f'{_get_effective_region(region)}: {newest["ImageId"]} ({newest.get("Name")}). '
+                       'Pass this as ami_id to create_ec2_instance.'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error (find_ami): {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error finding AMI: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def create_ami(
     instance_id: str,
     name: str,
@@ -17840,6 +17949,33 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['volume_id']
             },
             'handler': resize_ebs_volume
+        },
+        {
+            'name': 'find_ami',
+            'description': (
+                'Find the newest official AMI ID for a Linux/Windows distribution '
+                '(ubuntu, amazon-linux, debian, rhel, suse, windows). USE THIS FIRST '
+                'whenever the user asks for an instance by OS name rather than by AMI '
+                'ID — create_ec2_instance requires a concrete ami_id and cannot resolve '
+                '"ubuntu" on its own. Results are restricted to the distribution '
+                "vendor's own AWS account, so lookalike public images are never returned."
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'distro': {
+                        'type': 'string',
+                        'enum': ['ubuntu', 'amazon-linux', 'debian', 'rhel', 'suse', 'windows'],
+                        'description': 'Distribution to look up (default: ubuntu)'
+                    },
+                    'version': {'type': 'string', 'description': 'Version to pin, e.g. "24.04" for Ubuntu, "12" for Debian. Newest available if omitted.'},
+                    'architecture': {'type': 'string', 'enum': ['x86_64', 'arm64'], 'description': 'CPU architecture (default x86_64). Use x86_64 for t2/t3/m5; arm64 for Graviton (t4g/m6g).'},
+                    'region': {'type': 'string', 'description': 'AWS region to search (AMI IDs are region-specific)'},
+                    'limit': {'type': 'integer', 'description': 'How many alternates to return alongside the newest match (default 5)'}
+                },
+                'required': []
+            },
+            'handler': find_ami
         },
         {
             'name': 'create_ami',

@@ -1818,3 +1818,56 @@ the cap-exempt slot — only categories the user actually named.
 after). Full suite unchanged: identical 15 failures / 254 errors before and after,
 +11 passes. (Those pre-existing failures are a local Python 3.9 artifact — the project
 needs 3.10+ for `X | None` syntax — not a real regression.)
+
+## Agent ran `list_iam_roles` when asked to create an Ubuntu EC2 instance (2026-09-02)
+
+**Symptom (live user report, with production confirmation):** "create an ec2 instance
+using ubuntu on a t2.micro" produced no instance. The agent replied that its calls were
+"misrouted to an IAM role listing". `usage_logs` confirms exactly one tool ran that turn:
+
+```
+2026-09-02 16:00:49 | tool_use | list_iam_roles | kimi-k3 | True
+```
+
+The identical request on 2026-09-01 ran `gcp_api_read` + `gcp_api_write` and ended in
+"Maximum number of tool executions reached." Different wrong tool each time.
+
+**This was NOT the progressive-tool-loading bug fixed earlier the same day (#162).**
+That fix worked: selection correctly offered the EC2 category and correctly withheld
+every IAM tool. Three separate defects combined.
+
+**1. Root cause — the request was unsatisfiable, so the model guessed.**
+`create_ec2_instance` requires a concrete `ami_id`, and **nothing in the 745-tool
+catalog could look one up**. The only AMI tools were `create_ami` (images a running
+instance) and `deregister_ami`. There was no `describe_images` wrapper, no distro
+resolver. The model's only real option was `aws_api_read('ec2','describe_images', …)`
+with the right owner/filter incantation, which it never found. Fixed by adding
+`find_ami` (`src/tools/aws_tools.py`), which resolves distro + version + architecture
+to the newest matching AMI. **It pins the vendor's own AWS owner account** — matching
+an AMI by name alone is unsafe, since anyone can publish a public image with a
+lookalike name.
+
+**2. Tool filtering was advisory, not enforced.** All five execution sites tested
+`tool_name in self.tools` — the *full* registry — never the filtered set actually sent
+to the model. So a guessed name that happened to exist ran for real against the user's
+account. This is why a withheld `list_iam_roles` still listed 8 real IAM roles. Fixed
+with `core._is_tool_offered()` / `_not_offered_result()`; a withheld tool now returns an
+error naming `search_tools` as the way back. **The lesson: filtering the tool list is a
+prompt-level hint, not a control. If a tool must not run, the executor has to say so.**
+
+**3. `search_tools` — the one recovery path — ranked by raw substring match.**
+`sum(1 for t in terms if t in haystack)` meant short terms matched inside unrelated
+words: "ami" matches "dyn**ami**c", so the query "ubuntu ami" returned
+`list_eks_clusters` as the top hit, ahead of `create_ami`. Even a model that did the
+right thing got junk. Now whole-word matched with the tool name weighted 10x over the
+description; "ubuntu ami" returns `find_ami`, `create_ami`, `deregister_ami`.
+
+**Note on fix ordering:** #162 made `search_tools` actually work on the Kimi path (its
+results previously never reached the model). That made defect 3 newly *reachable* —
+worth remembering that repairing a recovery path can expose the quality of what it
+recovers.
+
+**Guard:** `tests/test_ami_lookup_and_tool_enforcement.py` (17 cases). Adding `find_ami`
+also tripped `tests/test_tool_counts.py`, which pins the documented tool totals to the
+registry — 745→746 across 7 templates + CLAUDE.md, AWS 351→352, MCP subset 702→703.
+That test is doing its job; update the user-facing numbers, never the test.
