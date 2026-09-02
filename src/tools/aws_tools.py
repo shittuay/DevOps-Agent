@@ -254,11 +254,28 @@ def manage_ec2_instance(
 
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
-        return {
+        error_code = e.response['Error']['Code']
+        result = {
             'success': False,
             'error': str(e),
-            'error_code': e.response['Error']['Code']
+            'error_code': error_code
         }
+        # This is the self-correcting half of the 2026-09-02 fix (see
+        # CLAUDE_RUNBOOK.md): a model that tries to "create" an instance by
+        # calling manage_ec2_instance(action='start', instance_id=<guessed>)
+        # gets this exact AWS error — enrich it in place, at the moment the
+        # mistake actually happens, rather than relying on the model having
+        # read either tool's description carefully beforehand.
+        if error_code.startswith('InvalidInstanceID'):
+            result['message'] = (
+                f'Instance "{instance_id}" does not exist. manage_ec2_instance '
+                'only starts/stops/reboots/terminates an instance that already '
+                'exists — it cannot create one, including with action="start". '
+                'To create a new instance, call create_ec2_instance instead '
+                '(call find_ami first if you need to resolve an OS name to an '
+                'ami_id).'
+            )
+        return result
     except Exception as e:
         logger.error(f"Error managing EC2 instance: {str(e)}", exc_info=True)
         return {
@@ -2738,8 +2755,8 @@ def delete_ec2_keypair(key_name: str, region: Optional[str] = None) -> Dict[str,
 
 
 def create_ec2_instance(
-    ami_id: str,
-    instance_type: str,
+    ami_id: Optional[str] = None,
+    instance_type: str = None,
     key_name: Optional[str] = None,
     security_group_ids: Optional[List[str]] = None,
     subnet_id: Optional[str] = None,
@@ -2752,7 +2769,8 @@ def create_ec2_instance(
     Create EC2 instance(s).
 
     Args:
-        ami_id: AMI ID to use (e.g., ami-0c55b159cbfafe1f0)
+        ami_id: AMI ID to use (e.g., ami-0c55b159cbfafe1f0). If the caller has
+            only an OS/distro name (e.g. "ubuntu"), call find_ami first.
         instance_type: Instance type (e.g., t2.micro, t3.small)
         key_name: SSH key pair name
         security_group_ids: List of security group IDs
@@ -2765,6 +2783,30 @@ def create_ec2_instance(
     Returns:
         Dictionary with created instance information
     """
+    # ami_id/instance_type are functionally required but kept Optional in the
+    # signature so a call missing either lands here as a normal early return
+    # instead of a bare TypeError before the function body runs — the
+    # generic exception string from a missing-argument TypeError gave no
+    # path back to find_ami (see CLAUDE_RUNBOOK.md's 2026-09-02 entry).
+    if not ami_id:
+        return {
+            'success': False,
+            'error': 'ami_id is required and was not provided.',
+            'message': (
+                'No ami_id was given. If you only have an OS/distro name '
+                '(e.g. "ubuntu"), call find_ami first to resolve it to a '
+                'concrete ami_id, then call create_ec2_instance again with '
+                'that value. Do not call manage_ec2_instance — it can only '
+                'start/stop/reboot/terminate an instance that already exists.'
+            ),
+        }
+    if not instance_type:
+        return {
+            'success': False,
+            'error': 'instance_type is required and was not provided.',
+            'message': 'Specify an instance_type (e.g. t2.micro, t3.small).',
+        }
+
     try:
         # Validate count
         if count < 1 or count > 10:

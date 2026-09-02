@@ -223,3 +223,74 @@ class TestEc2ToolDiscoverability:
         must still be able to find its way to find_ami from there."""
         desc = self._tools()['manage_ec2_instance']['description']
         assert 'find_ami' in desc
+
+
+# --------------------------------------------------------------------------
+# 5. Runtime self-correction: 2026-09-02 second follow-up
+#
+# Fixing descriptions (#164) is advisory — an LLM can still ignore them.
+# These two guards catch the exact failure mode at the moment it happens,
+# in the tool result itself, so the model can self-correct within the same
+# turn instead of the mistake reaching AWS with no way back.
+# --------------------------------------------------------------------------
+
+class TestEc2RuntimeSelfCorrection:
+    def test_create_ec2_instance_missing_ami_id_points_to_find_ami(self):
+        from src.tools import aws_tools
+        result = aws_tools.create_ec2_instance(instance_type='t2.micro')
+        assert result['success'] is False
+        assert 'find_ami' in result['message']
+        assert 'manage_ec2_instance' in result['message']
+
+    def test_create_ec2_instance_missing_ami_id_never_reaches_boto(self):
+        """Must return before touching AWS at all — no client should be built."""
+        from src.tools import aws_tools
+        with patch.object(aws_tools, '_get_boto_client') as mock_client:
+            aws_tools.create_ec2_instance(instance_type='t2.micro')
+            mock_client.assert_not_called()
+
+    def test_create_ec2_instance_missing_instance_type(self):
+        from src.tools import aws_tools
+        result = aws_tools.create_ec2_instance(ami_id='ami-123')
+        assert result['success'] is False
+        assert 'instance_type' in result['message']
+
+    def test_create_ec2_instance_schema_still_requires_both(self):
+        """The runtime guard is defense-in-depth, not a signal to relax the
+        schema the model sees — both stay required there."""
+        from src.tools.aws_tools import get_tools
+        t = {x['name']: x for x in get_tools()}
+        assert set(t['create_ec2_instance']['input_schema']['required']) == {'ami_id', 'instance_type'}
+
+    def test_manage_ec2_instance_invalid_instance_id_redirects_to_create(self):
+        """The exact production failure: manage_ec2_instance(action='start')
+        with a fabricated instance_id, trying to 'create' an instance."""
+        from src.tools import aws_tools
+        from botocore.exceptions import ClientError
+        client = MagicMock()
+        client.start_instances.side_effect = ClientError(
+            {'Error': {'Code': 'InvalidInstanceID.NotFound', 'Message': 'not found'}},
+            'StartInstances',
+        )
+        with patch.object(aws_tools, '_get_boto_client', return_value=client):
+            result = aws_tools.manage_ec2_instance(instance_id='i-fabricated', action='start')
+
+        assert result['success'] is False
+        assert 'find_ami' in result['message']
+        assert 'create_ec2_instance' in result['message']
+
+    def test_manage_ec2_instance_other_errors_are_not_relabeled(self):
+        """Only the InvalidInstanceID family gets the redirect — an unrelated
+        AWS error (e.g. permissions) must not be misdiagnosed as 'go create one'."""
+        from src.tools import aws_tools
+        from botocore.exceptions import ClientError
+        client = MagicMock()
+        client.start_instances.side_effect = ClientError(
+            {'Error': {'Code': 'UnauthorizedOperation', 'Message': 'denied'}},
+            'StartInstances',
+        )
+        with patch.object(aws_tools, '_get_boto_client', return_value=client):
+            result = aws_tools.manage_ec2_instance(instance_id='i-real123', action='start')
+
+        assert result['success'] is False
+        assert 'message' not in result

@@ -1871,3 +1871,50 @@ recovers.
 also tripped `tests/test_tool_counts.py`, which pins the documented tool totals to the
 registry — 745→746 across 7 templates + CLAUDE.md, AWS 351→352, MCP subset 702→703.
 That test is doing its job; update the user-facing numbers, never the test.
+
+## Same incident, second follow-up: runtime self-correction (2026-09-02)
+
+After the description cross-references above (#164) deployed and passed its own
+health check, the identical request failed a fourth time on the same conversation.
+A description is advisory — nothing stops a model from not reading it, or from
+reading it and guessing wrong anyway under a long, noisy conversation history (this
+thread had ~20 prior turns spanning IAM, GCP, RDS, Nexus, and Lambda tangents).
+
+**Structural fix, not another description tweak: make the two tools self-correct
+in their own result, at the exact moment the mistake happens.**
+
+- `create_ec2_instance`'s `ami_id`/`instance_type` were required positional
+  params with no default. A call missing either raised a bare `TypeError` before
+  the function body ever ran, caught generically several layers up and turned
+  into an opaque "missing 1 required positional argument" string with no path
+  back to `find_ami`. Made both `Optional` in the signature (the tool **schema**
+  still lists both in `required` — the runtime guard is defense-in-depth, not
+  permission to omit them) and added an explicit early check that returns a
+  guided error naming `find_ami` and warning against `manage_ec2_instance`.
+- `manage_ec2_instance`'s `ClientError` handler now special-cases the
+  `InvalidInstanceID.*` family — exactly what AWS returns when the model calls
+  `action='start'` with a fabricated `instance_id`, which is what actually
+  happened in production — and enriches the message with the same redirect.
+  Every other AWS error code passes through unchanged; misdiagnosing an
+  unrelated failure (e.g. a permissions error) as "go create one instead" would
+  be worse than the plain error.
+
+**Why this matters more than the description fix:** the enriched error lands in
+the tool-result message the model reads on its very next iteration, inside the
+*same* turn and the *same* tool-call budget — no new user message, no re-reading
+a schema, no dependence on the model's own judgment about which tool to try.
+Verified locally that `find_ami`/`create_ec2_instance`/`manage_ec2_instance` are
+all still correctly offered under this exact conversation's real noisy history
+(20 prior turns) before shipping.
+
+**A separate, non-code factor:** this specific conversation had accumulated the
+model's own prior wrong "misrouting" narrative across several turns. Once that
+framing is in the replayed history, the model tends to repeat it rather than try
+fresh. A poisoned conversation history is not something a tool-level fix can
+clean up — starting a new conversation is the only way to get an unbiased retry
+of a request that failed repeatedly in an old thread.
+
+**Tests:** 6 more cases in `tests/test_ami_lookup_and_tool_enforcement.py`
+(now 27 total for this incident) — the missing-arg guard never reaches boto3,
+the schema's `required` list is unchanged, `InvalidInstanceID.*` gets the
+redirect, and an unrelated error code does not.
