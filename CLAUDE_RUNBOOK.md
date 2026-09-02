@@ -1918,3 +1918,72 @@ of a request that failed repeatedly in an old thread.
 (now 27 total for this incident) — the missing-arg guard never reaches boto3,
 the schema's `required` list is unchanged, `InvalidInstanceID.*` gets the
 redirect, and an unrelated error code does not.
+
+## Root cause found: escape hatches were always-offered across ALL providers (2026-09-02)
+
+After three merged fixes for the "create an ec2 instance using ubuntu" incident
+(#162 progressive loading, #163 find_ami + enforcement, #164 description
+cross-refs, #165 runtime self-correction), the identical request kept failing —
+now guessing CloudFormation, then Kubernetes, then RDS, each narrated to the
+user as "misrouted" with a fabricated-sounding AWS error message. usage_logs
+confirmed `k8s_api_read` **actually executed** (no exception, so `success=True`)
+for a plain "create an ec2 instance" request that named nothing Kubernetes-
+related anywhere in the message or its history.
+
+**Root cause: `#163`'s `ALWAYS_TOOL_NAMES` made all eight provider-generic
+escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`, `k8s_*`)
+unconditionally present on every single turn, regardless of the message.**
+That fix was correct in spirit — the system prompt tells the model to fall
+back on these and never say it lacks a tool, so filtering them out entirely
+(the original bug) was wrong. But making them *all* always-present introduced
+a new failure mode: a plain AWS EC2 request now always carried Kubernetes,
+GCP, and Azure escape hatches too. A model struggling to find the right
+AWS-specific tool had four cross-cloud generic hatches sitting right there to
+grab instead — and it did, repeatedly, across at least four different wrong
+guesses in one afternoon (RDS, Nexus, IAM, GCP, Lambda-shaped, CloudFormation,
+Kubernetes, EC2 keypair) on the same conversation.
+
+**Fix:** `HATCH_PAIRS_BY_PROVIDER` + `_hatch_providers_for()` scope each
+provider's pair to whether *this turn's* matched categories (current message,
+generic nouns, and history — the same three signals selection already
+computes) actually implicate that provider. `search_tools` stays the one
+truly unconditional hatch. Verified against this exact conversation's real
+noisy 20-turn history before shipping: `find_ami`/`create_ec2_instance`/
+`manage_ec2_instance`/`aws_api_read`/`aws_api_write` are offered;
+`gcp_api_read`/`gcp_api_write`/`k8s_api_read`/`k8s_api_write`/`azure_api_read`/
+`azure_api_write` are not.
+
+**Two urgent side effects surfaced by this investigation, unrelated to tool
+selection and requiring account-owner action, not a code fix:**
+- `create_rds_instance` executed successfully (`usage_logs`, 2026-09-02
+  13:50:02, before any of these fixes were deployed) — check the AWS console
+  for an RDS instance that shouldn't exist.
+- The assistant reported creating an EC2 key pair `ubuntu_key` with a
+  plausible key-pair ID at 17:00:43, but **no corresponding `tool_use` row
+  exists in `usage_logs` for that turn** (it logged as `agent_message`,
+  `tool_name=None`) — meaning either `create_ec2_keypair` genuinely ran and
+  the per-turn tool-name logging silently dropped it (a real gap, not yet
+  root-caused — candidate for the next audit given the documented
+  `last_tools_used` greenlet-local read-ordering fragility in the Cloudflare
+  keep-alive section above), or the model fabricated the entire result
+  including a fake-but-realistic key-pair ID. Either way: if a real
+  `ubuntu_key` pair exists in `us-east-1`, its private key material passed
+  through this chat's stored history and the Kimi API request — treat it as
+  compromised, delete it, and do not reuse the key file.
+- Also observed: this account's free-tier credits were exhausted from
+  repeated retries of the same failing request (at least ten user turns in
+  one afternoon, each consuming a credit regardless of outcome) — expected
+  behavior given free tier is a one-time, non-renewing 20-credit grant, not a
+  bug, but worth knowing before assuming a credits-display bug.
+
+**Structural lesson:** an "always available" tool set is not free of
+selection risk just because it's small (eight tools, not 745) — it still
+needs to be scoped to relevance, or it becomes exactly the kind of
+easy-to-grab wrong answer that a struggling model reaches for. The fix for
+"a needed tool was filtered out" is not "never filter this tool," it's
+"filter it correctly."
+
+**Tests:** `tests/test_tool_selection.py` — `test_escape_hatches_scoped_to_implicated_providers`
+(replaces the old `test_escape_hatches_always_present`, which encoded the
+bug), `test_escape_hatches_scoped_to_each_provider_named`,
+`test_kubernetes_request_gets_only_the_k8s_hatch`.

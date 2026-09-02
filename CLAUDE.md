@@ -709,12 +709,19 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
      this, follow-ups that carry no keywords of their own ("yes go ahead", "now
      delete it") matched nothing and fell back to shipping all ~746 schemas,
      which is the single largest avoidable latency source on the Kimi path.
-- **`ALWAYS_TOOL_NAMES`** — `search_tools` plus the eight provider-generic
-  escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`, `k8s_*`). The
-  system prompt instructs the model to fall back on these and to *never* say
-  "I don't have a tool"; filtering them out left it with an instruction it
-  could not follow. They are included by **name**, not by category, so a single
-  hatch rides along without dragging its whole category in.
+- **`ALWAYS_TOOL_NAMES`** — `search_tools` only, unconditionally. The eight
+  provider-generic escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`,
+  `k8s_*`) that the system prompt tells the model to fall back on are now
+  **scoped per turn** via `HATCH_PAIRS_BY_PROVIDER` / `_hatch_providers_for()`
+  — only the providers this turn's matched categories (current message +
+  generic nouns + history) actually implicate get their pair included. An
+  earlier version of this fix made all eight always-present regardless of
+  relevance, which meant a plain AWS request always carried GCP/Azure/
+  Kubernetes hatches too — confirmed live 2026-09-02: `k8s_api_read` executed
+  for a "create an ec2 instance using ubuntu" request purely because it was
+  always offered, though nothing about the request implicated Kubernetes.
+  Included by **name**, not by category, so a scoped hatch rides along
+  without dragging its whole category in.
 - **The `max_tools` cap never drops a category tied for the top explicit
   score.** "show me the pods in my eks cluster" scores `kubernetes` and
   `aws.eks` equally; the old greedy pass kept whichever sorted first and
