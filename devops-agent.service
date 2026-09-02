@@ -7,9 +7,17 @@ Requires=postgresql.service
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/var/www/devops-agent
-Environment="PATH=/var/www/devops-agent/venv/bin"
+Environment="PATH=/var/www/devops-agent/venv/bin:/usr/bin:/usr/local/bin:/bin"
+Environment="GIT_PYTHON_GIT_EXECUTABLE=/usr/bin/git"
+Environment="PROMETHEUS_MULTIPROC_DIR=/var/www/devops-agent/prometheus_multiproc"
 EnvironmentFile=/var/www/devops-agent/.env
+# Multiprocess Prometheus metrics require this directory empty at startup —
+# stale files from a previous run's PID would otherwise be misread as a live
+# worker's counters. See services/metrics_service.py and gunicorn.conf.py.
+ExecStartPre=/bin/rm -rf /var/www/devops-agent/prometheus_multiproc
+ExecStartPre=/bin/mkdir -p /var/www/devops-agent/prometheus_multiproc
 ExecStart=/var/www/devops-agent/venv/bin/gunicorn \
+  --config /var/www/devops-agent/gunicorn.conf.py \
   --worker-class gthread \
   --workers 3 \
   --threads 8 \

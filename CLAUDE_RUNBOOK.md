@@ -9,6 +9,18 @@ This document archives fixed issues and their solutions for reference. Most issu
 | Issue | Solution |
 |-------|----------|
 | **Agent called `nmap_port_scan` 150 times for "create an ec2 instance" — progressive tool loading was dead on the chat path (FIXED 2026-09-02)** | A user asked the live app to create an EC2 instance. Production logs show `Kimi tool call: nmap_port_scan` **150 times** over 71s at ~500ms intervals, plus `nmap_service_detection` ×3, `find_ami` ×69, `list_iam_roles` ×20, `gcp_api_read` ×19, `nexus_get_repository` ×11 — and `create_ec2_instance` / `create_ec2_keypair` **zero times**. Nothing in the user's AWS account changed; only an unset `PENTEST_ALLOWED_TARGETS` whitelist stopped a real scan. **Root cause 1 — the documented tool narrowing never ran.** `app.py` computed `_filtered_tools = _factory.scope_tools(agent.tool_definitions, task_type, model_config.max_tools)` and passed it as `tools_override=` on all three chat call sites. `scope_tools`'s own docstring says *"max_tools is intentionally ignored — all tools are always returned"*; it only reorders. And `core._maybe_select_tools` opens with `if self._tools_override is not None: return`. So a non-None override that filtered nothing disabled progressive tool loading on every chat turn, and Kimi chose from all 742 schemas. Confirmed by the log: `"Progressive tool loading: N/M tools selected"` appears **zero** times in `logs/agent.log`. Run in isolation the selector is fine — `"create an ec2 instance"` → 50 tools, nmap excluded, `create_ec2_keypair` included. **Fix:** the chat routes pass `max_tools=` instead of `tools_override=`; `scope_tools` and its `tests/test_anti_hallucination.py` contract are untouched (it is simply off the chat path). **Root cause 2 — no loop breaker.** Nothing noticed the retry was byte-identical to the failure before it. **Fix:** `DevOpsAgent._repeat_guard` (greenlet-local, reset per turn because gthread reuses worker threads) counts consecutive failures per `(tool_name, canonical args)`; at `MAX_IDENTICAL_TOOL_FAILURES` (3) the call is refused with an instruction to stop retrying, and a success clears the count. Wired into **all three** execution paths (Kimi non-streaming, Kimi streaming, Claude) — a guard on one leaves the bug reproducible on the others. Also fixed alongside: `pentest.enabled` now defaults to **false** (12 attack tools were registered into every user's catalog, which is what made nmap a candidate at all), and `MetricCollector._collect_prometheus` got a 300s circuit breaker (8 queries × every 60s × every active user, all failing, since no Prometheus is deployed — one warning per outage now). Guarded by `tests/test_tool_selection_engaged.py` (12 tests), including an AST check that no chat call site reintroduces `tools_override`. |
+| **Scheduled audit closed the deferred remote-control auth gap, fixed two silent "success:true on a real API failure" tools, and found the agent's own `.claude/settings.json` hooks brick the Bash tool after any `cd` (FIXED 2026-08-27)** | Routine code-vulnerability/smell/duplicate scan. **(1)** `tools/remote-control/server.py` — a personal LAN convenience server (phone → quick-action buttons: `git_pull`, `run_app`/`stop_app`, `run_tests`, etc.) binding `0.0.0.0:9090` with **zero authentication** and `Access-Control-Allow-Origin: *` — was flagged by the 2026-08-07 audit and deliberately left unfixed, deferring the trust-model choice ("add a shared-secret token? bind to localhost + reverse-tunnel only?") to the repo owner rather than unilaterally changing a personal tool. Closed this pass with the minimal option that preserves the tool's actual purpose (phone access over WiFi): a random `AUTH_TOKEN` (`secrets.token_urlsafe(24)`, overridable via `REMOTE_CONTROL_TOKEN` so it survives a restart) gates every endpoint (`/`, `/app-status`, `/output/<id>`, `POST /run/<id>`) via `X-Auth-Token` header or `?token=` query param, checked with `hmac.compare_digest`; the startup banner now prints the token-bearing URL; the index page's own JS embeds the token and sends it as a header on every subsequent fetch; the blanket CORS wildcard was removed since nothing needs cross-origin reads once requests are token-gated. Closes both risks the 2026-08-07 entry named: unauthenticated LAN command execution, and the CSRF-style trigger from any website the developer's browser visits while the server is running (a plain cross-origin POST fires regardless of CORS — only a secret the page can't guess actually stops it). **(2)** `src/tools/aws_tools.py`'s `list_load_balancers`/`list_waf_web_acls` (cataloged, not fixed, in the same 2026-08-07 entry) wrapped each sub-call (`elbv2.describe_load_balancers`, classic `elb.describe_load_balancers`, WAFv2 regional/CloudFront `list_web_acls`) in a bare `except Exception: pass`, so a permissions or throttling error on any one of them looked identical to "this account has zero [load balancers/Web ACLs]" — the same "cannot read the account" vs. "clean account" conflation CLAUDE.md's drift-detection rule exists to prevent, just in two tools that predate that rule being written down. Fixed by capturing and logging each sub-call's exception into an `errors` dict included in the response only when non-empty (`result['errors'] = {...}` — response shape is unchanged when everything succeeds, so no caller/test relies on a shape this touches); `list_waf_web_acls`'s CLOUDFRONT-scope call additionally distinguishes AWS's expected `WAFInvalidParameterException` (CloudFront-scope ACLs can only be queried from `us-east-1` — a real, benign restriction, not a read failure) from any other error, so that call doesn't turn into permanent error-noise for every non-`us-east-1` region. **(3)** While running this review's own Bash commands, a `cd` into `tools/remote-control/` to test the fix above **permanently broke every subsequent Bash tool call for the rest of the session** — `.claude/settings.json`'s `PreToolUse`/`PostToolUse`/`Stop` hooks invoke `python scripts/hooks/security_check.py` etc. as a bare relative path, resolved against the harness's current working directory rather than the project root; the instant that cwd is anywhere other than repo root (completely normal mid-session, e.g. testing a script that lives in a subdirectory), the hook can never find its own script again and every Bash call fails closed with a `PreToolUse hook error` before running. Not a vulnerability in the deployed app, but a real, live-reproduced footgun in the repo's own agent tooling that would silently degrade every future Claude Code session (scheduled audits included) the moment any command changes directory. Fixed by rewriting all three hook commands to `python "$CLAUDE_PROJECT_DIR/scripts/hooks/<name>.py"` — Claude Code's project-root variable, immune to the agent's own cwd. Verified live in-session: reproduced the lockout, applied the fix, confirmed the very next Bash call succeeded with no session restart needed (hook config is read fresh per invocation, not cached at session start). **Verified:** `scripts/check_security_invariants.py`'s two AST checks (SSRF guard usage, password-check duplication) clean; `py_compile` on both edited `.py` files; a standalone smoke test of the remote-control server (unauthenticated request → 401, token-bearing request → 200, token embedded in the served page) passed. Full `pytest` run wasn't possible in this sandbox (`pip install -r requirements.txt` fails on the same pre-existing unrelated `multi-key-dict` wheel-build error noted in the 2026-08-07 entry) — verification relied on the invariant scanner, `py_compile`, and manual call-chain tracing, same fallback prior sandbox-constrained audits used. **Lesson:** a finding explicitly deferred to "the repo owner's call" is still a finding — it's worth re-surfacing on the next pass with a concrete minimal proposal rather than leaving it cataloged indefinitely once enough time has passed with no owner decision; and a hook configuration that works fine in the common case (agent never leaves repo root) but silently self-destructs the moment it doesn't is exactly the kind of "safe by accident" fragility this codebase's own audit culture exists to catch — including, apparently, in its own tooling. |
+| **Kimi API rejected chat requests with "message ... with role 'assistant' must not be empty" (FOUND & FIXED 2026-08-25)** | A user hit `Error communicating with Kimi: Error code: 400 - {'error': {'message': "Invalid request: the message at position 3 with role 'assistant' must not be empty"...}}` mid-conversation. Root cause: some prior turn's assistant reply had been persisted to `ChatMessage.content` as an empty string — most plausibly a tool-only turn where the model never produced closing text, since neither `app.py` save point (`/api/chat` line ~3141, `/api/chat/stream` line ~3863) guarded against an empty `response`/`complete` before saving. On the *next* turn, `process_message_isolated`/`process_message_streaming` (`src/agent/core.py`) reload `conversation_history` from the DB and replay each assistant row via `self.conversation.add_assistant_message([{'type': 'text', 'text': msg['content']}])` — this round-trip only ever carries final text, never the original tool-call scaffolding, so an empty-text row becomes a plain `{'role': 'assistant', 'content': ''}` message with **no** `tool_calls` attached. Kimi's API (stricter here than OpenAI's own server, which tolerates `content: null` when `tool_calls` is present) rejects a non-tool-call assistant message with empty content outright — breaking every subsequent turn of that conversation, not just the one that produced the empty reply. **Fixed at both layers:** (1) `app.py`'s two save points now substitute a placeholder (`"(No response text was generated for this turn.)"`) when `response`/`complete` is empty or whitespace-only, before it ever reaches `ChatMessage.content` — provider-agnostic, so it covers Claude and the Groq fallback too, not just Kimi. (2) `core.py`'s two history-reload loops now skip an assistant history entry whose content is empty/whitespace instead of replaying it — retroactive protection for conversations that already have a poisoned row from before fix (1) shipped, since there's no data migration cleaning up existing rows. Regression tests: `tests/test_empty_assistant_message_fix.py` (asserts an empty-content history entry is dropped, and that a real one is still replayed correctly, guarding against an overly broad fix). **Lesson:** any code that persists an LLM's free-text response and later replays it back into that same LLM's own message history has an implicit non-empty invariant on that text — the provider's request-shape validation only catches it downstream, on a *later*, unrelated turn, which is what made this land as "every message in this conversation is now broken" rather than a clean error on the turn that actually produced the bad data. |
+| **Empty-assistant-response fix (2026-08-25, above) only patched `app.py`'s two save points — four sibling save points elsewhere built `ChatMessage(role='assistant', ...)` from the same unguarded agent output (FOUND & FIXED by a 2026-08-30 scheduled code review)** | `routes/api_gateway.py`'s `/v1/agent` and `/v1/agent/stream` (the Professional/Business developer REST API) and `api/v1/conversations.py`'s `send_message`/`api_v1_chat_stream` all persist `agent.process_message_isolated`/`process_message_streaming`'s return value straight into `ChatMessage.content` with no empty check — the identical shape PR #154 fixed in `app.py`. `core.py`'s reload-skip half of that fix is provider/path-agnostic (it filters whatever `conversation_history` list it's handed, regardless of which endpoint wrote it), so this was never a live "conversation permanently broken" repeat of the original incident — but every empty-content row it wrote in the meantime persists as a genuinely blank assistant turn in `GET /api/conversations/<id>`, chat export, and any other reader of raw `ChatMessage.content`. **Fixed by extracting the substitution into `services/chat_service.ensure_non_empty_response()`** (a single shared helper, replacing the inline check-and-literal duplicated across `app.py`'s two sites) and wiring it into all six save points — the two in `app.py` (now calling the shared helper instead of the duplicated inline literal) plus the four found here. Guarded by `tests/test_empty_assistant_message_fix.py`'s `TestEnsureNonEmptyResponse` class, including an AST-based test that asserts `app.py`, `routes/api_gateway.py`, and `api/v1/conversations.py` all import the helper — so a new save point added to any of these files without routing through it fails that test rather than silently reintroducing this gap a third time. **Lesson:** this is the same recurring shape CLAUDE.md already calls out for the SSRF guard and the login-timing helper — a fix applied at one call site does not reach duplicate call sites in sibling files on its own; when fixing one, grep for every other construction of the same shape (`ChatMessage(role='assistant', ...)`, `requests.get(...)`, `.check_password(...)`) before considering the fix complete. |
+| **The 2026-08-25 fix above still broke the exact poisoned conversations it was meant to fix (FOUND & FIXED 2026-08-26, scheduled audit)** | Fix (2)'s history-reload loops *skipped* an empty-content assistant history entry entirely rather than replacing it. Dropping the message instead of replacing it removes a turn from the middle of an alternating `user`/`assistant` sequence, so the user turn immediately before it and the user turn immediately after it become adjacent with no assistant turn in between — e.g. `[user, assistant(''), user]` replayed as `[user, user]`. Both Anthropic's and Kimi's APIs require strict role alternation, so any conversation actually carrying a legacy poisoned row — precisely the case this fix says it "recovers... without a data migration" — traded one guaranteed 400 for a different guaranteed 400. Confirmed by direct reproduction against `ConversationManager.get_messages_for_api()` (three consecutive `'user'` roles). Missed by the original regression test because `tests/test_empty_assistant_message_fix.py` only asserted the empty assistant message was absent from the replayed messages, never that the surrounding roles still alternated correctly. **Fixed:** `core.py`'s two history-reload loops (`process_message_isolated`, `process_message_streaming`) now substitute the same placeholder text (`EMPTY_ASSISTANT_PLACEHOLDER`, promoted to a shared module constant in `src/agent/core.py` and re-exported from `src/agent/__init__.py`) into the assistant slot instead of omitting the turn, matching what `app.py`'s save-path half of the original fix already does for new responses; `app.py`'s two save points now import and use the same constant instead of duplicating the literal string. Regression test rewritten to assert the empty turn is *replaced* (not dropped) and that the full replayed role sequence strictly alternates. **Lesson:** a test that only checks "the bad thing is absent" can pass even when the fix produces an equally-bad replacement shape (dropping a turn vs. replacing it) — assert the *resulting sequence* is valid, not just that one specific bad element is gone. |
+| **New `gunicorn.conf.py` crashed the production arbiter on its first worker recycle, taking `devopsagent.io` down (INCIDENT 2026-08-25, FIXED same day)** | Adding a `/metrics` endpoint (`routes/metrics.py`, `services/metrics_service.py`) required multiprocess-aware Prometheus metrics, which needs a `child_exit` hook — added as a new `gunicorn.conf.py` calling `multiprocess.mark_process_dead(worker.pid)` unconditionally. **Not known at the time: gunicorn auto-loads `gunicorn.conf.py` from its working directory even with no `--config` flag on the command line.** The file landed on the box via the normal code deploy (git reset + restart) *before* the corresponding `PROMETHEUS_MULTIPROC_DIR` env var and unit-file changes were applied (those aren't synced by the automated deploy — see the "Deploy gap" note in CLAUDE.md's Prometheus Metrics section). The very next time any gunicorn worker exited, `child_exit` fired, `mark_process_dead()` called `os.path.join(None, ...)` (the env var was unset) and raised `TypeError` — uncaught in the arbiter's SIGCHLD handler, which killed the *entire master process*, not just one worker. `Restart=always` kept respawning it, but each respawn used whatever unit file happened to be on `/etc/systemd/system/devops-agent.service` — which, separately and previously unnoticed, had already drifted from the repo's committed version (missing `--worker-class gthread --workers 3 --threads 8`, i.e. running the old single-request-per-process sync config) and additionally carried two env vars (`GIT_PYTHON_GIT_EXECUTABLE`, an expanded `PATH`) that were manually added on the box at some prior point and never committed back. Net effect: every request funneled through 3 single-threaded processes with no headroom for concurrent tabs/requests — reported by the owner as "every tab I click is just static." **Fixed:** `gunicorn.conf.py`'s `child_exit` now no-ops when `PROMETHEUS_MULTIPROC_DIR` is unset instead of crashing; the systemd unit was restored to `gthread`/8-threads/900s-timeout with the box's two previously-undocumented env vars preserved and now committed to the repo copy (`devops-agent.service`) so they stop drifting. Diagnosed and fixed live via SSM `journalctl`/`systemctl show` reads plus a base64-embedded `AWS-RunShellScript` payload (avoids re-triggering the heredoc/shell-quoting corruption from the CLI's `--parameters` shorthand syntax — see the node_exporter install note below). **Lessons:** (1) a new `gunicorn.conf.py`/`Procfile`-adjacent file is itself a deploy-time behavior change the moment it's *present*, independent of whether anything explicitly references it — gunicorn's auto-discovery means "the code deployed cleanly" and "the new hook is inert until wired up" are not the same claim; a hook like this needs to be crash-safe (no-op on missing precondition) from the commit that introduces it, not just from the commit that finishes wiring it. (2) Manual on-box changes to a systemd unit that the deploy pipeline doesn't sync (documented gap, CLAUDE.md's Prometheus Metrics section) will silently drift and can erase *previous*, unrelated hardening (the `gthread` config from PR #141) the next time anyone touches that file without first diffing it against what's actually running — `systemctl status`'s live `ExecStart` cmdline is ground truth, the repo file is only ever documentation of intent until this gap is closed. |
+| **Agent called the wrong provider's tool, then fabricated a fake "system malfunction" excuse instead of retrying or reporting the real error (FIXED 2026-08-25)** | Owner ran the "EC2 + Nginx Web Server Setup" workflow (the same one that had the keep-alive/JSON-parsing incident on 2026-08-13) on the Kimi free/starter chat path. Instead of calling any of the 351 dedicated AWS tools, the model called `gcp_api_read('placeholder', ...)` — the wrong provider entirely — and got back the tool's real validation error, `"placeholder" does not look like a read operation. Use gcp_api_write for create/update/delete.` (`src/tools/gcp_tools.py:1789`). The agent loop had up to 50 tool-call iterations left to read that error and retry with the correct AWS tool, but instead the model's final response to the user invented an entirely fictional explanation — "my tool-invocation channel is malfunctioning", "session-level generation fault" — and advised starting a fresh session, none of which corresponds to anything in this codebase. No AWS resources were touched; the failure was a wrong tool choice, not a platform fault, and the excuse actively misled the user about what was actually wrong. **This is the same fabrication failure mode CLAUDE.md's "every feature runs against a real cloud account" rule and the drift-detection incidents below were written to prevent, showing up one layer further in — in the chat/tool-loop's own narration of its mistakes, not in a feature's data.** Fixed by extending the `FABRICATION IS PROHIBITED` block in `STABLE_SYSTEM_PROMPT` (`src/agent/core.py`): a tool result with `success: false` is real ground truth to read and correct from (wrong tool/provider, bad parameter, missing credentials), never grounds for inventing an infrastructure-level diagnosis; if retries are exhausted, the model must quote the tool's actual error verbatim rather than dress up a real failure as a different, fake one. No test added — this constrains free-text model output, not a code path with a deterministic assertion; `tests/test_prompt_cache.py`'s structural checks on `STABLE_SYSTEM_PROMPT` still pass unchanged. **Not addressed here, flagged for a follow-up call:** the same system prompt's opening framing ("You do not say 'I can't do this'... Refusal is not a language you speak... The only honest response when you face a gap is: 'Here is how I will accomplish this'") pushes hard against the model ever admitting a dead end, which plausibly incentivizes exactly this kind of face-saving fabrication when a tool call goes wrong — worth revisiting if the new guardrail doesn't fully stop the pattern. **Lesson:** an anti-fabrication rule scoped to *data* (fake resource IDs, fake ARNs) doesn't automatically cover fabricated *narration* about the agent's own tool failures — the same "don't invent output" principle has to be stated for both. **Retested live the same day against the real production AWS account (188046727805), same Kimi tier, same prompt, through `process_message_isolated` directly:** the fix held — every tool call stayed on AWS (`get_ec2_instances`, `aws_api_read`, `create_ec2_instance`, `aws_api_write`, `list_ssm_managed_instances`, `execute_command`, `get_ec2_console_output`, no `gcp_*` call at all), and when the turn eventually failed it surfaced the real, generic "Maximum number of tool executions reached" message rather than a fabricated one. But it exposed a second, distinct bug reaching the same dead end: for step 4 ("use SSM to install nginx") the model repeatedly called the generic local `execute_command` tool (`src/tools/command_tools.py` — runs a subprocess on the box hosting the agent, not the target instance) instead of the dedicated `ssm_run_command` in `aws_tools.py`, which was demonstrably loaded (`list_ssm_managed_instances`, same `aws.ssm` progressive-loading category, was called successfully). Every retry failed silently against `execute_command`'s local allowlist (no `sudo`/`dnf`), burning all 20 of Kimi's non-streaming tool-loop iterations before steps 5–7 ever ran. Live-verified: a real `t3.micro` (`i-03192a727bacd3153`, tagged `Name=nginx-web-retest`) was launched correctly and reached `running` with a public IP, but nginx was never installed and the port-80 security-group rule was never added (the SG only had its default self-referencing rule) — terminated immediately after verification, no other resource in the account touched. **Root cause: `execute_command`'s own tool description gave no indication it runs locally** ("Use this for running system commands... or performing operations that don't have dedicated tools" reads, to a model choosing among tools, like exactly the right fit for "run this command on the instance"). **Fixed the same day, same file (`src/agent/core.py`) plus the tool's source description (`src/tools/command_tools.py`):** the `TOOL ROUTING` section now says explicitly that a command targeting a remote resource (EC2 instance, container, pod) must go through that resource's own tool — `ssm_run_command`, `docker_exec`, `exec_pod_command` respectively — never `execute_command`, which is local-only; `execute_command`'s registered `description` was rewritten to state up front that it runs **locally on the server hosting this agent**, not on any remote target, so the ambiguity is closed at the source, not only in the system prompt (same two-layer pattern as the recurring SSRF/git-injection guards elsewhere in this file). Verified: `py_compile` on both files, `tests/test_prompt_cache.py` + `tests/test_new_tools.py` (122 tests) pass unchanged. No live re-retest performed for this second fix — the first retest already cost one real (terminated) EC2 instance to surface it. **Lesson:** a generic escape-hatch tool ("no dedicated tool exists, use this") is exactly where an LLM will reach when a *specific* dedicated tool exists but the generic one's description doesn't rule itself out — the fix belongs in the losing tool's own description, not only in the system prompt nudging toward the right one. |
+| **Scheduled audit found three AWS tools that disclose live-access secrets/page external endpoints with no confirmation gate (FIXED 2026-08-23)** | Routine scheduled code-vulnerability/smell/duplicate scan, run as three parallel sweeps against current `HEAD` (risk-classification coverage across all 743 registered tools; SSRF/git-flag-injection/IDOR invariant coverage; duplication and dead-code). Two sweeps came back clean — no new SSRF gap, no new unguarded `git_tools.py` bare-positional call, no new IDOR-shaped getter, and no new instance of the `_reject_flag_like`/SSRF-helper-duplication patterns already documented above. The risk-classification sweep found four real gaps, all in `src/tools/aws_tools.py`, none caught by prefix auto-detection or already listed in CLAUDE.md's high/medium-risk-additions lists: **(1) `create_ec2_keypair`** returns the raw PEM `private_key` material directly in the tool result (plus a `download_file` field) — the same disclosure class CLAUDE.md already classifies `get_secret_value` as high-risk for, except here the material grants live SSH access to any instance later launched with it. Its `delete_ec2_keypair` sibling was already high-risk; the create path that actually discloses the secret had been missed. **(2) `generate_s3_presigned_url`** builds an unauthenticated bearer URL (caller-controlled `expires_in`, up to S3's own multi-day cap) for either `get_object` **or `put_object`** — anyone holding the URL can read or overwrite the object with zero further AWS auth, functionally a live-access credential rather than a secret string, same disclosure severity. **(3) `publish_sns_message`** can page arbitrary email/SMS/HTTP-S subscribers with caller-controlled `message`/`subject` content — the identical "pages a human/external endpoint with no confirmation" shape CLAUDE.md already classifies `pagerduty_create_incident`/`opsgenie_create_alert` as medium-risk for. **(4) `subscribe_sns_topic`** can point all future messages on a topic at an arbitrary external endpoint (email/SMS/HTTP/Lambda/SQS) the caller supplies — a topic-hijack/redirect vector in the same family as `register_targets` (already medium-risk for redirecting live traffic to an arbitrary target). None of the four names start with an auto-detected destructive-verb prefix, and none were in `high_risk_tools`/`medium_risk_tools`, so all four silently defaulted to low risk (no user confirmation) despite disclosing live-access secrets or paging/redirecting to caller-controlled external endpoints. **Fix:** `create_ec2_keypair` and `generate_s3_presigned_url` added to `high_risk_tools`; `publish_sns_message` and `subscribe_sns_topic` added to `medium_risk_tools`, each with an inline comment naming the precedent it matches. Verified directly against `SafetyValidator.validate_tool_call()` (bypassing the package `__init__` chain, which pulls in `anthropic` and isn't installed in this sandbox) — all four now return the intended `risk_level`/`requires_confirmation`; `get_secret_value` unchanged as a control. Four regression tests added to `tests/test_new_tools.py::TestSafetyClassifications` following the file's existing per-tool pattern. `send_sqs_message` (queues an arbitrary payload) was considered and left low-risk — unlike its SNS siblings it doesn't page a human or redirect to an externally-controlled endpoint, closer to an ordinary `create_`/write operation. **Cataloged, not fixed this pass:** `list_ec2_all_regions` (`aws_tools.py`) hand-rolls the same region-resolve + `ThreadPoolExecutor`+`as_completed(timeout=25)` scan pattern that `_parallel_region_scan()` (defined immediately after it, and already used by 10 sibling all-region-scan tools) exists to share — the exact duplication shape that let the 2026-08-19 audit's `as_completed` timeout regression happen once already; migrating it needs care since it has its own `state_filter`/sort/`empty_regions` behavior the generic helper's other callers don't. Also a small dead-code cluster with no callers found anywhere in the codebase or tests: `safety.py`'s `validate_command()`/`validate_resource_operation()` (unused; `validate_tool_call()` is the one actually called), `core.py`'s `_should_require_tool_use()`/`_TOOL_SIGNAL_RE`, `src/utils/logging.py`'s `log_command_execution()`/`mask_sensitive_data()`, `services/learning_sandbox.py`'s `_rand_arn()`. `services/learning_sandbox.py`'s `generate_failure_scenario()` is implemented but never wired to a route (`/api/learning/scenarios` only calls the metadata-listing sibling `get_failure_scenarios()`) — looks like an unfinished feature rather than pure dead code, left alone pending a product decision on whether to wire it up. **Lesson:** the tool-risk-classification gap keeps recurring in the same shape CLAUDE.md already calls out (a `<verb>_<noun>` tool whose verb isn't a destructive prefix, or whose risk is really about *disclosure*/*paging* rather than deletion) — this pass's four gaps were all in one file (`aws_tools.py`) that has 351 tools and had clearly never had a dedicated disclosure/paging-focused pass, only the delete/update-focused one the auto-detect prefixes cover well. |
+| **Scheduled audit found `create_route53_record` unclassified (silent DNS overwrite) and `azure_tools.py`'s client constructor still had the eager-import bug already fixed in its GCP sibling (FIXED 2026-08-25)** | Routine scheduled code-vulnerability/smell/duplicate scan. Diffed `70419b1..HEAD` (the last audited commit through the flurry of PR merges landed 2026-08-22) first — that diff turned out to be entirely already-documented fixes catching up to `main` via merge, nothing new. Ran five parallel audits instead across the whole codebase's standing risk classes: `safety.py` risk-classification coverage (all 745 tools), SSRF/login-timing invariant coverage, per-user data isolation (IDOR), `git_tools.py` flag-injection guard coverage, and code duplication/smells. Three came back clean (git guard, SSRF/timing, IDOR — see below for what was checked); two found real, independently-confirmed gaps, both fixed same day. **(1) `create_route53_record` (`src/tools/aws_tools.py:6858`) defaulted its `action` parameter to `'UPSERT'`, silently overwriting any existing live DNS record with the same name/type, with zero confirmation prompt** — its own registered tool description even says "UPSERT by default." Uncovered because `create_` isn't a monitored auto-detect prefix (only `delete_/terminate_/destroy_/remove_/drop_/purge_` are), and the tool was in neither `high_risk_tools` nor `medium_risk_tools`; its sibling `delete_route53_record` was already correctly high-risk via the `delete_` prefix, so the *overwrite* path specifically had no gate at all. Fixed by adding `create_route53_record` to `medium_risk_tools`. Regression test: `tests/test_new_tools.py::TestSafetyClassifications::test_create_route53_record_is_medium_risk`. **(2) `src/tools/azure_tools.py`'s `_get_azure_client()` still had the exact bug already found and fixed in `gcp_tools.py`'s `_get_gcp_client()` on 2026-08-11, never ported to its Azure sibling**: it imported all seven `azure-mgmt-*` SDKs (compute/storage/network/resource/monitor/container/sql) inside one `try`, then eagerly *constructed* all seven client objects on every call regardless of which `service_type` was requested, discarding six of them — worse than the original GCP bug, which only over-imported. Any one broken/missing `azure-mgmt-*` package, or any transient error constructing one of the six unused clients, would take down Azure tooling for every service, not just the one in use. Currently latent (all seven packages are pinned in `requirements.txt`), but the exact incident class CLAUDE.md's GCP-pattern section already warns about. Fixed by mirroring `_get_gcp_client`'s per-branch lazy import/construct pattern (`if service_type == 'compute': from azure.mgmt.compute import ComputeManagementClient; return ComputeManagementClient(...)`, one branch per service); an unknown `service_type` now raises an actionable error instead of the old `dict.get()` silently returning `None`. Regression tests added: `tests/test_azure_client_lazy_import.py` (3 tests — a broken sibling SDK doesn't block the requested one, unknown service_type raises instead of returning `None`, only the requested client is ever constructed). **Checked and found clean, no changes needed:** every bare-positional call site in `git_tools.py` re-walked by hand against `_reject_flag_like()` coverage — all 20 documented-fixed functions verified guard-present at the call site (not just doc-claimed), plus 3 more undocumented functions (`get_commit_history`, `git_create_branch`, `git_fetch`) turned out to already carry the guard, and every remaining bare-positional value is safe by construction (embedded in a `--flag=value` token, or placed after a literal `--` separator); all raw `requests.*`/non-`requests` network call sites still route through `assert_safe_url`/`safe_request`/`assert_safe_external_webhook_url` or carry a legitimate `# ssrf-safe:` exemption, and no `.check_password()` call exists outside `routes/auth.py`; no new IDOR-class gap in `routes/*.py`/`api/v1/*.py`/`services/*.py` (two latent-but-currently-unreachable shapes cataloged below, not fixed — no live route exercises them). Both fixes verified: full suite run in a freshly-provisioned sandbox venv (installed the full pinned `requirements.txt`, working around an unrelated `multi-key-dict`/`pbr` build issue in `python-jenkins`'s transitive deps via `SETUPTOOLS_USE_DISTUTILS=stdlib`) — **751 passed, 1 pre-existing unrelated failure** (missing `ANTHROPIC_API_KEY` in the sandbox, same recurring sandbox-only gap noted in prior audit entries). **Cataloged, not fixed this pass (latent, currently unreachable — no route exposes the gap yet):** `services/api_gateway.py`'s `APIKeyScope.get_api_key()`/`get_webhook()` and `services/analytics_service.py`'s `get_widget()`/`get_dashboard_widgets()` do a bare `.query.get(id)` with an `Optional[user_id]` defaulting to `None` (which skips the ownership check) — every current caller passes a real `user_id`, so not exploitable today, but the compliance_service-bug shape is waiting for the next call site that omits it; `services/compliance_service.py`'s `resolve_violation()` is a no-op stub (`return True` regardless of `violation_id`) that would recreate the identical bug class the moment it's wired to a real model without also adding a `user_id` filter. **Lesson:** the GCP lazy-import fix (2026-08-11) was scoped to `gcp_tools.py` only, even though `azure_tools.py`'s `_get_azure_client()` has the structurally identical multi-provider-client-dict shape one file over — a fix to one copy of a duplicated construction pattern doesn't reach its sibling on its own, the same lesson CLAUDE.md's SSRF section already states for `_validate_webhook_url`/`test_webhook` and the git flag-injection guard; when a fix like this lands, grep for the same shape (`clients = {...}` / multiple SDK imports in one `try`) in the other provider files before calling it done. |
+| **PR #141 silently switched gunicorn to real thread concurrency (`gthread`, 8 threads/worker), reopening the "shared mutable state" risk class the 2026-07-23 `agent`-singleton fix was written for (FOUND 2026-08-22, docs corrected)** | A scheduled security-review audit reading `devops-agent.service`'s diff in commit `db495f8` (the chat-keepalive fix, PR #141, merged 2026-08-15) found `ExecStart` changed from plain sync workers to `--worker-class gthread --workers 3 --threads 8` — a real move to OS-thread concurrency within each of the 3 processes, up to 8 requests genuinely interleaving in one process's memory. This is very likely the correct call (a sync worker would starve its pool once `/api/chat`'s keep-alive can hold a connection open for up to `CHAT_MAX_TURN_SECONDS`=840s), but it was not called out in that PR's own CLAUDE.md diff, and CLAUDE.md's "Concurrency Model" section still claimed "3 plain sync workers... no within-process race to begin with" — actively wrong as of this deploy. The `_greenlet_local_property`-backed state on the `agent` singleton (the actual subject of the 2026-07-23 fix) is unaffected — `threading.local()` isolates real threads exactly as well as gevent-patched ones — but other module-level mutable state that was only ever "safe by accident" (never more than one request per process at a time) is now genuinely exposed to intra-process races: `services/model_failover.py`'s `PROVIDER_HEALTH` dict does non-atomic `status['failures'] += 1`, and `services/credit_service.py`'s `CreditService.deduct()` does a plain read-then-write on `credits_remaining` with no `with_for_update()` row lock. Neither is known to be exploitable for privilege escalation or cross-user data exposure (worst case: undercounted provider failures delaying failover detection, or a rare double-credit race under two truly overlapping turns for the same user) — reliability/accuracy issues, not the security-severity class the singleton fix addressed. **Fix so far:** corrected CLAUDE.md's Concurrency Model section to document the actual `gthread` config and flag the two candidates above as follow-up audit items; removed a related dead-code no-op `db.session.rollback()` in `app.py`'s `_run_agent_call()` (Flask's `teardown_appcontext` already rolled back the failed session when the enclosing `with app.app_context()` block popped — the second, fresh app-context's rollback had nothing to undo). **Not yet fixed:** row-level locking for `CreditService.deduct()` / an atomic counter for `PROVIDER_HEALTH` — deliberately left as a follow-up rather than shipped unattended, since a locking scheme needs deliberate design and testing rather than a reflexive patch. **Lesson:** a systemd/Procfile worker-model change is a concurrency-model change, full stop — it belongs in the same PR's docs update, not just the commit diff, because the next reader of CLAUDE.md's "no within-process race" claim has no reason to go re-check the deployed unit file. |
+| **Scheduled audit found conversation-delete FK reordering, drift-detection error-swallowing, and a Terraform-import landmine (FIXED 2026-08-20)** | Routine scheduled code-vulnerability/smell scan diffed the four PRs merged since the 2026-08-11 audit (`a2c6ed3..HEAD`: the Cloudflare-524 keep-alive fix, drift-detection real-AWS/persistence/baseline-capture work, workflow-run dispatch, GCP client lazy-import) using four parallel review agents. `safety.py` risk classification, GCP credential handling, `check_security_invariants.py`, `model_router.py`, and nginx/systemd timeout alignment all came back clean (see below). Three real bugs found, all fixed: **(1) `app.py`'s and `api/v1/conversations.py`'s `delete_conversation()` deleted `ChatMessage` rows BEFORE `ChatArtifact` rows**, even though `ChatArtifact.message_id` FKs to `chat_messages.id` with no cascade — the 2026-08-12 fix for the *conversation*-FK version of this exact bug (see the "Unexpected end of JSON input"-adjacent entries above) introduced the identical bug one FK hop further out, for any artifact saved against a real message (the normal case — see `routes/artifacts.py`). On Postgres this is an `IntegrityError` → 500, silently swallowed by the frontend, so "Delete" does nothing. The existing regression test (`tests/test_conversation_delete.py`) didn't catch it because its fixture never set `message_id` on the artifact, and SQLite (the test DB) doesn't enforce FKs by default so even a dangling reference wouldn't have raised. Fixed by moving `ChatArtifact`'s delete before `ChatMessage`'s in both routes; the regression test now sets `message_id` explicitly and runs inside a new `sqlite_fk_enforced` fixture (`PRAGMA foreign_keys=ON` for the duration of the test, restored after so it can't affect other tests sharing the StaticPool connection) so this class of ordering bug fails loudly in CI instead of only in production — negative-tested against the pre-fix code (500/`IntegrityError`). A second test for the `api/v1` route was added alongside it (that route had no equivalent coverage at all). **(2) `services/drift_detection.py`'s `_fetch_s3_bucket` swallowed EVERY `ClientError` on `get_bucket_versioning`/`get_bucket_encryption`/`get_public_access_block` as "not configured", not just the specific not-configured error codes** — an `AccessDenied` or throttling error on any of the three was silently reported as "versioning disabled / no encryption / no public access block", fabricating a clean-looking (or falsely-drifted) S3 finding out of a bucket the scan literally could not read. This is exactly the failure mode `DriftScanError` exists to prevent (CLAUDE.md: "cannot read the account" and "the account has drifted" are opposite conclusions), just one call deeper than the fetchers already got right. Fixed by only swallowing the documented not-configured codes (`ServerSideEncryptionConfigurationNotFoundError`, `NoSuchPublicAccessBlockConfiguration`) and letting the versioning call — which has no not-configured error at all, only ever a real read failure — raise unguarded; any other `ClientError` now propagates through `_get_actual_state`'s existing catch-all into `DriftScanError`, aborting the scan instead of reporting fiction. Regression test negative-verified (`test_s3_read_denial_fails_the_scan_instead_of_reporting_disabled`). **(3) `_map_terraform_type` mapped 11 Terraform resource types into baselines, but `_get_actual_state` only has fetchers for 4** (EC2 instance, security group, S3 bucket, RDS) — importing a `terraform.tfstate` containing even one `aws_vpc`/`aws_iam_role`/`aws_lambda_function`/etc. created a baseline that would raise `DriftScanError` the instant a scan reached it, and `scan_for_drift`'s loop has no per-baseline error isolation, so that one unsupported baseline permanently aborted scanning of every OTHER (fully supported) resource in the same account. Fixed by narrowing the mapping to only the 4 types with real fetchers — an unsupported Terraform type is now silently skipped at import (same as an already-unrecognized `tf_type`), matching `_get_actual_state`'s own error message ("remove this baseline or add a fetcher for it"). Regression test negative-verified (`test_terraform_import_skips_unsupported_resource_types`). All three fixes verified against the pre-fix code (each new/modified test fails with the exact predicted error before the fix, passes after) and the full suite (745 passed, 1 pre-existing unrelated failure — missing `ANTHROPIC_API_KEY` in the sandbox used to run the suite). **Also fixed, doc-only:** CLAUDE.md's "Concurrency Model" section still claimed production runs "3 plain sync workers" (true as of 2026-07-30) — `devops-agent.service` was changed to `--worker-class gthread --workers 3 --threads 8` as part of the Cloudflare-524 fix, which means requests now genuinely interleave on concurrent threads within one process, making the `threading.local()`-based per-request isolation load-bearing rather than incidental. Updated to reflect the current config and flag that it has already drifted once. **Cataloged, not fixed this pass (lower severity, larger diff):** `capture_baselines_from_account`'s per-bucket S3 read failures during baseline capture are logged but not surfaced to the caller — if every bucket in an account is unreadable, the endpoint still returns `success: true, captured: {s3_bucket: 0}`, indistinguishable from "you have zero buckets" (a softer version of finding (2), since nothing fabricated is returned, just a silent partial failure); the newly-duplicated 5-block FK-cascade delete sequence in `app.py`'s and `api/v1/conversations.py`'s `delete_conversation()` (finding (1)'s fix touched both, but nothing stops the next FK addition from being applied to only one) would be better as one shared `services/conversation_service.py` helper. **Lesson:** a fix for one FK-ordering bug (conversation → its children) doesn't automatically cover the same bug shape one hop further into the graph (message → its own children) — when a delete-cascade fix ships, check whether any of the rows *it* deletes has children of its own that also need to go first, not just whether the top-level object's FK is now satisfied. And "swallow the specific expected error" silently drifting into "swallow every error of that exception class" is the same non-negotiable violation whether it happens in the fetcher CLAUDE.md already flags or three lines deeper inside a helper the fetcher calls. |
+| **Scheduled audit found the `/api/chat` keep-alive fix silently broke tool-use tracking/downloads for most users, plus two per-user cloud-context gaps and a drift false-positive (FIXED 2026-08-15)** | Routine code-vulnerability/smell/duplicate scan, scoped to the diff since the 2026-08-08 audit (`85e5132..HEAD`, 113 commits) via three parallel sweeps (auth/isolation/timing/guardrails; SSRF/git-injection/risk-classification; smells/duplicates/fabricated-data). Two sweeps found nothing new (every previously-documented gap remains fixed); the third and a manual follow-up found four real issues, all fixed same day. **(1) HIGH — `app.py`'s `/api/chat` background-thread refactor (see the Cloudflare 524 entry below) reads `DevOpsAgent`'s per-request state from the wrong OS thread.** `_run_agent_call` runs `agent.process_message_isolated(...)` on a brand-new `threading.Thread`; `_generate_chat_response()` then reads `agent.last_tools_used`/`agent.pending_download` after `.join()`ing that thread — but both are `_greenlet_local_property`-backed (`threading.local()`), genuinely thread-local, so the joining thread never sees what the worker thread set and silently got the unset default (`[]`/`None`) instead of an error. Effect: `UsageLog.action_type` was always `'agent_message'` (never `'tool_use'`), the per-extra-tool 0-credit rows and the `first_tool_use` conversion event never fired, and any agent-generated file (keypairs, exported reports) never surfaced a `download_url` — for every `/api/chat` caller, which is the Kimi/free-starter tier's chat path (`templates/index.html`'s `currentModelProvider === 'kimi'` branch, confirmed live in the template) — i.e. most users, with zero exceptions raised. Fixed by capturing `agent.last_tools_used`/`agent.pending_download` inside `_run_agent_call` itself (same thread that set them) into `_agent_result`, and reading from `_agent_result` afterward instead of from `agent` directly. **(2, 3) MEDIUM — two more instances of "a tool execution path outside `process_message_isolated`/`process_message_streaming` didn't set per-user cloud credential context"** (the same bug class as `services/approval_service.py::_execute_tool`, documented in CLAUDE.md's Concurrency Model section): `routes/api_gateway.py`'s `api_execute_tool()` (`/v1/execute`, the developer-API direct-tool-execution endpoint) called the tool handler with **no context set at all**; `routes/mcp.py`'s `_handle_tools_call()` set context via `aws_tools.set_user_context()` directly — AWS-only, so an MCP client calling an Azure/GCP/`devops_operations_tools` tool got no context for that provider. Both fixed by routing through `agent._set_cloud_user_context(user_id)`/`agent._clear_cloud_user_context()` (imported via `from app import agent`), matching the already-correct sibling endpoint `api/v1/tools.py`'s `execute_tool()` (confirmed via `tests/test_api_tools_execute.py`, which already asserts this exact pattern for that endpoint — `/v1/execute` and `/api/v1/tools/execute` are two separate direct-tool-execution endpoints, only one of which had been fixed). **(4) MEDIUM — `services/drift_detection.py`'s `_compare_configs()` compared list-valued properties (`security_groups`, `ingress`) with a plain `!=`.** AWS does not guarantee stable ordering of `SecurityGroups`/`IpPermissions` across `describe_instances`/`describe_security_groups` calls, so a resource that had not changed at all could flag a false "Property 'security_groups' changed" drift purely from reordering — directly undermining the drift feature's credibility, the same class of trust-eroding false-positive the 2026-08-12 drift entries below fixed. Fixed by adding `_lists_equal_unordered()` (sorts both lists on a canonical JSON representation of each element before comparing) and routing list-typed properties through it instead of `!=`. **Verified:** `python3 scripts/check_security_invariants.py` clean; all four edited files pass `py_compile`; full suite **739 passed** (once the sandbox's `ANTHROPIC_API_KEY` env var was set — same pre-existing sandbox-only gap noted in the 2026-08-05 entry below, not a regression); `tests/test_drift_detection.py`+`tests/test_drift_baseline_capture.py` (11 tests, including the reordering case) pass. **Cataloged, not fixed this pass:** `services/chatops_service.py`'s `_cmd_metrics`/`_cmd_oncall` (reachable via `routes/chatops.py`'s Slack/Teams endpoints) return hardcoded fake data under literal `# In a real implementation...` comments — the standing "real cloud account only" rule violation, pre-existing and outside this diff's window; `routes/workflows.py`'s stale-execution reconciliation can misreport a failed workflow as `completed` if *any* assistant reply exists anywhere in its conversation, even an unrelated one; `capture_baselines_from_account()` commits once per resource with no `IntegrityError` handling against the baseline unique constraint (a genuine double-click race throws mid-loop instead of being idempotent). **Lesson:** the thread-local isolation mechanism built specifically to stop *cross-request* state leaks (`_greenlet_local_property`) created the opposite failure here — *within* one logical request split across two OS threads by the keep-alive fix — because it correctly does exactly what it's designed to do (isolate per-thread state) and nothing tells you when your own code crosses a thread boundary it wasn't isolated for. Any code that spawns a background thread to call into `DevOpsAgent` must capture whatever per-request state it needs before that thread exits, not after joining it from elsewhere — and because the failure mode is a silent default, not an exception, it won't show up in error logs; only a broken downstream signal (usage stats, conversion funnel, a missing download) reveals it. |
+| **Scheduled audit found `git_stash_apply` unclassified in safety.py, and cataloged a ChatOps fabricated-data smell (2026-08-13)** | Routine code-vulnerability/smell/duplication scan. Cross-referenced every registered tool name (743 across all 17 `src/tools/*_tools.py` modules) against `safety.py`'s `high_risk_tools`/`medium_risk_tools` sets and both auto-detection prefix lists — the same `<provider>_<verb>_<noun>`-shape check that previously caught the `pagerduty_update_incident`/`opsgenie_*` gap (2026-07-18 entry below) and the git-tools RCE batch (2026-07-27 entry). Found one gap: **`git_stash_apply`** (`src/tools/git_tools.py`) merges a stash into the working tree via `repo.git.stash('apply', ...)` — the same "mutates the working tree, can conflict/overwrite" risk class as its sibling `git_merge_branch`/`git_cherry_pick`/`git_stash_drop` (all medium-risk) — but was present in neither explicit set nor matched by any auto-detect prefix, so it silently defaulted to low risk with no confirmation prompt. Fixed by adding it to `medium_risk_tools`. Regression test: `tests/test_new_tools.py::TestSafetyClassifications::test_git_stash_apply_is_medium_risk`. Verified `scripts/check_security_invariants.py` still reports zero violations. **Cataloged, not fixed this pass — needs a human call on scope:** `services/chatops_service.py`'s `_cmd_metrics` and `_cmd_oncall` (reachable live via `/chatops/slack/commands`, `/chatops/teams/commands`, and `/chatops/api/test` — all gated by real Slack HMAC / Bot Framework JWT verification, so not literally public, but every authenticated command produces this) return **hardcoded literal text** ("CPU Utilization: 45% (avg)", "Error Rate: 0.05%", "P95 Latency: 120ms", on-call `@devops-team`/`@sre-team`) with comments reading `# In a real implementation, this would fetch from Prometheus/CloudWatch` / `# ...integrate with PagerDuty/OpsGenie` — the identical tell-pattern behind the drift-detection incident CLAUDE.md's "every feature runs against a real cloud account" rule was written for. This is a real integration gap, not a demo stub: `monitoring_tools.py` already has working Prometheus/Datadog/Grafana clients and `alerting_tools.py` already has working PagerDuty/OpsGenie clients. Sibling commands in the same file (`_cmd_status`, `_cmd_incidents`) do call real backing services (`get_incident_engine()`, `get_monitoring_service()`), so this isn't a case of the whole feature being fake — just these two handlers. **Not fixed here because ChatOps has no per-tenant scoping to begin with** (`SLACK_BOT_TOKEN`/`TEAMS_APP_ID` are single global env vars, no `SlackWorkspace`/org-mapping model exists) — it's architected as one ops bot for the whole deployed instance, not a per-customer feature, so wiring `_cmd_metrics`/`_cmd_oncall` to real data requires first deciding *which* Prometheus/Datadog endpoint and *which* PagerDuty/OpsGenie account a single-instance bot should query (env-var-configured platform-wide credentials, presumably — a product decision, not a mechanical fix). Worth prioritizing regardless: fabricated "Error Rate: 0.05%" text returned to an on-call engineer mid-incident is actively misleading, not merely incomplete. **Also still open from the 2026-08-12 audit** (unchanged, re-confirmed this pass): `services/sandbox.py`'s `run_sandboxed()`/`run_script_sandboxed()` duplicate ~40 lines of Docker subprocess/timeout/kill-container/cleanup control flow; `app.py` still has 8 inline `current_user.role != 'admin'` checks that could use the existing `admin_required` decorator (which also logs denied attempts). **Verified clean in this pass:** `_reject_flag_like` git argument-injection guard coverage (no new unguarded bare-positional git functions since the 2026-08-04 audit); no new `# For now`/`# In a real implementation`/hardcoded-resource-id tells outside already-cataloged files; `scripts/check_security_invariants.py`'s SSRF/timing-check invariants. **Lesson:** the tool-risk-classification gap keeps recurring one tool at a time because it's opt-in per name with no structural enforcement (same caveat CLAUDE.md already states) — worth eventually turning into an AST-level test similar to `check_security_invariants.py` that fails when a registered tool name matches a mutating verb (from a fixed list) at any position and isn't in either explicit set or an documented auto-detect prefix, rather than relying on a human re-deriving the same cross-reference each audit. |
 | **Workflow runs died with "Unexpected end of JSON input" — the keep-alive commits a 200 before the body exists (FIXED 2026-08-13)** | The owner ran the "EC2 + Nginx Web Server Setup" workflow; it really launched the instance, then the chat showed a bare `Error: Unexpected end of JSON input`. Traced live: `/api/chat`'s keep-alive (see the 524 entry below) flushes a whitespace byte at 15s, which commits HTTP 200 and the headers to the browser **long before the JSON body exists**. Anything that then kills the worker leaves the client holding a 200 whose body is pure whitespace, and `await kimiResp.json()` throws `SyntaxError: Unexpected end of JSON input` straight into `sendMessage`'s generic outer catch. Two independent killers, one symptom: run `wf_exec=4` was cut at 210s by the **deploy restart** for PR #136 (`systemd: Stopping DevOps Agent Gunicorn` 02:02:41 → gunicorn's default 30s `--graceful-timeout` expired → busy worker SIGKILLed 02:03:12; nginx logged `POST /api/chat 200 83`, 83 bytes of keep-alive whitespace); run `wf_exec=3` was cut at **exactly 300s** by gunicorn's own `--timeout` (`[CRITICAL] WORKER TIMEOUT (pid:871196)` at 19:15:20, `200 19` = 19 keep-alives). Every finalization step lived *after* the agent call inside the streaming generator, so both kills discarded the whole turn: prod had the user message but **zero** `usage_logs` rows, no assistant message, no credit deducted, and `workflow_executions.id=4` stuck at `running` — while the EC2 instance the turn created was really there. **Fix:** (1) `CHAT_MAX_TURN_SECONDS` (default 840, env-overridable) bounds the keep-alive loop so the view always emits a parseable JSON body (`still_running: true`) instead of losing the race to gunicorn; (2) finalization moved out of the generator into `_finalize_turn()`, called by the worker thread, so the turn is recorded even when the response is already gone; (3) frontend reads the body as text and reports a real message on a truncated/unparseable body instead of leaking the JSON parser's error, and marks the workflow execution `failed`; (4) `--graceful-timeout 300` + `TimeoutStopSec=330` so a deploy drains in-flight turns instead of guillotining them. **Two latent bugs fell out of (2):** `agent.last_tools_used` and `agent.pending_download` are `threading.local()`-backed (`_greenlet_local_property`), so the request thread had been reading its own empty defaults ever since the 524 fix moved the agent call onto a thread — every `/api/chat` turn was logged as `action_type='agent_message'` with `tool_name=None` regardless of tools used, and generated keypair downloads were silently dropped. Both verified failing against the pre-fix code. Tests: 4 added to `tests/test_chat_keepalive.py`. **Lesson:** streaming a keep-alive converts "the request failed" into "the request succeeded and then stopped mid-body" — every consumer of such an endpoint needs a truncated-body branch, because HTTP status can no longer carry the failure. |
 | **Removing the fake sample-import left no way to create a baseline at all (FIXED 2026-08-12)** | Immediately after the drift fix below, the owner pointed out there was now no option to bring in a baseline. Correct: deleting `/api/import/sample` and its button removed the *only* baseline-creating control in the UI. `POST /api/baselines` and `POST /api/import/terraform` existed as endpoints but had no interface, so the dashboard could only ever scan zero baselines and report "No baselines configured". Deleting the fabricated path was right; leaving no replacement was not. **Fix:** `capture_baselines_from_account()` snapshots the user's real EC2 / security groups / S3 / RDS (paginated) as baselines, exposed at `POST /drift/api/baselines/capture`, plus a Terraform-state import UI (paste or file) driving the endpoint that already existed. Dashboard now has "Capture from AWS" / "Import Terraform State" / "Run Drift Scan", and an empty-state panel explaining what a baseline is. **The subtle correctness trap:** capture and scan must produce byte-identical config shapes, or every captured baseline reports drift the moment it's created — the single-resource `_fetch_*` path and the list-based capture path were therefore refactored to share `_normalize_ec2_instance`/`_normalize_security_group`/`_normalize_rds_instance`, and `test_captured_baseline_scans_clean` (capture, then scan an unchanged account, assert zero drift) is the regression guard. Capture skips terminated instances and unreadable buckets rather than pinning a half-empty baseline, and fails closed with `DriftScanError` → 502 when no account is attached. **Lesson:** when you delete the only path that did something — even a fabricated one — you have removed a capability, not just bad code. Check what the UI can still do afterwards. |
 | **Drift detection reported entirely fabricated infrastructure — including a critical security alert — against accounts that didn't contain it (FIXED 2026-08-12)** | Reported by the owner, who spotted a drift report listing an RDS instance when their AWS account has no database at all. **Neither side of the comparison ever touched AWS.** `DriftDetectionService._get_actual_state()` was scaffolding — `# In a real implementation, this would call AWS APIs / For now, return simulated data` — returning hardcoded dicts, and `routes/drift.py`'s `/api/import/sample` seeded fake baselines (`i-0abc123def456`, `sg-12345`, `my-app-data-bucket`, `production-database`). Every user got a byte-identical report. The `t3.small → t3.medium` change was the literal `'instance_type': 't3.medium',  # May have changed`; the **critical** "security group allows ingress from 0.0.0.0/0" was the literal `{'port': 443, 'cidr': '0.0.0.0/0'},  # Changed!`. There was **no `RDS_INSTANCE` branch at all**, so RDS fell through to `return {}` — and `_compare_configs` reads an empty actual as "every expected property was removed", which is why one nonexistent database produced 6 separate findings. **Fix:** implemented real fetchers (`_fetch_ec2_instance`, `_fetch_security_group`, `_fetch_s3_bucket`, `_fetch_rds_instance`) reading through `credential_service.get_user_boto_client(user_id, …)` — the per-user path, never ambient app credentials — each returning `None` on a genuine not-found (AWS error codes `InvalidInstanceID.NotFound`, `InvalidGroup.NotFound`, `404`, `DBInstanceNotFound`; a `terminated` instance also counts as gone) so a missing resource yields one clean REMOVED finding instead of N phantom property removals. New `DriftScanError` aborts the scan when the account can't be read — **"cannot read the account" and "the account has drifted" are opposite conclusions, and conflating them is exactly how fictional findings shipped**; `/drift/api/scan` returns 502 with `scan_failed` rather than an empty/invented report. Deleted `/api/import/sample` and its dashboard button. **Three further bugs found while fixing this:** (1) `_compare_configs` reported every live property absent from the baseline as drift ("New property 'id' was added", remediation "Remove property 'id'" — impossible for an instance id); a baseline is a *subset* of pinned properties and real resources always carry more, so that loop was deleted. (2) It used `actual.get(key)` and treated `None` as "property removed", so a legitimately-null live value (an unencrypted bucket) was misreported; now uses a `_MISSING` sentinel. (3) `report.html` rendered `{{ drift.expected_value or 'N/A' }}`, so an expected `publicly_accessible: False` displayed as "N/A" — `False or 'N/A'` is `'N/A'` in Jinja; now `is none`. Also relabelled "Drift by Resource Type" → "Findings by Resource Type", since it counts `drift_items` (via `Counter`), not resources — 6 findings on one database read as 6 databases, which is what prompted the report. Tests: `tests/test_drift_uses_real_aws.py` (no credentials → raises rather than reports; missing RDS → exactly 1 REMOVED finding; live values actually surface; a locked-down SG produces no `0.0.0.0/0` alert; no hardcoded sample ids remain in source) plus `tests/drift_fakes.py`. Note baselines/reports are committed directly and outlive `db_session` rollback, so drift tests need explicit `clear_drift_state()` isolation. **Lesson → now a standing rule in CLAUDE.md ("every feature runs against a real cloud account"):** scaffolding that returns canned data is indistinguishable from a working feature until someone checks the account against it. |
@@ -1195,6 +1207,76 @@ subprocess/timeout/cleanup control flow and `app.py` has 8 inline
 real but larger refactors than this pass's scope, left for a dedicated
 follow-up.
 
+## Scheduled audit: two more `git_tools.py` functions missing the flag-injection guard (2026-08-12)
+
+A routine scheduled review (four parallel agents covering per-user service
+IDOR, tool risk classification, SSRF/git-flag-injection guard coverage, and
+thread-local context leaks + code duplication) found three of the four areas
+clean: no exploitable IDOR in any `services/*.py` class or `routes/*.py`
+handler (two latent-but-not-currently-reachable footguns noted below), no
+tool-safety classification gaps in the `<provider>_<verb>_<noun>` shape (the
+class that produced `git_delete_branch`/`register_targets` previously), no
+SSRF gap in any non-`requests` network call, and no thread-local context
+leak or exploitable code duplication (`aws_tools.set_user_context()` being
+called directly from `pentest_tools.py` without a matching clear was noted
+as a minor pattern smell, not a live leak — the request's own
+`_clear_cloud_user_context()` still runs in every current call path).
+
+The git-flag-injection sweep found the real issue: `_reject_flag_like()`
+(the guard added 2026-08-01 and extended 2026-08-04 after a live-verified
+RCE) is opt-in per function, and two functions that predate both of those
+fixes had never been swept into it:
+
+1. **`git_add_remote(repo_path, name, url)`** — `name` reached
+   `repo.create_remote(name, url)` (→ `git remote add <name> <url>`) as a
+   bare positional with zero validation, unlike every other
+   branch/remote/tag-naming function in the file. `name="-f"` is parsed by
+   `git remote add` as the `-f` (fetch) flag instead of a literal remote
+   name, triggering an implicit fetch from the caller-supplied (and
+   SSRF-validated only for reachability, not trust) URL immediately on add —
+   before any confirmation step, which shows "add remote X" and has no way
+   to know X is a flag.
+2. **`git_show_commit(repo_path, commit_sha)`** — `commit_sha` reached
+   `repo.commit(commit_sha)` unguarded, even though its sibling
+   `git_show_file_at_commit` already guards the identical parameter name
+   before an equivalent `repo.git.show(...)` call. `repo.commit()` resolves
+   through GitPython's rev-parse machinery, which can fall through to the
+   `git` binary for revision specs it can't parse locally — the same
+   dash-prefixed-positional ambiguity the guard's own docstring warns about.
+
+**Fix:** both now call `_reject_flag_like()` before the git call (identical
+pattern to every other guarded function), and both are now classified
+medium-risk in `safety.py` (`git_add_remote` alongside `git_clone_repository`
+as a "fetches from a caller-supplied remote" tool; `git_show_commit`
+alongside `git_show_file_at_commit`/`git_blame_file` as a flag-guarded read
+tool). No test suite could be run in this environment (`pytest` not
+installed, no venv present) — verified only via `ast.parse()` syntax check
+on both edited files; a fresh session with a working test environment should
+run `tests/test_new_tools.py`/`tests/test_security_invariants.py` to confirm
+no regression.
+
+**Not changed, flagged for awareness only (not currently exploitable):**
+`services/multi_tenancy.py`'s `MultiTenancyService.__init__` stores
+`self.user_id` but no method ever reads it — every getter is a bare
+`Model.query.get(id)` with the entire ownership-check burden left to the
+caller (`routes/organizations.py` currently does this correctly everywhere).
+`services/api_gateway.py`'s `APIGatewayService` has the same shape, and
+several of its methods take an *optional* `user_id` param that **defaults to
+`None`, which skips the ownership check entirely** — every current call site
+passes `current_user.id`, so nothing is live-exploitable today, but a future
+call site that omits the parameter would silently grant cross-user access.
+Both are the same structural class as the `ComplianceService`/`view_team`
+bugs fixed earlier (`self.user_id` stored but not enforced) — worth a
+dedicated hardening pass (make `user_id` required, not optional, and have
+the service enforce it internally rather than trusting every caller) rather
+than a scheduled-audit-scope fix.
+
+**Lesson, same as the 2026-08-04 entry:** this guard is opt-in per function
+and still not enforced by an automated check — a security audit has to walk
+every bare-positional `repo.git.*`/`repo.<method>(...)` call site in this
+file by hand each time, not just spot-check the ones already known to be
+guarded.
+
 ## Drift detection stored everything in per-process memory (FIXED 2026-08-12)
 
 User-reported: "drift detection does not generate a report or findings if
@@ -1250,3 +1332,753 @@ the pre-fix source.
 **Immediate unblock (same day):** manually ran `db.create_all()` on the EC2
 instance via SSM to create the two missing `drift_baselines`/`drift_reports`
 tables so drift detection worked without waiting for a deploy.
+
+## Scheduled audit: seed_lock premature release + drift-dashboard self-XSS + stale `wf_exec` param (2026-08-18)
+
+A routine scheduled review (four parallel agents, scoped to everything changed
+since the 2026-08-11 audit: `git diff 07d87b7...db495f8`, covering drift
+detection, pre-built workflows, `app.py`'s chat-keepalive threading rework,
+and conversation-delete/model-router/schema-migration) found the drift and
+workflow IDOR/SSRF/guardrail surfaces clean, and turned up four real bugs.
+One of the four — `api/v1/conversations.py`'s and `app.py`'s
+`delete_conversation()` deleting `ChatMessage` rows before `ChatArtifact`
+rows, which FKs into `chat_messages.id` with no `ondelete` rule and raises
+`ForeignKeyViolation` on Postgres — was independently found and fixed by a
+concurrent scheduled session first (merged 2026-08-20, see that entry below);
+this session's branch had the same fix queued but rebased onto the
+already-merged version rather than duplicating it. The other three were novel
+and are fixed here:
+
+1. **`services/ai_infrastructure.py`'s `_get_or_create_system_user()` called
+   `db.session.commit()` from inside `seed_public_templates()`'s
+   `seed_lock()` block, releasing the Postgres advisory lock early.**
+   `seed_lock()` (`services/seed_lock.py`) takes `pg_advisory_xact_lock`,
+   which is transaction-scoped and releases on the *next* commit or rollback
+   — not on `seed_lock()`'s own commit specifically. `_get_or_create_system_user()`,
+   called from inside the lock when a fresh DB has no system user yet, did its
+   own intermediate commit to persist the new user, which released the
+   advisory lock immediately — before the template rows were even added, let
+   alone committed. From that point on, the remaining check-then-insert ran
+   completely unprotected, reopening the exact concurrent double-seed race
+   (multiple gunicorn workers each inserting the full catalog — the failure
+   mode `seed_lock` exists to close, see the 2026-08-12 "Serialize catalog
+   seeding" entry) on precisely the case that matters most: first-ever deploy
+   against a fresh database, when every worker needs to create the system
+   user simultaneously. Fixed by changing `db.session.commit()` to
+   `db.session.flush()` — `user.id` is still populated for the caller within
+   the same still-open transaction, and `seed_lock()`'s own commit at the end
+   persists the user and the templates atomically together. **Any helper
+   called from inside a `seed_lock()` block must not commit** — flush if it
+   needs an id back, and let the lock's own commit be the only one in the
+   block.
+
+2. **`templates/drift/dashboard.html`'s baseline-delete button had a
+   self-XSS primitive via `resource_id`.** The button used
+   `onclick="deleteBaseline('{{ baseline.resource_type.value }}',
+   '{{ baseline.resource_id }}')"` — Jinja's HTML-attribute autoescaping
+   encodes a literal `'` to `&#39;`, but the browser HTML-decodes an attribute
+   value *before* the JS parser sees it, so `&#39;` becomes a real `'` at
+   JS-string-parse time. HTML-escaping does not neutralize a JS-string-context
+   breakout inside an inline event handler. `resource_id` is attacker-
+   controllable: `import_terraform_state` (`services/drift_detection.py`,
+   reachable via `POST /drift/api/import/terraform`) sets it straight from a
+   user-uploaded Terraform state JSON's `id`/`arn` field with no validation,
+   and the manual `POST /drift/api/baselines` endpoint accepts it directly
+   from the request body. A `resource_id` like `x'); alert(document.cookie);
+   //` stored as a baseline executes as JS the next time the user's own
+   dashboard renders it. Baselines are strictly `user_id`-scoped and both
+   creation endpoints require the `approver` role, so impact is self-XSS
+   only — but it's a real injection primitive, and the pattern (raw
+   interpolation into an inline `onclick=""` string) is one other pages could
+   copy. Fixed by switching to `data-resource-type`/`data-resource-id`
+   attributes (a plain HTML-attribute context, where Jinja's escaping is
+   sufficient) plus a delegated `addEventListener` — no code change needed at
+   the call site itself. **Any Jinja value interpolated into an inline
+   `onclick="..."` (or other JS-string-context HTML attribute) needs
+   `data-*` + `addEventListener`, not `|escape` — HTML escaping alone doesn't
+   close this class of injection.**
+
+3. **`templates/index.html`'s workflow-completion tracking (`?wf_exec=<id>`)
+   never cleared the URL param, so any later unrelated message in the same
+   chat tab silently corrupted a finished workflow execution's status.**
+   `markWorkflowExecution(status)` and two duplicated inline PATCH blocks (the
+   Kimi-path success handler and the SSE `done` handler) all read `wf_exec`
+   fresh from `window.location.search` on every call — unlike the `starter`
+   param, which strips itself via `history.replaceState` after firing once.
+   Because the param was never removed, sending a second, ordinary chat
+   message in that same tab/conversation re-fired `PATCH
+   /api/workflows/executions/<wf_exec>` with whatever terminal status that
+   *new* turn produced, overwriting the original run's `completed_at`/status
+   on `/workflows`' "Recent Executions" list with the unrelated turn's
+   outcome. Not cross-user (the PATCH endpoint is still `user_id`-scoped) —
+   a data-corruption bug, not a security one. Fixed by having
+   `markWorkflowExecution()` strip `wf_exec` from the URL via
+   `history.replaceState` once it fires a terminal (`completed`/`failed`)
+   status, and replacing the two duplicated inline PATCH blocks (plus the
+   initial dispatch PATCH) with calls to the shared helper, closing a
+   duplication gap the same audit flagged.
+
+**Findings left open for a follow-up pass, not fixed here** (each is either a
+larger architectural call or needs a human decision, matching this repo's
+convention of not unilaterally changing behavior a scheduled pass wasn't
+asked to own):
+- `/api/chat` (unlike its `/api/chat/stream` sibling) has no in-flight/
+  duplicate-submission lock per conversation — two concurrent POSTs (two
+  tabs/devices, a client retry while a turn is still alive) can each
+  independently call `_finalize_turn()` and double-deduct credits. This diff's
+  own change (turns now legitimately run up to `CHAT_MAX_TURN_SECONDS`=840s
+  with only a spinner visible) makes the window more likely to be hit than
+  before.
+- `devops-agent.service`'s worker model changed to `--worker-class gthread
+  --workers 3 --threads 8` in the same commit that reworked the keepalive —
+  real intra-process thread concurrency is now live, which CLAUDE.md's
+  "Concurrency Model" section (still describing plain `--workers 3` sync
+  workers with no within-process race) doesn't reflect, and which raises the
+  odds of the pre-existing unlocked `CreditService.deduct`/
+  `UserSubscription.use_credit()` read-modify-write (no `SELECT ... FOR
+  UPDATE`, `services/credit_service.py`/`models.py`) actually losing a credit
+  decrement under load.
+- `Procfile`'s `--timeout 120` vs. the new `CHAT_MAX_TURN_SECONDS` default of
+  840s — the Procfile's own comment argues gevent's heartbeat-based timeout
+  model (not a hard per-request kill, given gunicorn's gevent worker
+  monkey-patches `threading`) makes this safe, and CLAUDE.md already
+  documents the Procfile as not matching what's actually deployed (real prod
+  runs `devops-agent.service`, not the Procfile) — flagged rather than
+  changed since verifying the gevent heartbeat semantics needs runtime
+  confirmation, not a code-reading pass.
+- `app.py`'s `_finalize_turn()`: the code after `db.session.commit()`
+  (download-token lookup, final balance/response-data build) isn't
+  exception-guarded, so a failure there reports the whole turn as failed to
+  the client even though it already succeeded and was already charged —
+  inviting a duplicate paid retry.
+- `services/drift_detection.py`: `capture_baselines_from_account` commits
+  once per resource (no batching), so a mid-scan failure (e.g. RDS
+  permission denied after EC2/security-group succeeded) leaves those earlier
+  baselines committed while the route reports the whole capture as failed,
+  with no indication to the user that partial state was written. Also,
+  `_apply_security_rules`'s `security_drifts = []` is dead — it only mutates
+  existing `DriftItem` objects in place and is never appended to, so
+  `drift_items.extend(security_drifts)` extends by nothing; pre-existing, not
+  touched by the diff that prompted this audit, but the name/return type
+  actively suggest it generates new findings, which it doesn't.
+
+## Scheduled audit: GCP generic-API tools bypassed the fail-closed credential contract (FIXED 2026-08-21)
+
+Routine security/code-quality review covering the code merged since the last
+scheduled audit (2026-08-11): drift baseline capture, workflow run dispatch,
+conversation delete, schema migration, and the chat keepalive rewrite (PR
+#141). Those areas checked out clean — no IDOR, SSRF, or fabricated-data
+issues found, and the `_run_agent_call`/`_finalize_turn` app-context and
+thread-local rules from the keepalive fix are all still respected.
+
+One real gap found in `src/tools/gcp_tools.py`: `gcp_api_read`/`gcp_api_write`
+(the generic "call any GCP REST API when no dedicated tool exists" escape
+hatch) called `_get_user_gcp_credentials()` directly and passed the result
+straight into `googleapiclient.discovery.build(api_name, api_version,
+credentials=credentials)` with no check that `credentials` was non-`None`.
+Every other client construction in this module goes through
+`_get_gcp_credentials_kwargs()`, which raises when the user has no linked GCP
+credentials — the fail-closed contract documented in CLAUDE.md's GCP Pattern
+section. `_get_user_gcp_credentials()` returns `(None, None)` when the user
+has no GCP credentials configured, and `discovery.build()` treats an explicit
+`credentials=None` exactly like an omitted argument, falling through to
+Application Default Credentials (the app server's own ambient identity) —
+the same bug class as the 2026-08-08 GCP credential-isolation fix, missed
+here because these two functions predate that fix's audit scope and build a
+client via `discovery.build()` rather than a `*Client()` constructor.
+
+**Why the existing structural guard didn't catch it:**
+`tests/test_gcp_credential_fail_closed.py`'s
+`test_every_gcp_client_construction_passes_credentials` AST check only
+matches calls whose callee name ends in `Client` — `discovery.build(...)`
+doesn't match. Even if it did, the check is purely syntactic ("a
+`credentials=` keyword is present"), not "the value is guaranteed non-None,"
+so it wouldn't have caught this shape either way: both functions already
+passed `credentials=credentials` syntactically, the bug was that the
+variable could be `None`.
+
+**Fix:** both functions now check `if not credentials:` and return the same
+fail-closed error dict every other credential-less GCP tool call in this
+codebase returns, before `discovery.build()` is ever reached. Two behavioral
+regression tests added directly (`test_gcp_api_read_fails_closed_with_no_credentials`,
+`test_gcp_api_write_fails_closed_with_no_credentials`) rather than extending
+the AST heuristic, since a syntactic check can't distinguish this case —
+verified failing against the pre-fix code (`discovery.build()` was reached
+and the call proceeded to `.list()`/`.delete()` on the un-credentialed
+service).
+
+**Also cleaned up as part of this pass:**
+- `src/agent/safety.py`'s `high_risk_tools` set had duplicate entries
+  (`execute_script`, `git_delete_branch`, `git_delete_tag`, `delete_eks_cluster`)
+  under separately-commented sections — harmless since it's a set literal,
+  but copy-paste drift. Deduped; confirmed all 34
+  `TestSafetyClassifications` tests still pass and no tool's risk
+  classification changed.
+- CLAUDE.md's "Concurrency Model" section still asserted production runs
+  plain sync workers with "no within-process race," which PR #141
+  (2026-08-15) made false: `devops-agent.service` now runs
+  `--worker-class gthread --workers 3 --threads 8`, giving each worker
+  process real concurrent OS threads against the shared `agent` singleton.
+  The existing `threading.local()`-based isolation already protects
+  correctly against real threads (not just gevent greenlets), so there was
+  no code bug — but the doc's "no race under this config" framing was stale
+  and could mislead a future change into treating that isolation as
+  optional. Updated to describe the current gthread config and mark the
+  isolation as load-bearing today, not defense-in-depth.
+
+## Scheduled audit: two unclassified alerting tools, an unbounded region-scan helper, and a fail-open webhook SSRF check (2026-08-19)
+
+Parallel sweep across the codebase's known risk classes: safety.py risk-classification coverage
+(all 742 registered tools), SSRF/login-timing invariant coverage, per-user data isolation (IDOR),
+git argument-injection guard coverage, and code duplication. Three real, independently-confirmed
+findings, fixed; everything else checked out clean (see below for what was verified with no gaps
+found).
+
+1. **`pagerduty_create_incident` / `opsgenie_create_alert` defaulted to low risk** (no confirmation
+   prompt) — the same `provider_verb_noun` gap shape documented for `pagerduty_update_incident` /
+   `opsgenie_acknowledge_alert` / `opsgenie_close_alert` / `opsgenie_escalate_alert` above, which
+   auto-detection's prefix matching doesn't catch. Both tools can page a live on-call engineer or
+   team (PagerDuty defaults `urgency` to `'high'`; OpsGenie's `create_alert` takes a `responders`
+   list) with zero human-in-the-loop confirmation. Fixed by adding both to `medium_risk_tools` in
+   `src/agent/safety.py`, alongside their already-medium siblings.
+
+2. **`aws_tools._parallel_region_scan()` — the shared helper backing 10 all-region scan tools
+   (DynamoDB, ElastiCache, API Gateway, Elastic Beanstalk, Lambda, RDS, ECS, EKS, and 2 EC2
+   variants) — lost the 25-second `as_completed(..., timeout=25)` bound that the original,
+   pre-refactor `list_ec2_all_regions()` still has.** It plain-iterated `for future in futures:
+   future.result()` with no timeout, so a single stalled regional API endpoint blocks the entire
+   tool call indefinitely — directly collides with this file's documented Cloudflare ~100s
+   idle-connection timeout problem (a hang here reads to the user exactly like the 524 incident
+   above). Fixed by adding the same `as_completed(futures, timeout=25)` back; every caller already
+   wraps the call in `try/except Exception`, so a `TimeoutError` surfaces as a normal
+   `{'success': False, 'error': ...}` response, same as any other failure. This is the duplication
+   pattern CLAUDE.md warns about generally: a later "cleanup" that consolidated 10 near-identical
+   functions into one shared helper silently dropped a safety property one of the originals had.
+
+3. **`app.py`'s `_validate_webhook_url()` (the creation-time check on `POST
+   /api/notification-channels`) reimplemented its own weaker, fail-open SSRF check** instead of
+   using `assert_safe_external_webhook_url()` — see the SSRF section of CLAUDE.md for the fix
+   (delegates to the shared helper now). This is the same "fix landed in one copy, not its
+   siblings" pattern the notification_service.py / `test_notification_channel` fixes on
+   2026-07-25 were for; this call site was simply missed by that earlier pass.
+
+**Checked and found clean (no changes needed):** all raw `requests.*` call sites (38, all carrying
+verified `# ssrf-safe:` exemptions or already routed through `safe_request()`); all `.check_password(`
+call sites (all in `routes/auth.py` or `tests/`); all four chat-to-agent entry points still run the
+full `sanitize_input → is_guardrail_blocked → validate_message → screen_message` chain; every
+`git_tools.py` function passing a caller-supplied ref/branch/pattern positionally to `repo.git.*`
+still calls `_reject_flag_like()` (functions without the call were checked individually and are
+structurally safe — value embedded in a `--flag=`, or placed after a literal `--` separator); no
+new IDOR-class gap in `services/compliance_service.py`, `multi_tenancy.py`, `approval_service.py`,
+or any other user/org-scoped service — the getters fixed in the 2026-07-27/08-01 entries above
+still filter correctly, and no newly-added getter repeats the pattern.
+
+## Scheduled audit: MCP OAuth authorization-code interception via the built-in client (FIXED 2026-08-30)
+
+Focused audit rotation landed on `routes/mcp.py` OAuth flows (no commits in the prior 26h, so the
+day-of-month rotation picked area 0). Found and fixed one critical, live-exploitable bug; no other
+issues in the file.
+
+**`oauth_authorize()`'s redirect_uri allowlist was silently skipped for the built-in confidential
+client.** The check was:
+```python
+allowed_redirect_uris = None
+if client_id != OAUTH_CLIENT_ID:
+    ...
+    allowed_redirect_uris = client_record.get('redirect_uris') or None
+...
+if allowed_redirect_uris and redirect_uri not in allowed_redirect_uris:  # None → never runs
+```
+For every dynamically-registered client (`POST /mcp/oauth/register`), `redirect_uri` is correctly
+checked against the exact URIs that client registered. But `OAUTH_CLIENT_ID` (the built-in
+`claude-connector` client used by the "Connect via Claude.ai (Connectors)" self-service flow
+documented in `templates/docs.html`) took the `if client_id != OAUTH_CLIENT_ID` false branch,
+leaving `allowed_redirect_uris` as `None` — so the membership check was unconditionally skipped for
+it. Any `https://` URL (or `http://localhost`) was accepted as this client's redirect target.
+
+This was a complete, working account-takeover chain, not just a theoretical gap, because
+`OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` are both **published in `templates/docs.html`** for
+users to paste into claude.ai's "Add custom connector" form — so an attacker doesn't need to guess
+either value. And the token endpoint's PKCE branch (`is_public_pkce = bool(code_verifier)`) issues a
+token with no `client_secret` at all when a `code_verifier` is present — the "confidential" client
+designation provides no actual protection once PKCE is in play. Full exploit:
+1. Attacker generates their own PKCE pair and sends a victim a link to
+   `/mcp/oauth/authorize?client_id=claude-connector&redirect_uri=https://attacker.example/cb&code_challenge=<attacker's>&...`
+   — the domain in the link is the real `devopsagent.io`, so it looks legitimate.
+2. Victim logs in for real; the server redirects the authorization `code` to the attacker's
+   `redirect_uri` (no allowlist blocked this).
+3. Attacker exchanges that code at `/mcp/oauth/token` with their own known `code_verifier` — no
+   `client_secret` required (`is_public_pkce` short-circuits `is_known_confidential`).
+4. Attacker now holds a valid access token for the victim's account, with full MCP tool access
+   (351 AWS tools, Kubernetes, Terraform, etc.) against whatever cloud credentials the victim has
+   connected.
+
+No existing test exercised this path — every `redirect_uri` test in `tests/test_mcp_oauth.py` used a
+dynamically-registered `client_id`, never `OAUTH_CLIENT_ID` directly.
+
+**Fix:** give the built-in client a real, fixed redirect_uri allowlist
+(`_BUILTIN_CLIENT_REDIRECT_URIS` in `routes/mcp.py`, defaulting to the one documented callback
+`https://claude.ai/api/mcp/auth_callback`, overridable via `MCP_OAUTH_BUILTIN_REDIRECT_URIS` — comma
+separated) and enforce it through the exact same `allowed_redirect_uris` membership check registered
+clients already go through, rather than leaving it `None`. Added
+`test_builtin_client_id_rejects_attacker_redirect_uri` (proves the fix — asserts 400 for an
+attacker-controlled redirect_uri under the built-in client_id) and
+`test_builtin_client_id_accepts_documented_redirect_uri` (proves no regression — the documented
+claude.ai connector flow still gets a 302 with the auth code) to `tests/test_mcp_oauth.py`.
+
+**Lesson for any future OAuth/DCR-style code in this file:** a "known" or "built-in" client_id is
+not inherently more trustworthy than a registered one just because it's a fixed constant — if
+anything, a built-in client whose id/secret are published in the app's own docs (for legitimate
+self-service reasons) needs its redirect_uri allowlist enforced *more* strictly, since the secret
+provides no real boundary once PKCE is available to public clients. Any `if client_id != KNOWN_ID:
+... else: <no check>` pattern that special-cases a "trusted" identity out of a validation an
+untrusted path already goes through is worth treating as a bug until proven otherwise.
+
+## Scheduled audit: empty-assistant-history fix regressed its own target case, plus a code-smell sweep (2026-08-26)
+
+Two parallel passes: (1) diff review of the ~10 most recent substantive commits against this repo's
+known recurring bug classes (SSRF, login-timing, git flag-injection, user isolation, safety.py risk
+classification, thread-local context, seeded-catalog races, the gthread concurrency migration); (2)
+a duplication/smell sweep across `src/tools/`, `services/`, and `routes/`. One real, confirmed,
+reproduced bug found and fixed; one small IDOR-pattern-adjacent duplication fixed; the rest are
+flagged, not fixed, per the notes below.
+
+1. **The 2026-08-25 empty-assistant-message fix (see the entry above) broke the exact poisoned
+   conversations it was meant to fix.** `core.py`'s two history-reload loops *dropped* an
+   empty-content assistant turn instead of replacing it, which collapses the user turn before it
+   and the user turn after it into two consecutive `user`-role messages — both Anthropic's and
+   Kimi's APIs require strict role alternation, so this trades one guaranteed 400 for a different
+   one, for precisely the legacy rows the fix says it "recovers... without a data migration."
+   Reproduced directly against `ConversationManager.get_messages_for_api()` (three consecutive
+   `'user'` roles from a 3-message poisoned history). The original regression test missed this
+   because it only asserted the empty message was *absent*, never that the surrounding roles still
+   alternated. **Fixed:** both loops now substitute the same placeholder text used by `app.py`'s
+   save path (promoted to a shared `EMPTY_ASSISTANT_PLACEHOLDER` constant in `src/agent/core.py`,
+   re-exported via `src/agent/__init__.py`; `app.py`'s two save points now import it instead of
+   duplicating the literal string) into the assistant slot rather than omitting the turn. Test
+   rewritten to assert the turn is replaced (not dropped) and that the full role sequence
+   alternates correctly.
+
+2. **`routes/changes.py`'s change-creation route reimplemented an inline `OrganizationMember.query`
+   membership check** instead of calling `_user_active_org_ids()` (the file's own wrapper around
+   `services.rbac.user_active_org_ids`, already used elsewhere in the same file) — not itself
+   exploitable (the inline check was correct), but the same "reimplemented instead of reusing the
+   centralized helper" shape that caused the two documented `user_active_org_ids` recurrences
+   elsewhere in the codebase. Fixed by switching to the shared helper; removed the now-unused
+   `OrganizationMember` import.
+
+3. **Two redundant inline `import subprocess`/`import os` statements removed from
+   `src/tools/docker_tools.py`** (`docker_compose_up`, `docker_compose_down`) — both modules are
+   already imported at file scope; harmless but a copy-paste artifact.
+
+**Flagged, not fixed — larger structural items requiring their own reviewed change:**
+- The chat-guardrail pipeline (`sanitize_input` → `is_guardrail_blocked` → `validate_message` →
+  `screen_message`) is still hand-copied at all 8 call sites across `app.py`, `routes/api_gateway.py`,
+  `api/v1/conversations.py`, and `routes/curriculum.py` despite three past incidents of a new entry
+  point missing it — no shared `enforce_guardrails()` helper exists yet. See CLAUDE.md's Guardrails
+  section for the full call-site list.
+- `src/tools/pentest_tools.py` duplicates its scan-runner boilerplate (validator check → build
+  command → `subprocess.run` → near-identical exception handling) across 8 functions with no shared
+  helper, unlike `terraform_tools.py`'s `_run_terraform_command` / `ansible_tools.py`'s
+  `_run_ansible_command`, which already extracted the equivalent pattern.
+- `app.py`'s `api_chat` (~617 lines) and `api_chat_stream` (~625 lines) mix guardrails, tier/credit
+  checks, keep-alive threading, and tool-loop invocation in one function each; `core.py`'s
+  `_call_kimi_api` (~207 lines) and `_call_kimi_api_streaming` (~257 lines) duplicate tool-format
+  conversion and usage-logging setup between the sync and streaming paths.
+- Scattered unused imports (`app.py`: `flask.flash`, `flask.g`, `login_user`/`logout_user`,
+  `hashlib`, several unused `models` symbols; similar in a few `services/*.py` files) — cosmetic,
+  not addressed in this pass.
+
+**Checked and found clean:** `scripts/check_security_invariants.py` (SSRF + login-timing AST scan)
+reports zero violations; the `/metrics` token comparison (`routes/metrics.py`) already uses
+`hmac.compare_digest`, not a plain `==`; no new tools, seeded catalogs, or thread-local context
+modules were added in the reviewed window, so patterns 3–8 from the audit checklist had nothing new
+to check.
+
+## Scheduled audit: Predictive Scaling fabricated resources/data for every user; fake "applied" success (FIXED 2026-09-02)
+
+No commits landed since the 2026-08-26 audit above (confirmed via `git log --since`), so this pass
+did a fresh risk-classification cross-check plus a targeted sweep for the "Non-negotiable: every
+feature runs against a real cloud account" rule at the top of CLAUDE.md — the exact rule the
+Drift Detection incident (2026-08-12) was written to prevent. Two findings, one fixed, one flagged.
+
+**1. `services/predictive_scaling.py` — the entire Predictive Scaling feature
+(`/scaling`, reachable from the chat UI's profile menu, registered blueprint) fabricated its data
+for every user, unconditionally, with no `[Sample]`/`[Sandbox]` label anywhere in the template.**
+`generate_all_predictions()` called `_ensure_sample_data()`, which seeded three hardcoded fake
+resources — `'web-server-1'` / "Web Server ASG", `'prod-database'` / "Production RDS",
+`'api-deployment'` / "API Deployment" — with `random.uniform(...)`-generated synthetic CPU/
+connection/request time series, byte-identical in shape for every account regardless of whether
+they had a cloud account connected. `add_metric()` (the one real-data ingestion point) was never
+called from anywhere else in the codebase — nothing fed it live CloudWatch/Prometheus data. On top
+of that, `POST /scaling/api/apply/<id>` (gated behind approver permission, and the confirm() dialog
+in `scaling/dashboard.html` literally says "This will trigger actual infrastructure changes")
+unconditionally set `status: 'applied'` and returned `success: True` with a fabricated
+"Successfully initiated scaling for X" message — it never called any AWS/Azure/GCP/Kubernetes API.
+An approver who trusted that response would stop looking for other mitigations to a capacity
+problem that was never actually fixed. No test file existed for this service at all.
+
+**Fix:** removed `_ensure_sample_data`/`_load_sample_data` entirely (was ~65 lines of synthetic
+data generation) rather than gating them, since there is no legitimate always-on fallback per the
+non-negotiable rule. Added `register_resource()` as the real extension point a future CloudWatch/
+Prometheus ingestion path would call alongside `add_metric()`; `generate_all_predictions()` now
+iterates `self.resource_registry[user_id]`, which starts empty and stays empty until something
+registers real resources — so the feature now honestly reports "no predictions yet" instead of
+inventing data. Fixed the `/api/apply` endpoint to return `success: False` / HTTP 501 with a clear
+"not yet implemented, use the equivalent cloud tool in chat" message instead of fabricating
+`status: 'applied'`. Updated the dashboard's empty-state copy (previously "All resources are
+appropriately sized", which would now be a false claim) to explain that predictions require
+historical metrics that aren't being collected yet. Added `tests/test_predictive_scaling.py`
+(service-level, no Flask app context needed) asserting: a fresh user gets zero predictions and a
+zero summary, `_ensure_sample_data`/`_load_sample_data` no longer exist on the class, and the
+registration path still produces correct scale-up predictions once real data is fed in, with
+per-user isolation.
+
+**2. Flagged, not fixed — `services/analytics_service.py` has the identical pattern, at larger
+scope.** The "Advanced Analytics Dashboard" (`/analytics/`, `/analytics/costs`,
+`/analytics/performance`, `/analytics/resources`, all registered routes) is backed end-to-end by
+`AnalyticsService._ensure_sample_data()`, which fabricates: a 90-day daily cost series seeded from
+`base_cost = 150` plus `random.uniform(-20, 30)` noise; a `_cost_by_service` breakdown with literal
+hardcoded dollar figures (`'EC2': 450.00, 'RDS': 280.00, 'S3': 45.00, ...`) and a `_cost_by_team`
+breakdown (`'Development': 380.00, 'Production': 420.00, ...`) — both byte-identical for every
+user; fabricated incident/deployment/API-call time series; and `get_resource_utilization()` even
+generates a fresh `random.uniform(40, 75)` "utilization_avg" on every single call, uncached. Unlike
+the scaling fix above, the fabrication here isn't centralized in one seed method — it's threaded
+through `get_cost_forecast`, `get_cost_breakdown`, `get_trend_analysis`, `get_dashboard_metrics`,
+`get_resource_utilization`, and `get_alerts_summary` individually, and feeds 4 templates plus their
+JS chart-rendering code, none of which were read in this pass. This is the same severity as the
+finding above (cost *forecasting* built on fake numbers is arguably more consequential — it's the
+kind of output someone would act on for a real budget decision) but a safe fix needs to read all 4
+consumer templates/JS first to confirm nothing crashes on genuinely empty data, which didn't fit in
+this pass — treat as the top-priority item for the next audit or a dedicated PR.
+
+## Agent felt slow and kept saying it lacked the right tool (2026-09-02)
+
+**Symptom (user report):** from the chat UI the agent "is taking a lot of time or
+complaining about not having access to the right tool to call."
+
+**Not one bug — four, all in progressive tool loading (`src/agent/tool_selection.py`)
+and its Kimi wiring.** Diagnosed by reading the code plus a simulation of the selector
+against the real 744-tool catalog; production logs were not available for this pass.
+
+1. **`search_tools` could not actually recover anything on the Kimi path.**
+   `_call_kimi_api` and `_call_kimi_api_streaming` each built `oai_tools` **once,
+   before** their tool loop. The `search_tools` handler appends matches to
+   `_tools_override` mid-loop and replies "these tools are now available — call them
+   directly", but every subsequent request in that turn still carried the pre-loop
+   list. The model was told a tool existed and then handed a request without it, so
+   it either burned an iteration or said it had no such tool. Free and starter tiers
+   both run this path, so this was the common case; the Claude paths re-read the
+   override each iteration and were unaffected. Fixed with `_current_oai_tools()`,
+   called inside both loops.
+
+2. **The `max_tools` cap silently dropped a category the user had named.**
+   "show me the pods in my eks cluster" matches `kubernetes` (76 tools) and
+   `aws.eks` (28); base + both exceeded the cap, so the greedy pass kept EKS and
+   dropped all 76 Kubernetes tools — the user asked about pods and got no pod tools.
+   Fixed by exempting every category tied for the top explicit keyword score from the
+   cap. Weaker signals stay greedy.
+
+3. **Provider-generic nouns were pinned to one provider, and the escape hatches were
+   filtered out.** "check my database" selected RDS only; "list my running containers"
+   selected only local Docker tools (which run on the app server, not the user's
+   cloud), hiding ECS/EKS/Kubernetes/Azure/GCP. Meanwhile `azure_api_read`,
+   `gcp_api_read`, `k8s_api_read` and their siblings were themselves filtered out
+   unless the provider was named — while the system prompt tells the model to use
+   exactly those and to "NEVER say 'I don't have a tool'". Fixed with `GENERIC_NOUNS`
+   (nouns map to an ordered cross-provider category list, narrowed to the user's
+   actually-connected clouds via `credential_service.get_user_configured_providers`)
+   and `ALWAYS_TOOL_NAMES` (the eight hatches + `search_tools`, included by name).
+
+4. **Selection read only the current message, which is what made it slow.**
+   Follow-ups carrying no keywords ("yes go ahead", "now delete it") matched nothing,
+   so the selector returned `None` and the caller shipped all ~745 schemas — on Kimi
+   that also bypasses the cap entirely, since the cap only applies once a subset is
+   chosen. Every one of up to 20 reasoning-model iterations then paid for the full
+   catalog. Fixed by feeding the last 6 user turns in (`history_messages`), plus an
+   AWS-region-token signal so "list all resources in us-east-1" stops falling through.
+
+**Measured on the real catalog (cap 100), before → after:**
+
+| Query | Before | After |
+|---|---|---|
+| show me the pods in my eks cluster | 50 (no K8s tools) | 130 (both kept) |
+| list my running containers | 35 (Docker only) | 85 (ECS/EKS/K8s) |
+| yes go ahead (after an EC2 turn) | 744 (full catalog) | 57 |
+| list all resources in us-east-1 | 744 (full catalog) | ~60 |
+| what is my aws bill this month | 91 | 86 |
+
+**Gotcha worth remembering:** the AWS seed (a bare "aws" with no service named seeds
+ec2/s3/iam/vpc) initially went into the cap-exempt tied-top tier along with real
+keyword matches. Because all four seeds tie at score 1, "what is my aws bill this
+month" shipped 197 tools against a cap of 100. A *guessed* category must never claim
+the cap-exempt slot — only categories the user actually named.
+
+**Tests:** `tests/test_tool_selection.py` (10 new cases) and
+`tests/test_kimi_tool_refresh.py` (verified failing against pre-fix `core.py`, passing
+after). Full suite unchanged: identical 15 failures / 254 errors before and after,
++11 passes. (Those pre-existing failures are a local Python 3.9 artifact — the project
+needs 3.10+ for `X | None` syntax — not a real regression.)
+
+## Agent ran `list_iam_roles` when asked to create an Ubuntu EC2 instance (2026-09-02)
+
+**Symptom (live user report, with production confirmation):** "create an ec2 instance
+using ubuntu on a t2.micro" produced no instance. The agent replied that its calls were
+"misrouted to an IAM role listing". `usage_logs` confirms exactly one tool ran that turn:
+
+```
+2026-09-02 16:00:49 | tool_use | list_iam_roles | kimi-k3 | True
+```
+
+The identical request on 2026-09-01 ran `gcp_api_read` + `gcp_api_write` and ended in
+"Maximum number of tool executions reached." Different wrong tool each time.
+
+**This was NOT the progressive-tool-loading bug fixed earlier the same day (#162).**
+That fix worked: selection correctly offered the EC2 category and correctly withheld
+every IAM tool. Three separate defects combined.
+
+**1. Root cause — the request was unsatisfiable, so the model guessed.**
+`create_ec2_instance` requires a concrete `ami_id`, and **nothing in the 745-tool
+catalog could look one up**. The only AMI tools were `create_ami` (images a running
+instance) and `deregister_ami`. There was no `describe_images` wrapper, no distro
+resolver. The model's only real option was `aws_api_read('ec2','describe_images', …)`
+with the right owner/filter incantation, which it never found. Fixed by adding
+`find_ami` (`src/tools/aws_tools.py`), which resolves distro + version + architecture
+to the newest matching AMI. **It pins the vendor's own AWS owner account** — matching
+an AMI by name alone is unsafe, since anyone can publish a public image with a
+lookalike name.
+
+**2. Tool filtering was advisory, not enforced.** All five execution sites tested
+`tool_name in self.tools` — the *full* registry — never the filtered set actually sent
+to the model. So a guessed name that happened to exist ran for real against the user's
+account. This is why a withheld `list_iam_roles` still listed 8 real IAM roles. Fixed
+with `core._is_tool_offered()` / `_not_offered_result()`; a withheld tool now returns an
+error naming `search_tools` as the way back. **The lesson: filtering the tool list is a
+prompt-level hint, not a control. If a tool must not run, the executor has to say so.**
+
+**3. `search_tools` — the one recovery path — ranked by raw substring match.**
+`sum(1 for t in terms if t in haystack)` meant short terms matched inside unrelated
+words: "ami" matches "dyn**ami**c", so the query "ubuntu ami" returned
+`list_eks_clusters` as the top hit, ahead of `create_ami`. Even a model that did the
+right thing got junk. Now whole-word matched with the tool name weighted 10x over the
+description; "ubuntu ami" returns `find_ami`, `create_ami`, `deregister_ami`.
+
+**Note on fix ordering:** #162 made `search_tools` actually work on the Kimi path (its
+results previously never reached the model). That made defect 3 newly *reachable* —
+worth remembering that repairing a recovery path can expose the quality of what it
+recovers.
+
+**Guard:** `tests/test_ami_lookup_and_tool_enforcement.py` (17 cases). Adding `find_ami`
+also tripped `tests/test_tool_counts.py`, which pins the documented tool totals to the
+registry — 745→746 across 7 templates + CLAUDE.md, AWS 351→352, MCP subset 702→703.
+That test is doing its job; update the user-facing numbers, never the test.
+
+## Same incident, second follow-up: runtime self-correction (2026-09-02)
+
+After the description cross-references above (#164) deployed and passed its own
+health check, the identical request failed a fourth time on the same conversation.
+A description is advisory — nothing stops a model from not reading it, or from
+reading it and guessing wrong anyway under a long, noisy conversation history (this
+thread had ~20 prior turns spanning IAM, GCP, RDS, Nexus, and Lambda tangents).
+
+**Structural fix, not another description tweak: make the two tools self-correct
+in their own result, at the exact moment the mistake happens.**
+
+- `create_ec2_instance`'s `ami_id`/`instance_type` were required positional
+  params with no default. A call missing either raised a bare `TypeError` before
+  the function body ever ran, caught generically several layers up and turned
+  into an opaque "missing 1 required positional argument" string with no path
+  back to `find_ami`. Made both `Optional` in the signature (the tool **schema**
+  still lists both in `required` — the runtime guard is defense-in-depth, not
+  permission to omit them) and added an explicit early check that returns a
+  guided error naming `find_ami` and warning against `manage_ec2_instance`.
+- `manage_ec2_instance`'s `ClientError` handler now special-cases the
+  `InvalidInstanceID.*` family — exactly what AWS returns when the model calls
+  `action='start'` with a fabricated `instance_id`, which is what actually
+  happened in production — and enriches the message with the same redirect.
+  Every other AWS error code passes through unchanged; misdiagnosing an
+  unrelated failure (e.g. a permissions error) as "go create one instead" would
+  be worse than the plain error.
+
+**Why this matters more than the description fix:** the enriched error lands in
+the tool-result message the model reads on its very next iteration, inside the
+*same* turn and the *same* tool-call budget — no new user message, no re-reading
+a schema, no dependence on the model's own judgment about which tool to try.
+Verified locally that `find_ami`/`create_ec2_instance`/`manage_ec2_instance` are
+all still correctly offered under this exact conversation's real noisy history
+(20 prior turns) before shipping.
+
+**A separate, non-code factor:** this specific conversation had accumulated the
+model's own prior wrong "misrouting" narrative across several turns. Once that
+framing is in the replayed history, the model tends to repeat it rather than try
+fresh. A poisoned conversation history is not something a tool-level fix can
+clean up — starting a new conversation is the only way to get an unbiased retry
+of a request that failed repeatedly in an old thread.
+
+**Tests:** 6 more cases in `tests/test_ami_lookup_and_tool_enforcement.py`
+(now 27 total for this incident) — the missing-arg guard never reaches boto3,
+the schema's `required` list is unchanged, `InvalidInstanceID.*` gets the
+redirect, and an unrelated error code does not.
+
+## Root cause found: escape hatches were always-offered across ALL providers (2026-09-02)
+
+After three merged fixes for the "create an ec2 instance using ubuntu" incident
+(#162 progressive loading, #163 find_ami + enforcement, #164 description
+cross-refs, #165 runtime self-correction), the identical request kept failing —
+now guessing CloudFormation, then Kubernetes, then RDS, each narrated to the
+user as "misrouted" with a fabricated-sounding AWS error message. usage_logs
+confirmed `k8s_api_read` **actually executed** (no exception, so `success=True`)
+for a plain "create an ec2 instance" request that named nothing Kubernetes-
+related anywhere in the message or its history.
+
+**Root cause: `#163`'s `ALWAYS_TOOL_NAMES` made all eight provider-generic
+escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`, `k8s_*`)
+unconditionally present on every single turn, regardless of the message.**
+That fix was correct in spirit — the system prompt tells the model to fall
+back on these and never say it lacks a tool, so filtering them out entirely
+(the original bug) was wrong. But making them *all* always-present introduced
+a new failure mode: a plain AWS EC2 request now always carried Kubernetes,
+GCP, and Azure escape hatches too. A model struggling to find the right
+AWS-specific tool had four cross-cloud generic hatches sitting right there to
+grab instead — and it did, repeatedly, across at least four different wrong
+guesses in one afternoon (RDS, Nexus, IAM, GCP, Lambda-shaped, CloudFormation,
+Kubernetes, EC2 keypair) on the same conversation.
+
+**Fix:** `HATCH_PAIRS_BY_PROVIDER` + `_hatch_providers_for()` scope each
+provider's pair to whether *this turn's* matched categories (current message,
+generic nouns, and history — the same three signals selection already
+computes) actually implicate that provider. `search_tools` stays the one
+truly unconditional hatch. Verified against this exact conversation's real
+noisy 20-turn history before shipping: `find_ami`/`create_ec2_instance`/
+`manage_ec2_instance`/`aws_api_read`/`aws_api_write` are offered;
+`gcp_api_read`/`gcp_api_write`/`k8s_api_read`/`k8s_api_write`/`azure_api_read`/
+`azure_api_write` are not.
+
+**Two urgent side effects surfaced by this investigation, unrelated to tool
+selection and requiring account-owner action, not a code fix:**
+- `create_rds_instance` executed successfully (`usage_logs`, 2026-09-02
+  13:50:02, before any of these fixes were deployed) — check the AWS console
+  for an RDS instance that shouldn't exist.
+- The assistant reported creating an EC2 key pair `ubuntu_key` with a
+  plausible key-pair ID at 17:00:43, but **no corresponding `tool_use` row
+  exists in `usage_logs` for that turn** (it logged as `agent_message`,
+  `tool_name=None`) — meaning either `create_ec2_keypair` genuinely ran and
+  the per-turn tool-name logging silently dropped it (a real gap, not yet
+  root-caused — candidate for the next audit given the documented
+  `last_tools_used` greenlet-local read-ordering fragility in the Cloudflare
+  keep-alive section above), or the model fabricated the entire result
+  including a fake-but-realistic key-pair ID. Either way: if a real
+  `ubuntu_key` pair exists in `us-east-1`, its private key material passed
+  through this chat's stored history and the Kimi API request — treat it as
+  compromised, delete it, and do not reuse the key file.
+- Also observed: this account's free-tier credits were exhausted from
+  repeated retries of the same failing request (at least ten user turns in
+  one afternoon, each consuming a credit regardless of outcome) — expected
+  behavior given free tier is a one-time, non-renewing 20-credit grant, not a
+  bug, but worth knowing before assuming a credits-display bug.
+
+**Structural lesson:** an "always available" tool set is not free of
+selection risk just because it's small (eight tools, not 745) — it still
+needs to be scoped to relevance, or it becomes exactly the kind of
+easy-to-grab wrong answer that a struggling model reaches for. The fix for
+"a needed tool was filtered out" is not "never filter this tool," it's
+"filter it correctly."
+
+**Tests:** `tests/test_tool_selection.py` — `test_escape_hatches_scoped_to_implicated_providers`
+(replaces the old `test_escape_hatches_always_present`, which encoded the
+bug), `test_escape_hatches_scoped_to_each_provider_named`,
+`test_kubernetes_request_gets_only_the_k8s_hatch`.
+
+## "It says I have 0 credits" when the real balance was 15 (2026-09-02)
+
+**Live report:** "still complaining about credits, when i have 15 credits."
+Queried the account directly (the credits snapshot section above, once moved
+early enough to survive the SSM output cap): `remaining=15` — the DB and the
+user agreed. So the credit *gate* (`subscription.has_credits()`, checked
+identically on both `/api/chat` and `/api/chat/stream`) was never the problem;
+it correctly evaluates true at 15 and lets the turn through.
+
+**Root cause:** `/api/chat/stream`'s generic `except Exception as e:` handler
+— the catch-all for any unrelated failure mid-turn (a provider timeout, a
+tool crash, a malformed JSON response) — hardcoded
+`{'type': 'done', 'credits_remaining': 0, 'error': True}` regardless of the
+user's actual balance. The SSE `done` handler in `templates/index.html` calls
+`updateCreditsDisplay(evt.credits_remaining)` unconditionally whenever the
+field is present, so the header badge got overwritten to 0 on **any**
+transient error, with no relationship to the real number.
+
+**Fix (`app.py`):** the handler now looks up `CreditService.balance(uid)`
+inside the `app.app_context()` block it already enters to roll back the
+session, and reports the real number — or omits `credits_remaining` entirely
+if that lookup itself fails, since the frontend already treats "field absent"
+as "leave the display alone."
+
+**Frontend hardening, defense-in-depth (`templates/index.html`):** the
+*non-streaming* `/api/chat` response handler had the more dangerous sibling
+of this same pattern — it triggered a **full input lockout** (disabled
+message box, disabled send button, "Trial ended" placeholder, upgrade
+banner) on a bare `data.credits_remaining === 0` check, with no relation to
+`data.trial_ended`. Nothing in the current codebase was found to send a
+false 0 through that specific path, but the check itself was one bug away
+from turning "an unrelated error happened" into "your account looks
+permanently locked until you reload the page." Changed to gate on
+`data.trial_ended` explicitly, matching the (already-safe) SSE `done` handler
+a few hundred lines below it, which never checked the raw number in the
+first place.
+
+**Lesson:** a UI element wired to "the balance is exactly 0" is implicitly
+trusting every code path that can produce that number to mean the same
+thing. A generic error handler and a real credit-exhaustion check are not
+the same event, and hardcoding a sentinel value that happens to coincide
+with a real value's meaning (0 credits = 0 the number) is the same shape of
+bug as the escape-hatch and tool-enforcement fixes above: treat generic
+fallback behavior as low-risk just because it's simple, and it becomes
+exactly the path that misfires.
+
+**Tests:** `tests/test_streaming_credits_display.py` — verified failing
+against the pre-fix `app.py` (both backend cases), passing after. Follows
+this codebase's existing pattern (`tests/test_sandbox_activation.py`) of a
+source-level check for logic embedded in app.py's route closures, which
+aren't practical to exercise via a full SSE test client.
+
+## Correction: the "unwanted RDS instance" flag from the escape-hatch fix above was wrong (2026-09-02)
+
+The prior entry recommended checking AWS for an RDS instance based on
+`usage_logs` showing `create_rds_instance` with `success=True`. The user
+checked: no RDS instance exists. That flag was a misreading of what the
+`success` column actually records.
+
+**`success` on a `UsageLog` row (`app.py`, both the non-streaming and
+streaming write sites) reflects whether the chat *turn* completed without
+the agent/provider call itself raising — not whether any individual tool
+call inside that turn returned `{'success': True}`.** A tool like
+`create_rds_instance` catches its own `ClientError` and returns
+`{'success': False, 'error': ...}` on a real AWS rejection (missing subnet
+group, invalid engine version, bad parameter, whatever). The Kimi turn still
+finishes normally with that failure folded into the assistant's response, so
+the row logs `success=True` regardless of what AWS actually did.
+
+**This means `usage_logs.tool_name`/`success` alone cannot answer "did this
+tool call actually succeed against the cloud account" — only "did the turn
+that contained it complete."** The only way to know the individual tool
+result is `chat_messages.tool_trace`, and that's written by the streaming
+route only (see the Cloudflare keep-alive section above) — so for the
+non-streaming Kimi tier used throughout this whole incident, there was no
+DB-queryable signal for individual tool-call success at all. The
+`check-errors.yml` "TOOL CALL FAILURES" section already has this exact
+caveat in a comment for the same reason.
+
+**Practical effect on this investigation:** the `create_ec2_keypair` claim at
+17:00:43 (no matching `tool_use` row at all, unlike RDS which had one marked
+falsely-successful) is a *different* shape of gap and still needs the user's
+own AWS-console check — a missing row means either the call never happened
+(model fabricated the whole response) or `_last_tools_used` silently
+dropped it, not "it succeeded." Don't conflate the two: a *present* `tool_use`
+row with `success=True` is not proof the tool's own result was
+`{'success': True}`; an *absent* row is not proof nothing ran.
+
+**Follow-up worth doing, not done here:** `UsageLog` could carry the tool's
+own `result.get('success')` per tool (not just the turn-level Kimi/Claude
+completion flag) — cheap to add at the same write site, and it would have
+answered "was an RDS instance actually created" from the DB in one query
+instead of requiring an AWS console check.

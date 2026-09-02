@@ -251,6 +251,16 @@ class SafetyValidator:
             # decrypted material (AWS has no secretsmanager:GetSecretValue/ssm:GetParameter
             # WithDecryption equivalent; GitHub's list_github_secrets never exposes values).
             'get_secret_value',
+            # Same disclosure class as get_secret_value: returns the raw PEM private key
+            # material directly in the tool result (chat/tool-trace/LLM-provider path) —
+            # unlike delete_ec2_keypair (already high-risk), the create path that actually
+            # discloses the secret had no confirmation gate.
+            'create_ec2_keypair',
+            # Generates an unauthenticated bearer URL (up to 7 days) for get_object OR
+            # put_object on an S3 object — anyone holding the URL can read or overwrite it
+            # with no further AWS auth, the same live-access-credential disclosure class as
+            # get_secret_value/create_ec2_keypair.
+            'generate_s3_presigned_url',
             'delete_cloud_run_service',
             'delete_gke_cluster',
             'delete_firewall_rule',
@@ -328,7 +338,6 @@ class SafetyValidator:
             'delete_eni',
             'disable_vpc_flow_logs',
             # EKS destructive
-            'delete_eks_cluster',
             'delete_eks_node_group',
             'delete_eks_fargate_profile',
             'delete_eks_access_entry',
@@ -343,10 +352,6 @@ class SafetyValidator:
             # Arbitrary code/command execution — same risk class as execute_command
             'ansible_playbook_run',
             'ansible_adhoc_command',
-            'execute_script',
-            # Git destructive (git_ prefix defeats the delete_ auto-detect fallback)
-            'git_delete_branch',
-            'git_delete_tag',
         }
 
         medium_risk_tools = {
@@ -363,6 +368,12 @@ class SafetyValidator:
             'revoke_security_group_ingress',
             'register_targets',
             'deregister_targets',
+            # 'create_' prefix isn't a monitored auto-detect prefix (only delete_/terminate_/
+            # destroy_/remove_/drop_/purge_ are), but this tool defaults action='UPSERT', which
+            # silently overwrites any existing live DNS record with the same name/type —
+            # redirecting production traffic with zero confirmation. Its delete_route53_record
+            # sibling is already high-risk via the delete_ prefix.
+            'create_route53_record',
             'release_elastic_ip',
             'update_secret',
             'update_lambda_function_config',
@@ -382,6 +393,7 @@ class SafetyValidator:
             'create_pubsub_subscription',
             # Git medium risk
             'git_clone_repository',
+            'git_add_remote',
             'git_switch_branch',
             'git_merge_branch',
             'git_rename_branch',
@@ -391,6 +403,7 @@ class SafetyValidator:
             'git_push',
             'git_cherry_pick',
             'git_push_tag',
+            'git_stash_apply',  # merges stashed changes into the working tree, can conflict/overwrite
             'git_stash_drop',
             'git_revert_commit',
             'git_rebase_branch',
@@ -401,6 +414,7 @@ class SafetyValidator:
             'get_diff',
             'git_diff_stat',
             'git_show_file_at_commit',
+            'git_show_commit',
             'git_blame_file',
             # GitHub PR medium risk
             'github_close_pull_request',
@@ -574,6 +588,26 @@ class SafetyValidator:
             'opsgenie_acknowledge_alert',
             'opsgenie_close_alert',
             'opsgenie_escalate_alert',
+            # Same provider_verb_noun gap for the create_ siblings above — both page a live
+            # on-call engineer/team by default (PagerDuty defaults urgency to 'high';
+            # OpsGenie accepts a responders list), same risk class as their already-medium
+            # update/acknowledge/close/escalate siblings.
+            'pagerduty_create_incident',
+            'opsgenie_create_alert',
+            # Same "pages/redirects to an external endpoint with no confirmation" risk class
+            # as the alerting tools above: publish_sns_message can page arbitrary email/SMS/
+            # HTTP subscribers with caller-controlled content; subscribe_sns_topic can point
+            # future topic messages at an arbitrary external endpoint the caller supplies.
+            'publish_sns_message',
+            'subscribe_sns_topic',
+            # GCP's equivalent of publish_sns_message above: topic_name/message_data/
+            # attributes are all caller-controlled, and Pub/Sub topics commonly fan out to
+            # push subscriptions (arbitrary external HTTP endpoints) or trigger downstream
+            # Cloud Functions/Cloud Run services — same "arbitrary content to an external
+            # sink with no confirmation" risk class. create_pubsub_subscription (which can
+            # point a topic at a new external endpoint) was already medium-risk; this sibling
+            # publish path was missed until the 2026-09-02 scheduled audit.
+            'publish_pubsub_message',
         }
 
         # Check if tool is a pentest tool

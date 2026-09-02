@@ -144,7 +144,6 @@ def api_get_pattern(resource_id: str):
 def api_get_metrics(resource_id: str):
     """API: Get historical metrics for a resource."""
     service = get_scaling_service()
-    service._ensure_sample_data(current_user.id)
     metrics = service.metrics.get(current_user.id, {}).get(resource_id, [])
 
     if not metrics:
@@ -189,12 +188,11 @@ def api_apply_recommendation(prediction_id: str):
     if not prediction:
         return jsonify({'success': False, 'error': 'Prediction not found'}), 404
 
-    # Log the scaling action
-    logger.info(f"Scaling recommendation applied by {current_user.email}: "
-                f"{prediction.resource_name} {prediction.direction.value} "
-                f"from {prediction.current_capacity} to {prediction.recommended_capacity}")
-
-    # Create a scaling action record
+    # This endpoint does not yet call any AWS/Azure/GCP/Kubernetes API to carry
+    # out the scaling change — it must never report success it didn't perform
+    # (see CLAUDE.md's "every feature runs against a real cloud account" rule).
+    # An approver acting on a false "applied" status would stop looking for
+    # other mitigations for a capacity problem that was never actually fixed.
     action_result = {
         'prediction_id': prediction_id,
         'resource_type': prediction.resource_type,
@@ -203,17 +201,18 @@ def api_apply_recommendation(prediction_id: str):
         'direction': prediction.direction.value,
         'from_capacity': prediction.current_capacity,
         'to_capacity': prediction.recommended_capacity,
-        'applied_by': current_user.email,
-        'status': 'pending'
+        'requested_by': current_user.email,
+        'status': 'not_implemented'
     }
 
-    # In a real implementation, this would trigger the actual scaling action
-    # via AWS/Azure/GCP APIs or Kubernetes
-    # For now, we simulate success
-    action_result['status'] = 'applied'
-    action_result['message'] = f"Successfully initiated scaling for {prediction.resource_name}"
+    logger.info(f"Scaling apply requested by {current_user.email} for "
+                f"{prediction.resource_name}, but no execution path exists yet — refusing "
+                f"to report false success")
 
     return jsonify({
-        'success': True,
+        'success': False,
+        'error': 'Applying scaling recommendations is not yet implemented — no cloud API '
+                  'call is made. Use the equivalent AWS/Azure/GCP/Kubernetes tool in chat '
+                  'to make this change yourself.',
         'action': action_result
-    })
+    }), 501

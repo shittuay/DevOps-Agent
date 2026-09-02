@@ -40,6 +40,24 @@ def is_anthropic_error(text: str) -> bool:
     return False
 
 
+EMPTY_ASSISTANT_PLACEHOLDER = "(No response text was generated for this turn.)"
+
+
+def ensure_non_empty_response(text: str) -> str:
+    """Substitute a placeholder for an empty/whitespace-only assistant response.
+
+    An assistant turn with no closing text (e.g. a tool-only reply) must never be
+    persisted to ChatMessage.content as-is: reloaded into a later turn's history, an
+    empty assistant message breaks Kimi's API ("message ... must not be empty") and
+    is rejected by Anthropic's API the same way. Every save point that writes a
+    ChatMessage(role='assistant', ...) from agent-generated text must route through
+    this helper. See CLAUDE_RUNBOOK.md's 2026-08-25 entry.
+    """
+    if not text or not text.strip():
+        return EMPTY_ASSISTANT_PLACEHOLDER
+    return text
+
+
 GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'
 GROQ_FALLBACK_MAX_TOKENS = 4096
 

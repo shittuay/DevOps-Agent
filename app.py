@@ -324,6 +324,11 @@ app.register_blueprint(changes_bp)
 from routes.curriculum import curriculum_bp
 app.register_blueprint(curriculum_bp)
 
+from routes.metrics import metrics_bp
+app.register_blueprint(metrics_bp)
+from services import metrics_service
+metrics_service.init_app(app)
+
 # Pre-built workflow templates
 from routes.workflows import workflows_bp
 app.register_blueprint(workflows_bp)
@@ -2414,9 +2419,7 @@ def get_cloud_credentials_status():
 
 def _validate_webhook_url(webhook_url: str, channel_type: str) -> str | None:
     """Return an error string if the URL fails SSRF/validation checks, else None."""
-    from urllib.parse import urlparse
-    import ipaddress
-    import socket as _socket
+    from src.utils.network_safety import assert_safe_external_webhook_url, UnsafeUrlError
 
     if not webhook_url.startswith('https://'):
         return 'Webhook URL must use HTTPS'
@@ -2427,15 +2430,10 @@ def _validate_webhook_url(webhook_url: str, channel_type: str) -> str | None:
             'go to your Slack workspace → Apps → Incoming Webhooks to generate one'
         )
 
-    parsed = urlparse(webhook_url)
-    if not parsed.hostname:
-        return 'Invalid webhook URL'
     try:
-        ip = ipaddress.ip_address(_socket.gethostbyname(parsed.hostname))
-        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
-            return 'Webhook URL must not point to a private or reserved IP address'
-    except (_socket.gaierror, ValueError):
-        pass
+        assert_safe_external_webhook_url(webhook_url)
+    except UnsafeUrlError as e:
+        return str(e)
 
     return None
 
@@ -2638,6 +2636,7 @@ from services.chat_service import (
     process_free_tier_chat as _process_free_tier_chat,
     stream_free_tier_chat as _stream_free_tier_chat,
     generate_upgrade_pitch as _generate_upgrade_pitch,
+    ensure_non_empty_response as _ensure_non_empty_response,
 )
 
 
@@ -3143,6 +3142,10 @@ def api_chat():
             response = sanitize_output(response)
             response = redact_secrets(response)
 
+            # See services/chat_service.ensure_non_empty_response's docstring —
+            # every ChatMessage(role='assistant', ...) save point must route through it.
+            response = _ensure_non_empty_response(response)
+
             # Save assistant response
             assistant_message = ChatMessage(
                 user_id=_user_id,
@@ -3296,12 +3299,12 @@ def api_chat():
                 with app.app_context():
                     _agent_result['response_data'] = _finalize_turn()
             except Exception as finalize_error:
+                # No explicit rollback needed here: shutdown_session()
+                # (teardown_appcontext, below) already rolled back the
+                # session that raised when the `with` block above popped
+                # its context — a fresh app_context() here would only get a
+                # brand-new, already-clean scoped session.
                 logger.error(f"Error finishing chat response: {str(finalize_error)}", exc_info=True)
-                try:
-                    with app.app_context():
-                        db.session.rollback()
-                except Exception:
-                    pass
                 _agent_result['response_data'] = {'error': str(finalize_error)}
 
         import threading
@@ -3856,6 +3859,10 @@ def api_chat_stream():
                 complete = sanitize_output(complete)
                 complete = redact_secrets(complete)
 
+                # See services/chat_service.ensure_non_empty_response's docstring —
+                # every ChatMessage(role='assistant', ...) save point must route through it.
+                complete = _ensure_non_empty_response(complete)
+
                 # Save assistant response in app context
                 # Capture all tool events for the trace (accumulated in _tool_events_log)
                 with app.app_context():
@@ -3949,12 +3956,33 @@ def api_chat_stream():
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             except Exception as e:
+                # Report the REAL balance here, not a hardcoded 0. This handler
+                # fires for any unrelated failure (a provider timeout, a tool
+                # crash, a malformed response) — none of which mean the user's
+                # credits are exhausted. The frontend's `credits_remaining === 0`
+                # check (templates/index.html) treats that value as "trial
+                # ended": it disables the message input/send button and shows
+                # an upgrade banner, with no way to dismiss it short of a page
+                # reload. A user with real credits left got permanently locked
+                # out of chat by an unrelated transient error. See
+                # CLAUDE_RUNBOOK.md's 2026-09-02 entry.
                 with app.app_context():
                     db.session.rollback()
+                    try:
+                        _real_balance = CreditService.balance(uid)
+                    except Exception:
+                        _real_balance = None
                 try:
                     yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-                    # Always send done so the frontend doesn't hang waiting for stream close
-                    yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': 0, 'error': True})}\n\n"
+                    # Always send done so the frontend doesn't hang waiting for stream close.
+                    # Omit credits_remaining entirely if the balance lookup itself
+                    # failed — the frontend already treats "undefined" as "leave the
+                    # current display alone" (see the `!== undefined` checks), which
+                    # is strictly safer here than guessing a number.
+                    _done_payload = {'type': 'done', 'error': True}
+                    if _real_balance is not None:
+                        _done_payload['credits_remaining'] = _real_balance
+                    yield f"data: {_json.dumps(_done_payload)}\n\n"
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             finally:
@@ -4863,15 +4891,17 @@ def delete_conversation(conversation_id):
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
 
-        # Delete all messages in this conversation (include user_id for defense in depth)
-        ChatMessage.query.filter_by(
-            conversation_id=conversation_id,
-            user_id=current_user.id
-        ).delete()
-
         # Delete every other row that FKs to this conversation — the DB enforces
         # these constraints, so leaving any of them behind makes the conversation
         # delete below fail with an IntegrityError (caught, rolled back, 500).
+        # ChatArtifact.message_id also FKs to chat_messages.id with no cascade,
+        # so it must be deleted BEFORE the ChatMessage delete below, not after —
+        # deleting messages first raises the identical IntegrityError this block
+        # exists to prevent, just one FK hop further out.
+        ChatArtifact.query.filter_by(
+            conversation_id=conversation_id,
+            user_id=current_user.id
+        ).delete()
         UsageLog.query.filter_by(
             conversation_id=conversation_id,
             user_id=current_user.id
@@ -4884,13 +4914,15 @@ def delete_conversation(conversation_id):
             conversation_id=conversation_id,
             user_id=current_user.id
         ).delete()
-        ChatArtifact.query.filter_by(
-            conversation_id=conversation_id,
-            user_id=current_user.id
-        ).delete()
         ApprovalRequest.query.filter_by(
             conversation_id=conversation_id,
             requester_id=current_user.id
+        ).delete()
+
+        # Delete all messages in this conversation (include user_id for defense in depth)
+        ChatMessage.query.filter_by(
+            conversation_id=conversation_id,
+            user_id=current_user.id
         ).delete()
 
         # Delete the conversation

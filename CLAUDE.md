@@ -28,7 +28,7 @@ src/
     tool_selection.py # Progressive tool loading (classify_tool, select_tool_definitions)
     guardrails.py   # GuardrailsService - Haiku harmlessness pre-screen
   tools/
-    aws_tools.py         # 351 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
+    aws_tools.py         # 352 AWS tools (EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, etc.)
     kubernetes_tools.py  # 76 K8s tools (pods, deployments, services, namespaces, etc.)
     azure_tools.py       # 38 Azure tools (VMs, storage, SQL, NSGs, containers, etc.)
     gcp_tools.py         # 42 GCP tools (Compute, GCS, Cloud SQL, GKE, Cloud Run, etc.)
@@ -78,14 +78,27 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (745 total, 17 modules)
+## Tool Inventory (746 total, 17 modules)
 
 > Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`.
 > Two modules below are not detailed in the per-provider sections:
 > `command_tools` (2) and `devops_operations_tools` (10).
 
-### AWS (351 tools)
+### AWS (352 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
+
+**`find_ami` is the AMI-resolution step `create_ec2_instance` depends on.**
+`create_ec2_instance` requires a concrete `ami_id` and cannot turn "ubuntu" into
+one. Until 2026-09-02 nothing in the catalog could: the only AMI tools were
+`create_ami` (images a running instance) and `deregister_ami`. A plain "create an
+ec2 instance using ubuntu on a t2.micro" was therefore **unsatisfiable**, and the
+model guessed — in production it called `list_iam_roles`, and on an earlier turn
+`gcp_api_read`/`gcp_api_write`, against the user's real account (see
+CLAUDE_RUNBOOK.md's 2026-09-02 entry). `find_ami` resolves distro + version to the
+newest matching AMI and **pins the distribution vendor's own owner account**
+(`_AMI_OWNERS`) — never match an AMI by name alone, since anyone can publish a
+public image with a lookalike name. Add new distros to `_AMI_OWNERS` /
+`_AMI_NAME_PATTERNS` together, and only with a verified owner id.
 
 ### Kubernetes (76 tools)
 Pods (list, describe, logs, delete, exec), Deployments (list, describe, create, update image, delete), Services (list, create, delete), Namespaces (list, get, create, delete), ConfigMaps (create, delete), Secrets (create, delete), Ingress (create, delete), Nodes (list, cordon, uncordon), Jobs (create, delete).
@@ -146,6 +159,17 @@ comment, with no RDS branch at all, while `/api/import/sample` seeded fake basel
 (`i-0abc123def456`, `sg-12345`, `production-database`). Every user got a byte-identical
 report, including a **critical** "security group open to `0.0.0.0/0`" alert that was a
 literal in the source, against an account with no database in it. See CLAUDE_RUNBOOK.md.
+
+**This has recurred beyond Drift.** A 2026-09-02 scheduled audit found the entire Predictive
+Scaling feature (`/scaling`, `services/predictive_scaling.py`) unconditionally fabricating three
+named resources and their metric history for every user with no `[Sandbox]` label, plus an "Apply"
+endpoint that reported fake `status: 'applied'` success without calling any cloud API — fixed (see
+CLAUDE_RUNBOOK.md's 2026-09-02 entry). The same audit found `services/analytics_service.py`'s
+"Advanced Analytics Dashboard" (`/analytics/*`) doing the identical thing at larger scope —
+hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `random.uniform()` noise
+— **flagged, not yet fixed** (needs its 4 consumer templates read first). If a new feature's data
+doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
+same bug until traced.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
@@ -247,6 +271,8 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 
 **Every guardrail-gated route MUST, in order:** `sanitize_input()` the raw message → check `current_user.is_guardrail_blocked()` (or the equivalent `User` row for API-key routes) → `validate_message()` → `screen_message()`, calling `record_guardrail_violation()` on any block. Skipping `screen_message()`/`sanitize_input()` on a new entry point (as `routes/api_gateway.py`'s developer API originally did, `api/v1/conversations.py`'s `send_message()`/`api_v1_chat_stream()` did later, and `routes/curriculum.py`'s `/curriculum/api/ai-guide` did after that — all now fixed) silently drops the Haiku jailbreak screen, crisis detection, and lockout enforcement for that surface — see `CLAUDE_RUNBOOK.md`. Compliant chat-to-agent entry points today: `app.py` (`/api/chat`, `/api/chat/stream`), `routes/api_gateway.py` (`/v1/agent`, `/v1/agent/stream`), `api/v1/conversations.py` (`/conversations/<id>/messages`, `/chat/stream`), and `routes/curriculum.py` (`/curriculum/api/ai-guide`).
 
+**Not yet fixed, flagged by the 2026-08-26 scheduled audit:** this 4-step pipeline is still hand-copied at all 8 call sites above (2 in `app.py`, 2 in `routes/api_gateway.py`, 2 in `api/v1/conversations.py`, 1 in `routes/curriculum.py`, plus the block itself in `routes/curriculum.py`) — despite three separate past incidents of a *new* entry point missing the pipeline, there is still no single `enforce_guardrails(user, message)` helper in `src/agent/guardrails.py` that all 8 sites call. Each copy has to be kept in sync by hand, which is exactly the shape that caused the three prior misses. Extracting a shared helper is the structural fix; not done in this pass because it touches all 8 guardrail-critical call sites at once and warrants its own reviewed change rather than a drive-by edit during a read-mostly audit.
+
 **Violation tracking on `User` model:**
 - `guardrail_violations` (Integer) + `guardrail_blocked_until` (DateTime)
 - `record_guardrail_violation()` — increments counter; blocks for 1 hour after 3 violations
@@ -269,10 +295,10 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - **Auto-detection only matches the verb as a prefix of the tool name** (`name.startswith(...)`). A tool shaped `<provider>_<verb>_<noun>` (e.g. `git_delete_branch`, `pagerduty_update_incident`) is NOT caught by auto-detection even though `delete`/`update` appear in the name — it silently defaults to low risk unless explicitly added to `high_risk_tools`/`medium_risk_tools`. Check for this shape specifically when adding tools whose name doesn't start with the destructive verb.
 
 **Current high-risk additions (beyond auto-detection):**
-`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase)
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase), `create_ec2_keypair` (AWS — returns the raw PEM private key material directly in the tool result, same disclosure class as `get_secret_value`; its `delete_ec2_keypair` sibling was already high-risk but the create path that actually discloses the secret was missed until the 2026-08-23 scheduled audit), `generate_s3_presigned_url` (AWS — generates an unauthenticated bearer URL, up to 7 days, for `get_object` or `put_object` with no further AWS auth required; same live-access-credential disclosure class, also caught by the 2026-08-23 audit)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`, `register_targets`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`, `publish_sns_message`, `subscribe_sns_topic`, `create_route53_record`, `publish_pubsub_message`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -281,7 +307,26 @@ prefix isn't in the auto-detect list either); `ansible_vault_encrypt` joins its 
 `register_targets` joins its sibling `deregister_targets` (already auto-detected via the
 `deregister_` prefix) — it can redirect live production traffic to an arbitrary instance/IP via a
 load-balancer target group, but `register_` isn't an auto-detect prefix, so it defaulted to low
-risk until the 2026-08-08 scheduled audit caught the asymmetry.
+risk until the 2026-08-08 scheduled audit caught the asymmetry. `pagerduty_create_incident` and
+`opsgenie_create_alert` joined their already-medium `pagerduty_update_incident`/
+`opsgenie_acknowledge_alert`/`opsgenie_close_alert`/`opsgenie_escalate_alert` siblings after the
+2026-08-19 scheduled audit — both page a live on-call engineer/team by default (PagerDuty defaults
+`urgency` to `'high'`; OpsGenie's `create_alert` accepts a `responders` list), same
+`provider_verb_noun` shape that defeats prefix auto-detection as the other alerting gaps above.
+`publish_sns_message` and `subscribe_sns_topic` joined them after the 2026-08-23 scheduled audit —
+`publish_sns_message` can page arbitrary email/SMS/HTTP subscribers with caller-controlled message
+content, and `subscribe_sns_topic` can point all future topic messages at an arbitrary external
+endpoint the caller supplies; neither name starts with an auto-detected prefix.
+`create_route53_record` joined after the 2026-08-25 scheduled audit — its `action`
+parameter defaults to `'UPSERT'` (its own tool description says so), silently overwriting any
+existing live DNS record with the same name/type; `create_` isn't a monitored auto-detect prefix,
+and its `delete_route53_record` sibling was already correctly high-risk via the `delete_` prefix,
+so only the overwrite path had no gate at all.
+`publish_pubsub_message` (GCP) joined after the 2026-09-02 scheduled audit — same shape as
+`publish_sns_message`: `topic_name`/`message_data`/`attributes` are all caller-controlled, and
+Pub/Sub topics commonly fan out to push subscriptions (arbitrary external HTTP endpoints) or
+trigger downstream Cloud Functions/Cloud Run; its own `create_pubsub_subscription` sibling was
+already medium-risk but the publish path itself had no gate.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -325,7 +370,15 @@ ipaddress/socket logic; `services/notification_service.py`'s `SlackClient`/`Team
 `app.py`'s `test_notification_channel` route were fixed to use it too (2026-07-25 — they were
 still using plain `assert_safe_url`/its default `safe_request()` validator, which let a
 user-configured Slack/Teams webhook or notification-channel-test URL reach RFC1918 addresses
-inside the app's own network — see CLAUDE_RUNBOOK.md). For clients that don't go through `requests` at all, disable redirects at that client's
+inside the app's own network — see CLAUDE_RUNBOOK.md). `app.py`'s `_validate_webhook_url()` (the
+creation-time check on `POST /api/notification-channels`, distinct from the `test_notification_channel`
+route above) had the same gap independently: it reimplemented its own SSRF check with
+`socket.gethostbyname()` (single IPv4 record only — misses IPv6/multi-record hosts) and
+`except (gaierror, ValueError): pass` — **failing open** on DNS resolution failure, the opposite of
+`assert_safe_external_webhook_url()`'s fail-closed `raise UnsafeUrlError`. Found by the 2026-08-19
+scheduled audit and fixed by delegating to `assert_safe_external_webhook_url()` directly instead of
+duplicating the ipaddress/socket logic — same lesson as `api_gateway.py`'s webhook guards above: a
+fix to one copy of duplicated SSRF logic doesn't reach sibling copies on its own. For clients that don't go through `requests` at all, disable redirects at that client's
 own level instead: `cicd_tools._disable_jenkins_redirects()` monkeypatches `python-jenkins`'s
 wrapped session (no `allow_redirects` param exposed by the library); `git_clone_repository` passes
 `multi_options=['-c', 'http.followRedirects=false']` to `Repo.clone_from()` (needs
@@ -399,6 +452,18 @@ same structural gap the SSRF/login-timing checks in `check_security_invariants.p
 close for their own patterns — it is not yet enforced by an automated check,** so don't assume a
 new git tool is safe just because sibling tools in the same file are guarded; verify it directly.
 
+**2026-08-12 follow-up — same gap, two more functions.** A scheduled audit found two functions
+that predate the fix above and were never covered: `git_add_remote`'s `name` (`repo.create_remote(name,
+url)` — a value like `name="-f"` is parsed by `git remote add` as an option instead of a literal
+remote name, triggering an implicit fetch from the caller-controlled URL immediately on add,
+before any confirmation step assumes data has been pulled) and `git_show_commit`'s `commit_sha`
+(`repo.commit(commit_sha)` — GitPython's rev-parse can fall through to the `git` binary for specs
+it can't resolve locally, the same dash-prefixed-positional ambiguity `_reject_flag_like`'s
+docstring warns about; its sibling `git_show_file_at_commit` already guarded the identical
+parameter). Both now call `_reject_flag_like()` and are classified medium-risk in `safety.py`.
+**Confirms the "not yet enforced by an automated check" gap above is real, not theoretical** — a
+security-focused audit still has to walk every bare-positional call site in this file by hand.
+
 ## Security invariants (`scripts/check_security_invariants.py`)
 
 SSRF gaps and login-timing side channels each got found and fixed independently, in a different
@@ -430,26 +495,43 @@ layer on top that reads real files and applies the file-level exemption list.
 
 ## Concurrency Model: the shared `agent` singleton
 
-**The repo's `Procfile` (`--worker-class gevent --workers 1 --worker-connections
-1000`) does not match what's actually deployed.** Confirmed 2026-07-30 via the
-live instance's systemd unit (`devops-agent.service`) and its own startup log
-(`Using worker: sync`): production actually runs **3 plain sync workers**
-(`--workers 3`, no `--worker-class` — gunicorn's default), each a separate OS
-process with its own memory space, so `app.py`'s global `agent` is really 3
-independent per-process singletons, not one instance shared across every
-concurrent request. A sync worker fully blocks on one request at a time, so
-there's no within-process greenlet-interleaving race to begin with under this
-config — reconcile the Procfile with reality at some point (see
-CLAUDE_RUNBOOK.md's 524 incident entry), but don't assume it's live without
-checking `systemctl cat devops-agent` / the gunicorn startup log first.
+**As of `db495f8` (2026-08-15, the chat-keepalive fix, PR #141), `devops-agent.service`
+runs `--worker-class gthread --workers 3 --threads 8`** — real OS-thread concurrency
+within each of the 3 processes, up to 8 requests interleaving in one process's memory
+at once. This is a genuine change from the config this section previously documented
+(3 plain sync workers, one request at a time per process, confirmed live 2026-07-30)
+and it was **not called out in that PR's own CLAUDE.md diff** — found by a 2026-08-22
+scheduled audit reading the committed `devops-agent.service` diff directly, not the
+commit message. The switch is very likely intentional and correct: `/api/chat`'s
+keep-alive now holds a connection open for up to `CHAT_MAX_TURN_SECONDS` (840s) per
+turn, and a sync worker would have starved the whole pool on the 4th-plus concurrent
+long-running chat. But it means the "no within-process race" reasoning this section
+used to rely on **no longer holds** — real threads within one process can now
+genuinely interleave on shared state, not just across the 3 processes as before.
 
-The rest of this section (the `_greenlet_local_property` fix) remains correct
-and worth keeping regardless of which worker class ends up running: it
-correctly isolates per-request state whether the mechanism is genuine
-greenlet-local storage (gevent) or simple thread/process-local storage (sync),
-so it's not wasted effort even though the original race it was built for
-assumed gevent specifically. The description below documents the gevent
-scenario the fix was originally designed against.
+The `_greenlet_local_property` mechanism below is unaffected and remains correct:
+`threading.local()` isolates real OS threads exactly as well as it isolated
+gevent-patched ones, so every property listed below is still safely per-request.
+**What is NOT yet audited against this newly-real concurrency is other module-level
+mutable state that was previously "safe by accident"** because only cross-process
+(never cross-thread) interleaving was possible. Known candidates flagged by the
+2026-08-22 audit, not yet fixed:
+- `app.py`'s module-level `download_storage = {}` dict — writes to distinct
+  per-turn keys are fine under the GIL, but this is worth a second look if any code
+  path ever does a read-modify-write on it.
+- `services/model_failover.py`'s module-level `PROVIDER_HEALTH` dict — `status['failures'] += 1`
+  and similar are non-atomic read-modify-write ops on shared dict values; two
+  concurrent failures on the same provider can now genuinely race within one process
+  and undercount failures. Low severity (delays failover detection, not a security issue).
+- `services/credit_service.py`'s `CreditService.deduct()` — plain read-then-write on
+  `UserSubscription.credits_remaining` with no row lock (`with_for_update()`); two
+  overlapping turns for the same user can now race intra-process, not just
+  inter-process as before. Worth a locked/atomic update if this becomes a real
+  revenue-accuracy issue.
+
+None of these are known to be exploitable for privilege escalation or cross-user data
+exposure — they're accuracy/reliability races, not the class of bug the `agent`
+singleton fix below addresses. Treat this as a follow-up audit item, not an incident.
 
 **Any per-request state on `DevOpsAgent` must be a `@property` backed by
 `self._local` (a `threading.local()`, see `_greenlet_local_property()` in
@@ -484,6 +566,17 @@ entirely: `aws_tools._get_boto_client` hard-requires a user context, so an appro
 either failed closed with "Authentication required" or could pick up whatever context a prior
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
+
+**Two more instances of the same gap, found by a 2026-08-15 scheduled audit and fixed the same
+day:** `routes/api_gateway.py`'s `api_execute_tool()` (the `/v1/execute` developer-API direct tool
+endpoint) called `all_tools[tool_name]['handler'](**params)` with no context set at all — same
+fail-closed/stale-context risk as the `approval_service` bug, here on the Professional/Business-tier
+REST API path. `routes/mcp.py`'s `_handle_tools_call()` (the MCP connector's tool-call handler) did
+set context, but only via `aws_tools.set_user_context`/`clear_user_context` directly — AWS-only,
+so an MCP client calling an Azure/GCP/`devops_operations_tools` tool ran with no context for that
+provider. Both fixed by routing through `agent._set_cloud_user_context(user_id)` /
+`agent._clear_cloud_user_context()` (imported via `from app import agent`), the same helper
+`approval_service.py` uses, which covers all four providers.
 
 **`_set_cloud_user_context`/`_clear_cloud_user_context` (`core.py`) must set AND clear every
 provider's thread-local context, not just AWS/Azure/GCP.** `src/tools/devops_operations_tools.py`
@@ -598,17 +691,47 @@ caching). All have safe fallbacks and kill-switches and are unit-tested in
   and `process_message_streaming` construct `ConversationManager(token_budget=...)`.
 
 ### Progressive tool loading (`src/agent/tool_selection.py`)
-Stops shipping all ~745 tool schemas on every request (token cost + worse tool
+Stops shipping all ~746 tool schemas on every request (token cost + worse tool
 selection). Rides the **existing `_tools_override` hook** — no new plumbing.
 - `classify_tool(name, module_category)` — AWS tools classified at the **service
   level** (`aws.ec2`, `aws.s3`, ...) so a single-service query selects ~30 tools
   instead of all 351; non-AWS tools use their module category. Categories are
   stored in `self.tool_categories` (populated in `register_tools_from_module`).
-- `select_tool_definitions(defs, categories, message, max_tools)` — keyword-matches
-  the message to categories (seeded from `_compute_swarm_agents` / `_TOOL_SIGNAL_RE`),
-  always includes `command` + `devops_operations` + `search_tools`, honors
+- `select_tool_definitions(defs, categories, message, max_tools, history_messages,
+  connected_providers)` — matches the message to categories, always includes
+  `command` + `devops_operations` + every name in `ALWAYS_TOOL_NAMES`, honors
   `max_tools`, and **returns `None` when nothing matches** (caller uses full list —
-  never hide tools when unsure).
+  never hide tools when unsure). Three signals, strongest first:
+  1. **Explicit keyword matches** on the current message (`CATEGORY_KEYWORDS`).
+  2. **`GENERIC_NOUNS`** — provider-agnostic words ("server", "database",
+     "container", "cluster", "log") map to an ordered list of categories across
+     AWS/Azure/GCP/K8s. Filtered to `connected_providers` when the caller knows
+     which clouds the user linked, so "restart the web server" doesn't ship
+     Azure+GCP tools to an AWS-only account.
+  3. **`history_messages`** — the last `HISTORY_WINDOW` (6) user turns. Without
+     this, follow-ups that carry no keywords of their own ("yes go ahead", "now
+     delete it") matched nothing and fell back to shipping all ~746 schemas,
+     which is the single largest avoidable latency source on the Kimi path.
+- **`ALWAYS_TOOL_NAMES`** — `search_tools` only, unconditionally. The eight
+  provider-generic escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`,
+  `k8s_*`) that the system prompt tells the model to fall back on are now
+  **scoped per turn** via `HATCH_PAIRS_BY_PROVIDER` / `_hatch_providers_for()`
+  — only the providers this turn's matched categories (current message +
+  generic nouns + history) actually implicate get their pair included. An
+  earlier version of this fix made all eight always-present regardless of
+  relevance, which meant a plain AWS request always carried GCP/Azure/
+  Kubernetes hatches too — confirmed live 2026-09-02: `k8s_api_read` executed
+  for a "create an ec2 instance using ubuntu" request purely because it was
+  always offered, though nothing about the request implicated Kubernetes.
+  Included by **name**, not by category, so a scoped hatch rides along
+  without dragging its whole category in.
+- **The `max_tools` cap never drops a category tied for the top explicit
+  score.** "show me the pods in my eks cluster" scores `kubernetes` and
+  `aws.eks` equally; the old greedy pass kept whichever sorted first and
+  silently dropped the other, hiding exactly what was asked for. Weaker signals
+  (generic nouns, history, the AWS seed) stay greedy and cap-bound — the four
+  seeded AWS services are a *guess*, so they must not claim the cap-exempt
+  slot, or a plain "what is my aws bill" ships ~197 tools past a cap of 100.
 - `core._maybe_select_tools(message, max_tools)` runs after the user message is
   added in both entry points; it's a no-op if a caller passed an explicit
   `tools_override` or if `tool_selection.enabled` is false.
@@ -620,9 +743,36 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
   `nmap_port_scan` 150 times for "create an ec2 instance" and never called
   `create_ec2_instance`. The tell is that `"Progressive tool loading: N/M tools selected"`
   never appears in `logs/agent.log`. Guarded by `tests/test_tool_selection_engaged.py`.
+- **Execution is restricted to the tools actually offered.** `core._is_tool_offered()`
+  gates every one of the 5 tool-execution sites (2 Kimi non-streaming, 2 Kimi
+  streaming, 1 Claude). Membership used to be tested against the full ~746-tool
+  registry (`tool_name in self.tools`), so a model that emitted a name selection had
+  deliberately withheld still got a real call against the user's cloud account —
+  observed in production 2026-09-02. A withheld name now returns
+  `_not_offered_result()`, which names `search_tools` as the recovery path; a
+  genuinely nonexistent name still reports "Unknown tool". When `_tools_override`
+  is `None` (full catalog sent) everything is allowed, so this is a no-op with
+  progressive loading disabled. **Direct-execution paths outside the agent loop
+  (`services/approval_service._execute_tool`, `routes/api_gateway.api_execute_tool`,
+  `routes/mcp._handle_tools_call`) set no override and are unaffected** — they are
+  authorized by their own gates, not by tool selection.
 - **`search_tools` meta-tool** (registered in `core.__init__`, category `meta`):
   the ToolSearch escape hatch — searches the full catalog and expands
   `self._tools_override` so any filtered-out tool becomes callable next turn.
+  **Scoring is whole-word with the tool name weighted 10x over the description**
+  (partial name hits for terms of 4+ chars score 5). A plain substring test let
+  short terms match inside unrelated words — "ami" hits "dyn-ami-c", which ranked
+  `list_eks_clusters` above `create_ami` for the query "ubuntu ami", so the one
+  recovery path from a filtered tool set returned junk.
+  **Both Kimi tool loops must rebuild their OpenAI-format tool list on every
+  iteration** via `core._current_oai_tools()`, never once before the loop. The
+  handler appends recovered tools to `_tools_override` mid-loop and tells the
+  model "these tools are now available — call them directly", but a list built
+  before the loop never carried them; the model was handed a promise the next
+  request contradicted, so it burned an iteration or answered "I don't have
+  that tool". The Claude paths already re-read the override each iteration.
+  This is the escape hatch's *only* recovery route on the free/starter tiers,
+  so any new provider loop must re-read the override per iteration too.
 
 ### Prompt caching (`src/agent/prompt_cache.py`)
 Phase 2 of the harness roadmap. Caches the static system prompt + tool schemas
@@ -701,7 +851,7 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **745** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **746** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:
@@ -769,6 +919,16 @@ def my_tool(param: str) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 ```
 - Most Azure write operations are async: use `begin_*()` which returns a poller, then call `.result()` to wait.
+- **`_get_azure_client()` imports and constructs only the requested `service_type`'s SDK client** —
+  one `if service_type == '...':` branch per service, each with its own inline `from azure.mgmt.*
+  import *ManagementClient`. Fixed 2026-08-25: it previously imported all seven `azure-mgmt-*` SDKs
+  in one `try` and eagerly constructed all seven client objects on every call regardless of which
+  one was requested, discarding six — the same "one broken/missing package takes down every
+  service" bug already fixed in `gcp_tools.py`'s `_get_gcp_client()` on 2026-08-11 (see the GCP
+  Pattern section below), just never ported to its Azure sibling. **When adding a new
+  provider-client-dict-style constructor (or a new `service_type` here), import and construct only
+  what that one call needs** — a shared multi-service constructor that builds every client up
+  front is exactly this bug shape regardless of which provider file it's in.
 
 ### GCP Pattern
 ```python
@@ -849,6 +1009,54 @@ Optional:
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi API key (required for Kimi model provider)
 - `KIMI_MODEL` - Kimi model override (default: `kimi-k3`, the latest). Valid Moonshot ids (verified live via `/v1/models` 2026-07-22): `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5` (no bare `kimi-k2.7`).
+- `METRICS_TOKEN` - Bearer token gating `/metrics` (see Prometheus Metrics section below). Unset = endpoint returns 403, disabled by default.
+- `PROMETHEUS_MULTIPROC_DIR` - Set in `devops-agent.service` (not `.env`) to enable multiprocess metric aggregation across gunicorn's 3 workers. Unset in local dev/tests — falls back to a single process-local registry.
+
+### Prometheus Metrics (`/metrics`)
+
+`routes/metrics.py` + `services/metrics_service.py`. Records `http_requests_total`
+and `http_request_duration_seconds` (labeled `method`, `endpoint`, and `status`
+on the counter) for every request via `before_request`/`after_request` hooks
+wired in `app.py`. `endpoint` is Flask's matched route name (`request.endpoint`),
+not the raw path — unmatched routes (404s, bot path-scans) collapse into one
+`unmatched` label instead of creating unbounded cardinality from raw paths.
+Duration buckets extend to 900s (`_DURATION_BUCKETS` in `metrics_service.py`)
+to keep resolution on slow `/api/chat` turns, which legitimately run up to
+`CHAT_MAX_TURN_SECONDS` (840s) — default prometheus_client buckets top out
+at 10s and would collapse all of those into `+Inf`.
+
+**Auth:** `/metrics` requires `Authorization: Bearer <METRICS_TOKEN>` — nginx.conf
+proxies every path straight through to the app (no reverse-proxy scoping the
+way node_exporter's `127.0.0.1`-only bind does), so this can't rely on network
+position the way host-level monitoring does. Same shape as the existing
+`/init-database-secret-endpoint-12345` token gate. Set `METRICS_TOKEN` in the
+box's `.env` (not `MANAGED_SECRET_KEYS` — `init_secrets()` only overwrites keys
+in that list, so a plain `.env` value is left alone in production).
+
+**Multiprocess aggregation is required, not optional, in production.**
+`devops-agent.service` runs `--workers 3` (3 OS processes) — a bare
+`prometheus_client` registry is process-local, so scraping through gunicorn
+would return whichever worker handled that request, with counters appearing
+to jump or reset across scrapes. `render_metrics()` uses `MultiProcessCollector`
+when `PROMETHEUS_MULTIPROC_DIR` is set. Three pieces have to stay in sync or
+this silently breaks:
+1. `PROMETHEUS_MULTIPROC_DIR` set in the systemd unit (must exist before the
+   metric objects are created at module import time — set via `Environment=`,
+   not `.env`, so it's present before gunicorn even forks).
+2. `ExecStartPre` wipes and recreates that directory on every start — a stale
+   file from a previous run's PID would otherwise be misread as a live
+   worker's counters.
+3. `gunicorn.conf.py`'s `child_exit` hook calls `multiprocess.mark_process_dead(worker.pid)`
+   — without it, a crashed or recycled worker's metric file is never marked
+   dead and gets double-counted alongside its replacement's for the rest of
+   that service's uptime. Wired via `ExecStart --config gunicorn.conf.py`.
+
+**Deploy gap:** `ci.yml`'s deploy job only does `git reset --hard` + `pip install`
++ `systemctl restart` — it does not copy `devops-agent.service` to
+`/etc/systemd/system/` or run `daemon-reload`. Any future change to the systemd
+unit (this one included) must be applied to the box manually via SSM, same as
+this feature's initial rollout — the repo copy is documentation of the intended
+unit, not the deployed one, until this gap is closed.
 
 ### Email / SMS MFA delivery (`email`/`sms` mfa_method)
 

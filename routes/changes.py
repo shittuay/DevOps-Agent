@@ -9,7 +9,7 @@ Manages infrastructure change requests with risk-based approval routing:
 
 from flask import Blueprint, request, jsonify, session
 from flask_login import login_required, current_user
-from models import db, InfrastructureChange, InfrastructureResource, OrganizationMember
+from models import db, InfrastructureChange, InfrastructureResource
 from services.rbac import require_permission, Permission, approver_required, user_is_admin, user_is_approver, user_active_org_ids
 from datetime import datetime
 import logging
@@ -154,9 +154,7 @@ def create_change_request():
     # a stale/tampered session value can't assign the change to a foreign org.
     organization_id = None
     active_org_id = session.get('active_organization_id')
-    if active_org_id and OrganizationMember.query.filter_by(
-        organization_id=active_org_id, user_id=current_user.id, is_active=True
-    ).first():
+    if active_org_id and active_org_id in _user_active_org_ids(current_user):
         organization_id = active_org_id
 
     change = InfrastructureChange(

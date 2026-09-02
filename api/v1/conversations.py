@@ -225,13 +225,14 @@ def delete_conversation(conversation_id):
             'message': 'Conversation not found'
         }), 404
 
-    ChatMessage.query.filter_by(
+    # Delete every other row that FKs to this conversation — see app.py's
+    # delete_conversation() for why leaving any of these breaks the delete below.
+    # ChatArtifact.message_id also FKs to chat_messages.id with no cascade, so
+    # it must be deleted BEFORE the ChatMessage delete below, not after.
+    ChatArtifact.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
     ).delete()
-
-    # Delete every other row that FKs to this conversation — see app.py's
-    # delete_conversation() for why leaving any of these breaks the delete below.
     UsageLog.query.filter_by(
         conversation_id=conversation_id,
         user_id=user_id
@@ -244,13 +245,14 @@ def delete_conversation(conversation_id):
         conversation_id=conversation_id,
         user_id=user_id
     ).delete()
-    ChatArtifact.query.filter_by(
-        conversation_id=conversation_id,
-        user_id=user_id
-    ).delete()
     ApprovalRequest.query.filter_by(
         conversation_id=conversation_id,
         requester_id=user_id
+    ).delete()
+
+    ChatMessage.query.filter_by(
+        conversation_id=conversation_id,
+        user_id=user_id
     ).delete()
 
     db.session.delete(conversation)
@@ -404,11 +406,12 @@ def send_message(conversation_id):
 
     is_first = conversation.title == 'New Chat'
 
+    from services.chat_service import ensure_non_empty_response
     assistant_message = ChatMessage(
         user_id=user_id,
         conversation_id=conversation_id,
         role='assistant',
-        content=response
+        content=ensure_non_empty_response(response)
     )
     db.session.add(assistant_message)
 
@@ -668,7 +671,8 @@ def api_v1_chat_stream():
                 full_response.append(note)
                 yield f"data: {json.dumps({'type': 'chunk', 'content': note})}\n\n"
 
-            complete = ''.join(full_response)
+            from services.chat_service import ensure_non_empty_response
+            complete = ensure_non_empty_response(''.join(full_response))
 
             # Save to DB
             with app.app_context():

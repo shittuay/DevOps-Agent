@@ -347,6 +347,41 @@ class TestSafetyClassifications:
     def test_opsgenie_escalate_alert_is_medium_risk(self):
         assert self._classify('opsgenie_escalate_alert') == 'medium'
 
+    # --- medium-risk: Git (merges stashed changes into the working tree,
+    # can conflict/overwrite — same risk class as git_merge_branch/git_cherry_pick) ---
+    def test_git_stash_apply_is_medium_risk(self):
+        assert self._classify('git_stash_apply') == 'medium'
+
+    # --- high-risk: AWS secret/credential disclosure (same class as get_secret_value) ---
+    def test_create_ec2_keypair_is_high_risk(self):
+        # Returns the raw PEM private key material directly in the tool result.
+        assert self._classify('create_ec2_keypair') == 'high'
+
+    def test_generate_s3_presigned_url_is_high_risk(self):
+        # Generates an unauthenticated bearer URL (up to 7 days) for get_object
+        # or put_object with no further AWS auth required.
+        assert self._classify('generate_s3_presigned_url') == 'high'
+
+    # --- medium-risk: AWS SNS (same "pages/redirects to an external endpoint
+    # with no confirmation" shape as the alerting tools above) ---
+    def test_publish_sns_message_is_medium_risk(self):
+        assert self._classify('publish_sns_message') == 'medium'
+
+    def test_subscribe_sns_topic_is_medium_risk(self):
+        assert self._classify('subscribe_sns_topic') == 'medium'
+
+    # --- medium-risk: GCP Pub/Sub (same shape as publish_sns_message above —
+    # topic_name/message_data/attributes are caller-controlled and can reach
+    # push subscriptions or trigger downstream Cloud Functions/Cloud Run) ---
+    def test_publish_pubsub_message_is_medium_risk(self):
+        assert self._classify('publish_pubsub_message') == 'medium'
+
+    # --- medium-risk: Route53 (create_ prefix isn't a monitored auto-detect
+    # prefix, but this tool defaults action='UPSERT', silently overwriting any
+    # existing live DNS record with the same name/type with zero confirmation) ---
+    def test_create_route53_record_is_medium_risk(self):
+        assert self._classify('create_route53_record') == 'medium'
+
     # --- production escalation ---
     def test_high_risk_on_production_escalates_to_critical(self):
         from src.agent.safety import SafetyValidator

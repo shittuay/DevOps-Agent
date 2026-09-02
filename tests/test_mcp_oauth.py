@@ -463,3 +463,50 @@ class TestOAuthFlowEndToEnd:
         })
         assert tok.status_code == 400
         assert tok.get_json()['error'] == 'invalid_grant'
+
+    def test_builtin_client_id_rejects_attacker_redirect_uri(self, client):
+        """Regression test for a critical auth-code-interception bug: the
+        built-in confidential client_id (OAUTH_CLIENT_ID) used to skip
+        redirect_uri allowlisting entirely (allowed_redirect_uris stayed
+        None), so ANY https redirect_uri was accepted for it. Combined with
+        the PKCE path at /mcp/oauth/token not requiring client_secret when a
+        code_verifier is present, an attacker could redirect a victim's
+        authorization code to an attacker-controlled origin and redeem it
+        themselves for a full access token — account takeover. The fix pins
+        the built-in client to _BUILTIN_CLIENT_REDIRECT_URIS, the same
+        allowlist mechanism already used for dynamically-registered clients."""
+        from routes.mcp import OAUTH_CLIENT_ID
+
+        verifier, challenge = _pkce_pair()
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': OAUTH_CLIENT_ID,
+            'redirect_uri': 'https://attacker.example.com/cb',
+            'state': 'st4te',
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'invalid_request'
+
+    def test_builtin_client_id_accepts_documented_redirect_uri(self, client, test_user):
+        """The documented claude.ai custom-connector flow (client_id=
+        claude-connector, redirect_uri=https://claude.ai/api/mcp/auth_callback,
+        per templates/docs.html) must keep working after the redirect_uri
+        allowlist fix."""
+        from routes.mcp import OAUTH_CLIENT_ID
+
+        verifier, challenge = _pkce_pair()
+        params = {
+            'response_type': 'code',
+            'client_id': OAUTH_CLIENT_ID,
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'state': 's',
+            'code_challenge': challenge,
+            'code_challenge_method': 'S256',
+        }
+        authz = client.post('/mcp/oauth/authorize', query_string=params, data={
+            **params, 'email': 'test@example.com', 'password': 'TestPassword123!',
+        })
+        assert authz.status_code == 302
+        assert authz.headers['Location'].startswith('https://claude.ai/api/mcp/auth_callback')

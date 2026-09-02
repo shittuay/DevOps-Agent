@@ -19,6 +19,13 @@ from .prompt_cache import (
 )
 
 
+# Placeholder substituted for an assistant turn with no text content — either when
+# persisting a new response (app.py's save path) or when replaying a legacy poisoned
+# row from history (see CLAUDE_RUNBOOK.md's 2026-08-25 entry). Kimi's API rejects a
+# plain assistant message with empty content, and Anthropic's API requires strict
+# user/assistant alternation, so an empty turn must be replaced, never dropped.
+EMPTY_ASSISTANT_PLACEHOLDER = "(No response text was generated for this turn.)"
+
 # Strong hallucination signals — always replace response, regardless of tools_called_this_turn
 # These are explicit fabrication markers that should NEVER appear in real responses
 _STRONG_HALLUCINATION_PATTERNS = [
@@ -299,6 +306,8 @@ The 700+ tools are shortcuts, not a ceiling. Beyond those shortcuts is the entir
 - NEVER write fake resource IDs, IP addresses, ARNs, access keys, or cost figures. If it didn't come from a tool call, don't write it.
 - NEVER write "[Executing tool...]", "[Tool executed]", "[Checking...]", or any similar marker in plain text. The system renders these automatically when real tools run. Writing them yourself is fabrication and will be detected.
 - If you need live data — call the tool. Always.
+- NEVER invent a system-level excuse for a failed or misrouted tool call — no "tool-invocation channel malfunctioning", "session-level generation fault", "internal routing error", or any other fabricated infrastructure diagnosis. There is no such subsystem. If a tool call returns `success: false`, that is real output describing what actually happened (wrong tool for the provider, bad parameter, missing credentials, etc.) — read it, fix the mistake, and retry with the correct tool immediately. This is your error, not a platform fault, and you have tool-call iterations remaining to correct it.
+- If you exhaust retries and still cannot complete the request, say plainly what you attempted and quote the tool's actual error message verbatim. Never dress up a real failure as a fake one — an honest "this tool call failed: <error>" is always correct; an invented explanation is never correct, even if it sounds more reassuring.
 
 === IDENTITY LOCK — APPLIES TO EVERY RESPONSE ===
 Your identity is permanent and non-negotiable:
@@ -385,6 +394,7 @@ Cost Optimization:
   - Use path 1 when the user says "just do it" / confirms in chat.
   - Use path 2 when the user says "create a change request" / wants approval first.
   - NEVER do both paths for the same action — pick one.
+- Need to run a command ON a remote resource (an EC2 instance, a container, a Kubernetes pod) → use that resource's own tool: ssm_run_command (EC2), docker_exec (container), exec_pod_command (pod). NEVER execute_command for this — it runs locally on the server hosting this agent, not on the remote resource, so it silently cannot reach any of them. execute_command is only for local diagnostics/CLI operations on this agent's own host.
 - "Sync my infrastructure" → sync_infrastructure
 - Resource utilization → get_resource_utilization
 - Specific AWS/Azure/GCP operations → use the dedicated provider tools
@@ -760,13 +770,87 @@ class DevOpsAgent:
             return
         cap = max_tools or self.config.get('tool_selection.max_tools', 100)
         subset = select_tool_definitions(
-            self.tool_definitions, self.tool_categories, user_message, cap
+            self.tool_definitions, self.tool_categories, user_message, cap,
+            history_messages=self._prior_user_message_texts(),
+            connected_providers=self._connected_providers_for_selection(),
         )
         if subset:
             self.logger.info(
                 f"Progressive tool loading: {len(subset)}/{len(self.tool_definitions)} tools selected"
             )
             self._tools_override = subset
+
+    def _prior_user_message_texts(self) -> List[str]:
+        """Text of earlier user turns in the current conversation (excluding the
+        message just added), oldest first. Feeds conversation-aware tool selection
+        so follow-ups like "yes go ahead" keep the previous turn's tool set."""
+        conversation = getattr(self, 'conversation', None)
+        messages = getattr(conversation, 'messages', None) or []
+        texts: List[str] = []
+        for msg in messages[:-1]:
+            if getattr(msg, 'role', None) != 'user':
+                continue
+            content = getattr(msg, 'content', None)
+            if isinstance(content, str):
+                texts.append(content)
+            elif isinstance(content, list):
+                texts.append(' '.join(
+                    b.get('text', '') for b in content
+                    if isinstance(b, dict) and b.get('type') == 'text'
+                ))
+        return texts
+
+    def _connected_providers_for_selection(self) -> Optional[Dict[str, bool]]:
+        """Which cloud accounts the current user has linked, for narrowing
+        provider-agnostic tool selection. ``None`` (no filtering) in sandbox
+        mode, with no user, or when the lookup fails for any reason."""
+        user_id = getattr(self, '_current_user_id', None)
+        if not user_id or getattr(self, '_sandbox_mode', False):
+            return None
+        try:
+            from services.credential_service import get_user_configured_providers
+            return get_user_configured_providers(user_id)
+        except Exception as e:
+            self.logger.debug(f"Connected-provider lookup skipped: {e}")
+            return None
+
+    def _is_tool_offered(self, tool_name: str) -> bool:
+        """Whether ``tool_name`` was in the tool set actually sent to the model.
+
+        Progressive tool loading narrows ``_tools_override``, but execution used to
+        test membership against the full ~745-tool registry, so a model that emitted
+        a name it was never offered still got a real call against the user's cloud
+        account. Observed in production 2026-09-02: asked to create an Ubuntu EC2
+        instance (a request that had no satisfiable tool, since AMI lookup didn't
+        exist yet), Kimi emitted ``list_iam_roles`` — withheld from that turn by
+        selection — and it executed anyway. Failing closed here turns a guess into
+        an error that names ``search_tools``, which is the intended recovery path.
+        """
+        if tool_name not in self.tools:
+            return False
+        override = getattr(self, '_tools_override', None)
+        if override is None:
+            return True  # full catalog was sent; everything is fair game
+        return any(td['name'] == tool_name for td in override)
+
+    def _not_offered_result(self, tool_name: str) -> Dict[str, Any]:
+        """Error result for a tool the model was not offered this turn."""
+        if tool_name in self.tools:
+            return {
+                'success': False,
+                'error': (
+                    f'"{tool_name}" was not offered for this request, so it was not run. '
+                    f'Call search_tools with a description of what you need — that makes '
+                    f'the matching tools callable — then retry. Do not guess tool names.'
+                ),
+            }
+        return {
+            'success': False,
+            'error': (
+                f'Unknown tool: {tool_name}. No tool by that name exists. Call '
+                f'search_tools with a description of the capability you need.'
+            ),
+        }
 
     def _search_tools_handler(self, query: str, limit: int = 25) -> Dict[str, Any]:
         """
@@ -780,12 +864,27 @@ class DevOpsAgent:
         for td in self.tool_definitions:
             if td['name'] == 'search_tools':
                 continue
-            haystack = (td['name'] + ' ' + td.get('description', '')).lower()
-            score = sum(1 for t in terms if t in haystack)
+            name = td['name'].lower()
+            desc = td.get('description', '').lower()
+            score = 0
+            for t in terms:
+                # Whole-word matching. A bare substring test made short terms match
+                # inside unrelated words — "ami" hits "dyn-ami-c", which ranked
+                # list_eks_clusters above create_ami for the query "ubuntu ami".
+                word = re.compile(r'(?<![a-z0-9])' + re.escape(t) + r'(?![a-z0-9])')
+                # A hit in the tool NAME is what actually identifies a tool; a hit in
+                # the prose description is weak evidence, so weight them differently.
+                if word.search(name):
+                    score += 10
+                elif len(t) >= 4 and t in name:
+                    score += 5  # partial name hit, e.g. "image" in docker_list_images
+                if word.search(desc):
+                    score += 1
             if score:
-                scored.append((score, td))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        top = [td for _, td in scored[:limit]]
+                # Prefer the shorter, more specific name when scores tie.
+                scored.append((score, -len(td['name']), td))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        top = [td for _, _, td in scored[:limit]]
 
         # Make the matched tools available on subsequent turns.
         if self._tools_override is not None:
@@ -985,9 +1084,19 @@ class DevOpsAgent:
                 if msg['role'] == 'user':
                     self.conversation.add_user_message(msg['content'])
                 elif msg['role'] == 'assistant':
+                    # An empty prior assistant turn (see CLAUDE_RUNBOOK.md's 2026-08-25
+                    # entry — pre-fix rows in the DB can still have this) must not be
+                    # replayed as-is: Kimi's API rejects a plain assistant message with
+                    # empty content ("message ... must not be empty"), and Anthropic's
+                    # API is stricter still — it requires user/assistant roles to
+                    # strictly alternate, so *dropping* the turn instead of replacing
+                    # its content collapses the surrounding user turns into consecutive
+                    # entries and trades one 400 for another. Substitute the same
+                    # placeholder text app.py's save path uses for empty responses.
+                    text = msg.get('content', '').strip() or EMPTY_ASSISTANT_PLACEHOLDER
                     self.conversation.add_assistant_message([{
                         'type': 'text',
-                        'text': msg['content']
+                        'text': text
                     }])
 
             # Add the new user message
@@ -1071,9 +1180,19 @@ class DevOpsAgent:
                 if msg['role'] == 'user':
                     self.conversation.add_user_message(msg['content'])
                 elif msg['role'] == 'assistant':
+                    # An empty prior assistant turn (see CLAUDE_RUNBOOK.md's 2026-08-25
+                    # entry — pre-fix rows in the DB can still have this) must not be
+                    # replayed as-is: Kimi's API rejects a plain assistant message with
+                    # empty content ("message ... must not be empty"), and Anthropic's
+                    # API is stricter still — it requires user/assistant roles to
+                    # strictly alternate, so *dropping* the turn instead of replacing
+                    # its content collapses the surrounding user turns into consecutive
+                    # entries and trades one 400 for another. Substitute the same
+                    # placeholder text app.py's save path uses for empty responses.
+                    text = msg.get('content', '').strip() or EMPTY_ASSISTANT_PLACEHOLDER
                     self.conversation.add_assistant_message([{
                         'type': 'text',
-                        'text': msg['content']
+                        'text': text
                     }])
 
             self.conversation.add_user_message(user_message)
@@ -1360,6 +1479,20 @@ class DevOpsAgent:
             for t in tools
         ]
 
+    def _current_oai_tools(self) -> List[Dict[str, Any]]:
+        """OpenAI-format tool list for *this* iteration of a Kimi tool loop.
+
+        Must be re-evaluated every iteration, not once per turn: the
+        ``search_tools`` handler appends recovered tools to ``_tools_override``
+        mid-loop, and a list built before the loop never carried them to the
+        model — it was told "these tools are now available" and then sent a
+        request that still lacked them.
+        """
+        _override = getattr(self, '_tools_override', None)
+        if _override is not None:
+            return self._convert_tool_list_to_openai_format(_override)
+        return self._convert_tools_to_openai_format()
+
     def _convert_tools_to_openai_format(self) -> List[Dict[str, Any]]:
         """Convert Anthropic tool definitions to OpenAI function-calling format (cached)."""
         if self._cached_oai_tools is not None:
@@ -1405,12 +1538,6 @@ class DevOpsAgent:
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         from services.model_router import DEFAULT_KIMI_MODEL
         model = model_override or os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
-        _override = getattr(self, '_tools_override', None)
-        oai_tools = (
-            self._convert_tool_list_to_openai_format(_override)
-            if _override is not None
-            else self._convert_tools_to_openai_format()
-        )
 
         system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
@@ -1442,6 +1569,7 @@ class DevOpsAgent:
             self.logger.debug(f"Kimi API call iteration {iteration}")
 
             try:
+                oai_tools = self._current_oai_tools()
                 params = {
                     'model': model,
                     'messages': messages,
@@ -1522,7 +1650,7 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
-                                elif tool_name in self.tools:
+                                elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
                                         self._last_tools_used.append(tool_name)
@@ -1531,11 +1659,11 @@ class DevOpsAgent:
                                         self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                 else:
-                                    result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                                    result = self._not_offered_result(tool_name)
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
-                        elif tool_name in self.tools:
+                        elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
                                 self._last_tools_used.append(tool_name)
@@ -1544,7 +1672,7 @@ class DevOpsAgent:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                         else:
-                            result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                            result = self._not_offered_result(tool_name)
 
                         self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
@@ -1614,12 +1742,6 @@ class DevOpsAgent:
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
         from services.model_router import DEFAULT_KIMI_MODEL
         model = model_override or os.environ.get('KIMI_MODEL', DEFAULT_KIMI_MODEL)
-        _override = getattr(self, '_tools_override', None)
-        oai_tools = (
-            self._convert_tool_list_to_openai_format(_override)
-            if _override is not None
-            else self._convert_tools_to_openai_format()
-        )
 
         system_prompt = self._build_system_prompt(user_preferences_context, trial_context=trial_context)
 
@@ -1643,6 +1765,7 @@ class DevOpsAgent:
         tools_called_this_turn = False
         for iteration in range(max_iterations):
             try:
+                oai_tools = self._current_oai_tools()
                 params = {
                     'model': model,
                     'messages': messages,
@@ -1789,7 +1912,7 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
-                                elif tool_name in self.tools:
+                                elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
                                         self._last_tools_used.append(tool_name)
@@ -1797,7 +1920,7 @@ class DevOpsAgent:
                                     except Exception as e:
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                 else:
-                                    result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                                    result = self._not_offered_result(tool_name)
                             elif not _approval_done:
                                 result = {'success': False, 'error': 'High-risk operation requires approval'}
                             else:
@@ -1805,7 +1928,7 @@ class DevOpsAgent:
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
-                        elif tool_name in self.tools:
+                        elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
                                 self._last_tools_used.append(tool_name)
@@ -1813,7 +1936,7 @@ class DevOpsAgent:
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                         else:
-                            result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                            result = self._not_offered_result(tool_name)
 
                         self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
@@ -1935,14 +2058,11 @@ class DevOpsAgent:
                     if getattr(self, '_sandbox_mode', False):
                         from services.learning_sandbox import generate_mock_result
                         result = generate_mock_result(tool_name, tool_input)
-                    elif tool_name in self.tools:
+                    elif self._is_tool_offered(tool_name):
                         result = self.tools[tool_name](**tool_input)
                         self._audit_chat_deletion(tool_name, tool_input, result)
                     else:
-                        result = {
-                            'success': False,
-                            'error': f"Unknown tool: {tool_name}"
-                        }
+                        result = self._not_offered_result(tool_name)
 
                     self.logger.info(f"Tool {tool_name} executed successfully")
                     self._last_tools_used.append(tool_name)
