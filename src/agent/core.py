@@ -766,6 +766,44 @@ class DevOpsAgent:
             self.logger.debug(f"Connected-provider lookup skipped: {e}")
             return None
 
+    def _is_tool_offered(self, tool_name: str) -> bool:
+        """Whether ``tool_name`` was in the tool set actually sent to the model.
+
+        Progressive tool loading narrows ``_tools_override``, but execution used to
+        test membership against the full ~745-tool registry, so a model that emitted
+        a name it was never offered still got a real call against the user's cloud
+        account. Observed in production 2026-09-02: asked to create an Ubuntu EC2
+        instance (a request that had no satisfiable tool, since AMI lookup didn't
+        exist yet), Kimi emitted ``list_iam_roles`` — withheld from that turn by
+        selection — and it executed anyway. Failing closed here turns a guess into
+        an error that names ``search_tools``, which is the intended recovery path.
+        """
+        if tool_name not in self.tools:
+            return False
+        override = getattr(self, '_tools_override', None)
+        if override is None:
+            return True  # full catalog was sent; everything is fair game
+        return any(td['name'] == tool_name for td in override)
+
+    def _not_offered_result(self, tool_name: str) -> Dict[str, Any]:
+        """Error result for a tool the model was not offered this turn."""
+        if tool_name in self.tools:
+            return {
+                'success': False,
+                'error': (
+                    f'"{tool_name}" was not offered for this request, so it was not run. '
+                    f'Call search_tools with a description of what you need — that makes '
+                    f'the matching tools callable — then retry. Do not guess tool names.'
+                ),
+            }
+        return {
+            'success': False,
+            'error': (
+                f'Unknown tool: {tool_name}. No tool by that name exists. Call '
+                f'search_tools with a description of the capability you need.'
+            ),
+        }
+
     def _search_tools_handler(self, query: str, limit: int = 25) -> Dict[str, Any]:
         """
         Search the full tool catalog and surface matches for the current request.
@@ -778,12 +816,27 @@ class DevOpsAgent:
         for td in self.tool_definitions:
             if td['name'] == 'search_tools':
                 continue
-            haystack = (td['name'] + ' ' + td.get('description', '')).lower()
-            score = sum(1 for t in terms if t in haystack)
+            name = td['name'].lower()
+            desc = td.get('description', '').lower()
+            score = 0
+            for t in terms:
+                # Whole-word matching. A bare substring test made short terms match
+                # inside unrelated words — "ami" hits "dyn-ami-c", which ranked
+                # list_eks_clusters above create_ami for the query "ubuntu ami".
+                word = re.compile(r'(?<![a-z0-9])' + re.escape(t) + r'(?![a-z0-9])')
+                # A hit in the tool NAME is what actually identifies a tool; a hit in
+                # the prose description is weak evidence, so weight them differently.
+                if word.search(name):
+                    score += 10
+                elif len(t) >= 4 and t in name:
+                    score += 5  # partial name hit, e.g. "image" in docker_list_images
+                if word.search(desc):
+                    score += 1
             if score:
-                scored.append((score, td))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        top = [td for _, td in scored[:limit]]
+                # Prefer the shorter, more specific name when scores tie.
+                scored.append((score, -len(td['name']), td))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        top = [td for _, _, td in scored[:limit]]
 
         # Make the matched tools available on subsequent turns.
         if self._tools_override is not None:
@@ -1541,7 +1594,7 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
-                                elif tool_name in self.tools:
+                                elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
                                         self._last_tools_used.append(tool_name)
@@ -1550,11 +1603,11 @@ class DevOpsAgent:
                                         self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                 else:
-                                    result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                                    result = self._not_offered_result(tool_name)
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
-                        elif tool_name in self.tools:
+                        elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
                                 self._last_tools_used.append(tool_name)
@@ -1563,7 +1616,7 @@ class DevOpsAgent:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                         else:
-                            result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                            result = self._not_offered_result(tool_name)
 
                         result_str = json.dumps(result, indent=2, default=_json_default)
                         if not getattr(self, '_trust_tool_results', True):
@@ -1800,7 +1853,7 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
-                                elif tool_name in self.tools:
+                                elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
                                         self._last_tools_used.append(tool_name)
@@ -1808,7 +1861,7 @@ class DevOpsAgent:
                                     except Exception as e:
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                 else:
-                                    result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                                    result = self._not_offered_result(tool_name)
                             elif not _approval_done:
                                 result = {'success': False, 'error': 'High-risk operation requires approval'}
                             else:
@@ -1816,7 +1869,7 @@ class DevOpsAgent:
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
-                        elif tool_name in self.tools:
+                        elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
                                 self._last_tools_used.append(tool_name)
@@ -1824,7 +1877,7 @@ class DevOpsAgent:
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                         else:
-                            result = {'success': False, 'error': f"Unknown tool: {tool_name}"}
+                            result = self._not_offered_result(tool_name)
 
                         result_str = json.dumps(result, indent=2, default=_json_default)
                         if not getattr(self, '_trust_tool_results', True):
@@ -1939,14 +1992,11 @@ class DevOpsAgent:
                     if getattr(self, '_sandbox_mode', False):
                         from services.learning_sandbox import generate_mock_result
                         result = generate_mock_result(tool_name, tool_input)
-                    elif tool_name in self.tools:
+                    elif self._is_tool_offered(tool_name):
                         result = self.tools[tool_name](**tool_input)
                         self._audit_chat_deletion(tool_name, tool_input, result)
                     else:
-                        result = {
-                            'success': False,
-                            'error': f"Unknown tool: {tool_name}"
-                        }
+                        result = self._not_offered_result(tool_name)
 
                     self.logger.info(f"Tool {tool_name} executed successfully")
                     self._last_tools_used.append(tool_name)
