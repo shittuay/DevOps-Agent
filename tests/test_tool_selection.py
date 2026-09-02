@@ -121,17 +121,54 @@ def _names(subset):
     return {t['name'] for t in subset}
 
 
-def test_escape_hatches_always_present():
+def test_search_tools_always_present():
+    defs, cats = _build_multi_provider_registry()
+    subset = select_tool_definitions(defs, cats, "list my ec2 instances", max_tools=100)
+    assert 'search_tools' in _names(subset)
+
+
+def test_escape_hatches_scoped_to_implicated_providers():
+    """A plain AWS request must carry only the AWS escape hatch, not all four
+    providers'. Production, 2026-09-02: k8s_api_read executed for a "create an
+    ec2 instance" request purely because every hatch was always offered,
+    though nothing about the request implicated Kubernetes. See
+    CLAUDE_RUNBOOK.md."""
     defs, cats = _build_multi_provider_registry()
     subset = select_tool_definitions(defs, cats, "list my ec2 instances", max_tools=100)
     names = _names(subset)
-    for hatch in ('aws_api_read', 'aws_api_write', 'azure_api_read', 'azure_api_write',
-                  'gcp_api_read', 'gcp_api_write', 'k8s_api_read', 'k8s_api_write',
-                  'search_tools'):
-        assert hatch in names, hatch
-    # ...without dragging the rest of their categories along.
+    assert 'aws_api_read' in names and 'aws_api_write' in names
+    for hatch in ('azure_api_read', 'azure_api_write', 'gcp_api_read', 'gcp_api_write',
+                  'k8s_api_read', 'k8s_api_write'):
+        assert hatch not in names, f"{hatch} offered for an AWS-only request"
+    # ...and the scoped hatch doesn't drag the rest of its category along.
     assert not any(n.startswith('azure_tool_') for n in names)
     assert not any(n.startswith('k8s_tool_') for n in names)
+
+
+def test_escape_hatches_scoped_to_each_provider_named():
+    """A genuinely cross-cloud request keeps every hatch it actually implicates.
+    Uses explicit category keywords rather than a generic noun like "vm" —
+    a bare generic noun legitimately spans all providers when unscoped
+    (see test_generic_noun_spans_providers_when_unknown); this test checks
+    the separate case of two providers both named outright."""
+    defs, cats = _build_multi_provider_registry()
+    subset = select_tool_definitions(
+        defs, cats, "list my aws ec2 instances and azure resource groups", max_tools=200
+    )
+    names = _names(subset)
+    assert 'aws_api_read' in names
+    assert 'azure_api_read' in names
+    assert 'gcp_api_read' not in names
+    assert 'k8s_api_read' not in names
+
+
+def test_kubernetes_request_gets_only_the_k8s_hatch():
+    defs, cats = _build_multi_provider_registry()
+    subset = select_tool_definitions(defs, cats, "list my kubernetes pods", max_tools=100)
+    names = _names(subset)
+    assert 'k8s_api_read' in names and 'k8s_api_write' in names
+    assert 'aws_api_read' not in names
+    assert 'gcp_api_read' not in names
 
 
 def test_tied_top_categories_are_both_kept_even_over_cap():

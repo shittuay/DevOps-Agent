@@ -14,7 +14,7 @@ Safety contract:
 - ``search_tools`` is always retained so the model can recover any tool at runtime.
 """
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # Always available regardless of message content.
 ALWAYS_CATEGORIES = ('command', 'devops_operations')
@@ -188,17 +188,28 @@ def classify_tool(name: str, module_category: str) -> str:
     return module_category
 
 
-# Tools that must be callable on every turn regardless of selection: the search
-# escape hatch plus the provider-generic API tools the system prompt tells the
-# model to fall back on ("NEVER say 'I don't have a tool'"). Filtering these out
-# left the model with an instruction it could not follow.
-ALWAYS_TOOL_NAMES = frozenset({
-    SEARCH_TOOL_NAME,
-    'aws_api_read', 'aws_api_write',
-    'azure_api_read', 'azure_api_write',
-    'gcp_api_read', 'gcp_api_write',
-    'k8s_api_read', 'k8s_api_write',
-})
+# search_tools is the one hatch that must be callable on every turn
+# unconditionally — it's the universal recovery path when nothing else fits.
+ALWAYS_TOOL_NAMES = frozenset({SEARCH_TOOL_NAME})
+
+# The provider-generic API tools the system prompt tells the model to fall
+# back on ("NEVER say 'I don't have a tool'"), keyed by the provider they
+# belong to. Offered only for providers this turn's matched categories
+# actually implicate (see _hatch_providers_for) — NOT unconditionally on
+# every turn. An earlier version of this fix made all eight always-present
+# regardless of relevance, which meant a plain "create an ec2 instance"
+# request always carried GCP/Azure/Kubernetes escape hatches too; a model
+# struggling to find the right AWS tool reached for whichever generic hatch
+# was easiest to grab instead. Confirmed live 2026-09-02: k8s_api_read
+# executed for a "create an ec2 instance using ubuntu" request purely
+# because it was always offered, though nothing about the request implicated
+# Kubernetes. See CLAUDE_RUNBOOK.md.
+HATCH_PAIRS_BY_PROVIDER: Dict[str, Tuple[str, str]] = {
+    'aws': ('aws_api_read', 'aws_api_write'),
+    'azure': ('azure_api_read', 'azure_api_write'),
+    'gcp': ('gcp_api_read', 'gcp_api_write'),
+    'kubernetes': ('k8s_api_read', 'k8s_api_write'),
+}
 
 # Provider-agnostic nouns -> categories that could satisfy them, in preference
 # order. Weaker than CATEGORY_KEYWORDS (ranked below explicit matches) and, when
@@ -271,6 +282,28 @@ def provider_of_category(category: str) -> Optional[str]:
     return None
 
 
+def _hatch_provider_of(category: str) -> Optional[str]:
+    """Like ``provider_of_category`` but also resolves ``kubernetes``.
+
+    Kept separate from ``provider_of_category`` deliberately: that function
+    also drives the connected-providers filter for generic nouns, and
+    ``connected_providers`` (from ``get_user_configured_providers``) has no
+    notion of a "connected" Kubernetes cluster — making it kubernetes-aware
+    there would silently drop Kubernetes from noun matches for every
+    non-sandbox user.
+    """
+    if category == 'kubernetes':
+        return 'kubernetes'
+    return provider_of_category(category)
+
+
+def _hatch_providers_for(categories: Iterable[str]) -> set:
+    """Which providers' generic API escape hatches this turn should carry,
+    given every category matched by the current message, generic nouns, and
+    history."""
+    return {p for c in categories if (p := _hatch_provider_of(c)) is not None}
+
+
 def select_tool_definitions(
     tool_definitions: List[Dict[str, Any]],
     tool_categories: Dict[str, str],
@@ -290,7 +323,9 @@ def select_tool_definitions(
 
     Returns ``None`` when no signal matches (caller should then use the full
     tool list). Otherwise returns a filtered list (original order preserved) that
-    always includes ALWAYS_CATEGORIES and ALWAYS_TOOL_NAMES.
+    always includes ALWAYS_CATEGORIES, ``search_tools``, and the provider-generic
+    API escape hatches for whichever providers this turn actually implicates
+    (see HATCH_PAIRS_BY_PROVIDER) — not unconditionally for every provider.
 
     ``max_tools`` is honored greedily, with one exception: every category tied
     for the top explicit score is always kept. When the message names two
@@ -329,13 +364,20 @@ def select_tool_definitions(
         return None
 
     base = set(ALWAYS_CATEGORIES)
-    if any(c.startswith('aws.') for c in [*current, *generic, *history]):
+    all_matched = [*current, *generic, *history]
+    if any(c.startswith('aws.') for c in all_matched):
         base.add(AWS_COMMON_CATEGORY)
+
+    # Scope the provider-generic escape hatches to providers this turn's
+    # matched categories actually implicate — see HATCH_PAIRS_BY_PROVIDER.
+    always_tool_names = set(ALWAYS_TOOL_NAMES)
+    for provider in _hatch_providers_for(all_matched):
+        always_tool_names.update(HATCH_PAIRS_BY_PROVIDER[provider])
 
     def _subset_for(cats: set) -> List[Dict[str, Any]]:
         return [
             td for td in tool_definitions
-            if tool_categories.get(td['name']) in cats or td['name'] in ALWAYS_TOOL_NAMES
+            if tool_categories.get(td['name']) in cats or td['name'] in always_tool_names
         ]
 
     ranked_current = sorted(current, key=lambda c: current[c], reverse=True)
