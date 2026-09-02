@@ -600,6 +600,14 @@ class SafetyValidator:
             # future topic messages at an arbitrary external endpoint the caller supplies.
             'publish_sns_message',
             'subscribe_sns_topic',
+            # GCP's equivalent of publish_sns_message above: topic_name/message_data/
+            # attributes are all caller-controlled, and Pub/Sub topics commonly fan out to
+            # push subscriptions (arbitrary external HTTP endpoints) or trigger downstream
+            # Cloud Functions/Cloud Run services — same "arbitrary content to an external
+            # sink with no confirmation" risk class. create_pubsub_subscription (which can
+            # point a topic at a new external endpoint) was already medium-risk; this sibling
+            # publish path was missed until the 2026-09-02 scheduled audit.
+            'publish_pubsub_message',
         }
 
         # Check if tool is a pentest tool

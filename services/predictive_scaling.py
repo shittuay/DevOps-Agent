@@ -94,74 +94,23 @@ class PredictiveScalingService:
         self.metrics: dict[int, dict[str, list[MetricDataPoint]]] = defaultdict(lambda: defaultdict(list))
         self.predictions: dict[int, list[ScalingPrediction]] = defaultdict(list)
         self.patterns: dict[int, dict[str, ScalingPattern]] = defaultdict(dict)
+        # Resources a real metrics source has registered for this user, keyed by
+        # resource_id. Empty until something calls register_resource() with real
+        # data (e.g. a future CloudWatch/Prometheus ingestion path) — intentionally
+        # never pre-populated with sample entries.
+        self.resource_registry: dict[int, dict[str, dict]] = defaultdict(dict)
 
-    def _ensure_sample_data(self, user_id: int):
-        """Load sample metrics data for demonstration if not already loaded."""
-        if self.metrics[user_id]:
-            return
-        self._load_sample_data(user_id)
-
-    def _load_sample_data(self, user_id: int):
-        """Load sample metrics data for demonstration."""
-        now = datetime.utcnow()
-        import random
-
-        # Generate sample historical data for a web server
-        for i in range(168):  # 7 days of hourly data
-            hour = (now - timedelta(hours=168-i)).hour
-
-            # Simulate daily pattern: higher during business hours
-            if 9 <= hour <= 17:
-                base_cpu = 45 + (hour - 9) * 3  # Ramps up during day
-            else:
-                base_cpu = 20 + (hour % 6) * 2  # Lower at night
-
-            cpu = base_cpu + random.uniform(-5, 10)
-
-            self.metrics[user_id]['web-server-1'].append(MetricDataPoint(
-                timestamp=now - timedelta(hours=168-i),
-                value=min(95, max(5, cpu)),
-                resource_id='web-server-1'
-            ))
-
-        # Sample data for database
-        for i in range(168):
-            hour = (now - timedelta(hours=168-i)).hour
-            day = (now - timedelta(hours=168-i)).weekday()
-
-            # Higher on weekdays
-            if day < 5:
-                base_conn = 60 + hour * 2 if 8 <= hour <= 18 else 30
-            else:
-                base_conn = 25
-
-            connections = base_conn + random.uniform(-10, 15)
-
-            self.metrics[user_id]['prod-database'].append(MetricDataPoint(
-                timestamp=now - timedelta(hours=168-i),
-                value=min(100, max(5, connections)),
-                resource_id='prod-database'
-            ))
-
-        # Sample data for Kubernetes deployment
-        for i in range(168):
-            hour = (now - timedelta(hours=168-i)).hour
-
-            # Traffic pattern with lunch and evening peaks
-            if 11 <= hour <= 13 or 18 <= hour <= 21:
-                base_requests = 800 + (hour % 3) * 100
-            elif 8 <= hour <= 22:
-                base_requests = 400
-            else:
-                base_requests = 100
-
-            reqs = base_requests + random.uniform(-50, 100)
-
-            self.metrics[user_id]['api-deployment'].append(MetricDataPoint(
-                timestamp=now - timedelta(hours=168-i),
-                value=reqs,
-                resource_id='api-deployment'
-            ))
+    def register_resource(self, user_id: int, resource_id: str, name: str,
+                           resource_type: str, category: ResourceCategory,
+                           current_capacity: int, max_capacity: int):
+        """Register a real resource so generate_all_predictions() can analyze it."""
+        self.resource_registry[user_id][resource_id] = {
+            'name': name,
+            'type': resource_type,
+            'category': category,
+            'current': current_capacity,
+            'max': max_capacity,
+        }
 
     def add_metric(self, user_id: int, resource_id: str, value: float, timestamp: datetime = None):
         """Add a metric data point."""
@@ -173,7 +122,6 @@ class PredictiveScalingService:
 
     def analyze_patterns(self, user_id: int, resource_id: str) -> Optional[ScalingPattern]:
         """Analyze metrics to detect usage patterns."""
-        self._ensure_sample_data(user_id)
         data = self.metrics[user_id].get(resource_id, [])
 
         if len(data) < 24:  # Need at least 24 hours of data
@@ -321,46 +269,26 @@ class PredictiveScalingService:
         return prediction
 
     def generate_all_predictions(self, user_id: int) -> list[ScalingPrediction]:
-        """Generate predictions for all known resources."""
-        self._ensure_sample_data(user_id)
-        # Sample resources to analyze
-        resources = [
-            {
-                'id': 'web-server-1',
-                'name': 'Web Server ASG',
-                'type': 'Auto Scaling Group',
-                'category': ResourceCategory.COMPUTE,
-                'current': 3,
-                'max': 10
-            },
-            {
-                'id': 'prod-database',
-                'name': 'Production RDS',
-                'type': 'RDS Instance',
-                'category': ResourceCategory.DATABASE,
-                'current': 1,
-                'max': 1
-            },
-            {
-                'id': 'api-deployment',
-                'name': 'API Deployment',
-                'type': 'Kubernetes Deployment',
-                'category': ResourceCategory.CONTAINER,
-                'current': 5,
-                'max': 20
-            }
-        ]
+        """Generate predictions for resources with real recorded metric history.
 
+        Deliberately does NOT fabricate resources or metrics — a resource only
+        gets a prediction once something has fed it real data via add_metric()
+        (e.g. a future CloudWatch/Prometheus ingestion path). No cloud metrics
+        source is wired in yet, so this returns an empty list until one is;
+        that must never be papered over with sample data (see CLAUDE.md's
+        "every feature runs against a real cloud account" rule — this file
+        previously seeded three hardcoded fake resources for every user).
+        """
         predictions = []
-        for r in resources:
+        for resource_id, resource_config in self.resource_registry.get(user_id, {}).items():
             prediction = self.predict_scaling_needs(
                 user_id=user_id,
-                resource_id=r['id'],
-                resource_name=r['name'],
-                resource_type=r['type'],
-                category=r['category'],
-                current_capacity=r['current'],
-                max_capacity=r['max']
+                resource_id=resource_id,
+                resource_name=resource_config['name'],
+                resource_type=resource_config['type'],
+                category=resource_config['category'],
+                current_capacity=resource_config['current'],
+                max_capacity=resource_config['max']
             )
             if prediction:
                 predictions.append(prediction)
