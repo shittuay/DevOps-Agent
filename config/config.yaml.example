@@ -65,7 +65,13 @@ logging:
   console_output: true
 
 pentest:
-  enabled: true
+  # OFF by default. These 12 tools (nmap/nikto/sqlmap/ZAP) are registered into
+  # EVERY user's tool list when enabled, which both widens the attack surface and
+  # pollutes tool selection: on 2026-09-02 Kimi picked nmap_port_scan 150 times for
+  # a "create an ec2 instance" request. Only an unset PENTEST_ALLOWED_TARGETS
+  # whitelist stopped it from actually scanning. Enable per-deployment, and set
+  # PENTEST_ALLOWED_TARGETS when you do.
+  enabled: false
   require_confirmation: true
   max_scan_intensity: 4
   prohibited_scan_types:

@@ -124,7 +124,10 @@ Requires Docker daemon running locally (uses `docker.from_env()`).
 - **Git (47)**: repository setup (clone, init, remotes), inspection (show, blame, log, file-at-commit), branching (create, switch, delete, merge, rename), staging & committing (add, commit, reset, amend), remote ops (fetch, pull, push, force-push, cherry-pick), tags (list, create, delete, push), stashing (save, list, apply, drop), search (grep, commit search, shortlog), maintenance (clean, revert, rebase, reflog, count-objects, diff-stat)
 - **GitHub (19)**: repos (list, get, create, delete), issues (list, create, close), PRs (create, merge, close), branches (list, create), releases (list, create), workflows (list, runs, trigger), collaborators (list, invite)
 - **Monitoring (12)**: Prometheus, Datadog, Grafana
-- **Pentest (12)**: nmap, nikto, sqlmap, ZAP, cloud security audits — require `pentest_config.enabled=True`
+- **Pentest (12)**: nmap, nikto, sqlmap, ZAP, cloud security audits — require
+  `pentest.enabled=true`, which **defaults to false** since 2026-09-02. Enabling it registers
+  all 12 into every user's catalog, where they compete for tool selection: that is how
+  `nmap_port_scan` became reachable from an EC2 request. Set `PENTEST_ALLOWED_TARGETS` too.
 - **Ansible (13)**: playbook run, ad-hoc, inventory, vault, galaxy
 - **Alerting (16)**: PagerDuty + OpsGenie incidents/alerts
 
@@ -609,6 +612,14 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
 - `core._maybe_select_tools(message, max_tools)` runs after the user message is
   added in both entry points; it's a no-op if a caller passed an explicit
   `tools_override` or if `tool_selection.enabled` is false.
+- **The chat routes must pass `max_tools=`, never `tools_override=`.** `_maybe_select_tools`
+  opens with `if self._tools_override is not None: return`, so ANY caller-supplied override —
+  including one that filters nothing — silently disables progressive loading for that turn.
+  `app.py` did exactly this until 2026-09-02 via `scope_tools()`, whose docstring states it
+  ignores `max_tools` and returns all ~742 tools reordered. Result: Kimi picked
+  `nmap_port_scan` 150 times for "create an ec2 instance" and never called
+  `create_ec2_instance`. The tell is that `"Progressive tool loading: N/M tools selected"`
+  never appears in `logs/agent.log`. Guarded by `tests/test_tool_selection_engaged.py`.
 - **`search_tools` meta-tool** (registered in `core.__init__`, category `meta`):
   the ToolSearch escape hatch — searches the full catalog and expands
   `self._tools_override` so any filtered-out tool becomes callable next turn.
@@ -638,6 +649,16 @@ different mechanism and is untouched. Pure helpers, unit-tested in
   breakpoint 2; **breakpoint 1 (system+tools) is the dependable win.** Short
   tool-result messages fall under the 2048-token cache minimum and won't cache.
   Verify hits via the `Claude usage:` log line (`cache_read > 0` from iteration 2).
+
+### Repeated-failure guard (`core.py`)
+`DevOpsAgent._repeat_guard` is a greenlet-local dict counting consecutive failures per
+`(tool_name, canonical args)`. At `MAX_IDENTICAL_TOOL_FAILURES` (3) the call is refused with
+an instruction to stop retrying; a success clears the count. It is reset at the top of both
+`process_message_isolated` and `process_message_streaming` — gthread reuses worker threads, so
+a stale count would block a legitimate call on the next request. **Wired into all three tool
+execution paths** (Kimi non-streaming, Kimi streaming, Claude); adding a new execution path
+means wiring both `_repeat_guard_blocked` and `_repeat_guard_record` into it, and
+`tests/test_tool_selection_engaged.py` asserts the count of each is exactly 3.
 
 ### Config keys
 - `context.token_budget` (default `120000`) — history compaction budget.

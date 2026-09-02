@@ -3010,16 +3010,20 @@ def api_chat():
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
-        # Scope tools to task type and enforce per-tier max_tools cap; inject mode prompt
+        # Inject mode prompt. Tool narrowing is NOT done here: passing a
+        # tools_override (even a full-list one) makes core._maybe_select_tools
+        # early-return, which silently disabled progressive tool loading on
+        # every chat turn — scope_tools() documents that it ignores max_tools
+        # and returns all ~742 tools reordered. Kimi then picked nmap_port_scan
+        # 150 times for "create an ec2 instance" and never once called
+        # create_ec2_instance. Pass max_tools instead and let the agent's own
+        # category-based selection narrow the set (~50 tools for that message).
+        # See CLAUDE_RUNBOOK.md 2026-09-02.
         from services.devopsagent_prompts import (
-            DevOpsAgentSessionFactory, detect_task_type,
+            DevOpsAgentSessionFactory,
             SANDBOX_SYSTEM_PROMPT, REAL_AGENT_SYSTEM_PROMPT,
         )
         _factory = DevOpsAgentSessionFactory()
-        _task_type = detect_task_type(message)
-        _filtered_tools = _factory.scope_tools(
-            agent.tool_definitions, _task_type, model_config.max_tools
-        )
         if sandbox_active:
             _session = _factory.create_sandbox_session()
             preferences_context = (preferences_context or '') + '\n\n' + SANDBOX_SYSTEM_PROMPT
@@ -3244,7 +3248,7 @@ def api_chat():
                             trial_context=trial_context,
                             sandbox_mode=sandbox_active,
                             provider='kimi',
-                            tools_override=_filtered_tools,
+                            max_tools=model_config.max_tools,
                             trust_tool_results=model_config.trust_tool_results,
                             swarm_max_agents=_swarm_max_agents,
                         )
@@ -3257,7 +3261,7 @@ def api_chat():
                             model_override=model_config.model,
                             trial_context=trial_context,
                             sandbox_mode=sandbox_active,
-                            tools_override=_filtered_tools,
+                            max_tools=model_config.max_tools,
                             trust_tool_results=model_config.trust_tool_results,
                         )
                     else:
@@ -3682,16 +3686,13 @@ def api_chat_stream():
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
-        # Scope tools to task type and enforce per-tier max_tools cap; inject mode prompt
+        # Inject mode prompt. Tool narrowing happens inside the agent via
+        # max_tools — see the matching comment on the non-streaming path above.
         from services.devopsagent_prompts import (
-            DevOpsAgentSessionFactory as _SessionFactory, detect_task_type as _detect_task,
+            DevOpsAgentSessionFactory as _SessionFactory,
             SANDBOX_SYSTEM_PROMPT as _SANDBOX_PROMPT, REAL_AGENT_SYSTEM_PROMPT as _REAL_PROMPT,
         )
         _sfactory = _SessionFactory()
-        _stask_type = _detect_task(message)
-        _sfiltered_tools = _sfactory.scope_tools(
-            agent.tool_definitions, _stask_type, model_config.max_tools
-        )
         if sandbox_active:
             _ssession = _sfactory.create_sandbox_session()
             preferences_context = (preferences_context or '') + '\n\n' + _SANDBOX_PROMPT
@@ -3712,7 +3713,7 @@ def api_chat_stream():
         mc = model_config
         tc = trial_context
         sb = sandbox_active
-        _stream_filtered_tools = _sfiltered_tools
+        _stream_max_tools = model_config.max_tools
         _stream_trust = model_config.trust_tool_results
 
         db.session.commit()
@@ -3760,7 +3761,7 @@ def api_chat_stream():
                             trial_context=tc,
                             sandbox_mode=sb,
                             provider=_provider_arg,
-                            tools_override=_stream_filtered_tools,
+                            max_tools=_stream_max_tools,
                             trust_tool_results=_stream_trust,
                             swarm_max_agents=(
                                 getattr(mc, 'swarm_max_agents', 0)
