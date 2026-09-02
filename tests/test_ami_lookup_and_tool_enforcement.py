@@ -188,3 +188,38 @@ class TestSearchToolsRanking:
         result = agent._search_tools_handler('zzzz qqqq')
         assert result['success'] is True
         assert result['matches'] == []
+
+
+# --------------------------------------------------------------------------
+# 4. Tool-description discoverability: 2026-09-02 follow-up
+#
+# find_ami existing and being offered was not enough — Kimi still called
+# manage_ec2_instance(action='start') with a guessed instance_id trying to
+# "create" an instance, since manage_ec2_instance's description never said
+# it can't create one, and create_ec2_instance's description never pointed
+# at find_ami as the prerequisite step.
+# --------------------------------------------------------------------------
+
+class TestEc2ToolDiscoverability:
+    def _tools(self):
+        from src.tools.aws_tools import get_tools
+        return {t['name']: t for t in get_tools()}
+
+    def test_create_ec2_instance_points_at_find_ami(self):
+        desc = self._tools()['create_ec2_instance']['description']
+        assert 'find_ami' in desc
+
+    def test_create_ec2_instance_warns_off_manage_ec2_instance(self):
+        desc = self._tools()['create_ec2_instance']['description']
+        assert 'manage_ec2_instance' in desc
+
+    def test_manage_ec2_instance_states_it_cannot_create(self):
+        desc = self._tools()['manage_ec2_instance']['description']
+        assert 'create' in desc.lower()
+        assert 'create_ec2_instance' in desc
+
+    def test_manage_ec2_instance_points_at_find_ami_too(self):
+        """A model that reads only manage_ec2_instance (the one it guessed)
+        must still be able to find its way to find_ami from there."""
+        desc = self._tools()['manage_ec2_instance']['description']
+        assert 'find_ami' in desc

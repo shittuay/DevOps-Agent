@@ -13966,6 +13966,13 @@ def get_tools() -> List[Dict[str, Any]]:
             'name': 'create_ec2_instance',
             'description': (
                 'Create one or more EC2 instances with specified configuration. '
+                'REQUIRES a concrete ami_id — it cannot resolve an OS name like '
+                '"ubuntu" or "amazon linux" on its own. If the user named a '
+                'distro/OS instead of giving an ami_id, call find_ami FIRST to '
+                'resolve it, then pass the returned ami_id here. Do not guess an '
+                'AMI ID and do not call manage_ec2_instance instead — that tool '
+                'only starts/stops/reboots/terminates an instance that already '
+                'exists; it cannot create one. '
                 'IMPORTANT: By default, this creates exactly ONE instance. '
                 'Only specify count parameter if multiple instances are explicitly requested. '
                 'If user asks for "an instance" or "one instance", use count=1 (the default).'
@@ -14039,7 +14046,14 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'manage_ec2_instance',
-            'description': 'Manage EC2 instance - start, stop, reboot, or terminate',
+            'description': (
+                'Start, stop, reboot, or terminate an EC2 instance that ALREADY '
+                'EXISTS. Requires a real instance_id — it cannot create a new '
+                'instance under any action, including "start". To create a new '
+                'instance, call create_ec2_instance instead (which needs an '
+                'ami_id — use find_ami first if the user named an OS instead of '
+                'an AMI).'
+            ),
             'input_schema': {
                 'type': 'object',
                 'properties': {
