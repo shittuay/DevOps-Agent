@@ -681,17 +681,49 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
   level** (`aws.ec2`, `aws.s3`, ...) so a single-service query selects ~30 tools
   instead of all 351; non-AWS tools use their module category. Categories are
   stored in `self.tool_categories` (populated in `register_tools_from_module`).
-- `select_tool_definitions(defs, categories, message, max_tools)` — keyword-matches
-  the message to categories (seeded from `_compute_swarm_agents` / `_TOOL_SIGNAL_RE`),
-  always includes `command` + `devops_operations` + `search_tools`, honors
+- `select_tool_definitions(defs, categories, message, max_tools, history_messages,
+  connected_providers)` — matches the message to categories, always includes
+  `command` + `devops_operations` + every name in `ALWAYS_TOOL_NAMES`, honors
   `max_tools`, and **returns `None` when nothing matches** (caller uses full list —
-  never hide tools when unsure).
+  never hide tools when unsure). Three signals, strongest first:
+  1. **Explicit keyword matches** on the current message (`CATEGORY_KEYWORDS`).
+  2. **`GENERIC_NOUNS`** — provider-agnostic words ("server", "database",
+     "container", "cluster", "log") map to an ordered list of categories across
+     AWS/Azure/GCP/K8s. Filtered to `connected_providers` when the caller knows
+     which clouds the user linked, so "restart the web server" doesn't ship
+     Azure+GCP tools to an AWS-only account.
+  3. **`history_messages`** — the last `HISTORY_WINDOW` (6) user turns. Without
+     this, follow-ups that carry no keywords of their own ("yes go ahead", "now
+     delete it") matched nothing and fell back to shipping all ~745 schemas,
+     which is the single largest avoidable latency source on the Kimi path.
+- **`ALWAYS_TOOL_NAMES`** — `search_tools` plus the eight provider-generic
+  escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`, `k8s_*`). The
+  system prompt instructs the model to fall back on these and to *never* say
+  "I don't have a tool"; filtering them out left it with an instruction it
+  could not follow. They are included by **name**, not by category, so a single
+  hatch rides along without dragging its whole category in.
+- **The `max_tools` cap never drops a category tied for the top explicit
+  score.** "show me the pods in my eks cluster" scores `kubernetes` and
+  `aws.eks` equally; the old greedy pass kept whichever sorted first and
+  silently dropped the other, hiding exactly what was asked for. Weaker signals
+  (generic nouns, history, the AWS seed) stay greedy and cap-bound — the four
+  seeded AWS services are a *guess*, so they must not claim the cap-exempt
+  slot, or a plain "what is my aws bill" ships ~197 tools past a cap of 100.
 - `core._maybe_select_tools(message, max_tools)` runs after the user message is
   added in both entry points; it's a no-op if a caller passed an explicit
   `tools_override` or if `tool_selection.enabled` is false.
 - **`search_tools` meta-tool** (registered in `core.__init__`, category `meta`):
   the ToolSearch escape hatch — searches the full catalog and expands
   `self._tools_override` so any filtered-out tool becomes callable next turn.
+  **Both Kimi tool loops must rebuild their OpenAI-format tool list on every
+  iteration** via `core._current_oai_tools()`, never once before the loop. The
+  handler appends recovered tools to `_tools_override` mid-loop and tells the
+  model "these tools are now available — call them directly", but a list built
+  before the loop never carried them; the model was handed a promise the next
+  request contradicted, so it burned an iteration or answered "I don't have
+  that tool". The Claude paths already re-read the override each iteration.
+  This is the escape hatch's *only* recovery route on the free/starter tiers,
+  so any new provider loop must re-read the override per iteration too.
 
 ### Prompt caching (`src/agent/prompt_cache.py`)
 Phase 2 of the harness roadmap. Caches the static system prompt + tool schemas

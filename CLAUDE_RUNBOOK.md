@@ -1750,3 +1750,71 @@ finding above (cost *forecasting* built on fake numbers is arguably more consequ
 kind of output someone would act on for a real budget decision) but a safe fix needs to read all 4
 consumer templates/JS first to confirm nothing crashes on genuinely empty data, which didn't fit in
 this pass — treat as the top-priority item for the next audit or a dedicated PR.
+
+## Agent felt slow and kept saying it lacked the right tool (2026-09-02)
+
+**Symptom (user report):** from the chat UI the agent "is taking a lot of time or
+complaining about not having access to the right tool to call."
+
+**Not one bug — four, all in progressive tool loading (`src/agent/tool_selection.py`)
+and its Kimi wiring.** Diagnosed by reading the code plus a simulation of the selector
+against the real 744-tool catalog; production logs were not available for this pass.
+
+1. **`search_tools` could not actually recover anything on the Kimi path.**
+   `_call_kimi_api` and `_call_kimi_api_streaming` each built `oai_tools` **once,
+   before** their tool loop. The `search_tools` handler appends matches to
+   `_tools_override` mid-loop and replies "these tools are now available — call them
+   directly", but every subsequent request in that turn still carried the pre-loop
+   list. The model was told a tool existed and then handed a request without it, so
+   it either burned an iteration or said it had no such tool. Free and starter tiers
+   both run this path, so this was the common case; the Claude paths re-read the
+   override each iteration and were unaffected. Fixed with `_current_oai_tools()`,
+   called inside both loops.
+
+2. **The `max_tools` cap silently dropped a category the user had named.**
+   "show me the pods in my eks cluster" matches `kubernetes` (76 tools) and
+   `aws.eks` (28); base + both exceeded the cap, so the greedy pass kept EKS and
+   dropped all 76 Kubernetes tools — the user asked about pods and got no pod tools.
+   Fixed by exempting every category tied for the top explicit keyword score from the
+   cap. Weaker signals stay greedy.
+
+3. **Provider-generic nouns were pinned to one provider, and the escape hatches were
+   filtered out.** "check my database" selected RDS only; "list my running containers"
+   selected only local Docker tools (which run on the app server, not the user's
+   cloud), hiding ECS/EKS/Kubernetes/Azure/GCP. Meanwhile `azure_api_read`,
+   `gcp_api_read`, `k8s_api_read` and their siblings were themselves filtered out
+   unless the provider was named — while the system prompt tells the model to use
+   exactly those and to "NEVER say 'I don't have a tool'". Fixed with `GENERIC_NOUNS`
+   (nouns map to an ordered cross-provider category list, narrowed to the user's
+   actually-connected clouds via `credential_service.get_user_configured_providers`)
+   and `ALWAYS_TOOL_NAMES` (the eight hatches + `search_tools`, included by name).
+
+4. **Selection read only the current message, which is what made it slow.**
+   Follow-ups carrying no keywords ("yes go ahead", "now delete it") matched nothing,
+   so the selector returned `None` and the caller shipped all ~745 schemas — on Kimi
+   that also bypasses the cap entirely, since the cap only applies once a subset is
+   chosen. Every one of up to 20 reasoning-model iterations then paid for the full
+   catalog. Fixed by feeding the last 6 user turns in (`history_messages`), plus an
+   AWS-region-token signal so "list all resources in us-east-1" stops falling through.
+
+**Measured on the real catalog (cap 100), before → after:**
+
+| Query | Before | After |
+|---|---|---|
+| show me the pods in my eks cluster | 50 (no K8s tools) | 130 (both kept) |
+| list my running containers | 35 (Docker only) | 85 (ECS/EKS/K8s) |
+| yes go ahead (after an EC2 turn) | 744 (full catalog) | 57 |
+| list all resources in us-east-1 | 744 (full catalog) | ~60 |
+| what is my aws bill this month | 91 | 86 |
+
+**Gotcha worth remembering:** the AWS seed (a bare "aws" with no service named seeds
+ec2/s3/iam/vpc) initially went into the cap-exempt tied-top tier along with real
+keyword matches. Because all four seeds tie at score 1, "what is my aws bill this
+month" shipped 197 tools against a cap of 100. A *guessed* category must never claim
+the cap-exempt slot — only categories the user actually named.
+
+**Tests:** `tests/test_tool_selection.py` (10 new cases) and
+`tests/test_kimi_tool_refresh.py` (verified failing against pre-fix `core.py`, passing
+after). Full suite unchanged: identical 15 failures / 254 errors before and after,
++11 passes. (Those pre-existing failures are a local Python 3.9 artifact — the project
+needs 3.10+ for `X | None` syntax — not a real regression.)
