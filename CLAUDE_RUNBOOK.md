@@ -2039,3 +2039,45 @@ against the pre-fix `app.py` (both backend cases), passing after. Follows
 this codebase's existing pattern (`tests/test_sandbox_activation.py`) of a
 source-level check for logic embedded in app.py's route closures, which
 aren't practical to exercise via a full SSE test client.
+
+## Correction: the "unwanted RDS instance" flag from the escape-hatch fix above was wrong (2026-09-02)
+
+The prior entry recommended checking AWS for an RDS instance based on
+`usage_logs` showing `create_rds_instance` with `success=True`. The user
+checked: no RDS instance exists. That flag was a misreading of what the
+`success` column actually records.
+
+**`success` on a `UsageLog` row (`app.py`, both the non-streaming and
+streaming write sites) reflects whether the chat *turn* completed without
+the agent/provider call itself raising — not whether any individual tool
+call inside that turn returned `{'success': True}`.** A tool like
+`create_rds_instance` catches its own `ClientError` and returns
+`{'success': False, 'error': ...}` on a real AWS rejection (missing subnet
+group, invalid engine version, bad parameter, whatever). The Kimi turn still
+finishes normally with that failure folded into the assistant's response, so
+the row logs `success=True` regardless of what AWS actually did.
+
+**This means `usage_logs.tool_name`/`success` alone cannot answer "did this
+tool call actually succeed against the cloud account" — only "did the turn
+that contained it complete."** The only way to know the individual tool
+result is `chat_messages.tool_trace`, and that's written by the streaming
+route only (see the Cloudflare keep-alive section above) — so for the
+non-streaming Kimi tier used throughout this whole incident, there was no
+DB-queryable signal for individual tool-call success at all. The
+`check-errors.yml` "TOOL CALL FAILURES" section already has this exact
+caveat in a comment for the same reason.
+
+**Practical effect on this investigation:** the `create_ec2_keypair` claim at
+17:00:43 (no matching `tool_use` row at all, unlike RDS which had one marked
+falsely-successful) is a *different* shape of gap and still needs the user's
+own AWS-console check — a missing row means either the call never happened
+(model fabricated the whole response) or `_last_tools_used` silently
+dropped it, not "it succeeded." Don't conflate the two: a *present* `tool_use`
+row with `success=True` is not proof the tool's own result was
+`{'success': True}`; an *absent* row is not proof nothing ran.
+
+**Follow-up worth doing, not done here:** `UsageLog` could carry the tool's
+own `result.get('success')` per tool (not just the turn-level Kimi/Claude
+completion flag) — cheap to add at the same write site, and it would have
+answered "was an RDS instance actually created" from the DB in one query
+instead of requiring an AWS console check.
