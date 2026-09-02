@@ -1693,3 +1693,60 @@ reports zero violations; the `/metrics` token comparison (`routes/metrics.py`) a
 `hmac.compare_digest`, not a plain `==`; no new tools, seeded catalogs, or thread-local context
 modules were added in the reviewed window, so patterns 3–8 from the audit checklist had nothing new
 to check.
+
+## Scheduled audit: Predictive Scaling fabricated resources/data for every user; fake "applied" success (FIXED 2026-09-02)
+
+No commits landed since the 2026-08-26 audit above (confirmed via `git log --since`), so this pass
+did a fresh risk-classification cross-check plus a targeted sweep for the "Non-negotiable: every
+feature runs against a real cloud account" rule at the top of CLAUDE.md — the exact rule the
+Drift Detection incident (2026-08-12) was written to prevent. Two findings, one fixed, one flagged.
+
+**1. `services/predictive_scaling.py` — the entire Predictive Scaling feature
+(`/scaling`, reachable from the chat UI's profile menu, registered blueprint) fabricated its data
+for every user, unconditionally, with no `[Sample]`/`[Sandbox]` label anywhere in the template.**
+`generate_all_predictions()` called `_ensure_sample_data()`, which seeded three hardcoded fake
+resources — `'web-server-1'` / "Web Server ASG", `'prod-database'` / "Production RDS",
+`'api-deployment'` / "API Deployment" — with `random.uniform(...)`-generated synthetic CPU/
+connection/request time series, byte-identical in shape for every account regardless of whether
+they had a cloud account connected. `add_metric()` (the one real-data ingestion point) was never
+called from anywhere else in the codebase — nothing fed it live CloudWatch/Prometheus data. On top
+of that, `POST /scaling/api/apply/<id>` (gated behind approver permission, and the confirm() dialog
+in `scaling/dashboard.html` literally says "This will trigger actual infrastructure changes")
+unconditionally set `status: 'applied'` and returned `success: True` with a fabricated
+"Successfully initiated scaling for X" message — it never called any AWS/Azure/GCP/Kubernetes API.
+An approver who trusted that response would stop looking for other mitigations to a capacity
+problem that was never actually fixed. No test file existed for this service at all.
+
+**Fix:** removed `_ensure_sample_data`/`_load_sample_data` entirely (was ~65 lines of synthetic
+data generation) rather than gating them, since there is no legitimate always-on fallback per the
+non-negotiable rule. Added `register_resource()` as the real extension point a future CloudWatch/
+Prometheus ingestion path would call alongside `add_metric()`; `generate_all_predictions()` now
+iterates `self.resource_registry[user_id]`, which starts empty and stays empty until something
+registers real resources — so the feature now honestly reports "no predictions yet" instead of
+inventing data. Fixed the `/api/apply` endpoint to return `success: False` / HTTP 501 with a clear
+"not yet implemented, use the equivalent cloud tool in chat" message instead of fabricating
+`status: 'applied'`. Updated the dashboard's empty-state copy (previously "All resources are
+appropriately sized", which would now be a false claim) to explain that predictions require
+historical metrics that aren't being collected yet. Added `tests/test_predictive_scaling.py`
+(service-level, no Flask app context needed) asserting: a fresh user gets zero predictions and a
+zero summary, `_ensure_sample_data`/`_load_sample_data` no longer exist on the class, and the
+registration path still produces correct scale-up predictions once real data is fed in, with
+per-user isolation.
+
+**2. Flagged, not fixed — `services/analytics_service.py` has the identical pattern, at larger
+scope.** The "Advanced Analytics Dashboard" (`/analytics/`, `/analytics/costs`,
+`/analytics/performance`, `/analytics/resources`, all registered routes) is backed end-to-end by
+`AnalyticsService._ensure_sample_data()`, which fabricates: a 90-day daily cost series seeded from
+`base_cost = 150` plus `random.uniform(-20, 30)` noise; a `_cost_by_service` breakdown with literal
+hardcoded dollar figures (`'EC2': 450.00, 'RDS': 280.00, 'S3': 45.00, ...`) and a `_cost_by_team`
+breakdown (`'Development': 380.00, 'Production': 420.00, ...`) — both byte-identical for every
+user; fabricated incident/deployment/API-call time series; and `get_resource_utilization()` even
+generates a fresh `random.uniform(40, 75)` "utilization_avg" on every single call, uncached. Unlike
+the scaling fix above, the fabrication here isn't centralized in one seed method — it's threaded
+through `get_cost_forecast`, `get_cost_breakdown`, `get_trend_analysis`, `get_dashboard_metrics`,
+`get_resource_utilization`, and `get_alerts_summary` individually, and feeds 4 templates plus their
+JS chart-rendering code, none of which were read in this pass. This is the same severity as the
+finding above (cost *forecasting* built on fake numbers is arguably more consequential — it's the
+kind of output someone would act on for a real budget decision) but a safe fix needs to read all 4
+consumer templates/JS first to confirm nothing crashes on genuinely empty data, which didn't fit in
+this pass — treat as the top-priority item for the next audit or a dedicated PR.

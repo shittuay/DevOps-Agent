@@ -52,29 +52,117 @@ jobs:
         echo "VENV path: $VENV"
         echo "========================================"
 
-        echo ""
-        echo "=== APP ERRORS (last 24h) ==="
-        journalctl -u devops-agent --since "24 hours ago" -p err..emerg --no-pager | tail -60 || echo "(none)"
+        # gunicorn is started with --error-logfile /var/log/devops-agent-error.log and
+        # --access-logfile /var/log/devops-agent-access.log (devops-agent.service), so
+        # the app's own log lines never reach journald — every journalctl section this
+        # workflow used to have reported "-- No entries --" while the box was busy.
+        ERRLOG=/var/log/devops-agent-error.log
+        ACCLOG=/var/log/devops-agent-access.log
 
         echo ""
-        echo "=== APP WARNINGS (last 24h, sample) ==="
-        journalctl -u devops-agent --since "24 hours ago" -p warning --no-pager | tail -30 || echo "(none)"
+        echo "=== APP ERRORS / TRACEBACKS (gunicorn error log, last 24h) ==="
+        if [ -f "$ERRLOG" ]; then
+          grep -iE "error|exception|traceback|critical" "$ERRLOG" | tail -60 || echo "(none)"
+        else
+          echo "(no $ERRLOG)"
+        fi
 
         echo ""
-        echo "=== SLACK / NOTIFICATION LOGS (last 2h) ==="
-        journalctl -u devops-agent --since "2 hours ago" --no-pager | grep -i "slack\|notification\|webhook" | tail -40 || echo "(none from journalctl)"
+        echo "=== APP WARNINGS (gunicorn error log, sample) ==="
+        if [ -f "$ERRLOG" ]; then
+          grep -iE "warning" "$ERRLOG" | tail -30 || echo "(none)"
+        fi
 
         echo ""
-        echo "=== SERVICE LOG FILE CHECK ==="
-        # Find where the app actually logs (file vs journalctl)
-        for f in /var/log/devops-agent/app.log /home/ubuntu/app/DevOps-Agent/app.log /var/www/devops-agent/app.log /tmp/devops-agent.log; do
-          if [ -f "$f" ]; then
-            echo "Found log: $f"
-            grep -i "slack\|notification\|webhook" "$f" | tail -20 || echo "(no slack lines)"
-          fi
-        done
-        echo "=== RECENT JOURNALCTL (all levels, last 30 lines) ==="
-        journalctl -u devops-agent --since "2 hours ago" --no-pager | tail -30 || echo "(none)"
+        echo "=== AGENT TURN SIGNALS (gunicorn error log, last 80 matching lines) ==="
+        # Provider selection, swarm sizing, tool calls, token usage — the lines that
+        # say what the agent actually did on each turn.
+        if [ -f "$ERRLOG" ]; then
+          grep -E "Swarm:|tool call:|usage:|Guardrail|Kimi|Claude|Selected [0-9]+ tools|tool_selection|APPROVAL|still_running|keep-alive|CHAT_MAX_TURN" "$ERRLOG" | tail -80 || echo "(none)"
+        fi
+
+        echo ""
+        echo "=== RECENT ERROR LOG (all levels, last 40 lines) ==="
+        [ -f "$ERRLOG" ] && tail -40 "$ERRLOG" || echo "(none)"
+
+        echo ""
+        echo "=== CHAT REQUESTS (access log, last 40 /api/chat lines) ==="
+        [ -f "$ACCLOG" ] && grep -E "/api/chat|/api/agent|/v1/agent" "$ACCLOG" | tail -40 || echo "(none)"
+
+        echo ""
+        echo "=== SLACK / NOTIFICATION LOGS (error log) ==="
+        [ -f "$ERRLOG" ] && grep -i "slack\|notification\|webhook" "$ERRLOG" | tail -20 || echo "(none)"
+
+        echo ""
+        echo "=== RECENT AGENT TURNS (usage_logs, last 7 days, newest first) ==="
+        # The non-streaming /api/chat path (Kimi tiers) never writes chat_messages.tool_trace,
+        # so the tool-call counter below is blind to it; usage_logs.tool_name is written
+        # by _finalize_turn for every path.
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
+        import sys, os
+        db_url = os.environ.get('DB_URL', '')
+        sql = """
+            SELECT created_at, user_id, action_type, tool_name, ai_model, success,
+                   COALESCE(LEFT(error_message, 120), '')
+            FROM usage_logs
+            WHERE created_at >= NOW() - INTERVAL '7 days'
+            ORDER BY created_at DESC LIMIT 40
+        """
+        try:
+            if db_url.startswith('postgres'):
+                import psycopg2
+                pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+                con = psycopg2.connect(pg_url)
+                cur = con.cursor()
+                cur.execute(sql)
+                rows = cur.fetchall()
+            else:
+                import sqlite3
+                con = sqlite3.connect(sys.argv[1])
+                rows = con.execute(sql.replace("NOW() - INTERVAL '7 days'", "datetime('now','-7 days')")
+                                      .replace("LEFT(error_message, 120)", "substr(error_message,1,120)")).fetchall()
+            if not rows:
+                print("No usage_logs rows in the last 7 days.")
+            for r in rows:
+                print("  " + " | ".join(str(x) for x in r))
+            con.close()
+        except Exception as e:
+            print(f"Query error: {e}")
+        PYEOF
+
+        echo ""
+        echo "=== RECENT ASSISTANT REPLIES (chat_messages, last 7 days, metadata + first 160 chars) ==="
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
+        import sys, os
+        db_url = os.environ.get('DB_URL', '')
+        sql = """
+            SELECT timestamp, conversation_id, role, LENGTH(content), LEFT(content, 160)
+            FROM chat_messages
+            WHERE timestamp >= NOW() - INTERVAL '7 days'
+            ORDER BY timestamp DESC LIMIT 30
+        """
+        try:
+            if db_url.startswith('postgres'):
+                import psycopg2
+                pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+                con = psycopg2.connect(pg_url)
+                cur = con.cursor()
+                cur.execute(sql)
+                rows = cur.fetchall()
+            else:
+                import sqlite3
+                con = sqlite3.connect(sys.argv[1])
+                rows = con.execute(sql.replace("NOW() - INTERVAL '7 days'", "datetime('now','-7 days')")
+                                      .replace("LEFT(content, 160)", "substr(content,1,160)")).fetchall()
+            if not rows:
+                print("No chat_messages rows in the last 7 days.")
+            for ts, cid, role, n, head in rows:
+                head = (head or '').replace('\n', ' ')
+                print(f"  {ts} | conv={cid} | {role} | {n} chars | {head}")
+            con.close()
+        except Exception as e:
+            print(f"Query error: {e}")
+        PYEOF
 
         echo ""
         echo "=== TOOL CALL FAILURES (last 7 days) ==="

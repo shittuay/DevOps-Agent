@@ -369,6 +369,13 @@ class TestSafetyClassifications:
 
     def test_subscribe_sns_topic_is_medium_risk(self):
         assert self._classify('subscribe_sns_topic') == 'medium'
+
+    # --- medium-risk: GCP Pub/Sub (same shape as publish_sns_message above —
+    # topic_name/message_data/attributes are caller-controlled and can reach
+    # push subscriptions or trigger downstream Cloud Functions/Cloud Run) ---
+    def test_publish_pubsub_message_is_medium_risk(self):
+        assert self._classify('publish_pubsub_message') == 'medium'
+
     # --- medium-risk: Route53 (create_ prefix isn't a monitored auto-detect
     # prefix, but this tool defaults action='UPSERT', silently overwriting any
     # existing live DNS record with the same name/type with zero confirmation) ---
