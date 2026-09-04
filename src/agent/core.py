@@ -178,29 +178,139 @@ def _validate_tool_result_ids(result_str: str) -> str:
     return result_str
 
 
-# Detects user messages that are infra data queries — requires real tool use on iteration 1
-_TOOL_SIGNAL_RE = re.compile(
-    r'\b(?:list|show|get|describe|check|scan|find|fetch|how many|count|status)\b'
-    r'.{0,80}'
-    r'\b(?:instances?|buckets?|clusters?|pods?|nodes?|rds|ec2|s3|vpc|security\s*groups?|'
-    r'resources?|infrastructure|cost|billing|credentials?|iam|roles?|policies|secrets?|'
-    r'logs?|metrics?|alerts?)\b',
-    re.IGNORECASE | re.DOTALL,
+# ---------------------------------------------------------------------------
+# Fabricated action claims — a mutation reported without the tool that does it
+# ---------------------------------------------------------------------------
+#
+# _hallucination_severity() answers "did any tool run this turn?", which goes
+# silent the moment one does — and _history_has_real_resource_data() keeps it
+# silent for the rest of the conversation once real IDs appear in history. That
+# is how the 2026-09-04 incident shipped: a single get_aws_resource_inventory
+# call disarmed the check, and Kimi then reported a fully-detailed EC2 launch
+# (instance id, VPC, subnet, volume, public IP) with create_ec2_instance never
+# called. See CLAUDE_RUNBOOK.md.
+#
+# This guard asks the narrower, per-claim question instead: the response asserts
+# a mutation completed — did a tool that can actually perform that mutation run?
+# Each family is (name, request verbs, completion assertion, substantiating tool
+# markers). The request gate is what keeps read flows quiet: "describe my
+# instance" answered with "launched on 2026-05-15" is narration, not a claim.
+
+# Tools that can carry out any mutation, so they substantiate every family.
+# Getting this list wrong is the dangerous direction: telling a user "nothing
+# was created" after a real mutation invites them to create a duplicate.
+_UNIVERSAL_WRITE_TOOLS = (
+    'aws_api_write', 'azure_api_write', 'gcp_api_write', 'k8s_api_write',
+    'execute_command', 'execute_script', 'terraform_apply',
+    'ansible_playbook_run', 'ansible_adhoc_command',
+)
+
+_ACTION_FAMILIES = tuple(
+    (name, request_re, claim_re, tuple(markers) + _UNIVERSAL_WRITE_TOOLS)
+    for name, request_re, claim_re, markers in (
+        (
+            'create',
+            re.compile(r'\b(?:create|creating|launch|launching|provision|provisioning|'
+                       r'spin\s*up|deploy|deploying)\b', re.IGNORECASE),
+            re.compile(r'\b(?:created|launched|provisioned|deployed)\b'
+                       r'|\bis\s+(?:now\s+)?live\b', re.IGNORECASE),
+            ('create_', 'launch_', 'run_', 'provision_', 'deploy_', 'trigger_',
+             'apply_', 'docker_compose_up', 'docker_build_image'),
+        ),
+        (
+            'destroy',
+            re.compile(r'\b(?:delete|deleting|terminate|terminating|destroy|destroying|'
+                       r'remove|removing|tear\s*down)\b', re.IGNORECASE),
+            re.compile(r'\b(?:deleted|terminated|destroyed|removed|torn\s+down)\b',
+                       re.IGNORECASE),
+            ('delete_', 'terminate_', 'destroy_', 'remove_', 'purge_', 'drop_',
+             'deregister_', 'manage_ec2_instance', 'manage_vm',
+             'manage_compute_instance', 'docker_manage_container',
+             'terraform_destroy', 'docker_compose_down'),
+        ),
+        (
+            'power',
+            re.compile(r'\b(?:start|starting|stop|stopping|restart|restarting|reboot|'
+                       r'rebooting)\b', re.IGNORECASE),
+            re.compile(r'\b(?:started|stopped|restarted|rebooted)\b', re.IGNORECASE),
+            # delete_/rollout_ included deliberately: restarting a pod by deleting
+            # it, or via a rollout restart, is standard Kubernetes practice.
+            ('start_', 'stop_', 'restart_', 'reboot_', 'delete_', 'rollout_',
+             'manage_ec2_instance', 'manage_vm', 'manage_compute_instance',
+             'docker_manage_container'),
+        ),
+        (
+            'modify',
+            re.compile(r'\b(?:update|updating|modify|modifying|resize|resizing|'
+                       r'scale|scaling)\b', re.IGNORECASE),
+            re.compile(r'\b(?:updated|modified|resized|scaled)\b', re.IGNORECASE),
+            ('update_', 'modify_', 'resize_', 'scale_', 'put_', 'set_', 'attach_',
+             'detach_', 'register_', 'patch_', 'tag_'),
+        ),
+    )
 )
 
 
-def _should_require_tool_use(messages: list) -> bool:
-    """Return True when the latest user message is clearly an infra data query."""
-    for msg in reversed(messages):
-        if msg.get('role') == 'user':
-            content = msg.get('content', '')
-            if isinstance(content, list):
-                content = ' '.join(
-                    b.get('text', '') for b in content
-                    if isinstance(b, dict) and b.get('type') == 'text'
-                )
-            return bool(_TOOL_SIGNAL_RE.search(content))
+def _latest_user_text(messages: list) -> str:
+    """Text of the most recent user message, flattening Anthropic block content."""
+    for msg in reversed(messages or []):
+        if msg.get('role') != 'user':
+            continue
+        content = msg.get('content', '') or ''
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return '\n'.join(
+                b.get('text', '') for b in content
+                if isinstance(b, dict) and b.get('type') == 'text'
+            )
+        return ''
+    return ''
+
+
+def _tool_substantiates(tool_name: str, markers: tuple) -> bool:
+    name = (tool_name or '').lower()
+    return any(name == m or name.startswith(m) for m in markers)
+
+
+def _fabricated_action_claim(
+    user_message: str,
+    response_text: str,
+    executed_tools: list,
+    sandbox_mode: bool = False,
+) -> bool:
+    """
+    True when the response claims a mutating action completed but no tool
+    capable of performing it actually executed this turn.
+
+    Unlike _hallucination_severity(), this is NOT disarmed by unrelated tool
+    calls: the question is whether *this* claim is substantiated, not whether
+    the turn touched the cloud at all.
+
+    Sandbox mode is exempt — simulated mutations are the point there.
+    """
+    if sandbox_mode or not user_message or not response_text:
+        return False
+    executed = executed_tools or []
+    for _name, request_re, claim_re, markers in _ACTION_FAMILIES:
+        if not request_re.search(user_message):
+            continue
+        if not claim_re.search(response_text):
+            continue
+        if any(_tool_substantiates(t, markers) for t in executed):
+            continue
+        return True
     return False
+
+
+_FABRICATED_ACTION_REPLACEMENT = (
+    "I was about to report that action as completed, but no tool actually ran — "
+    "**nothing was created or changed in your cloud account**, and any resource "
+    "IDs I was about to show would have been fabricated.\n\n"
+    "Please retry the request. If this repeats, the tool needed for it may not "
+    "be reachable for your account — check that your cloud credentials are "
+    "connected under Settings."
+)
 
 
 def _json_default(obj):
@@ -1557,6 +1667,10 @@ class DevOpsAgent:
         max_iterations = 20  # Kimi non-streaming: cap at 20 to stay well under 300s HTTP timeout
         iteration = 0
         tools_called_this_turn = False
+        # Tools that really executed this turn, for the fabricated-claim guard.
+        # _last_tools_used is appended to at every execution site and is not
+        # reset by the streaming entry point, so mark the offset and slice.
+        executed_from = len(self._last_tools_used)
 
         # Compute swarm agent count once — based on the initial user query only.
         # Must not be re-evaluated inside the loop: tool results accumulate geographic
@@ -1693,6 +1807,19 @@ class DevOpsAgent:
 
                 # No tool calls — return text, but check for hallucinated tool output
                 text = msg.content or ""
+                # Claiming a mutation that no tool performed is checked first and
+                # independently: unlike the severity check below, it must NOT be
+                # disarmed by unrelated tool calls or by real IDs already in history.
+                if _fabricated_action_claim(
+                    _latest_user_text(messages), text,
+                    self._last_tools_used[executed_from:],
+                    getattr(self, '_sandbox_mode', False),
+                ):
+                    self.logger.warning(
+                        "Fabricated action claim in Kimi response — no substantiating "
+                        "tool ran this turn; replacing"
+                    )
+                    return _FABRICATED_ACTION_REPLACEMENT
                 # Skip weak patterns when real resource IDs already exist in prior
                 # assistant messages — the agent is referencing legitimately-fetched data.
                 tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
@@ -1763,6 +1890,8 @@ class DevOpsAgent:
 
         max_iterations = 50
         tools_called_this_turn = False
+        # See the non-streaming path: offset into _last_tools_used for this turn.
+        executed_from = len(self._last_tools_used)
         for iteration in range(max_iterations):
             try:
                 oai_tools = self._current_oai_tools()
@@ -1957,6 +2086,19 @@ class DevOpsAgent:
 
                 # No tool calls — check for hallucination before yielding buffered content
                 if collected_content:
+                    # See the non-streaming path: an unsubstantiated mutation claim
+                    # is checked first and is not disarmed by unrelated tool calls.
+                    if _fabricated_action_claim(
+                        _latest_user_text(messages), collected_content,
+                        self._last_tools_used[executed_from:],
+                        getattr(self, '_sandbox_mode', False),
+                    ):
+                        self.logger.warning(
+                            "Fabricated action claim in Kimi streaming response — no "
+                            "substantiating tool ran this turn; replacing"
+                        )
+                        yield _FABRICATED_ACTION_REPLACEMENT
+                        return
                     # Skip weak patterns when real resource IDs already exist in prior
                     # assistant messages — the agent is referencing legitimately-fetched data.
                     tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
