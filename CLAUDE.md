@@ -833,6 +833,16 @@ flows quiet** — "describe my instance" answered with "launched on 2026-05-15" 
 narration, not a claim — and the **completion assertion is past-tense only**, so "I could
 not create it" and "before I launch it I need…" don't fire.
 
+**Completion phrases are matched only when un-negated** (`_claim_asserted`). "No new
+instance **has been created** yet" is an honest denial, and the agent produces exactly
+that sentence when it declines to act — replacing it would destroy a correct answer that
+was asking the user a question (caught 2026-09-05, before this guard shipped). The
+lookback stops at a clause break (`.!?;:|` or newline), so a negation cannot launder a
+real claim from an earlier sentence: "No errors occurred. The instance was created."
+still fires. Un-negated matching fails **open** by design — "with no downtime, the
+instance was created" is read as a denial and passes — because a false "nothing was
+created" after a real mutation is the more damaging error.
+
 - It runs **before** the severity check on both Kimi response paths and is deliberately
   **not** disarmed by unrelated tool calls or by history. On a hit the response is
   replaced with `_FABRICATED_ACTION_REPLACEMENT`, which says plainly that nothing changed.

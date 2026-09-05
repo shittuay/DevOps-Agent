@@ -273,6 +273,34 @@ def _tool_substantiates(tool_name: str, markers: tuple) -> bool:
     return any(name == m or name.startswith(m) for m in markers)
 
 
+# "No new instance has been created yet" is an honest denial, not a claim.
+# Replacing that response would destroy a correct answer — and the agent
+# produces exactly that sentence when it declines to act (2026-09-05).
+_NEGATION_RE = re.compile(
+    r"\b(?:no|not|never|nothing|none|cannot|without|unable|fail(?:ed|s|ure)?)\b"
+    r"|\b\w+n['’]t\b",
+    re.IGNORECASE,
+)
+
+# A negation binds only to its own clause: "No errors occurred. The instance
+# was created." is still a claim, so the lookback stops at a clause break
+# (table cells and list items count — the incident's table used '|' rows).
+_CLAUSE_BREAK_CHARS = '.!?;:|\n'
+_CLAIM_LOOKBACK = 80
+
+
+def _claim_asserted(text: str, claim_re) -> bool:
+    """True when at least one completion phrase appears un-negated."""
+    for match in claim_re.finditer(text):
+        window = text[max(0, match.start() - _CLAIM_LOOKBACK):match.start()]
+        break_at = max((window.rfind(ch) for ch in _CLAUSE_BREAK_CHARS), default=-1)
+        if break_at != -1:
+            window = window[break_at + 1:]
+        if not _NEGATION_RE.search(window):
+            return True
+    return False
+
+
 def _fabricated_action_claim(
     user_message: str,
     response_text: str,
@@ -295,7 +323,7 @@ def _fabricated_action_claim(
     for _name, request_re, claim_re, markers in _ACTION_FAMILIES:
         if not request_re.search(user_message):
             continue
-        if not claim_re.search(response_text):
+        if not _claim_asserted(response_text, claim_re):
             continue
         if any(_tool_substantiates(t, markers) for t in executed):
             continue

@@ -333,3 +333,61 @@ def test_universal_write_tool_names_exist_in_the_real_catalog():
 
     missing = [n for n in _UNIVERSAL_WRITE_TOOLS if n not in names]
     assert not missing, f"_UNIVERSAL_WRITE_TOOLS names no longer in the catalog: {missing}"
+
+
+class TestNegatedClaimsAreNotClaims:
+    """
+    A response that correctly reports nothing happened must pass through.
+    From the 2026-09-05 follow-up transcript: "No new instance has been
+    created yet" is an honest denial, and replacing it would destroy a
+    legitimate answer that was asking the user a question.
+    """
+
+    HONEST_DENIAL = (
+        "The instance launch requests keep getting routed to the wrong tool. "
+        "I haven't burned your credits on fake calls, and no instance was created.\n"
+        "Current state:\n"
+        "- No new instance has been created yet\n"
+        "- No charges incurred from these failed attempts\n"
+        "Want me to try the launch one more time?"
+    )
+
+    def test_honest_denial_is_not_flagged(self):
+        assert _fabricated_action_claim(
+            "create an ec2b instance using ubuntu on t3.micro",
+            self.HONEST_DENIAL,
+            executed_tools=[],
+        ) is False
+
+    def test_simple_negated_create_is_not_flagged(self):
+        assert _fabricated_action_claim(
+            INCIDENT_REQUEST, "No instance was created.", executed_tools=[],
+        ) is False
+
+    def test_negated_delete_is_not_flagged(self):
+        assert _fabricated_action_claim(
+            "delete the bucket my-old-logs",
+            "The bucket was not deleted — I need you to confirm first.",
+            executed_tools=[],
+        ) is False
+
+    def test_negation_does_not_leak_across_a_sentence_boundary(self):
+        """A negation in a previous sentence must not launder a real claim."""
+        assert _fabricated_action_claim(
+            INCIDENT_REQUEST,
+            "No errors occurred. The instance i-05869a36c04f538cb was created.",
+            executed_tools=[],
+        ) is True
+
+    def test_negation_does_not_leak_across_a_line_break(self):
+        assert _fabricated_action_claim(
+            INCIDENT_REQUEST,
+            "There were no problems\nThe instance was created and is ready.",
+            executed_tools=[],
+        ) is True
+
+    def test_original_incident_is_still_flagged(self):
+        """Regression: the un-negated claim must still be caught."""
+        assert _fabricated_action_claim(
+            INCIDENT_REQUEST, INCIDENT_RESPONSE, executed_tools=[],
+        ) is True
