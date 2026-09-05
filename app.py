@@ -2753,6 +2753,70 @@ def admin_add_credits():
     })
 
 
+def _record_tool_usage(*, user_id, conversation_id, ai_model, primary_row,
+                        primary_tool, tool_calls, tools_used, turn_success):
+    """Emit the per-tool ``UsageLog`` rows for a finished chat turn.
+
+    Shared by ``/api/chat`` and ``/api/chat/stream``. Each row carries the
+    tool's OWN outcome — ``usage_logs.success`` on a per-tool row used to be the
+    turn-completion flag, which is what produced the false "unwanted RDS
+    instance" alarm (CLAUDE_RUNBOOK.md, 2026-09-02). A tool the model guessed
+    that progressive selection never sent is written as ``tool_not_offered`` so
+    a recurrence of that day's misrouting is visible from one DB query.
+
+    ``primary_row`` is the already-created turn row; its ``success`` /
+    ``error_message`` are corrected in place if the primary tool actually
+    failed. Returns the list of extra rows to add to the session.
+
+    Falls back to one turn-flagged row per distinct executed tool when the
+    structured ``tool_calls`` log is unavailable (e.g. the Groq no-tools
+    fallback path).
+    """
+    rows = []
+    seen = {primary_tool} if primary_tool else set()
+
+    if tool_calls:
+        outcome = {}  # tool -> (success, error, status); any failure wins
+        for tc in tool_calls:
+            name = tc.get('tool')
+            if not name:
+                continue
+            ok = bool(tc.get('success'))
+            if name not in outcome or (outcome[name][0] and not ok):
+                outcome[name] = (ok, tc.get('error') or None, tc.get('status'))
+
+        if primary_tool in outcome and not outcome[primary_tool][0] and primary_row.success:
+            primary_row.success = False
+            primary_row.error_message = primary_row.error_message or outcome[primary_tool][1]
+
+        for name, (ok, err, status) in outcome.items():
+            if name in seen:
+                continue
+            seen.add(name)
+            rows.append(UsageLog(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                action_type='tool_not_offered' if status == 'not_offered' else 'tool_use',
+                tool_name=name,
+                credits_used=0,
+                success=ok,
+                error_message=None if ok else err,
+                ai_model=ai_model,
+            ))
+    else:
+        for name in tools_used[1:]:
+            rows.append(UsageLog(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                action_type='tool_use',
+                tool_name=name,
+                credits_used=0,
+                success=turn_success,
+                ai_model=ai_model,
+            ))
+    return rows
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
@@ -3115,16 +3179,13 @@ def api_chat():
                 ai_model=_model.model
             )
             db.session.add(usage_log)
-            for _extra_tool in _tools_used[1:]:
-                db.session.add(UsageLog(
-                    user_id=_user_id,
-                    conversation_id=conversation_id,
-                    action_type='tool_use',
-                    tool_name=_extra_tool,
-                    credits_used=0,
-                    success=success,
-                    ai_model=_model.model
-                ))
+            for _row in _record_tool_usage(
+                user_id=_user_id, conversation_id=conversation_id, ai_model=_model.model,
+                primary_row=usage_log, primary_tool=_primary_tool,
+                tool_calls=_agent_result.get('tool_calls') or [],
+                tools_used=_tools_used, turn_success=success,
+            ):
+                db.session.add(_row)
 
             # Track first-ever tool use for conversion funnel
             if _tools_used and success:
@@ -3282,6 +3343,12 @@ def api_chat():
                 _agent_result['tools_used'] = list(agent.last_tools_used or [])
             except Exception:
                 _agent_result['tools_used'] = []
+            try:
+                # Per-call record (name + real per-tool outcome), including tools
+                # the model guessed that were never offered — see core._record_tool_call.
+                _agent_result['tool_calls'] = list(getattr(agent, 'last_tool_calls', []) or [])
+            except Exception:
+                _agent_result['tool_calls'] = []
             try:
                 _agent_result['pending_download'] = agent.pending_download
                 agent.pending_download = None
@@ -3903,16 +3970,16 @@ def api_chat_stream():
                         ai_model=actual_mc.model
                     )
                     db.session.add(usage_log)
-                    for _st in _stream_tools[1:]:
-                        db.session.add(UsageLog(
-                            user_id=uid,
-                            conversation_id=cid,
-                            action_type='tool_use',
-                            tool_name=_st,
-                            credits_used=0,
-                            success=True,
-                            ai_model=actual_mc.model
-                        ))
+
+                    # The Kimi streaming tier writes no tool_trace, so these
+                    # per-tool rows are the only per-tool signal it produces.
+                    for _row in _record_tool_usage(
+                        user_id=uid, conversation_id=cid, ai_model=actual_mc.model,
+                        primary_row=usage_log, primary_tool=_stream_primary,
+                        tool_calls=list(getattr(agent, 'last_tool_calls', []) or []),
+                        tools_used=_stream_tools, turn_success=True,
+                    ):
+                        db.session.add(_row)
 
                     # Update conversation: title (first message) + clear streaming flag
                     c = Conversation.query.filter_by(id=cid, user_id=uid).first()
