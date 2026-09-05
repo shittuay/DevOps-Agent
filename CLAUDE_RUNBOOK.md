@@ -2081,4 +2081,61 @@ row with `success=True` is not proof the tool's own result was
 own `result.get('success')` per tool (not just the turn-level Kimi/Claude
 completion flag) — cheap to add at the same write site, and it would have
 answered "was an RDS instance actually created" from the DB in one query
-instead of requiring an AWS console check.
+instead of requiring an AWS console check. **Done 2026-09-05 — see the
+tool-call observability entry below.**
+
+## Tool-call observability: consistent per-call recording + a DB signal for misrouting (2026-09-05)
+
+Follow-up to the whole 2026-09-02 "misrouting" series above. Nothing was
+broken in production — this closes the *visibility* gaps those investigations
+kept running into.
+
+**Three defects, all about not being able to see a tool call after the fact:**
+
+1. **`_not_offered_result()` fired silently.** A model emitting a tool name
+   progressive selection never sent is *the* signal that selection is too
+   tight or a request class has no satisfiable tool — the exact 2026-09-02
+   failure mode — and it produced no log line, no metric, nothing. Now emits a
+   structured `tool-not-offered` warning (grep for it) naming the tool, whether
+   it was withheld vs. genuinely unknown, and the offered-tool count.
+
+2. **`_last_tools_used` was appended inconsistently at the 5 executor sites.**
+   The Kimi paths appended only after a handler returned; the Claude path
+   appended unconditionally (sandbox and not-offered included). So a guessed
+   not-offered tool on the **Kimi non-streaming tier** left no trace in
+   `_last_tools_used` → no `usage_logs` row at all — this is what made the
+   `create_ec2_keypair` claim at 17:00:43 (entry above) impossible to
+   adjudicate from the DB. All 5 sites now route through
+   `core._record_tool_call(tool_name, result, outcome=...)` where `outcome` is
+   `ran` / `raised` / `not_offered`. `_last_tools_used` (and its dedup
+   `last_tools_used` property, which drives primary-tool attribution in app.py)
+   still counts only `ran` calls — unchanged semantics — while the new
+   `_tool_call_log` / `last_tool_calls` property records **every** call with
+   its real per-tool outcome. `process_message_streaming` also never reset
+   `_last_tools_used` (a pooled worker thread carried the prior turn's list);
+   both trackers are now reset in all three entry points.
+
+3. **`usage_logs.success` on a per-tool row was the turn-completion flag**
+   (the false "unwanted RDS instance" alarm, entry above). `app.py`'s two
+   write sites (`_finalize_turn`, the streaming finalizer) now share
+   `_record_tool_usage()`, which writes each per-tool row's real
+   `success` / `error_message` from `agent.last_tool_calls`, corrects the
+   primary/turn row when its own tool failed, and writes a
+   `action_type='tool_not_offered'` row for each guessed tool. `routes/analytics.py`'s
+   `api_tool_usage` (per-tool `success_rate`, grouped by `tool_name`) was
+   already reading `usage_logs.success` — it now returns real numbers.
+
+**Monitoring:** `check-errors.yml` gained a "TOOL MISROUTING" section —
+counts `tool_not_offered` rows and real per-tool `tool_use` failures over 7
+days, both from `usage_logs` (works on the Kimi non-streaming tier, which
+writes no `tool_trace`). A nonzero not-offered count is the alarm that a
+2026-09-02-style regression is happening again.
+
+**Not touched:** `routes/api_gateway.py`'s `/v1/agent` developer API has its
+own `api_tool_use` write site with the same turn-vs-tool `success` conflation
+— out of scope for this pass (chat paths only), worth a follow-up.
+
+**Tests:** `tests/test_tool_call_observability.py` (11 cases: the warning,
+`_record_tool_call` outcomes, end-to-end Kimi non-streaming for a guessed /
+failed / raising tool) + `tests/test_chat_keepalive.py::test_per_tool_success_and_not_offered_rows_reach_the_usage_log`.
+Full suite green.

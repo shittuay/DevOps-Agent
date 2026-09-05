@@ -271,6 +271,53 @@ jobs:
         PYEOF
 
         echo ""
+        echo "=== TOOL MISROUTING: model guessed a tool it was never offered (last 7 days) ==="
+        # usage_logs.action_type='tool_not_offered' is written (both /api/chat paths,
+        # all tiers) whenever the model emits a tool name progressive selection did
+        # not send — the signal behind the 2026-09-02 misrouting incident. A nonzero
+        # count here means selection is too tight or a request class has no
+        # satisfiable tool. Per-tool usage_logs.success is now the tool's own result,
+        # not the turn-completion flag, so the failure counts below are real.
+        "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
+        import sys, os
+        db_url = os.environ.get('DB_URL', '')
+        sql_no = """
+            SELECT tool_name, COUNT(*) FROM usage_logs
+            WHERE action_type = 'tool_not_offered'
+              AND created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY tool_name ORDER BY COUNT(*) DESC LIMIT 20
+        """
+        sql_fail = """
+            SELECT tool_name, COUNT(*) FROM usage_logs
+            WHERE action_type = 'tool_use' AND success = FALSE AND tool_name IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY tool_name ORDER BY COUNT(*) DESC LIMIT 20
+        """
+        try:
+            if db_url.startswith('postgres'):
+                import psycopg2
+                pg_url = 'postgresql://' + db_url.split('://', 1)[1] if db_url.startswith('postgresql+') else db_url
+                con = psycopg2.connect(pg_url); cur = con.cursor()
+                cur.execute(sql_no); no_rows = cur.fetchall()
+                cur.execute(sql_fail); fail_rows = cur.fetchall()
+            else:
+                import sqlite3
+                con = sqlite3.connect(sys.argv[1])
+                _f = lambda s: s.replace("NOW() - INTERVAL '7 days'", "datetime('now','-7 days')").replace("FALSE", "0")
+                no_rows = con.execute(_f(sql_no)).fetchall()
+                fail_rows = con.execute(_f(sql_fail)).fetchall()
+            print(f"Not-offered tool guesses: {sum(c for _, c in no_rows)}")
+            for name, count in no_rows:
+                print(f"  {name}: {count}")
+            print(f"Per-tool failures (usage_logs): {sum(c for _, c in fail_rows)}")
+            for name, count in fail_rows:
+                print(f"  {name}: {count}")
+            con.close()
+        except Exception as e:
+            print(f"Query error: {e}")
+        PYEOF
+
+        echo ""
         echo "=== GUARDRAIL VIOLATIONS ==="
         "$VENV/bin/python3" - "$DB" << 'PYEOF' 2>&1
         import sys, os

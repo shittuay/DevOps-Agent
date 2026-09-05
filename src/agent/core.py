@@ -42,7 +42,7 @@ _IP_OCTET = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
 _HALLUCINATED_TOOL_PATTERNS = [
     # AWS credentials leaked into response text
     re.compile(r'AKIA[A-Z0-9]{12,20}'),
-    re.compile(r'(?:Secret\s*Access\s*Key|SecretAccessKey)\s*[:=]\s*\S{30,}', re.IGNORECASE),
+    re.compile(r'Secret\s*Access\s*Key\s*[:=]\s*\S{30,}', re.IGNORECASE),
     # AWS resource IDs without any prior tool call context
     re.compile(r'\b(?:i|vpc|subnet|sg|ami|vol|snap|eni|igw|rtb|acl|nat|pcx|eipalloc)-[0-9a-f]{8,17}\b'),
     # ARNs
@@ -484,6 +484,9 @@ class DevOpsAgent:
     _current_conversation_id = _greenlet_local_property('_current_conversation_id')
     _pending_approval = _greenlet_local_property('_pending_approval')
     _last_tools_used = _greenlet_local_property('_last_tools_used', default_factory=list)
+    # Structured per-call record for the most recent turn: one dict per tool the
+    # model requested, whether or not it ran. See _record_tool_call.
+    _tool_call_log = _greenlet_local_property('_tool_call_log', default_factory=list)
     _tool_event_callback = _greenlet_local_property('_tool_event_callback')
     # Per-turn count of consecutive identical failing tool calls, keyed by
     # (tool_name, canonical args). See _repeat_guard_blocked.
@@ -553,6 +556,8 @@ class DevOpsAgent:
 
         # Track tools used in the most recent process_message_isolated call
         self._last_tools_used: List[str] = []
+        # Structured per-call record for the most recent turn (see _record_tool_call).
+        self._tool_call_log: List[Dict[str, Any]] = []
 
         # Optional callback for streaming tool events to the UI - per request
         # (see _greenlet_local_property). Signature: callback(event_type, tool_name, data)
@@ -834,8 +839,26 @@ class DevOpsAgent:
         return any(td['name'] == tool_name for td in override)
 
     def _not_offered_result(self, tool_name: str) -> Dict[str, Any]:
-        """Error result for a tool the model was not offered this turn."""
-        if tool_name in self.tools:
+        """Error result for a tool the model was not offered this turn.
+
+        Also emits a structured ``tool-not-offered`` warning. A model emitting a
+        tool name it was never given is *the* signal that progressive tool
+        loading (or an unsatisfiable request) is pushing it to guess — the
+        failure mode behind the 2026-09-02 "misrouting" incident. Grep the log
+        for ``tool-not-offered``; the per-call record (see ``_record_tool_call``)
+        carries the same event through to a queryable ``usage_logs`` row.
+        """
+        known = tool_name in self.tools
+        override = getattr(self, '_tools_override', None)
+        offered_count = len(override) if override is not None else len(self.tool_definitions)
+        self.logger.warning(
+            "tool-not-offered: model requested %r (%s); not in the %d tool(s) sent "
+            "this turn — returning search_tools redirect",
+            tool_name,
+            "known but withheld by selection" if known else "no such tool exists",
+            offered_count,
+        )
+        if known:
             return {
                 'success': False,
                 'error': (
@@ -851,6 +874,59 @@ class DevOpsAgent:
                 f'search_tools with a description of the capability you need.'
             ),
         }
+
+    def _record_tool_call(self, tool_name: str, result: Any, *, outcome: str) -> None:
+        """Record one model-requested tool call for post-turn accounting.
+
+        Called once per tool call at every executor site (Kimi non-streaming,
+        Kimi streaming, Claude). Before this existed each site appended to
+        ``_last_tools_used`` differently — the Kimi paths only after a handler
+        returned, the Claude path unconditionally (sandbox and not-offered
+        included) — so a guessed tool on the Kimi non-streaming tier left no
+        trace in ``usage_logs`` at all (see CLAUDE_RUNBOOK.md's 2026-09-02
+        entry: the unexplained ``create_ec2_keypair`` with no ``tool_use`` row).
+
+        ``outcome`` is one of:
+          - ``'ran'``          a real or sandbox handler was invoked and returned
+          - ``'raised'``       a handler was invoked and threw
+          - ``'not_offered'``  a withheld / unknown tool; no handler invoked
+
+        ``_last_tools_used`` (and its dedup ``last_tools_used`` property, which
+        drives primary-tool attribution in app.py) counts only ``'ran'`` calls,
+        exactly as the Kimi paths did before. ``_tool_call_log`` records every
+        call with its real per-tool outcome.
+        """
+        if outcome == 'ran':
+            self._last_tools_used.append(tool_name)
+
+        if outcome == 'not_offered':
+            status, ok, err = 'not_offered', False, 'tool not offered this turn'
+        elif outcome == 'raised':
+            status, ok = 'error', False
+            err = result.get('error') if isinstance(result, dict) else 'tool raised'
+        else:
+            ok = bool(result.get('success', True)) if isinstance(result, dict) else True
+            status = 'ok' if ok else 'error'
+            err = None if ok else (result.get('error') if isinstance(result, dict) else None)
+
+        self._tool_call_log.append({
+            'tool': tool_name,
+            'status': status,
+            'success': ok,
+            'error': err[:250] if isinstance(err, str) else None,
+        })
+
+    @property
+    def last_tool_calls(self) -> List[Dict[str, Any]]:
+        """Structured record of every tool call in the most recent turn.
+
+        One entry per call (not deduplicated): ``{tool, status, success, error}``
+        where ``status`` is ``ok`` / ``error`` / ``not_offered``. Unlike
+        ``last_tools_used`` this includes calls that failed or were never
+        offered, so callers can log a real per-tool success flag instead of the
+        turn-level one (see app.py's usage-log write sites).
+        """
+        return list(self._tool_call_log)
 
     def _search_tools_handler(self, query: str, limit: int = 25) -> Dict[str, Any]:
         """
@@ -1015,6 +1091,8 @@ class DevOpsAgent:
 
         # Clear any pending downloads from previous messages
         self.pending_download = None
+        self._last_tools_used = []
+        self._tool_call_log = []
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1110,6 +1188,7 @@ class DevOpsAgent:
 
             # Reset per-request tool tracking
             self._last_tools_used = []
+            self._tool_call_log = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1202,6 +1281,11 @@ class DevOpsAgent:
             # count from a previous request would block a legitimate call.
             self._repeat_guard = {}
             self._maybe_select_tools(user_message, max_tools)
+
+            # Reset per-request tool tracking (threading.local-backed, so a
+            # pooled worker thread would otherwise carry the prior turn's list).
+            self._last_tools_used = []
+            self._tool_call_log = []
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
@@ -1650,29 +1734,35 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
+                                    self._record_tool_call(tool_name, result, outcome='ran')
                                 elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
-                                        self._last_tools_used.append(tool_name)
                                         self._audit_chat_deletion(tool_name, tool_input, result)
+                                        self._record_tool_call(tool_name, result, outcome='ran')
                                     except Exception as e:
                                         self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                        self._record_tool_call(tool_name, result, outcome='raised')
                                 else:
                                     result = self._not_offered_result(tool_name)
+                                    self._record_tool_call(tool_name, result, outcome='not_offered')
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
+                            self._record_tool_call(tool_name, result, outcome='ran')
                         elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
-                                self._last_tools_used.append(tool_name)
                                 self._audit_chat_deletion(tool_name, tool_input, result)
+                                self._record_tool_call(tool_name, result, outcome='ran')
                             except Exception as e:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                self._record_tool_call(tool_name, result, outcome='raised')
                         else:
                             result = self._not_offered_result(tool_name)
+                            self._record_tool_call(tool_name, result, outcome='not_offered')
 
                         self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
@@ -1912,15 +2002,18 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
+                                    self._record_tool_call(tool_name, result, outcome='ran')
                                 elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
-                                        self._last_tools_used.append(tool_name)
                                         self._audit_chat_deletion(tool_name, tool_input, result)
+                                        self._record_tool_call(tool_name, result, outcome='ran')
                                     except Exception as e:
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                        self._record_tool_call(tool_name, result, outcome='raised')
                                 else:
                                     result = self._not_offered_result(tool_name)
+                                    self._record_tool_call(tool_name, result, outcome='not_offered')
                             elif not _approval_done:
                                 result = {'success': False, 'error': 'High-risk operation requires approval'}
                             else:
@@ -1928,15 +2021,18 @@ class DevOpsAgent:
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
+                            self._record_tool_call(tool_name, result, outcome='ran')
                         elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
-                                self._last_tools_used.append(tool_name)
                                 self._audit_chat_deletion(tool_name, tool_input, result)
+                                self._record_tool_call(tool_name, result, outcome='ran')
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                self._record_tool_call(tool_name, result, outcome='raised')
                         else:
                             result = self._not_offered_result(tool_name)
+                            self._record_tool_call(tool_name, result, outcome='not_offered')
 
                         self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
@@ -2058,14 +2154,17 @@ class DevOpsAgent:
                     if getattr(self, '_sandbox_mode', False):
                         from services.learning_sandbox import generate_mock_result
                         result = generate_mock_result(tool_name, tool_input)
+                        self._record_tool_call(tool_name, result, outcome='ran')
                     elif self._is_tool_offered(tool_name):
                         result = self.tools[tool_name](**tool_input)
                         self._audit_chat_deletion(tool_name, tool_input, result)
+                        self._record_tool_call(tool_name, result, outcome='ran')
                     else:
                         result = self._not_offered_result(tool_name)
+                        self._record_tool_call(tool_name, result, outcome='not_offered')
 
-                    self.logger.info(f"Tool {tool_name} executed successfully")
-                    self._last_tools_used.append(tool_name)
+                    if isinstance(result, dict) and result.get('success', True):
+                        self.logger.info(f"Tool {tool_name} executed successfully")
 
                     if self._tool_event_callback:
                         try:
@@ -2086,6 +2185,7 @@ class DevOpsAgent:
                         'success': False,
                         'error': f"Tool execution failed: {str(e)}"
                     }
+                    self._record_tool_call(tool_name, result, outcome='raised')
 
                 # Add tool result to conversation (exclude download_file from Claude's view)
                 self._repeat_guard_record(tool_name, tool_input, result)
