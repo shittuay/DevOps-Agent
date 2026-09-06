@@ -115,9 +115,42 @@ is `{'success': True}` and flows through identically).
   a create-then-delete in one turn must not flip a deleted resource to
   `verified: true`.
 
-## Deferred — decisions recorded
+## Phase 2c — shipped (update verification)
 
-### Rule 5 — credit protection (not started)
+Same module, `_UPDATE_SPECS` + `verify_mutation`'s `action='update'` branch.
+`verify_mutation` was refactored into `_pick_spec` (dispatch, honours each
+spec's `applies`) + a shared `_poll` loop + three per-action tails.
+
+- After an **updating** tool succeeds, the read-back per attempt resolves to
+  `applied` / `not_yet` / `unknown` via `_update_state`: build the
+  `{read_field: target}` map from the params the caller actually passed
+  (`_UpdateSpec.expected`), find the resource in the read (`find`, for
+  list-style reads), and compare.
+  - **`applied`** → `_verification.status='confirmed'`, plus a `fields` list.
+    An `accepted_states` hit (RDS `status == 'modifying'`) also counts as
+    applied — the change was accepted and is in flight.
+  - **`not_yet`** → after all attempts, `unconfirmed` — "a read does not yet
+    show the new value for `<fields>`, may still be applying".
+  - **`unknown`** → the read failed, or nothing checkable was passed. After
+    all attempts, `unconfirmed` — "could not verify the new value".
+- **Update-verifiable set:** `resize_ec2_instance` → `get_ec2_instances`
+  (`instance_type`); `manage_ec2_instance(action in start/stop/reboot)` →
+  `get_ec2_instances` (`state`); `update_ecs_service` → `list_ecs_services`
+  (`desired_count`); `update_lambda_function_config` → `list_lambda_functions`
+  (`memory_size`/`timeout`/`runtime`); `modify_rds_instance` →
+  `describe_rds_instance` (`db_instance_class`/`engine_version`, or
+  `status == 'modifying'`).
+- `manage_ec2_instance` is now in all three spec maps: `terminate` → delete,
+  `start`/`stop`/`reboot` → update, anything else (`describe`) → not verified.
+
+## Not covered
+
+Security-group rule changes (`authorize_*`/`revoke_*` — the "expected" is a
+rule shape, not a scalar), tag operations, and IaC-shaped updates
+(`update_cloudformation_stack`). Add a `_UpdateSpec` per tool as the need
+arises.
+
+## Deferred — decisions recorded
 
 ### Rule 5 — credit protection (not started)
 
