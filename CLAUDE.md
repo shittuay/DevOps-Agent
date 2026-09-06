@@ -821,6 +821,9 @@ means wiring both `_repeat_guard_blocked` and `_repeat_guard_record` into it, an
   read-back verification (Execution Integrity rule 2, below).
 - `tool_cache.enabled` (default `true`) — kill-switch for the 60s per-user
   read-result cache (Execution Integrity rule 5, `services/tool_cache.py`).
+- `iac_fallback.enabled` (default `true`) — kill-switch for CloudFormation
+  fallback generation on a failed create (Execution Integrity rule 4,
+  `services/iac_fallback.py`).
 
 ## Execution Integrity
 
@@ -863,9 +866,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   `(user_id, tool, args)` for 60s via `DevOpsAgent._invoke_tool` (all 5 exec
   sites); **any mutating call invalidates that user's whole read cache** so a
   stale read can't contradict a just-applied change.
+- **IaC fallback** (Phase 4, rule 4, `services/iac_fallback.py` +
+  `_iac_fallback`) — when a creating tool returns `{success: False}`, a
+  CloudFormation template is built from the same intent and attached as
+  `_iac_fallback` on the result, and `create_cloudformation_stack` is appended
+  to `_tools_override` so the model can deploy it this turn. Supported: EC2
+  instance (needs `ami_id`), security group, VPC, S3 bucket. One per turn;
+  RDS omitted (password handling).
 
-Deferred (decisions recorded in the doc): real CloudFormation/Terraform
-fallback generation (rule 4 runtime), SG-rule / tag update verification.
+Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
+subsystem, SG-rule / tag update verification.
 
 ## Historical Fixes & Gotchas
 

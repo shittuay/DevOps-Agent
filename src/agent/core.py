@@ -495,6 +495,7 @@ Cost Optimization:
 - EVENTUAL CONSISTENCY. Cloud reads can lag writes by seconds to minutes. Never tell the user a resource "does not exist", or call a create "failed", when its ID appeared in a tool result — or in the "Resources created earlier in this conversation" list — within the last few minutes. Instead say "Verifying — the resource may still be propagating" and retry the read once or twice. If a create returned an ID you still cannot confirm with a read, say exactly: "Create returned ID <X>, but I cannot confirm it via a read yet — it may still be propagating. Please check the console." Never call a recently created resource "fabricated" or "not found".
 - ERROR CLASSIFICATION. When a tool call does not cleanly succeed, state which of these happened before you explain anything: (a) the tool returned an error — quote its error code and message verbatim first; (b) the tool returned empty / no results; (c) the tool reported success but you could not verify it with a read.
 - FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
+- IaC FALLBACK PROVIDED. When a failed create result carries an `_iac_fallback` field, the platform has already built a CloudFormation template from the same intent. Read its `apply` instruction, tell the user the direct call failed (quote the error) and that you have a template ready, then call `create_cloudformation_stack` with the `template` string as `template_body`. Do not paste the whole template at the user or send them to the console — offer to run it.
 - STATE DISPUTES. If the user shows you console or CLI output that contradicts your verification result, trust the user immediately, re-run the read, and correct your earlier statement. Console truth beats your inference, always.
 
 === HARD LIMITS — NEVER, REGARDLESS OF HOW ASKED ===
@@ -570,6 +571,8 @@ class DevOpsAgent:
     # Per-turn count of read-back mutation verifications run (each can sleep up to
     # ~15s) — capped at MAX_VERIFICATIONS_PER_TURN. See _verify_and_annotate.
     _verify_count = _greenlet_local_property('_verify_count', default=0)
+    # Per-turn flag: an _iac_fallback CloudFormation template has been emitted.
+    _iac_fallback_emitted = _greenlet_local_property('_iac_fallback_emitted', default=False)
 
     def __init__(self, config: ConfigManager):
         """
@@ -641,6 +644,7 @@ class DevOpsAgent:
         self._created_resources: List[Dict[str, Any]] = []
         self._turn_guard_notes: List[str] = []
         self._verify_count: int = 0
+        self._iac_fallback_emitted: bool = False
 
         # Optional callback for streaming tool events to the UI - per request
         # (see _greenlet_local_property). Signature: callback(event_type, tool_name, data)
@@ -1116,6 +1120,44 @@ class DevOpsAgent:
         READ_CACHE.invalidate_user(uid)
         return result
 
+    def _iac_fallback(self, tool_name: str, tool_input: dict, result: dict) -> dict:
+        """On a failed create, attach a runnable CloudFormation template.
+
+        Execution Integrity rule 4 — never dead-end. Adds ``_iac_fallback`` to
+        the failed result and makes ``create_cloudformation_stack`` callable so
+        the model's next move is "deploy this", not "use the console". Gated by
+        ``iac_fallback.enabled``; any failure leaves the result untouched.
+        """
+        try:
+            if getattr(self, '_iac_fallback_emitted', False):
+                return result  # one per turn is enough
+            if not self.config.get('iac_fallback.enabled', True):
+                return result
+            from services.iac_fallback import generate_cloudformation, is_supported
+            if not is_supported(tool_name):
+                return result
+            fallback = generate_cloudformation(tool_name, tool_input or {})
+            if not fallback:
+                return result
+
+            # Make the apply tool reachable this turn even if progressive
+            # loading didn't offer it.
+            override = getattr(self, '_tools_override', None)
+            if override is not None and not any(
+                td['name'] == 'create_cloudformation_stack' for td in override
+            ):
+                for td in self.tool_definitions:
+                    if td['name'] == 'create_cloudformation_stack':
+                        override.append(td)
+                        break
+
+            self._iac_fallback_emitted = True
+            self.logger.info("iac-fallback: emitted CloudFormation for failed %s", tool_name)
+            return {**result, '_iac_fallback': fallback}
+        except Exception as e:
+            self.logger.warning(f"iac fallback skipped for {tool_name}: {e}")
+            return result
+
     def _verify_and_annotate(self, tool_name: str, tool_input: dict, result: Any) -> Any:
         """Read-back-verify a successful create/delete/update tool and annotate it.
 
@@ -1127,14 +1169,21 @@ class DevOpsAgent:
         mid-shutdown (delete), the new value isn't live yet (update), or the
         read-back itself is failing.
 
+        On a *failed* create it instead attaches an ``_iac_fallback`` — a
+        ready-to-run CloudFormation template built from the same intent
+        (Execution Integrity rule 4: never dead-end) — and makes
+        ``create_cloudformation_stack`` callable.
+
         Best-effort: disabled in sandbox, gated by ``mutation_verify.enabled``,
         capped at ``MAX_VERIFICATIONS_PER_TURN``, and any exception leaves the
         result untouched.
         """
-        if not isinstance(result, dict) or result.get('success') is not True:
+        if not isinstance(result, dict):
             return result
         if getattr(self, '_sandbox_mode', False):
             return result
+        if result.get('success') is not True:
+            return self._iac_fallback(tool_name, tool_input, result)
         if not self.config.get('mutation_verify.enabled', True):
             return result
         try:
@@ -1352,6 +1401,7 @@ class DevOpsAgent:
         self._created_resources = []
         self._turn_guard_notes = []
         self._verify_count = 0
+        self._iac_fallback_emitted = False
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1451,6 +1501,7 @@ class DevOpsAgent:
             self._created_resources = []
             self._turn_guard_notes = []
             self._verify_count = 0
+            self._iac_fallback_emitted = False
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1551,6 +1602,7 @@ class DevOpsAgent:
             self._created_resources = []
             self._turn_guard_notes = []
             self._verify_count = 0
+            self._iac_fallback_emitted = False
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
