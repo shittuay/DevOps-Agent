@@ -77,12 +77,47 @@ Tests: `tests/test_execution_integrity.py`.
   (default `true`); capped at `MAX_VERIFICATIONS_PER_TURN = 3` per turn (a
   turn launching 10 instances must not add 150s — the rest are registered
   unverified); any exception leaves the result untouched.
-- **Not covered:** deletes (verify the resource is *gone* — different
-  predicate, state-transition-aware) and updates. Phase 2b.
+- **Not covered:** updates (`Phase 2c`, not started).
 
 Tests: `tests/test_mutation_verifier.py`.
 
+## Phase 2b — shipped (delete verification)
+
+Same module, `_DELETE_SPECS` + `verify_mutation`'s `action='delete'` branch,
+same wiring (`_verify_and_annotate` at the 5 execution sites — a delete result
+is `{'success': True}` and flows through identically).
+
+- After a **deleting** tool succeeds, the read-back per attempt resolves to
+  `gone` / `present` / `unknown`:
+  - **`gone`** → `_verification.status = 'confirmed'`. A describe-by-id read
+    that 404s with a code in `_NOT_FOUND_CODES` (`InvalidGroup.NotFound`,
+    `InvalidVpcID.NotFound`, `DBInstanceNotFound`, …); an EC2 instance in
+    `shutting-down`/`terminated` (`_EC2_TERMINAL_STATES`) or absent from the
+    filtered list; an S3 bucket absent from `list_s3_buckets`.
+  - **`present`** → after all attempts, `unconfirmed` with *"Delete of `<X>`
+    returned success, but a read still shows it — it may still be shutting
+    down…"*.
+  - **`unknown`** → a read that failed for a **non**-NotFound reason
+    (`AccessDenied`, `Throttling`) is **never** read as `gone` — that is the
+    "cannot read the account vs. a finding" trap. After all attempts,
+    `unconfirmed` with *"`<X>` was deleted … but I could not verify removal —
+    the read-back is failing…"*.
+- **Delete-verifiable set:** `delete_ec2_instance` /
+  `manage_ec2_instance(action='terminate')` → `get_ec2_instances`;
+  `delete_security_group` → `describe_security_group`; `delete_vpc` →
+  `describe_vpc`; `delete_rds_instance` → `describe_rds_instance`;
+  `delete_s3_bucket` → `list_s3_buckets` (not `get_s3_bucket_info` — that one
+  swallows `NoSuchBucket` and returns `success: True`).
+- `manage_ec2_instance` only verifies when `action == 'terminate'`
+  (`_DeleteSpec.applies` + `will_verify()` so a non-terminate action spends no
+  per-turn slot).
+- The `_created_resources` registry is tagged only for `action == 'create'` —
+  a create-then-delete in one turn must not flip a deleted resource to
+  `verified: true`.
+
 ## Deferred — decisions recorded
+
+### Rule 5 — credit protection (not started)
 
 ### Rule 5 — credit protection (not started)
 

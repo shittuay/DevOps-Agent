@@ -491,7 +491,7 @@ Cost Optimization:
 
 === EXECUTION INTEGRITY ===
 - VERIFIED RESULTS ONLY. Every resource ID, IP, ARN, state, timestamp, or cost you show the user must be a verbatim substring of a tool result from THIS conversation. A create/update/delete tool's response is a claim, not proof — when a matching read tool exists and is cheap, call it and confirm the resource before you report the change as done.
-- AUTOMATIC VERIFICATION. When a create tool's result carries a `_verification` field, the platform already ran the read-back for you: `status: "confirmed"` means a read found the resource — report it as done. `status: "unconfirmed"` means the read has not caught up yet — relay its `message` field verbatim to the user and do NOT call the create failed; the resource was very likely created.
+- AUTOMATIC VERIFICATION. When a create/delete tool's result carries a `_verification` field, the platform already ran the read-back for you. `status: "confirmed"` — for a create, a read found the resource; for a delete, a read shows it gone or terminating. Report it as done. `status: "unconfirmed"` — relay the `message` field verbatim and do NOT call the operation failed: for a create the read has not caught up; for a delete the resource is likely mid-shutdown or the read-back is failing. The mutation itself returned success.
 - EVENTUAL CONSISTENCY. Cloud reads can lag writes by seconds to minutes. Never tell the user a resource "does not exist", or call a create "failed", when its ID appeared in a tool result — or in the "Resources created earlier in this conversation" list — within the last few minutes. Instead say "Verifying — the resource may still be propagating" and retry the read once or twice. If a create returned an ID you still cannot confirm with a read, say exactly: "Create returned ID <X>, but I cannot confirm it via a read yet — it may still be propagating. Please check the console." Never call a recently created resource "fabricated" or "not found".
 - ERROR CLASSIFICATION. When a tool call does not cleanly succeed, state which of these happened before you explain anything: (a) the tool returned an error — quote its error code and message verbatim first; (b) the tool returned empty / no results; (c) the tool reported success but you could not verify it with a read.
 - FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
@@ -1082,13 +1082,14 @@ class DevOpsAgent:
                 })
 
     def _verify_and_annotate(self, tool_name: str, tool_input: dict, result: Any) -> Any:
-        """Read-back-verify a successful creating tool and annotate its result.
+        """Read-back-verify a successful create/delete tool and annotate its result.
 
-        Execution Integrity rule 2 (docs/execution-integrity.md): the create
+        Execution Integrity rule 2 (docs/execution-integrity.md): the mutating
         call's own response is a claim; this calls the resource's dedicated read
         tool a few times with a short backoff and adds a ``_verification`` key
         the model reads on its next iteration. ``status: 'unconfirmed'`` is not
-        "failed" — it carries the exact "cannot confirm via a read yet" wording.
+        "failed" — for a create it means the read hasn't caught up; for a delete
+        it means the resource still shows (mid-shutdown) or the read is failing.
 
         Best-effort: disabled in sandbox, gated by ``mutation_verify.enabled``,
         capped at ``MAX_VERIFICATIONS_PER_TURN``, and any exception leaves the
@@ -1102,9 +1103,9 @@ class DevOpsAgent:
             return result
         try:
             from services.mutation_verifier import (
-                verify_mutation, is_verifiable, MAX_VERIFICATIONS_PER_TURN,
+                verify_mutation, will_verify, MAX_VERIFICATIONS_PER_TURN,
             )
-            if not is_verifiable(tool_name):
+            if not will_verify(tool_name, tool_input or {}):
                 return result
             if self._verify_count >= MAX_VERIFICATIONS_PER_TURN:
                 return result
@@ -1128,9 +1129,10 @@ class DevOpsAgent:
             tool_name, annotation['status'], annotation.get('resource_id'),
         )
         rid = annotation.get('resource_id')
-        for entry in self._created_resources:
-            if rid in entry.get('ids', []):
-                entry['verified'] = annotation['status'] == 'confirmed'
+        if annotation.get('action') == 'create':
+            for entry in self._created_resources:
+                if rid in entry.get('ids', []):
+                    entry['verified'] = annotation['status'] == 'confirmed'
         return {**result, '_verification': annotation}
 
     @property
