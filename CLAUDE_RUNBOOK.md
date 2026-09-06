@@ -2191,3 +2191,46 @@ fallback generation + retry queue. Rule 6 (tier-gated instance types)
 dropped — no such feature exists.
 
 **Tests:** `tests/test_execution_integrity.py` (18 cases). Full suite green.
+
+## Execution Integrity Phase 2 — post-create read-back verification (2026-09-06)
+
+Rule 2's runtime, deferred out of Phase 1. `services/mutation_verifier.py` +
+`DevOpsAgent._verify_and_annotate`, wired into all 5 tool-execution sites in
+`core.py` right after `_record_tool_call(..., outcome='ran')`.
+
+**Flow:** a creating tool returns `success: True` → its dedicated read tool
+(same per-user cloud client) is polled `DEFAULT_BACKOFF = (0, 1, 2, 5, 7)s`
+(first attempt immediate, ~15s total — deliberately not the spec's 60s) →
+the tool result the model reads next iteration gains a `_verification` key:
+`{status: 'confirmed', resource_id, via, after_seconds}` or
+`{status: 'unconfirmed', resource_id, via, message}` where `message` is the
+verbatim "Create returned ID <X>, but I cannot confirm it via a read yet…".
+The `STABLE_SYSTEM_PROMPT` AUTOMATIC VERIFICATION line tells the model
+`unconfirmed` is not a failure. The `_created_resources` registry entry is
+tagged `verified: true|false`.
+
+**Confirmation predicate:** `read_result.get('success') is True` AND the
+resource id appears verbatim in the read payload — every read tool in the
+Phase 2 set echoes the queried id on success, so the echo check also guards
+against a success with an empty/unrelated body.
+
+**Verifiable set (Phase 2):** `create_ec2_instance`/`run_instances` →
+`get_ec2_instances`; `create_security_group` → `describe_security_group`;
+`create_vpc` → `describe_vpc`; `create_rds_instance` → `describe_rds_instance`;
+`create_s3_bucket` → `get_s3_bucket_info`.
+
+**Guards:** skipped in sandbox; kill-switch `mutation_verify.enabled`
+(default true); `MAX_VERIFICATIONS_PER_TURN = 3` (a turn launching 10
+instances must not add 150s — the rest are registered unverified); every
+exception path leaves the result untouched (`verify_mutation` never raises —
+a read that errors just counts as "not confirmed yet").
+
+**Not covered:** deletes (verify the resource is *gone* — a different,
+state-transition-aware predicate) and updates. Phase 2b.
+
+**`verify_mutation` is injectable** (`call_tool`, `sleep`) so it unit-tests
+without a cloud account. Default `sleep` is resolved lazily inside the loop
+(`sleep or time.sleep`), not bound as a default arg — so `patch('time.sleep')`
+in tests actually takes effect.
+
+**Tests:** `tests/test_mutation_verifier.py` (14 cases). Full suite green.
