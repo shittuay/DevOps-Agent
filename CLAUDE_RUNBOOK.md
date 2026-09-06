@@ -2347,3 +2347,40 @@ every-turn warning informs the *next* message instead.
 **Tests:** `tests/test_tool_cache.py` (31 cases). Phase-3 + adjacent suites
 green (327). Full local suite has the pre-existing load-dependent SQLite
 flakiness (see Phase 2c entry); GitHub Run Tests is the gate.
+
+## Execution Integrity Phase 4 — IaC fallback generation (2026-09-06)
+
+Rule 4's runtime, first half (the `retry_queue` half is still deferred).
+`services/iac_fallback.py` + `DevOpsAgent._iac_fallback`.
+
+**Flow:** a creating tool returns `{'success': False}` →
+`_verify_and_annotate` routes the failure to `_iac_fallback` →
+`generate_cloudformation(tool_name, tool_input)` builds a compact CFN template
+(JSON) from the same intent → attached as `_iac_fallback` on the result
+(`{format, stack_name, template, resource_type, apply}`) →
+`create_cloudformation_stack` appended to `_tools_override` so the model can
+deploy it this turn. The `STABLE_SYSTEM_PROMPT` `IaC FALLBACK PROVIDED` line
+tells the model to quote the real error, say a template is ready, and call
+`create_cloudformation_stack` — not paste the template or send the user to the
+console.
+
+**Supported set:** `create_ec2_instance`/`run_instances` → `AWS::EC2::Instance`
+(returns `None` without a concrete `ami_id` — CFN needs one too);
+`create_security_group` → `AWS::EC2::SecurityGroup` (maps `ingress_rules` →
+`SecurityGroupIngress`); `create_vpc` → `AWS::EC2::VPC`; `create_s3_bucket` →
+`AWS::S3::Bucket`.
+
+**`create_rds_instance` deliberately omitted** — `MasterUserPassword` would
+land in the template artifact (chat/LLM/log path); a `NoEcho` parameter is the
+right shape but deferred rather than risk it.
+
+**Guards:** one `_iac_fallback` per turn (`_iac_fallback_emitted` greenlet-local,
+reset in all 3 entry points); skipped in sandbox; kill-switch
+`iac_fallback.enabled`; every exception path leaves the result untouched.
+`iac_fallback.py` is pure — no boto3, never applies a template.
+
+**Still deferred:** Terraform generation, the `retry_queue` DB table + worker,
+RDS/IAM/networking-graph templates.
+
+**Tests:** `tests/test_iac_fallback.py` (14 cases). Phase-4 + adjacent suites
+green (219). Full local run 934 passed earlier this session.

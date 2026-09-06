@@ -200,14 +200,47 @@ Tests: `tests/test_tool_cache.py`.
   balance; the every-turn `low_credit_warning` informs the *next* message
   instead.
 
+## Phase 4 — shipped (rule 4: IaC fallback generation)
+
+Branch `feat/iac-fallback`. `services/iac_fallback.py` +
+`DevOpsAgent._iac_fallback`.
+
+- When a **creating** tool returns `{'success': False}`,
+  `generate_cloudformation(tool_name, tool_input)` builds a compact
+  CloudFormation template (JSON) from the *same intent* and
+  `_verify_and_annotate` attaches it as `_iac_fallback` on the failed result:
+  `{'format': 'cloudformation', 'stack_name', 'template', 'resource_type',
+  'apply'}`. `apply` spells out the `create_cloudformation_stack(...)` call.
+- `_iac_fallback` also **appends `create_cloudformation_stack` to
+  `_tools_override`** so the model can run it this turn even if progressive
+  loading never offered it.
+- The `STABLE_SYSTEM_PROMPT` **IaC FALLBACK PROVIDED** line tells the model to
+  quote the real error, say a template is ready, and call
+  `create_cloudformation_stack` with the `template` string as `template_body`
+  — never paste the whole template at the user or send them to the console.
+- **Supported set:** `create_ec2_instance` / `run_instances` →
+  `AWS::EC2::Instance` (needs a concrete `ami_id`, else `None`);
+  `create_security_group` → `AWS::EC2::SecurityGroup` (maps `ingress_rules`);
+  `create_vpc` → `AWS::EC2::VPC`; `create_s3_bucket` → `AWS::S3::Bucket`
+  (versioning / SSE-S3 / public-access-block).
+- **`create_rds_instance` is omitted** — its `MasterUserPassword` would have to
+  be embedded in the template or threaded through a `NoEcho` parameter;
+  deferred rather than risk a plaintext secret in the template artifact.
+- **Guards:** one `_iac_fallback` per turn (`_iac_fallback_emitted`); skipped
+  in sandbox; kill-switch `iac_fallback.enabled`; any exception leaves the
+  result untouched. `iac_fallback.py` is pure — it never applies a template.
+
+Tests: `tests/test_iac_fallback.py`.
+
+## Not covered
+
+- **Terraform** generation (CloudFormation only for now).
+- **`retry_queue`** — deferred execution of a failed op via a DB table +
+  worker. Separate subsystem; the synchronous IaC fallback covers the common
+  "the create failed, do it another way now" case.
+- RDS / IAM / networking-graph (VPC + subnets + route tables) templates.
+
 ## Deferred — decisions recorded
-
-### Rule 4 — runtime fallback (not started)
-
-- Real CloudFormation/Terraform **generation** from a failed tool call's
-  intent, and a `retry_queue` table for deferred execution, are net-new
-  subsystems. The prompt already instructs the ordering; the runtime
-  automation is a separate project.
 
 ### Rule 6 — dropped
 
