@@ -2311,3 +2311,39 @@ rule shape, not a scalar), tag ops, `update_cloudformation_stack`.
 **Tests:** `tests/test_mutation_verifier.py` — now 35 cases (+10 for updates,
 incl. read-failure-is-not-applied and nothing-checkable cases). Full suite
 green.
+
+## Execution Integrity Phase 3 — credit protection (2026-09-06)
+
+Rule 5. Two lightweight pieces; the per-turn credit model is unchanged.
+
+**Low-credit warning:** `app._low_credit_warning(credits_remaining)` →
+`{'credits_remaining', 'message'}` when the post-turn balance is
+`1..LOW_CREDIT_THRESHOLD` (5). Attached as `low_credit_warning` to the
+`/api/chat` JSON body and the `/api/chat/stream` `done` SSE event.
+`templates/index.html`'s `maybeWarnLowCredit()` toasts it, deduped on the
+balance value (a user sitting at 3 isn't toasted every message). The existing
+one-time email at exactly 5 is untouched. `0`-and-below keeps the exhausted
+upgrade-pitch path.
+
+**60s read cache — `services/tool_cache.py`:** `READ_CACHE` (`_ReadCache`,
+process-wide, `threading.Lock`) caches **successful read** results by
+`(user_id, tool_name, canonical_args)` for `TTL_SECONDS = 60`, bounded 512.
+`is_read_tool()` = `get_`/`list_`/`describe_` prefix, `_api_read` substring,
+or `find_ami`/`search_tools`, minus a deny-list
+(`get_secret_value`/`generate_s3_presigned_url`/`get_ec2_console_output`/…).
+`DevOpsAgent._invoke_tool()` replaces the bare `self.tools[name](**input)` at
+all 5 execution sites — cache-lookup for reads, store on success, and
+**`READ_CACHE.invalidate_user(uid)` after any mutating call** (a stale read
+that contradicts a just-applied change is exactly what the Phase 2 verifier
+guards against — coarse invalidation is fine, mutations are rare).
+`canonical_args` = `_repeat_key`. Kill-switch `tool_cache.enabled`. The Phase 2
+verifier's own read-backs call `self.tools.get()` directly (un-cached, always
+fresh).
+
+**Not done:** rule 5's literal "warn *before* the operation" — a chat turn's
+message is already sent by the time the server sees the balance; the
+every-turn warning informs the *next* message instead.
+
+**Tests:** `tests/test_tool_cache.py` (31 cases). Phase-3 + adjacent suites
+green (327). Full local suite has the pre-existing load-dependent SQLite
+flakiness (see Phase 2c entry); GitHub Run Tests is the gate.

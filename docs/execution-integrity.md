@@ -150,22 +150,57 @@ rule shape, not a scalar), tag operations, and IaC-shaped updates
 (`update_cloudformation_stack`). Add a `_UpdateSpec` per tool as the need
 arises.
 
+## Phase 3 — shipped (rule 5: credit protection)
+
+Branch `feat/credit-protection`. Two pieces, both lightweight — the per-turn
+credit model is unchanged (1 credit per completed turn, deduction gated on
+`success`; "failed calls don't consume credits" is already true at that
+level).
+
+### Low-credit warning
+
+`app._low_credit_warning(credits_remaining)` returns a
+`{'credits_remaining', 'message'}` payload when the post-turn balance is
+`1..LOW_CREDIT_THRESHOLD` (5) — attached to the `/api/chat` JSON response as
+`low_credit_warning` and to the `/api/chat/stream` `done` SSE event. `0` and
+below is left to the existing exhausted-trial upgrade pitch. `templates/index.html`
+shows it as a toast via `maybeWarnLowCredit()`, deduped on the balance value
+so a user at 3 credits isn't toasted every message. (The one-time email at
+exactly 5 is unchanged; this is the every-turn UI signal.)
+
+### 60s read-result cache — `services/tool_cache.py`
+
+`READ_CACHE` (`_ReadCache`, process-wide, thread-safe) caches **successful**
+**read** tool results by `(user_id, tool_name, canonical_args)` for
+`TTL_SECONDS = 60`, bounded at 512 entries (oldest-expiry evicted).
+
+- **Read** = name starts `get_` / `list_` / `describe_`, contains `_api_read`,
+  or is `find_ami` / `search_tools` — minus a deny-list of live/secret/volatile
+  reads (`get_secret_value`, `generate_s3_presigned_url`,
+  `get_ec2_console_output`, …).
+- `DevOpsAgent._invoke_tool(name, input)` replaces the bare
+  `self.tools[name](**input)` at all 5 execution sites: cache-lookup for reads,
+  store on a successful read, and **`READ_CACHE.invalidate_user(uid)` after any
+  mutating call** — a stale read that contradicts a just-applied change is
+  exactly what the Phase 2 verifier exists to prevent, so mutations blow the
+  whole user's read cache (coarse on purpose: mutations are rare).
+- `canonical_args` = `DevOpsAgent._repeat_key` (same normalisation the repeat
+  guard uses).
+- Kill-switch `tool_cache.enabled` (default `true`). Disabled in tests whose
+  `config.get` returns `None`.
+- The Phase 2 verifier's own read-backs call `self.tools.get(name)` directly,
+  not `_invoke_tool` — deliberately un-cached so verification is always fresh.
+
+Tests: `tests/test_tool_cache.py`.
+
+## Not-covered
+
+- Rule 5's literal "warn *before* the operation" (a confirm-to-proceed gate)
+  — a chat turn's message is already sent by the time the server sees the
+  balance; the every-turn `low_credit_warning` informs the *next* message
+  instead.
+
 ## Deferred — decisions recorded
-
-### Rule 5 — credit protection (not started)
-
-- **Pre-flight warning** when `CreditService.balance(user) < 5`, added to the
-  chat routes (`app.py` `/api/chat`, `/api/chat/stream`) before the agent
-  call — today the only signal is a one-time email at exactly 5, sent *after*
-  the turn.
-- **60s read-result cache** keyed by `(user_id, tool_name, canonical_args)`,
-  wrapping read-only tool dispatch in `core.py`. Canonical args = the same
-  `_repeat_key` normalisation.
-- **Leave the per-turn credit model as-is** — 1 credit per completed turn, no
-  per-tool accounting. "Failed calls don't consume credits" is already true
-  at the turn level (deduction is gated on `success`). Full per-tool
-  accounting was explicitly rejected as too invasive for the billing tests
-  and the conversion funnel.
 
 ### Rule 4 — runtime fallback (not started)
 

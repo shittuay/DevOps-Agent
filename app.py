@@ -128,6 +128,26 @@ CHAT_KEEPALIVE_INTERVAL_SECONDS = 15
 # in the background and persists itself (see _finalize_turn).
 CHAT_MAX_TURN_SECONDS = int(os.environ.get('CHAT_MAX_TURN_SECONDS', '840'))
 
+# At or below this many credits, chat responses carry a `low_credit_warning`
+# so the UI can warn the user before they spend their next credit (Execution
+# Integrity rule 5). The existing one-time email fires only at exactly 5.
+LOW_CREDIT_THRESHOLD = 5
+
+
+def _low_credit_warning(credits_remaining):
+    """A `low_credit_warning` payload when the balance is running low, else None."""
+    if credits_remaining is None or credits_remaining > LOW_CREDIT_THRESHOLD:
+        return None
+    if credits_remaining <= 0:
+        return None  # the exhausted path has its own upgrade pitch
+    return {
+        'credits_remaining': credits_remaining,
+        'message': (
+            f"You have {credits_remaining} credit{'s' if credits_remaining != 1 else ''} "
+            f"left. Each message costs 1 — top up to keep going."
+        ),
+    }
+
 # Trust proxy headers (Cloudflare → nginx → Flask).
 # Without this, Talisman sees HTTP and redirects Stripe webhooks, losing the body + signature.
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -3269,10 +3289,11 @@ def api_chat():
 
                 logger.info(f"Download ready for user {_user_id}: {download_storage[download_token]['filename']}")
 
+            _bal = CreditService.balance(_user_id)
             response_data = {
                 'response': response,
                 'timestamp': datetime.now().isoformat(),
-                'credits_remaining': CreditService.balance(_user_id),
+                'credits_remaining': _bal,
                 'credits_used_this_month': _subscription.credits_used_this_month if _subscription else 0,
                 'conversation_title': _conversation.title if _conversation else None,
                 'model_info': {
@@ -3282,6 +3303,9 @@ def api_chat():
                     'supports_tools': _model.supports_tools,
                 }
             }
+            _lcw = _low_credit_warning(_bal)
+            if _lcw:
+                response_data['low_credit_warning'] = _lcw
 
             # Add download URL if available
             if download_url:
@@ -4008,7 +4032,11 @@ def api_chat_stream():
                         except Exception:
                             pass
 
-                yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
+                _done_evt = {'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}}
+                _lcw = _low_credit_warning(remaining)
+                if _lcw:
+                    _done_evt['low_credit_warning'] = _lcw
+                yield f"data: {_json.dumps(_done_evt)}\n\n"
 
             except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                 # Client disconnected mid-stream — silently clean up, do not try to yield
