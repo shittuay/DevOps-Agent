@@ -178,6 +178,65 @@ def _validate_tool_result_ids(result_str: str) -> str:
     return result_str
 
 
+# Tools that bring a new cloud resource into existence — their success results
+# feed the session resource registry (see DevOpsAgent._record_tool_call). Prefix
+# match on the tool name; deliberately excludes create_*_request / create_change_*
+# (governance objects, not cloud resources).
+_CREATING_TOOL_PREFIXES = ('create_', 'run_', 'launch_', 'provision_', 'deploy_')
+_NON_RESOURCE_CREATE_SUBSTRINGS = ('change_request', 'change_governance', '_rule', 'presigned')
+
+# Keys whose string value in a tool result is a resource identifier worth
+# registering. Matched case-insensitively against the exact key.
+_RESOURCE_ID_KEYS = frozenset({
+    'instanceid', 'instance_id', 'dbinstanceidentifier', 'db_instance_identifier',
+    'bucketname', 'bucket_name', 'vpcid', 'vpc_id', 'subnetid', 'subnet_id',
+    'groupid', 'security_group_id', 'functionname', 'function_name', 'clustername',
+    'cluster_name', 'clusterarn', 'volumeid', 'volume_id', 'snapshotid',
+    'snapshot_id', 'imageid', 'image_id', 'allocationid', 'keyname', 'key_name',
+    'rolename', 'role_name', 'tablename', 'table_name', 'queueurl', 'topicarn',
+    'stackid', 'stack_id', 'stackname', 'arn', 'id', 'name', 'resource_id',
+})
+
+
+def _is_creating_tool(tool_name: str) -> bool:
+    """True when a tool brings a new cloud resource into existence."""
+    name = (tool_name or '').lower()
+    if any(s in name for s in _NON_RESOURCE_CREATE_SUBSTRINGS):
+        return False
+    return name.startswith(_CREATING_TOOL_PREFIXES)
+
+
+def _extract_created_resource_ids(result: Any, _depth: int = 0) -> list:
+    """Best-effort pull of resource identifiers from a (successful) create result.
+
+    Walks the result dict up to 3 levels deep and collects string values that
+    are either under a known identifier key or match the AWS/Azure/GCP resource
+    ID shape regardless of key. Deduped, order-preserving, capped at 20.
+    """
+    found: list = []
+
+    def _add(v: Any) -> None:
+        if isinstance(v, str) and 3 <= len(v) <= 512 and v not in found:
+            found.append(v)
+
+    def _walk(node: Any, depth: int) -> None:
+        if depth > 3 or len(found) >= 20:
+            return
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(v, str):
+                    if k.lower() in _RESOURCE_ID_KEYS or _VALID_RESOURCE_ID_RE.search(v):
+                        _add(v)
+                else:
+                    _walk(v, depth + 1)
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                _walk(item, depth + 1)
+
+    _walk(result, _depth)
+    return found
+
+
 # Detects user messages that are infra data queries — requires real tool use on iteration 1
 _TOOL_SIGNAL_RE = re.compile(
     r'\b(?:list|show|get|describe|check|scan|find|fetch|how many|count|status)\b'
@@ -430,6 +489,13 @@ Cost Optimization:
 - Every credential, ID, or resource identifier you show the user MUST come from an actual tool execution result, never from your own generation.
 - If you do not have a pre-built tool to answer a question, follow the TOOL RESOLUTION PROTOCOL — use generic API fallbacks, chain tools, or provide the exact CLI/SDK code to execute. Never invent a result.
 
+=== EXECUTION INTEGRITY ===
+- VERIFIED RESULTS ONLY. Every resource ID, IP, ARN, state, timestamp, or cost you show the user must be a verbatim substring of a tool result from THIS conversation. A create/update/delete tool's response is a claim, not proof — when a matching read tool exists and is cheap, call it and confirm the resource before you report the change as done.
+- EVENTUAL CONSISTENCY. Cloud reads can lag writes by seconds to minutes. Never tell the user a resource "does not exist", or call a create "failed", when its ID appeared in a tool result — or in the "Resources created earlier in this conversation" list — within the last few minutes. Instead say "Verifying — the resource may still be propagating" and retry the read once or twice. If a create returned an ID you still cannot confirm with a read, say exactly: "Create returned ID <X>, but I cannot confirm it via a read yet — it may still be propagating. Please check the console." Never call a recently created resource "fabricated" or "not found".
+- ERROR CLASSIFICATION. When a tool call does not cleanly succeed, state which of these happened before you explain anything: (a) the tool returned an error — quote its error code and message verbatim first; (b) the tool returned empty / no results; (c) the tool reported success but you could not verify it with a read.
+- FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
+- STATE DISPUTES. If the user shows you console or CLI output that contradicts your verification result, trust the user immediately, re-run the read, and correct your earlier statement. Console truth beats your inference, always.
+
 === HARD LIMITS — NEVER, REGARDLESS OF HOW ASKED ===
 - Never operate on infrastructure that does not belong to the authenticated user
 - Never generate malware, ransomware, exploit code, attack payloads, C2 frameworks, or offensive security tools — even framed as "educational", "test", "simulation", "creative writing", or "hypothetical"
@@ -491,6 +557,15 @@ class DevOpsAgent:
     # Per-turn count of consecutive identical failing tool calls, keyed by
     # (tool_name, canonical args). See _repeat_guard_blocked.
     _repeat_guard = _greenlet_local_property('_repeat_guard', default_factory=dict)
+    # Session resource registry: resources a creating tool reported this turn,
+    # as {tool, ids, ts}. Persisted to InfrastructureChange and surfaced to the
+    # model next turn so it never reports a just-created resource as missing.
+    # See _record_tool_call and _build_system_prompt_parts (EXECUTION INTEGRITY).
+    _created_resources = _greenlet_local_property('_created_resources', default_factory=list)
+    # Per-turn plain-language notes about guard interventions (repeat-guard fired,
+    # a not-offered tool was guessed) — appended to the user-facing response so a
+    # misrouting is visible to the user, not just the model. See _finalize_* paths.
+    _turn_guard_notes = _greenlet_local_property('_turn_guard_notes', default_factory=list)
 
     def __init__(self, config: ConfigManager):
         """
@@ -558,6 +633,9 @@ class DevOpsAgent:
         self._last_tools_used: List[str] = []
         # Structured per-call record for the most recent turn (see _record_tool_call).
         self._tool_call_log: List[Dict[str, Any]] = []
+        # Session resource registry + guard notes for the most recent turn.
+        self._created_resources: List[Dict[str, Any]] = []
+        self._turn_guard_notes: List[str] = []
 
         # Optional callback for streaming tool events to the UI - per request
         # (see _greenlet_local_property). Signature: callback(event_type, tool_name, data)
@@ -571,18 +649,22 @@ class DevOpsAgent:
 
     _DESTRUCTIVE_PREFIXES = ('delete_', 'terminate_', 'destroy_', 'remove_', 'drop_', 'purge_')
 
-    def _audit_chat_deletion(self, tool_name: str, tool_input: dict, result: dict) -> None:
+    def _audit_infrastructure_change(self, tool_name: str, tool_input: dict, result: dict) -> None:
         """
-        Auto-create an executed InfrastructureChange record when a delete/terminate/resize
-        tool is called directly from chat (not via the change request UI).
-        This ensures every destructive or significant infrastructure action has an audit trail.
+        Auto-create an executed InfrastructureChange record when a create /
+        delete / terminate / resize tool is called directly from chat (not via
+        the change request UI). Gives every significant infrastructure action an
+        audit trail, and — for creates — feeds the session resource registry
+        that later turns cross-check before reporting a resource as missing
+        (see EXECUTION INTEGRITY in STABLE_SYSTEM_PROMPT).
         """
         # Check if this is a destructive or high-impact operation
         is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES)
         is_resize = 'resize_ec2_instance' in tool_name
         is_sg_modify = 'modify_security_group' in tool_name
+        is_create = _is_creating_tool(tool_name)
 
-        if not (is_destructive or is_resize or is_sg_modify):
+        if not (is_destructive or is_resize or is_sg_modify or is_create):
             return
         if not result.get('success'):
             return
@@ -605,6 +687,10 @@ class DevOpsAgent:
                 tool_input.get('name') or
                 (tool_input.get('instance_ids') or [''])[0]  # terminate_ec2_instances uses a list
             )
+            # A create rarely gets its id as input — pull it from the result.
+            if not resource_id and is_create:
+                _ids = _extract_created_resource_ids(result)
+                resource_id = _ids[0] if _ids else None
             resource_name = tool_input.get('resource_name') or resource_id
 
             # Determine action_type and resource_type
@@ -621,6 +707,14 @@ class DevOpsAgent:
             elif is_sg_modify:
                 action_type = 'modify_security_group'
                 resource_type = 'security_group'
+            elif is_create:
+                action_type = 'create'
+                slug = tool_name
+                for prefix in _CREATING_TOOL_PREFIXES:
+                    if slug.startswith(prefix):
+                        slug = slug[len(prefix):]
+                        break
+                resource_type = slug.split('_')[0] or 'resource'
             else:
                 return
 
@@ -631,7 +725,11 @@ class DevOpsAgent:
                     break
 
             # Build change_details with action-specific info
-            change_details = {'risk_level': 'high' if is_destructive else 'medium', 'source': 'chat', 'tool': tool_name}
+            _risk = 'low' if is_create else ('high' if is_destructive else 'medium')
+            change_details = {'risk_level': _risk, 'source': 'chat', 'tool': tool_name}
+            _conv_id = getattr(self, '_current_conversation_id', None)
+            if _conv_id:
+                change_details['conversation_id'] = _conv_id
             if tool_input.get('region'):
                 change_details['region'] = tool_input['region']
             if is_resize:
@@ -639,6 +737,7 @@ class DevOpsAgent:
             elif is_sg_modify:
                 change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
 
+            _verb = 'created' if is_create else 'Executed'
             change = InfrastructureChange(
                 user_id=user_id,
                 action_type=action_type,
@@ -647,7 +746,7 @@ class DevOpsAgent:
                 resource_name=resource_name,
                 cloud_provider=cloud_provider,
                 title=f'[Chat] {tool_name.replace("_", " ").title()}',
-                description='Executed directly via chat confirmation',
+                description=f'{_verb} directly via chat confirmation',
                 change_details=change_details,
                 status='executed',
                 approver_id=user_id,
@@ -658,8 +757,9 @@ class DevOpsAgent:
             )
             db.session.add(change)
 
-            # Also purge from the sync list
-            if resource_id:
+            # Also purge from the sync list (delete only — a create doesn't
+            # remove anything from the user's synced inventory).
+            if resource_id and is_destructive:
                 InfrastructureResource.query.filter_by(
                     user_id=user_id,
                     resource_type=resource_type,
@@ -667,7 +767,7 @@ class DevOpsAgent:
                 ).delete()
 
             db.session.commit()
-            self.logger.info(f"Audit log created for chat deletion: {tool_name} / {resource_id}")
+            self.logger.info(f"Audit log created for chat {action_type}: {tool_name} / {resource_id}")
         except Exception as e:
             self.logger.warning(f"Failed to create audit log for {tool_name}: {e}")
 
@@ -738,6 +838,11 @@ class DevOpsAgent:
         return self._repeat_guard.get(key, 0) >= self.MAX_IDENTICAL_TOOL_FAILURES
 
     def _repeat_guard_result(self, tool_name: str) -> Dict[str, Any]:
+        self._note_guard(
+            f"`{tool_name}` was called repeatedly with the same arguments and "
+            f"blocked after {self.MAX_IDENTICAL_TOOL_FAILURES} identical failures "
+            f"— the agent kept retrying a call that could not succeed."
+        )
         return {
             'success': False,
             'error': (
@@ -747,6 +852,51 @@ class DevOpsAgent:
             ),
             'repeat_guard': True,
         }
+
+    def _note_guard(self, note: str) -> None:
+        """Record a plain-language note about a guard intervention this turn.
+
+        Surfaced to the user by _append_guard_notes so a misrouting / retry
+        storm is visible to them, not only to the model. Deduplicated.
+        """
+        notes = self._turn_guard_notes
+        if note not in notes:
+            notes.append(note)
+
+    def _append_guard_notes(self, response_text: str) -> str:
+        """Append this turn's guard notes to the response (never replace it)."""
+        return (response_text or "") + self._guard_notes_suffix()
+
+    def _guard_notes_suffix(self) -> str:
+        """The '---' guard-note block for this turn, or '' if there are none.
+
+        Two sources: guard interventions recorded live via _note_guard (repeat
+        guard), and a post-hoc scan of _tool_call_log for a tool the model
+        guessed repeatedly that was never offered (>=3 times — a single
+        not-offered guess is normal search_tools recovery and is not surfaced).
+        Safe to call twice (dedup); call it once per turn from the finaliser.
+        """
+        from collections import Counter
+        not_offered = Counter(
+            c['tool'] for c in self._tool_call_log if c.get('status') == 'not_offered'
+        )
+        for tool, n in not_offered.items():
+            if n >= 3:
+                self._note_guard(
+                    f"`{tool}` was requested {n} times but is not a tool the agent "
+                    f"was given for this request — it kept guessing the wrong tool name."
+                )
+
+        notes = self._turn_guard_notes
+        if not notes:
+            return ""
+        body = "\n".join(f"- {n}" for n in notes)
+        return (
+            "\n\n---\n"
+            "**Tool-selection note:** the agent hit a guard while working on this "
+            "request:\n" + body + "\n\nThis has been logged. If the result above "
+            "looks wrong, retry — starting a new conversation gives the cleanest retry."
+        )
 
     def _repeat_guard_record(self, tool_name: str, tool_input: Dict[str, Any], result: Any) -> None:
         """Count a failure for this exact call; clear the count on success."""
@@ -915,6 +1065,16 @@ class DevOpsAgent:
             'success': ok,
             'error': err[:250] if isinstance(err, str) else None,
         })
+
+        # Session resource registry: a creating tool that succeeded this turn.
+        if outcome == 'ran' and ok and _is_creating_tool(tool_name):
+            ids = _extract_created_resource_ids(result)
+            if ids:
+                self._created_resources.append({
+                    'tool': tool_name,
+                    'ids': ids,
+                    'ts': datetime.utcnow().isoformat(),
+                })
 
     @property
     def last_tool_calls(self) -> List[Dict[str, Any]]:
@@ -1093,6 +1253,9 @@ class DevOpsAgent:
         self.pending_download = None
         self._last_tools_used = []
         self._tool_call_log = []
+        self._repeat_guard = {}
+        self._created_resources = []
+        self._turn_guard_notes = []
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1189,6 +1352,8 @@ class DevOpsAgent:
             # Reset per-request tool tracking
             self._last_tools_used = []
             self._tool_call_log = []
+            self._created_resources = []
+            self._turn_guard_notes = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1199,7 +1364,7 @@ class DevOpsAgent:
             # Capture pending download before restoring state
             result_pending_download = self.pending_download
 
-            return response_text
+            return self._append_guard_notes(response_text)
 
         finally:
             # Clear cloud user context
@@ -1286,10 +1451,15 @@ class DevOpsAgent:
             # pooled worker thread would otherwise carry the prior turn's list).
             self._last_tools_used = []
             self._tool_call_log = []
+            self._created_resources = []
+            self._turn_guard_notes = []
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
                 yield from self._call_kimi_api_streaming(user_preferences_context, model_override=model_override, trial_context=trial_context, swarm_max_agents=swarm_max_agents)
+                _gsuffix = self._guard_notes_suffix()
+                if _gsuffix:
+                    yield _gsuffix
                 return
 
             # Streaming loop for Claude (handles tool calls)
@@ -1339,6 +1509,9 @@ class DevOpsAgent:
                     self.conversation.add_assistant_message(response.content)
 
                     if response.stop_reason == 'end_turn':
+                        _gsuffix = self._guard_notes_suffix()
+                        if _gsuffix:
+                            yield _gsuffix
                         return
                     elif response.stop_reason == 'tool_use':
                         yield "\n\n_[Executing tool...]_\n\n"
@@ -1380,8 +1553,65 @@ class DevOpsAgent:
         trial_context: Optional[str] = None,
     ) -> tuple[str, str]:
         """Return (stable_core, volatile_tail) for the cached Claude path."""
-        tail = build_volatile_tail(user_preferences_context, trial_context)
+        tail = build_volatile_tail(
+            user_preferences_context, trial_context,
+            session_context=self._session_resource_context(),
+        )
         return STABLE_SYSTEM_PROMPT, tail
+
+    def _session_resource_context(self) -> str:
+        """Resources created earlier in this conversation, for the prompt tail.
+
+        Sourced from InfrastructureChange rows (action_type='create', written by
+        _audit_infrastructure_change) whose change_details carry this
+        conversation id, within the last 30 minutes. Empty string when there is
+        no conversation id or nothing recent — the tail is then byte-identical
+        to before this feature. Best-effort: any failure returns ''.
+        """
+        conv_id = getattr(self, '_current_conversation_id', None)
+        user_id = getattr(self, '_current_user_id', None)
+        if not conv_id or not user_id:
+            return ''
+        try:
+            from datetime import datetime, timedelta
+            from models import InfrastructureChange
+
+            cutoff = datetime.utcnow() - timedelta(minutes=30)
+            rows = (
+                InfrastructureChange.query
+                .filter(
+                    InfrastructureChange.user_id == user_id,  # user isolation — never bypass
+                    InfrastructureChange.action_type == 'create',
+                    InfrastructureChange.status == 'executed',
+                    InfrastructureChange.created_at >= cutoff,
+                )
+                .order_by(InfrastructureChange.created_at.desc())
+                .limit(25)
+                .all()
+            )
+            lines = []
+            for r in rows:
+                details = r.change_details or {}
+                if details.get('conversation_id') != conv_id:
+                    continue
+                ident = r.resource_id or r.resource_name
+                if not ident:
+                    continue
+                age_min = max(0, int((datetime.utcnow() - r.created_at).total_seconds() // 60))
+                age = 'just now' if age_min == 0 else f'{age_min} min ago'
+                lines.append(f"- {ident} ({details.get('tool', r.action_type)}, {age})")
+                if len(lines) >= 12:
+                    break
+            if not lines:
+                return ''
+            return (
+                "Resources created earlier in this conversation "
+                "(verify with a read before telling the user any of these is missing):\n"
+                + "\n".join(lines)
+            )
+        except Exception as e:
+            self.logger.debug(f"session resource context skipped: {e}")
+            return ''
 
     def _build_system_prompt(self, user_preferences_context: Optional[str] = None, trial_context: Optional[str] = None) -> str:
         """Joined system prompt (legacy callers: Kimi paths + cache-disabled path)."""
@@ -1738,7 +1968,7 @@ class DevOpsAgent:
                                 elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
-                                        self._audit_chat_deletion(tool_name, tool_input, result)
+                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
                                     except Exception as e:
                                         self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
@@ -1754,7 +1984,7 @@ class DevOpsAgent:
                         elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
-                                self._audit_chat_deletion(tool_name, tool_input, result)
+                                self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
                             except Exception as e:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
@@ -2006,7 +2236,7 @@ class DevOpsAgent:
                                 elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self.tools[tool_name](**tool_input)
-                                        self._audit_chat_deletion(tool_name, tool_input, result)
+                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
                                     except Exception as e:
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -2025,7 +2255,7 @@ class DevOpsAgent:
                         elif self._is_tool_offered(tool_name):
                             try:
                                 result = self.tools[tool_name](**tool_input)
-                                self._audit_chat_deletion(tool_name, tool_input, result)
+                                self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -2157,7 +2387,7 @@ class DevOpsAgent:
                         self._record_tool_call(tool_name, result, outcome='ran')
                     elif self._is_tool_offered(tool_name):
                         result = self.tools[tool_name](**tool_input)
-                        self._audit_chat_deletion(tool_name, tool_input, result)
+                        self._audit_infrastructure_change(tool_name, tool_input, result)
                         self._record_tool_call(tool_name, result, outcome='ran')
                     else:
                         result = self._not_offered_result(tool_name)

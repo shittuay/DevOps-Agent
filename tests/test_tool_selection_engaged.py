@@ -147,10 +147,12 @@ class _GuardHost:
         from src.agent.core import DevOpsAgent
         import logging
         self._repeat_guard = {}
+        self._turn_guard_notes = []
         self.logger = logging.getLogger('test')
         self.MAX_IDENTICAL_TOOL_FAILURES = DevOpsAgent.MAX_IDENTICAL_TOOL_FAILURES
         self._repeat_key = DevOpsAgent._repeat_key
-        for name in ('_repeat_guard_blocked', '_repeat_guard_result', '_repeat_guard_record'):
+        for name in ('_repeat_guard_blocked', '_repeat_guard_result',
+                     '_repeat_guard_record', '_note_guard'):
             setattr(self, name, getattr(DevOpsAgent, name).__get__(self, _GuardHost))
 
 

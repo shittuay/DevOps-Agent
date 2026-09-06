@@ -818,6 +818,34 @@ means wiring both `_repeat_guard_blocked` and `_repeat_guard_record` into it, an
 - `prompt_cache.enabled` (default `true`) — kill-switch for Anthropic prompt caching
   (Claude path only). When false, the system prompt is sent as a plain string.
 
+## Execution Integrity
+
+See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
+9-rule spec and the deferred-phase decisions. Phase 1 (shipped):
+
+- **`=== EXECUTION INTEGRITY ===`** block in `STABLE_SYSTEM_PROMPT` — verified
+  results only, eventual-consistency handling ("never call a <5-min-old
+  resource 'not found'"), the (a)/(b)/(c) error classification, the
+  retry→generic-API→IaC fallback order, and "console truth beats agent
+  inference" on state disputes.
+- **Session resource registry** — a creating tool (`create_`/`run_`/`launch_`/
+  `provision_`/`deploy_`, excluding `_rule`/`change_request`) that succeeds is
+  recorded by `_audit_infrastructure_change` (renamed from
+  `_audit_chat_deletion`, now handles `action_type='create'` too) with the
+  conversation id in `change_details`. `_session_resource_context()` reads
+  those rows back (last 30 min, same conversation) into the volatile prompt
+  tail via `build_volatile_tail(..., session_context=)`, so a later turn won't
+  report a just-created resource as missing. Per-turn ids also land in
+  `agent._created_resources`.
+- **Guard notes** — `_repeat_guard_result` and a ≥3× not-offered guess arm
+  `_note_guard`; `_guard_notes_suffix()` appends a plain-language
+  "Tool-selection note" to the user-facing response (never replaces it) so a
+  misrouting/retry storm is visible to the user, not just logged.
+
+Deferred (decisions recorded in the doc): synchronous read-back verification
+engine (`services/mutation_verifier.py`, ~15s backoff cap), credit
+pre-warn + 60s read cache, real CloudFormation/Terraform fallback generation.
+
 ## Historical Fixes & Gotchas
 
 See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved issues.

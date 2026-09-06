@@ -27,18 +27,29 @@ def build_cached_system(stable_core: str, volatile_tail: Optional[str]) -> List[
     return blocks
 
 
-def build_volatile_tail(preferences: Optional[str], trial_context: Optional[str] = None) -> str:
+def build_volatile_tail(
+    preferences: Optional[str],
+    trial_context: Optional[str] = None,
+    session_context: Optional[str] = None,
+) -> str:
     """Build the volatile (uncached) tail of the system prompt.
 
     Reproduces the legacy behavior: a 'No specific preferences set.' default and
     a trial-context block appended with a blank-line separator. Kept byte-identical
     so the joined `STABLE_SYSTEM_PROMPT + "\\n\\n" + tail` equals the pre-refactor
-    system prompt.
+    system prompt when ``session_context`` is empty.
+
+    ``session_context`` (optional) carries per-conversation state such as the
+    session resource registry — resources created earlier in this conversation
+    that the agent must not later report as missing (see EXECUTION INTEGRITY in
+    STABLE_SYSTEM_PROMPT).
     """
     prefs = preferences or "No specific preferences set."
     tail = f"User Preferences and Context:\n{prefs}"
     if trial_context:
         tail += f"\n\n{trial_context}"
+    if session_context:
+        tail += f"\n\n{session_context}"
     return tail
 
 
