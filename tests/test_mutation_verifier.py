@@ -5,7 +5,8 @@ services/mutation_verifier.py + DevOpsAgent._verify_and_annotate.
 from unittest.mock import MagicMock, patch
 
 from services.mutation_verifier import (
-    verify_mutation, is_verifiable, DEFAULT_BACKOFF, MAX_VERIFICATIONS_PER_TURN,
+    verify_mutation, is_verifiable, will_verify,
+    DEFAULT_BACKOFF, MAX_VERIFICATIONS_PER_TURN,
 )
 
 _NO_SLEEP = lambda _s: None
@@ -97,6 +98,97 @@ class TestVerifyMutation:
 
 
 # --------------------------------------------------------------------------
+# module: delete verification (Phase 2b)
+# --------------------------------------------------------------------------
+
+SG_ID = 'sg-0123456789abcdef0'
+EC2_ID = 'i-0123456789abcdef0'
+
+
+class TestDeleteVerification:
+    def test_describe_404_confirms_the_delete(self):
+        ann = verify_mutation(
+            'delete_security_group', {'group_id': SG_ID}, {'success': True},
+            call_tool=lambda n, **k: {'success': False, 'error_code': 'InvalidGroup.NotFound',
+                                      'error': 'not found'},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'confirmed' and ann['action'] == 'delete'
+        assert ann['resource_id'] == SG_ID
+
+    def test_resource_still_present_is_unconfirmed_present(self):
+        ann = verify_mutation(
+            'delete_security_group', {'group_id': SG_ID}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'group_id': SG_ID},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed'
+        assert 'still shows it' in ann['message']
+
+    def test_ambiguous_read_failure_is_NOT_treated_as_gone(self):
+        # AccessDenied / Throttling must never read as "confirmed deleted".
+        ann = verify_mutation(
+            'delete_vpc', {'vpc_id': 'vpc-0123456789abcdef0'}, {'success': True},
+            call_tool=lambda n, **k: {'success': False, 'error_code': 'UnauthorizedOperation',
+                                      'error': 'not authorized'},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed'
+        assert 'could not verify removal' in ann['message']
+
+    def test_ec2_terminal_state_confirms_the_terminate(self):
+        for state in ('shutting-down', 'terminated'):
+            ann = verify_mutation(
+                'delete_ec2_instance', {'instance_id': EC2_ID}, {'success': True},
+                call_tool=lambda n, **k: {'success': True, 'instances': [
+                    {'instance_id': EC2_ID, 'state': state}]},
+                sleep=_NO_SLEEP,
+            )
+            assert ann['status'] == 'confirmed', state
+
+    def test_ec2_still_running_is_unconfirmed(self):
+        ann = verify_mutation(
+            'delete_ec2_instance', {'instance_id': EC2_ID}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'instances': [
+                {'instance_id': EC2_ID, 'state': 'running'}]},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed'
+
+    def test_ec2_absent_from_filtered_list_is_confirmed(self):
+        ann = verify_mutation(
+            'delete_ec2_instance', {'instance_id': EC2_ID}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'instances': []},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'confirmed'
+
+    def test_s3_bucket_gone_from_list_is_confirmed(self):
+        ann = verify_mutation(
+            'delete_s3_bucket', {'bucket_name': 'my-bucket'}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'buckets': [{'name': 'other'}]},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'confirmed'
+
+    def test_manage_ec2_instance_only_verifies_terminate(self):
+        assert not will_verify('manage_ec2_instance', {'action': 'stop'})
+        assert not will_verify('manage_ec2_instance', {'action': 'start'})
+        assert will_verify('manage_ec2_instance', {'action': 'terminate'})
+        assert verify_mutation('manage_ec2_instance', {'action': 'stop', 'instance_id': EC2_ID},
+                               {'success': True}, call_tool=lambda *a, **k: {}, sleep=_NO_SLEEP) is None
+
+    def test_rds_delete_still_deleting_is_unconfirmed(self):
+        ann = verify_mutation(
+            'delete_rds_instance', {'db_instance_identifier': 'prod-db'}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'db_instance_identifier': 'prod-db',
+                                      'status': 'deleting'},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed'
+
+
+# --------------------------------------------------------------------------
 # agent: _verify_and_annotate
 # --------------------------------------------------------------------------
 
@@ -167,3 +259,22 @@ class TestVerifyAndAnnotate:
         out = agent._verify_and_annotate('create_ec2_instance', {},
                                          {'success': True, 'details': {'instance_id': 'i-00112233445566778'}})
         assert '_verification' not in out
+
+    def test_annotates_a_delete(self):
+        agent = _make_agent()
+        agent.register_tool('describe_security_group', 'read', {},
+                            lambda **kw: {'success': False, 'error_code': 'InvalidGroup.NotFound',
+                                          'error': 'gone'})
+        with patch('time.sleep', _NO_SLEEP):
+            out = agent._verify_and_annotate(
+                'delete_security_group', {'group_id': 'sg-0123456789abcdef0'}, {'success': True})
+        assert out['_verification']['status'] == 'confirmed'
+        assert out['_verification']['action'] == 'delete'
+
+    def test_non_terminate_manage_ec2_burns_no_verification_slot(self):
+        agent = _make_agent()
+        out = agent._verify_and_annotate(
+            'manage_ec2_instance', {'action': 'stop', 'instance_id': 'i-00112233445566778'},
+            {'success': True})
+        assert '_verification' not in out
+        assert agent._verify_count == 0

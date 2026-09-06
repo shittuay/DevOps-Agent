@@ -2234,3 +2234,43 @@ without a cloud account. Default `sleep` is resolved lazily inside the loop
 in tests actually takes effect.
 
 **Tests:** `tests/test_mutation_verifier.py` (14 cases). Full suite green.
+
+## Execution Integrity Phase 2b — delete verification (2026-09-06)
+
+Extends Phase 2's `services/mutation_verifier.py` to deleting tools. Same
+`verify_mutation` entry point (now dispatches create vs. delete), same
+`_verify_and_annotate` wiring — a delete result is `{'success': True}` and
+flows through the 5 execution sites identically.
+
+**Per-attempt the read-back resolves to `gone` / `present` / `unknown`:**
+- `gone` → `_verification.status='confirmed'` (`action='delete'`). Triggers:
+  a describe-by-id read that 404s with a code in `_NOT_FOUND_CODES`; an EC2
+  instance in `shutting-down`/`terminated` or absent from the filtered list;
+  an S3 bucket absent from `list_s3_buckets`.
+- `present` → after all attempts, `unconfirmed` — "a read still shows it, may
+  still be shutting down".
+- `unknown` → a read that failed for a **non-NotFound** reason (AccessDenied,
+  Throttling). **Never** treated as `gone` — that is the "cannot read the
+  account vs. a finding" trap CLAUDE.md's drift rule exists to prevent. After
+  all attempts, `unconfirmed` — "could not verify removal, the read-back is
+  failing".
+
+**Delete-verifiable set:** `delete_ec2_instance` /
+`manage_ec2_instance(action='terminate')` → `get_ec2_instances`;
+`delete_security_group` → `describe_security_group`; `delete_vpc` →
+`describe_vpc`; `delete_rds_instance` → `describe_rds_instance`;
+`delete_s3_bucket` → `list_s3_buckets` (NOT `get_s3_bucket_info` — it swallows
+`NoSuchBucket` in a nested `except` and returns `success: True` for a missing
+bucket, so it can't confirm a deletion).
+
+**`will_verify(tool_name, tool_input)`** added alongside `is_verifiable` —
+also honours a `_DeleteSpec.applies` predicate, so `manage_ec2_instance` with
+a non-`terminate` action spends no per-turn verification slot. The
+`_created_resources` registry is tagged only for `action == 'create'` (a
+create-then-delete in one turn must not flip a deleted resource to
+`verified: true`).
+
+**Not covered:** update verification (Phase 2c, not started).
+
+**Tests:** `tests/test_mutation_verifier.py` (now 25 cases, +11 for deletes).
+Full suite green.

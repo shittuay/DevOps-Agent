@@ -843,16 +843,19 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   `_note_guard`; `_guard_notes_suffix()` appends a plain-language
   "Tool-selection note" to the user-facing response (never replaces it) so a
   misrouting/retry storm is visible to the user, not just logged.
-- **Post-create read-back verification** (Phase 2, `services/mutation_verifier.py`
-  + `_verify_and_annotate`) — after a creating tool succeeds, its dedicated
-  read tool is polled (`DEFAULT_BACKOFF = (0,1,2,5,7)s`, ≤3/turn) and a
-  `_verification: {status: confirmed|unconfirmed, ...}` key is added to the
-  result. `unconfirmed` carries the verbatim "cannot confirm via a read yet"
-  message and is **not** a failure. Verifiable set: EC2, security group, VPC,
-  RDS, S3 (see the doc). Deletes/updates not yet covered.
+- **Read-back verification** (Phase 2 + 2b, `services/mutation_verifier.py` +
+  `_verify_and_annotate`) — after a create **or delete** tool succeeds, the
+  resource's dedicated read tool is polled (`DEFAULT_BACKOFF = (0,1,2,5,7)s`,
+  ≤3/turn) and a `_verification: {status: confirmed|unconfirmed, action:
+  create|delete, ...}` key is added to the result. `unconfirmed` is **not** a
+  failure — for a create the read hasn't caught up; for a delete the resource
+  is mid-shutdown or the read-back is failing. A read that errors for a
+  non-NotFound reason is never read as "gone". Verifiable set: EC2, security
+  group, VPC, RDS, S3 (see the doc); `manage_ec2_instance` only when
+  `action='terminate'`. Updates not yet covered.
 
 Deferred (decisions recorded in the doc): credit pre-warn + 60s read cache,
-real CloudFormation/Terraform fallback generation, delete/update verification.
+real CloudFormation/Terraform fallback generation, update verification.
 
 ## Historical Fixes & Gotchas
 
