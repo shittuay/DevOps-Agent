@@ -41,28 +41,48 @@ Prompt rules + cheap guardrail hooks. Branch `fix/execution-integrity-phase1`.
 
 | Rule | What shipped |
 |---|---|
-| 1, 2, 3, 4, 7 | `=== EXECUTION INTEGRITY ===` block in `STABLE_SYSTEM_PROMPT` (`src/agent/core.py`). Prompt-cache invariants unchanged. |
+| 1, 2, 3, 4, 7 | `=== EXECUTION INTEGRITY ===` block in `STABLE_SYSTEM_PROMPT` (`src/agent/core.py`). Prompt-cache invariants unchanged. Rule 2's *runtime* read-back is Phase 2 below. |
 | 8 | Dispatch is a dict lookup and cannot misroute — the model picks the wrong *name*. `_repeat_guard` (#171) + `tool-not-offered` log/DB signal (#173) already cover detection. Phase 1 adds **`_note_guard` / `_guard_notes_suffix()`**: a repeat-guard block, or the same tool guessed-and-not-offered ≥3×, appends a plain-language "Tool-selection note" to the user-facing response (all non-streaming + Kimi-streaming + Claude-streaming `end_turn` paths). Never replaces the response. |
 | 9 | **Session resource registry.** `_is_creating_tool` + `_extract_created_resource_ids` (`core.py`) pull ids from a successful creating-tool result into `agent._created_resources` (per turn) and — via `_audit_infrastructure_change` (renamed from `_audit_chat_deletion`, `action_type='create'` branch added) — into `InfrastructureChange` rows carrying `change_details['conversation_id']`. `_session_resource_context()` reads them back (same conversation, last 30 min) into the volatile prompt tail through `build_volatile_tail(..., session_context=)`. |
 
 Tests: `tests/test_execution_integrity.py`.
 
-## Deferred — decisions recorded
+## Phase 2 — shipped (rule 2)
 
-### Rule 2 — verification engine (not started)
+`services/mutation_verifier.py` + `DevOpsAgent._verify_and_annotate`. Branch
+`feat/mutation-verifier`.
 
-- **Synchronous, inside the turn**, backoff `1 → 2 → 5 → 7s`, **capped at
-  ~15s** (not the spec's 60s — keeps turns responsive; the keepalive already
-  holds the connection). On timeout, emit verbatim:
-  *"Create returned ID `<X>`, but I cannot confirm it via a read yet — it may
-  still be propagating. Please check the console."*
-- New `services/mutation_verifier.py`: a map `mutating_tool -> (read_back_tool,
-  resource_match_predicate)`. Called from the tool-execution paths in
-  `core.py` right after a creating/mutating tool returns success, using the
-  per-user credential path (never ambient creds — see the "every feature runs
-  against a real cloud account" rule in CLAUDE.md).
-- Feeds the same `_created_resources` registry, tagging each entry
+- After a **creating** tool returns `success: True`, the resource's dedicated
+  read tool is called with a short backoff — `DEFAULT_BACKOFF = (0, 1, 2, 5, 7)`
+  seconds, ~15s wall time, 5 attempts (first immediate). Not the spec's 60s:
+  the keep-alive holds the connection but every extra second is a slower
+  reply.
+- A `_verification` key is added to the tool result the model reads next
+  iteration: `{'status': 'confirmed', 'resource_id', 'via', 'after_seconds'}`
+  or `{'status': 'unconfirmed', 'resource_id', 'via', 'message'}` where
+  `message` is the verbatim *"Create returned ID `<X>`, but I cannot confirm
+  it via a read yet…"*. The system prompt's AUTOMATIC VERIFICATION line tells
+  the model `unconfirmed` ≠ failed.
+- The read runs through `self.tools[read_tool]`, i.e. the same per-user cloud
+  client the create used — never ambient creds.
+- The `_created_resources` registry entry for the id is tagged
   `verified: true|false`.
+- **Verifiable tools** (Phase 2 set): `create_ec2_instance` / `run_instances`
+  → `get_ec2_instances`; `create_security_group` → `describe_security_group`;
+  `create_vpc` → `describe_vpc`; `create_rds_instance` →
+  `describe_rds_instance`; `create_s3_bucket` → `get_s3_bucket_info`. Each
+  read echoes the queried id on success, so confirmation = `success is True`
+  **and** the id appears verbatim in the read payload.
+- **Guards:** skipped in sandbox mode; kill-switch `mutation_verify.enabled`
+  (default `true`); capped at `MAX_VERIFICATIONS_PER_TURN = 3` per turn (a
+  turn launching 10 instances must not add 150s — the rest are registered
+  unverified); any exception leaves the result untouched.
+- **Not covered:** deletes (verify the resource is *gone* — different
+  predicate, state-transition-aware) and updates. Phase 2b.
+
+Tests: `tests/test_mutation_verifier.py`.
+
+## Deferred — decisions recorded
 
 ### Rule 5 — credit protection (not started)
 

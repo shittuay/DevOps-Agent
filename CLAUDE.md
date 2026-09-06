@@ -817,11 +817,13 @@ means wiring both `_repeat_guard_blocked` and `_repeat_guard_record` into it, an
   pass `max_tools` (callers should pass `ModelConfig.max_tools`).
 - `prompt_cache.enabled` (default `true`) — kill-switch for Anthropic prompt caching
   (Claude path only). When false, the system prompt is sent as a plain string.
+- `mutation_verify.enabled` (default `true`) — kill-switch for post-create
+  read-back verification (Execution Integrity rule 2, below).
 
 ## Execution Integrity
 
 See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
-9-rule spec and the deferred-phase decisions. Phase 1 (shipped):
+9-rule spec and the deferred-phase decisions. Phases 1–2 (shipped):
 
 - **`=== EXECUTION INTEGRITY ===`** block in `STABLE_SYSTEM_PROMPT` — verified
   results only, eventual-consistency handling ("never call a <5-min-old
@@ -841,10 +843,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   `_note_guard`; `_guard_notes_suffix()` appends a plain-language
   "Tool-selection note" to the user-facing response (never replaces it) so a
   misrouting/retry storm is visible to the user, not just logged.
+- **Post-create read-back verification** (Phase 2, `services/mutation_verifier.py`
+  + `_verify_and_annotate`) — after a creating tool succeeds, its dedicated
+  read tool is polled (`DEFAULT_BACKOFF = (0,1,2,5,7)s`, ≤3/turn) and a
+  `_verification: {status: confirmed|unconfirmed, ...}` key is added to the
+  result. `unconfirmed` carries the verbatim "cannot confirm via a read yet"
+  message and is **not** a failure. Verifiable set: EC2, security group, VPC,
+  RDS, S3 (see the doc). Deletes/updates not yet covered.
 
-Deferred (decisions recorded in the doc): synchronous read-back verification
-engine (`services/mutation_verifier.py`, ~15s backoff cap), credit
-pre-warn + 60s read cache, real CloudFormation/Terraform fallback generation.
+Deferred (decisions recorded in the doc): credit pre-warn + 60s read cache,
+real CloudFormation/Terraform fallback generation, delete/update verification.
 
 ## Historical Fixes & Gotchas
 

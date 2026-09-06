@@ -491,6 +491,7 @@ Cost Optimization:
 
 === EXECUTION INTEGRITY ===
 - VERIFIED RESULTS ONLY. Every resource ID, IP, ARN, state, timestamp, or cost you show the user must be a verbatim substring of a tool result from THIS conversation. A create/update/delete tool's response is a claim, not proof — when a matching read tool exists and is cheap, call it and confirm the resource before you report the change as done.
+- AUTOMATIC VERIFICATION. When a create tool's result carries a `_verification` field, the platform already ran the read-back for you: `status: "confirmed"` means a read found the resource — report it as done. `status: "unconfirmed"` means the read has not caught up yet — relay its `message` field verbatim to the user and do NOT call the create failed; the resource was very likely created.
 - EVENTUAL CONSISTENCY. Cloud reads can lag writes by seconds to minutes. Never tell the user a resource "does not exist", or call a create "failed", when its ID appeared in a tool result — or in the "Resources created earlier in this conversation" list — within the last few minutes. Instead say "Verifying — the resource may still be propagating" and retry the read once or twice. If a create returned an ID you still cannot confirm with a read, say exactly: "Create returned ID <X>, but I cannot confirm it via a read yet — it may still be propagating. Please check the console." Never call a recently created resource "fabricated" or "not found".
 - ERROR CLASSIFICATION. When a tool call does not cleanly succeed, state which of these happened before you explain anything: (a) the tool returned an error — quote its error code and message verbatim first; (b) the tool returned empty / no results; (c) the tool reported success but you could not verify it with a read.
 - FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
@@ -566,6 +567,9 @@ class DevOpsAgent:
     # a not-offered tool was guessed) — appended to the user-facing response so a
     # misrouting is visible to the user, not just the model. See _finalize_* paths.
     _turn_guard_notes = _greenlet_local_property('_turn_guard_notes', default_factory=list)
+    # Per-turn count of read-back mutation verifications run (each can sleep up to
+    # ~15s) — capped at MAX_VERIFICATIONS_PER_TURN. See _verify_and_annotate.
+    _verify_count = _greenlet_local_property('_verify_count', default=0)
 
     def __init__(self, config: ConfigManager):
         """
@@ -636,6 +640,7 @@ class DevOpsAgent:
         # Session resource registry + guard notes for the most recent turn.
         self._created_resources: List[Dict[str, Any]] = []
         self._turn_guard_notes: List[str] = []
+        self._verify_count: int = 0
 
         # Optional callback for streaming tool events to the UI - per request
         # (see _greenlet_local_property). Signature: callback(event_type, tool_name, data)
@@ -1076,6 +1081,58 @@ class DevOpsAgent:
                     'ts': datetime.utcnow().isoformat(),
                 })
 
+    def _verify_and_annotate(self, tool_name: str, tool_input: dict, result: Any) -> Any:
+        """Read-back-verify a successful creating tool and annotate its result.
+
+        Execution Integrity rule 2 (docs/execution-integrity.md): the create
+        call's own response is a claim; this calls the resource's dedicated read
+        tool a few times with a short backoff and adds a ``_verification`` key
+        the model reads on its next iteration. ``status: 'unconfirmed'`` is not
+        "failed" — it carries the exact "cannot confirm via a read yet" wording.
+
+        Best-effort: disabled in sandbox, gated by ``mutation_verify.enabled``,
+        capped at ``MAX_VERIFICATIONS_PER_TURN``, and any exception leaves the
+        result untouched.
+        """
+        if not isinstance(result, dict) or result.get('success') is not True:
+            return result
+        if getattr(self, '_sandbox_mode', False):
+            return result
+        if not self.config.get('mutation_verify.enabled', True):
+            return result
+        try:
+            from services.mutation_verifier import (
+                verify_mutation, is_verifiable, MAX_VERIFICATIONS_PER_TURN,
+            )
+            if not is_verifiable(tool_name):
+                return result
+            if self._verify_count >= MAX_VERIFICATIONS_PER_TURN:
+                return result
+            self._verify_count += 1
+
+            def _call_read(name, **kwargs):
+                fn = self.tools.get(name)
+                return fn(**kwargs) if fn else {'success': False, 'error': f'{name} unavailable'}
+
+            annotation = verify_mutation(
+                tool_name, tool_input or {}, result, call_tool=_call_read,
+            )
+        except Exception as e:
+            self.logger.warning(f"mutation verify skipped for {tool_name}: {e}")
+            return result
+
+        if not annotation:
+            return result
+        self.logger.info(
+            "mutation-verify: %s -> %s (%s)",
+            tool_name, annotation['status'], annotation.get('resource_id'),
+        )
+        rid = annotation.get('resource_id')
+        for entry in self._created_resources:
+            if rid in entry.get('ids', []):
+                entry['verified'] = annotation['status'] == 'confirmed'
+        return {**result, '_verification': annotation}
+
     @property
     def last_tool_calls(self) -> List[Dict[str, Any]]:
         """Structured record of every tool call in the most recent turn.
@@ -1256,6 +1313,7 @@ class DevOpsAgent:
         self._repeat_guard = {}
         self._created_resources = []
         self._turn_guard_notes = []
+        self._verify_count = 0
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1354,6 +1412,7 @@ class DevOpsAgent:
             self._tool_call_log = []
             self._created_resources = []
             self._turn_guard_notes = []
+            self._verify_count = 0
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1453,6 +1512,7 @@ class DevOpsAgent:
             self._tool_call_log = []
             self._created_resources = []
             self._turn_guard_notes = []
+            self._verify_count = 0
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
@@ -1970,6 +2030,7 @@ class DevOpsAgent:
                                         result = self.tools[tool_name](**tool_input)
                                         self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
+                                        result = self._verify_and_annotate(tool_name, tool_input, result)
                                     except Exception as e:
                                         self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -1986,6 +2047,7 @@ class DevOpsAgent:
                                 result = self.tools[tool_name](**tool_input)
                                 self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
+                                result = self._verify_and_annotate(tool_name, tool_input, result)
                             except Exception as e:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -2238,6 +2300,7 @@ class DevOpsAgent:
                                         result = self.tools[tool_name](**tool_input)
                                         self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
+                                        result = self._verify_and_annotate(tool_name, tool_input, result)
                                     except Exception as e:
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                         self._record_tool_call(tool_name, result, outcome='raised')
@@ -2257,6 +2320,7 @@ class DevOpsAgent:
                                 result = self.tools[tool_name](**tool_input)
                                 self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
+                                result = self._verify_and_annotate(tool_name, tool_input, result)
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                 self._record_tool_call(tool_name, result, outcome='raised')
@@ -2389,6 +2453,7 @@ class DevOpsAgent:
                         result = self.tools[tool_name](**tool_input)
                         self._audit_infrastructure_change(tool_name, tool_input, result)
                         self._record_tool_call(tool_name, result, outcome='ran')
+                        result = self._verify_and_annotate(tool_name, tool_input, result)
                     else:
                         result = self._not_offered_result(tool_name)
                         self._record_tool_call(tool_name, result, outcome='not_offered')
