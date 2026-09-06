@@ -567,7 +567,21 @@ either failed closed with "Authentication required" or could pick up whatever co
 request left on the greenlet. Fixed by setting `req.requester_id` as the context before running
 the tool and clearing it in a `finally`, mirroring `core.py`'s own pattern.
 
-**Two more instances of the same gap, found by a 2026-08-15 scheduled audit and fixed the same
+**A 2026-09-06 scheduled audit found the same `_execute_tool` still missing the Execution
+Integrity instrumentation added after it was last fixed.** It called
+`agent.tools[tool_name](**tool_input)` directly with no `_audit_infrastructure_change` (no audit
+row, and no purge from the synced-resource list for a destructive action), no `_record_tool_call`
+(invisible to `usage_logs`), and no `_verify_and_annotate` (no read-back verification) — because
+those three read `self._current_user_id`/`self._current_conversation_id`, which `_execute_tool`
+never set alongside the cloud-credential context. The same audit also found that **Sandbox Mode
+did not stop a real `ApprovalRequest` from being filed**: at all three tool-loop sites in
+`core.py`, `validation.requires_confirmation` was checked *before* `self._sandbox_mode` (every
+other branch in the same chain checks sandbox first), so a non-approver user in Sandbox Mode
+asking to delete/terminate something got a real `ApprovalRequest` emailed to a real approver with
+no sandbox marker anywhere, and — if approved — the tool ran for real. Both fixed the same day;
+see CLAUDE_RUNBOOK.md's 2026-09-06 entry for the full detail and tests.
+
+**Two more instances of the earlier context-setting gap, found by a 2026-08-15 scheduled audit and fixed the same
 day:** `routes/api_gateway.py`'s `api_execute_tool()` (the `/v1/execute` developer-API direct tool
 endpoint) called `all_tools[tool_name]['handler'](**params)` with no context set at all — same
 fail-closed/stale-context risk as the `approval_service` bug, here on the Professional/Business-tier

@@ -307,16 +307,44 @@ def _execute_tool(req) -> dict:
     (see _set_cloud_user_context's callers in src/agent/core.py), which either
     fails closed with "Authentication required" or, worse, runs against whatever
     user context a previous request left behind on this greenlet.
+
+    Also mirrors the three instrumentation calls every other tool-execution site
+    in src/agent/core.py makes around a real handler invocation — this is the
+    approve-and-run path for exactly the tool calls flagged high/medium risk, so
+    skipping them here left every approved delete/terminate/etc. with no
+    InfrastructureChange audit row (and no purge from the synced-resource list)
+    and no Execution Integrity read-back verification, the two things this class
+    of tool call needs most:
+      - _audit_infrastructure_change: writes the audit trail row.
+      - _record_tool_call: per-call observability (see core._record_tool_call).
+      - _verify_and_annotate: read-back-verifies a create/delete before the
+        result is shown to the requester.
+    These three read self._current_user_id / self._current_conversation_id
+    (greenlet-local, same mechanism as the cloud credential context above), so
+    they must be set alongside it and cleared in the same finally.
     """
     try:
         from app import agent
         tool_name = req.tool_name
         if tool_name not in agent.tools:
             return {'success': False, 'error': f'Unknown tool: {tool_name}'}
-        agent._set_cloud_user_context(req.requester_id)
+        tool_input = req.tool_input or {}
         try:
-            return agent.tools[tool_name](**(req.tool_input or {}))
+            agent._set_cloud_user_context(req.requester_id)
+            agent._current_user_id = req.requester_id
+            agent._current_conversation_id = req.conversation_id
+            try:
+                result = agent.tools[tool_name](**tool_input)
+            except Exception as e:
+                result = {'success': False, 'error': str(e)}
+                agent._record_tool_call(tool_name, result, outcome='raised')
+                return result
+            agent._audit_infrastructure_change(tool_name, tool_input, result)
+            agent._record_tool_call(tool_name, result, outcome='ran')
+            return agent._verify_and_annotate(tool_name, tool_input, result)
         finally:
+            agent._current_user_id = None
+            agent._current_conversation_id = None
             agent._clear_cloud_user_context()
     except Exception as e:
         logger.error(f"_execute_tool failed for {req.tool_name}: {e}", exc_info=True)

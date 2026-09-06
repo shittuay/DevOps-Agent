@@ -2240,7 +2240,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             result = {'success': False, 'error': 'High-risk operation requires approval'}
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2499,7 +2499,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             # Approver/admin self-approve; regular users get queued for review
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2645,8 +2645,11 @@ class DevOpsAgent:
                     self.conversation.add_tool_result(tool_use_id, json.dumps(result))
                     continue
 
-                # Check if approval workflow applies (high-risk + non-approver user)
-                if validation.requires_confirmation:
+                # Check if approval workflow applies (high-risk + non-approver user).
+                # Sandbox mode must never file a real ApprovalRequest or notify a real
+                # approver — a simulated turn falls through to the sandbox-mock branch
+                # below, exactly like every other tool call in sandbox mode.
+                if validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                     user_id = getattr(self, '_current_user_id', None)
                     if user_id:
                         try:

@@ -2431,3 +2431,76 @@ console evidence.
 **Tests:** `tests/test_destructive_verification.py` (16 cases). One existing
 `test_mutation_verifier.py` delete test reworded for the new message. Adjacent
 suites green (155 + 232). Full run pending.
+
+## Scheduled audit (2026-09-06): sandbox mode could trigger a real destructive action; approved high-risk actions skipped audit/verification
+
+Two gaps found in the human-approval workflow (`services/approval_service.py`,
+the `ApprovalRequest`-backed path used whenever a non-approver/non-admin user
+triggers a high/medium-risk tool — see "Admin Access" and the Safety System
+section). Both live in code untouched by the Execution Integrity Phase 1/2/2b
+work above, which is exactly why they'd been missed: those phases wired
+`_audit_infrastructure_change`/`_record_tool_call`/`_verify_and_annotate` into
+all 5 *model-driven* tool-execution sites in `core.py`, but never into the
+approval workflow's own execution path.
+
+**1. Sandbox Mode did not stop a real `ApprovalRequest` from being filed.**
+At all three tool-loop sites in `core.py` (Kimi non-streaming, Kimi streaming,
+Claude), `validation.requires_confirmation` was checked *before*
+`self._sandbox_mode` — the opposite order from every other branch in the same
+elif chain, which all check sandbox first. A plain `'user'`-role account with
+Sandbox Mode enabled asking the agent to delete/terminate a resource therefore:
+skipped the `elif getattr(self, '_sandbox_mode', False): ... generate_mock_result`
+branch entirely; called `services.approval_service.create_request()`, writing a
+real `ApprovalRequest` row and emailing a real approver/admin — with no sandbox
+marker anywhere on the request (the `ApprovalRequest` model has no such column);
+and, if approved, ran the tool for real via `_execute_tool()` against the
+requester's actual cloud account. This broke Sandbox Mode's core guarantee
+("Simulated tool results... not a substitute for a missing account" —
+see CLAUDE.md's "Non-negotiable" section) for every confirmation-gated tool —
+worse than fabricated data, since it's real infrastructure damage triggered by
+what the user believed was a no-op simulation. Fixed by gating the
+`requires_confirmation` branch on `and not getattr(self, '_sandbox_mode', False)`
+at all three sites; sandbox mode now falls through to the existing sibling
+`elif getattr(self, '_sandbox_mode', False):` branch unchanged. `routes/mcp.py`
+and `routes/api_gateway.py`'s own `create_request` call sites were checked too —
+neither has a sandbox concept at all (API-key/MCP tiers aren't tied to a chat
+session's `UserPreferences.sandbox_mode`), so they were not in scope.
+
+**2. `approval_service._execute_tool` (the approve-and-run path) skipped every
+instrumentation call the same tool call would have gotten from a same-turn
+self-confirmation.** It called `agent.tools[tool_name](**tool_input)` directly
+with no `_audit_infrastructure_change` (no `InfrastructureChange` audit row —
+and, for a destructive action, no purge from the synced-resource list, so a
+terminated instance kept appearing "present" in the user's inventory/cost/drift
+views until the next full sync), no `_record_tool_call` (invisible to
+`usage_logs`/the `check-errors.yml` misrouting report), and no
+`_verify_and_annotate` (an approved delete/terminate — precisely the highest-
+risk tool class — got zero Execution Integrity read-back verification, unlike
+the identical tool run from a same-turn self-approval). Root cause: those three
+calls read `self._current_user_id`/`self._current_conversation_id`
+(greenlet-local), which `_execute_tool` never set — only the cloud-credential
+context (`_set_cloud_user_context`). Fixed by setting both alongside the cloud
+context and clearing all three in the same `finally`, then calling all three
+instrumentation functions around the real handler invocation, matching every
+other execution site.
+
+**Tests:** `tests/test_approval_credential_context.py` (new case: audit/record/
+verify called in order, requester context visible during the call and cleared
+after) and `tests/test_tool_call_observability.py` (new `TestSandboxNeverFilesRealApproval`:
+Kimi non-streaming + streaming, asserts `approval_service.create_request` is
+never called and the tool result comes back `simulated`-shaped). Full suite:
+895 passed (1 pre-existing failure, `test_initialize_agent_populates_config`,
+is an environment-only `ANTHROPIC_API_KEY` gap reproducible on the unmodified
+`HEAD`, not a regression).
+
+**Rebased onto main after Execution Integrity Phases 2c–5 landed (2026-09-06).**
+Two adjustments to fix #2: (a) `_execute_tool` now calls
+`_record_tool_call` → `_verify_and_annotate` → `_audit_infrastructure_change`
+in that order (Phase 5 reordered the model-loop sites so the audit row can
+read `result['_verification']` for the rule-10 destructive audit trail);
+(b) `_execute_tool` resets the per-turn tool trackers first
+(`_reset_turn_tool_state()`, extracted and now shared by all 4 tool-execution
+entry points) — `_verify_and_annotate` reads greenlet-local `_verify_count`
+(cap 3) / `_iac_fallback_emitted`, and a pooled gthread worker that ran a
+chat turn earlier would otherwise carry stale values into the approval-run
+and silently skip verification.
