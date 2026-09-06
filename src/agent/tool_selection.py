@@ -188,9 +188,11 @@ def classify_tool(name: str, module_category: str) -> str:
     return module_category
 
 
-# search_tools is the one hatch that must be callable on every turn
-# unconditionally — it's the universal recovery path when nothing else fits.
-ALWAYS_TOOL_NAMES = frozenset({SEARCH_TOOL_NAME})
+# Meta-tools callable on every turn unconditionally: search_tools is the
+# universal tool-recovery path; record_state_override lets the model honour a
+# user's console evidence against a stale verification result on any turn (the
+# dispute can be about something verified turns ago).
+ALWAYS_TOOL_NAMES = frozenset({SEARCH_TOOL_NAME, 'record_state_override'})
 
 # The provider-generic API tools the system prompt tells the model to fall
 # back on ("NEVER say 'I don't have a tool'"), keyed by the provider they

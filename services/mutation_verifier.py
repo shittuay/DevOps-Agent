@@ -31,10 +31,18 @@ from typing import Any, Callable, Dict, Optional
 _AWS_ID_RE = re.compile(r'^[a-z]+-[0-9a-f]{8,17}$')
 
 # Backoff between read-back attempts, in seconds. First attempt is immediate
-# (0), then 1 → 2 → 5 → 7 — ~15s total wall time, 5 attempts. Deliberately not
-# the 60s the original spec suggested: the chat turn is held open by the
-# keep-alive but every extra second is a slower reply.
+# (0), then 1 → 2 → 5 → 7 — ~15s total wall time, 5 attempts. Creates and
+# updates propagate fast, so this is deliberately not the full 60s.
 DEFAULT_BACKOFF = (0, 1, 2, 5, 7)
+
+# Deletes take longer to reach a terminal state (an EC2 instance sits in
+# `shutting-down` for a while) and rule 3 wants TWO consecutive confirming
+# reads — so deletes get the full ~57s chain.
+DELETE_BACKOFF = (0, 2, 5, 10, 20, 20)
+
+# Rule 3: a terminate/delete is only "confirmed" after this many consecutive
+# live reads agree the resource is gone / in a terminal state.
+DELETE_CONFIRMING_READS = 2
 
 # Max create/delete tools verified per turn — a turn that touches 10 instances
 # should not add 150s. The rest are recorded in the registry unverified.
@@ -342,9 +350,11 @@ def _pick_spec(tool_name: str, tool_input: dict):
 
 def _poll(spec, rid, tool_input, call_tool, sleep, backoff, decide):
     """Run the read-back loop. ``decide(read) -> (verdict, done)``; returns
-    ``(final_verdict, elapsed_seconds)``."""
+    ``(final_verdict, elapsed_seconds, reads)`` where ``reads`` is the verdict
+    from every attempt (for the rule-10 audit trail)."""
     elapsed = 0.0
     verdict = 'unknown'
+    reads = []
     for delay in backoff:
         if delay:
             sleep(delay)
@@ -354,9 +364,10 @@ def _poll(spec, rid, tool_input, call_tool, sleep, backoff, decide):
         except Exception as e:  # noqa: BLE001 - a failed read is just "not yet"
             read = {'success': False, 'error': str(e)}
         verdict, done = decide(read)
+        reads.append(verdict)
         if done:
             break
-    return verdict, elapsed
+    return verdict, elapsed, reads
 
 
 def verify_mutation(
@@ -385,7 +396,7 @@ def verify_mutation(
     base = {'action': action, 'resource_id': rid, 'via': spec.read_tool}
 
     if action == 'create':
-        verdict, elapsed = _poll(
+        verdict, elapsed, _reads = _poll(
             spec, rid, tool_input, call_tool, _sleep, backoff,
             lambda read: ('confirmed', True) if _confirms_create(read, rid) else ('unconfirmed', False))
         if verdict == 'confirmed':
@@ -395,22 +406,37 @@ def verify_mutation(
             f"— it may still be propagating. Please check the console.")}
 
     if action == 'delete':
-        verdict, elapsed = _poll(
-            spec, rid, tool_input, call_tool, _sleep, backoff,
-            lambda read: (lambda s: (s, s == 'gone'))(spec.gone(read, rid)))
-        if verdict == 'gone':
-            return {**base, 'status': 'confirmed', 'after_seconds': elapsed}
-        if verdict == 'present':
-            msg = (f"Delete of {rid} returned success, but a read still shows it — it may "
-                   f"still be shutting down. Re-check in a minute or confirm in the console.")
+        # Rule 3: only "confirmed" after DELETE_CONFIRMING_READS consecutive
+        # `gone` reads; a `present`/`unknown` read resets the streak.
+        streak = {'n': 0}
+
+        def _delete_decide(read):
+            s = spec.gone(read, rid)
+            streak['n'] = streak['n'] + 1 if s == 'gone' else 0
+            return s, streak['n'] >= DELETE_CONFIRMING_READS
+
+        verdict, elapsed, reads = _poll(
+            spec, rid, tool_input, call_tool, _sleep, DELETE_BACKOFF, _delete_decide)
+        confirmed = streak['n'] >= DELETE_CONFIRMING_READS
+        ann = {**base, 'reads': reads, 'confirming_reads': DELETE_CONFIRMING_READS,
+               'after_seconds': elapsed}
+        if confirmed:
+            return {**ann, 'status': 'confirmed'}
+        if verdict == 'present' or 'present' in reads:
+            ann['message'] = (
+                f"Delete of {rid} returned success, but a read still shows it — the "
+                f"terminate may not have taken. Re-issue the terminate for {rid} and "
+                f"I will re-verify. Do not tell the user it is gone yet.")
         else:
-            msg = (f"{rid} was deleted (the delete call returned success), but I could not "
-                   f"verify removal — the read-back is failing. Confirm in the console.")
-        return {**base, 'status': 'unconfirmed', 'message': msg}
+            ann['message'] = (
+                f"{rid} was deleted (the delete call returned success), but I could not "
+                f"get two consecutive reads confirming removal — the read-back is "
+                f"failing. Re-issue the terminate for {rid}, or confirm in the console.")
+        return {**ann, 'status': 'unconfirmed'}
 
     # update
     fields = sorted(spec.expected(tool_input))
-    verdict, elapsed = _poll(
+    verdict, elapsed, _reads = _poll(
         spec, rid, tool_input, call_tool, _sleep, backoff,
         lambda read: (lambda s: (s, s == 'applied'))(_update_state(spec, read, rid, tool_input)))
     if verdict == 'applied':

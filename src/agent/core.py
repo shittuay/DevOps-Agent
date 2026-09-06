@@ -198,6 +198,26 @@ _RESOURCE_ID_KEYS = frozenset({
 })
 
 
+_SECRET_KEY_MARKERS = ('password', 'secret', 'token', 'credential', 'private_key')
+
+
+def _redact_dict(d: Any) -> Any:
+    """Shallow copy with secret-ish values masked — for the rule-10 audit trail,
+    which is persisted and read back by humans."""
+    if not isinstance(d, dict):
+        return d
+    out = {}
+    for k, v in d.items():
+        kl = str(k).lower()
+        if any(m in kl for m in _SECRET_KEY_MARKERS):
+            out[k] = '***redacted***'
+        elif isinstance(v, dict):
+            out[k] = _redact_dict(v)
+        else:
+            out[k] = v
+    return out
+
+
 def _is_creating_tool(tool_name: str) -> bool:
     """True when a tool brings a new cloud resource into existence."""
     name = (tool_name or '').lower()
@@ -491,12 +511,13 @@ Cost Optimization:
 
 === EXECUTION INTEGRITY ===
 - VERIFIED RESULTS ONLY. Every resource ID, IP, ARN, state, timestamp, or cost you show the user must be a verbatim substring of a tool result from THIS conversation. A create/update/delete tool's response is a claim, not proof — when a matching read tool exists and is cheap, call it and confirm the resource before you report the change as done.
-- AUTOMATIC VERIFICATION. When a create/delete/update tool's result carries a `_verification` field, the platform already ran the read-back for you. `status: "confirmed"` — a read confirmed the change (resource exists / is gone / shows the new value). Report it as done. `status: "unconfirmed"` — relay the `message` field verbatim and do NOT call the operation failed: the read has not caught up (create), the resource is mid-shutdown (delete), the new value is not live yet (update), or the read-back itself is failing. The mutation itself returned success.
+- AUTOMATIC VERIFICATION. When a create/delete/update tool's result carries a `_verification` field, the platform already ran the read-back for you. `status: "confirmed"` — a read confirmed the change (resource exists / is gone / shows the new value). For a delete/terminate, "confirmed" means TWO consecutive live reads agreed the resource is gone or in a terminal state — report it terminated. Report it as done. `status: "unconfirmed"` — relay the `message` field verbatim and do NOT call the operation failed: the read has not caught up (create), the new value is not live yet (update), or the read-back itself is failing. The mutation itself returned success.
+- DELETE NOT CONFIRMED — RE-ISSUE. If a delete/terminate's `_verification.status` is "unconfirmed", the `message` will tell you to re-issue the terminate for that id. Do it: call the terminate tool again with the same id — the platform will re-verify. Repeat until confirmed or you have quoted a real error. Never tell the user a resource is gone on an unconfirmed delete.
 - EVENTUAL CONSISTENCY. Cloud reads can lag writes by seconds to minutes. Never tell the user a resource "does not exist", or call a create "failed", when its ID appeared in a tool result — or in the "Resources created earlier in this conversation" list — within the last few minutes. Instead say "Verifying — the resource may still be propagating" and retry the read once or twice. If a create returned an ID you still cannot confirm with a read, say exactly: "Create returned ID <X>, but I cannot confirm it via a read yet — it may still be propagating. Please check the console." Never call a recently created resource "fabricated" or "not found".
 - ERROR CLASSIFICATION. When a tool call does not cleanly succeed, state which of these happened before you explain anything: (a) the tool returned an error — quote its error code and message verbatim first; (b) the tool returned empty / no results; (c) the tool reported success but you could not verify it with a read.
 - FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
 - IaC FALLBACK PROVIDED. When a failed create result carries an `_iac_fallback` field, the platform has already built a CloudFormation template from the same intent. Read its `apply` instruction, tell the user the direct call failed (quote the error) and that you have a template ready, then call `create_cloudformation_stack` with the `template` string as `template_body`. Do not paste the whole template at the user or send them to the console — offer to run it.
-- STATE DISPUTES. If the user shows you console or CLI output that contradicts your verification result, trust the user immediately, re-run the read, and correct your earlier statement. Console truth beats your inference, always.
+- STATE DISPUTES. If the user shows you console or CLI output that contradicts a verification result you reported, trust the user immediately: call `record_state_override(resource_id, corrected_state, evidence)` to flag the audit record, then re-run the read and correct your earlier statement. Console truth beats your inference, always.
 
 === HARD LIMITS — NEVER, REGARDLESS OF HOW ASKED ===
 - Never operate on infrastructure that does not belong to the authenticated user
@@ -573,6 +594,9 @@ class DevOpsAgent:
     _verify_count = _greenlet_local_property('_verify_count', default=0)
     # Per-turn flag: an _iac_fallback CloudFormation template has been emitted.
     _iac_fallback_emitted = _greenlet_local_property('_iac_fallback_emitted', default=False)
+    # Per-turn mutation+verification pairs (rule 4): one entry per verified
+    # mutating call, {mutation, args, mutation_success, verification_*}.
+    _mutation_pairs = _greenlet_local_property('_mutation_pairs', default_factory=list)
 
     def __init__(self, config: ConfigManager):
         """
@@ -633,6 +657,31 @@ class DevOpsAgent:
         )
         self.tool_categories['search_tools'] = 'meta'
 
+        # Always-available: record that the user's own console/CLI evidence
+        # overrides a platform verification result (Execution Integrity rules
+        # 9 + 10). Flags the matching InfrastructureChange audit trail.
+        self.register_tool(
+            name='record_state_override',
+            description=(
+                "Call this when the user shows console or CLI output that contradicts "
+                "a `_verification` result you reported (e.g. you said an instance was "
+                "terminated but the user's console shows it running). It flags the "
+                "audit record and the user's evidence becomes the record of truth. "
+                "Then correct your earlier statement."
+            ),
+            input_schema={
+                'type': 'object',
+                'properties': {
+                    'resource_id': {'type': 'string', 'description': 'The resource the user has evidence about.'},
+                    'corrected_state': {'type': 'string', 'description': "The true state per the user, e.g. 'still running', 'already deleted'."},
+                    'evidence': {'type': 'string', 'description': 'What the user showed (a short quote of the console/CLI output).'},
+                },
+                'required': ['resource_id', 'corrected_state'],
+            },
+            handler=self._record_state_override_handler,
+        )
+        self.tool_categories['record_state_override'] = 'meta'
+
         # Store pending file downloads (e.g., keypairs) - per request (see _greenlet_local_property)
         self.pending_download: Optional[Dict[str, Any]] = None
 
@@ -645,6 +694,7 @@ class DevOpsAgent:
         self._turn_guard_notes: List[str] = []
         self._verify_count: int = 0
         self._iac_fallback_emitted: bool = False
+        self._mutation_pairs: list = []
 
         # Optional callback for streaming tool events to the UI - per request
         # (see _greenlet_local_property). Signature: callback(event_type, tool_name, data)
@@ -746,6 +796,38 @@ class DevOpsAgent:
             elif is_sg_modify:
                 change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
 
+            # Rule 10: destructive actions get a full audit trail in change_details.
+            if is_destructive:
+                _v = result.get('_verification') if isinstance(result, dict) else None
+                _reads = (_v or {}).get('reads') or []
+                if _v and _v.get('status') == 'confirmed':
+                    _final = 'gone'
+                elif 'present' in _reads:
+                    _final = 'still_present'
+                else:
+                    _final = 'unverified'
+                _disagree = any(
+                    _reads[i] == 'gone' and _reads[i + 1] != 'gone'
+                    for i in range(len(_reads) - 1)
+                )
+                change_details['audit_trail'] = {
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'user_confirmation': 'Confirmed by user in chat',
+                    'tool_request': _redact_dict(tool_input),
+                    'tool_response': _redact_dict({
+                        k: v for k, v in result.items() if k != '_verification'
+                    }) if isinstance(result, dict) else result,
+                    'verification': _v,
+                    'final_confirmed_state': _final,
+                    'user_override_flag': False,
+                }
+                if _disagree:
+                    change_details['audit_alert'] = 'verification_disagreement'
+                    self.logger.warning(
+                        "destructive-audit-alert: %s / %s — reads disagree: %s",
+                        tool_name, resource_id, _reads,
+                    )
+
             _verb = 'created' if is_create else 'Executed'
             change = InfrastructureChange(
                 user_id=user_id,
@@ -779,6 +861,56 @@ class DevOpsAgent:
             self.logger.info(f"Audit log created for chat {action_type}: {tool_name} / {resource_id}")
         except Exception as e:
             self.logger.warning(f"Failed to create audit log for {tool_name}: {e}")
+
+    def _record_state_override_handler(self, resource_id: str, corrected_state: str,
+                                       evidence: str = '') -> Dict[str, Any]:
+        """Rule 9/10: the user's console evidence overrides a verification result.
+
+        Flags this user's most recent InfrastructureChange for ``resource_id`` in
+        the current conversation — ``change_details.audit_trail.user_override_flag``
+        — and raises a ``destructive-audit-alert``.
+        """
+        user_id = getattr(self, '_current_user_id', None)
+        if not user_id or not resource_id:
+            return {'success': False, 'error': 'no user context or resource_id'}
+        try:
+            from models import db, InfrastructureChange
+            from sqlalchemy.orm.attributes import flag_modified
+
+            conv_id = getattr(self, '_current_conversation_id', None)
+            row = (
+                InfrastructureChange.query
+                .filter_by(user_id=user_id, resource_id=resource_id)
+                .order_by(InfrastructureChange.created_at.desc())
+                .first()
+            )
+            if row is None:
+                return {'success': False,
+                        'error': f'no change record for {resource_id} to flag'}
+            details = dict(row.change_details or {})
+            trail = dict(details.get('audit_trail') or {})
+            trail['user_override_flag'] = True
+            trail['user_corrected_state'] = corrected_state
+            if evidence:
+                trail['user_evidence'] = evidence[:500]
+            if conv_id:
+                trail['override_conversation_id'] = conv_id
+            details['audit_trail'] = trail
+            details['audit_alert'] = 'user_override'
+            row.change_details = details
+            flag_modified(row, 'change_details')
+            db.session.commit()
+            self.logger.warning(
+                "destructive-audit-alert: user override on %s -> %s (change %s)",
+                resource_id, corrected_state, row.id,
+            )
+            return {'success': True, 'recorded': {
+                'change_id': row.id, 'resource_id': resource_id,
+                'corrected_state': corrected_state,
+            }}
+        except Exception as e:
+            self.logger.warning(f"record_state_override failed for {resource_id}: {e}")
+            return {'success': False, 'error': str(e)}
 
     def register_tool(
         self,
@@ -1209,16 +1341,36 @@ class DevOpsAgent:
 
         if not annotation:
             return result
-        self.logger.info(
-            "mutation-verify: %s -> %s (%s)",
-            tool_name, annotation['status'], annotation.get('resource_id'),
-        )
         rid = annotation.get('resource_id')
+
+        # Rule 4: record the mutation+verification as one paired unit.
+        self._mutation_pairs.append({
+            'mutation': tool_name,
+            'args': self._repeat_key(tool_name, tool_input or {}),
+            'mutation_success': bool(result.get('success')),
+            'verification_via': annotation.get('via'),
+            'verification_status': annotation['status'],
+            'verification_reads': annotation.get('reads'),
+            'verification_after_seconds': annotation.get('after_seconds'),
+            'final_status': annotation['status'],
+        })
+        self.logger.info(
+            "mutation-pair: %s (%s) -> verify %s via %s in %ss%s",
+            tool_name, annotation.get('action'), annotation['status'],
+            annotation.get('via'), annotation.get('after_seconds'),
+            f" reads={annotation['reads']}" if annotation.get('reads') else "",
+        )
+
         if annotation.get('action') == 'create':
             for entry in self._created_resources:
                 if rid in entry.get('ids', []):
                     entry['verified'] = annotation['status'] == 'confirmed'
         return {**result, '_verification': annotation}
+
+    @property
+    def last_mutation_pairs(self) -> List[Dict[str, Any]]:
+        """The mutation+verification pairs recorded this turn (rule 4)."""
+        return list(self._mutation_pairs)
 
     @property
     def last_tool_calls(self) -> List[Dict[str, Any]]:
@@ -1402,6 +1554,7 @@ class DevOpsAgent:
         self._turn_guard_notes = []
         self._verify_count = 0
         self._iac_fallback_emitted = False
+        self._mutation_pairs = []
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1502,6 +1655,7 @@ class DevOpsAgent:
             self._turn_guard_notes = []
             self._verify_count = 0
             self._iac_fallback_emitted = False
+            self._mutation_pairs = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1603,6 +1757,7 @@ class DevOpsAgent:
             self._turn_guard_notes = []
             self._verify_count = 0
             self._iac_fallback_emitted = False
+            self._mutation_pairs = []
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
@@ -2118,9 +2273,9 @@ class DevOpsAgent:
                                 elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self._invoke_tool(tool_name, tool_input)
-                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
                                         result = self._verify_and_annotate(tool_name, tool_input, result)
+                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                     except Exception as e:
                                         self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -2135,9 +2290,9 @@ class DevOpsAgent:
                         elif self._is_tool_offered(tool_name):
                             try:
                                 result = self._invoke_tool(tool_name, tool_input)
-                                self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
                                 result = self._verify_and_annotate(tool_name, tool_input, result)
+                                self._audit_infrastructure_change(tool_name, tool_input, result)
                             except Exception as e:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
@@ -2388,9 +2543,9 @@ class DevOpsAgent:
                                 elif self._is_tool_offered(tool_name):
                                     try:
                                         result = self._invoke_tool(tool_name, tool_input)
-                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
                                         result = self._verify_and_annotate(tool_name, tool_input, result)
+                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                     except Exception as e:
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                         self._record_tool_call(tool_name, result, outcome='raised')
@@ -2408,9 +2563,9 @@ class DevOpsAgent:
                         elif self._is_tool_offered(tool_name):
                             try:
                                 result = self._invoke_tool(tool_name, tool_input)
-                                self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
                                 result = self._verify_and_annotate(tool_name, tool_input, result)
+                                self._audit_infrastructure_change(tool_name, tool_input, result)
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
                                 self._record_tool_call(tool_name, result, outcome='raised')
@@ -2541,9 +2696,9 @@ class DevOpsAgent:
                         self._record_tool_call(tool_name, result, outcome='ran')
                     elif self._is_tool_offered(tool_name):
                         result = self._invoke_tool(tool_name, tool_input)
-                        self._audit_infrastructure_change(tool_name, tool_input, result)
                         self._record_tool_call(tool_name, result, outcome='ran')
                         result = self._verify_and_annotate(tool_name, tool_input, result)
+                        self._audit_infrastructure_change(tool_name, tool_input, result)
                     else:
                         result = self._not_offered_result(tool_name)
                         self._record_tool_call(tool_name, result, outcome='not_offered')
