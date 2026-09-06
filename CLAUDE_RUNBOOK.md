@@ -2274,3 +2274,40 @@ create-then-delete in one turn must not flip a deleted resource to
 
 **Tests:** `tests/test_mutation_verifier.py` (now 25 cases, +11 for deletes).
 Full suite green.
+
+## Execution Integrity Phase 2c — update verification (2026-09-06)
+
+Extends the read-back verifier to updating tools. `verify_mutation` was
+refactored from a create/delete `if`-ladder into `_pick_spec` (dispatch,
+honours each spec's `applies`) + a shared `_poll` loop + three per-action
+tails.
+
+**Per attempt the read-back resolves to `applied` / `not_yet` / `unknown`**
+(`_update_state`): build `{read_field: target}` from the params the caller
+actually passed (`_UpdateSpec.expected`), locate the resource in the read
+(`_UpdateSpec.find` for list-style reads), compare.
+- `applied` → `status='confirmed'` + a `fields` list. An `accepted_states`
+  hit (RDS `status == 'modifying'`) also counts — the change was accepted.
+- `not_yet` → after all attempts, `unconfirmed` — "a read does not yet show
+  the new value for <fields>".
+- `unknown` → the read failed, OR nothing checkable was passed (e.g.
+  `modify_rds_instance` with only `backup_retention_period`, which no read
+  tool surfaces). After all attempts, `unconfirmed` — "could not verify".
+
+**Update-verifiable set:** `resize_ec2_instance` → `get_ec2_instances`
+(`instance_type`); `manage_ec2_instance(start|stop|reboot)` →
+`get_ec2_instances` (`state`); `update_ecs_service` → `list_ecs_services`
+(`desired_count`); `update_lambda_function_config` → `list_lambda_functions`
+(`memory_size`/`timeout`/`runtime`); `modify_rds_instance` →
+`describe_rds_instance` (`db_instance_class`/`engine_version`).
+
+**`manage_ec2_instance` is now in all three spec maps** — `terminate` →
+delete, `start`/`stop`/`reboot` → update, anything else → not verified.
+`will_verify` now just calls `_pick_spec` and checks the action is non-None.
+
+**Not covered:** SG-rule changes (`authorize_*`/`revoke_*` — expected is a
+rule shape, not a scalar), tag ops, `update_cloudformation_stack`.
+
+**Tests:** `tests/test_mutation_verifier.py` — now 35 cases (+10 for updates,
+incl. read-failure-is-not-applied and nothing-checkable cases). Full suite
+green.

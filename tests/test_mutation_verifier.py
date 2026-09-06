@@ -171,11 +171,17 @@ class TestDeleteVerification:
         )
         assert ann['status'] == 'confirmed'
 
-    def test_manage_ec2_instance_only_verifies_terminate(self):
-        assert not will_verify('manage_ec2_instance', {'action': 'stop'})
-        assert not will_verify('manage_ec2_instance', {'action': 'start'})
+    def test_manage_ec2_instance_terminate_is_a_delete(self):
         assert will_verify('manage_ec2_instance', {'action': 'terminate'})
-        assert verify_mutation('manage_ec2_instance', {'action': 'stop', 'instance_id': EC2_ID},
+        ann = verify_mutation(
+            'manage_ec2_instance', {'action': 'terminate', 'instance_id': EC2_ID},
+            {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'instances': []}, sleep=_NO_SLEEP)
+        assert ann['action'] == 'delete' and ann['status'] == 'confirmed'
+
+    def test_manage_ec2_instance_non_mutating_action_is_not_verified(self):
+        assert not will_verify('manage_ec2_instance', {'action': 'describe'})
+        assert verify_mutation('manage_ec2_instance', {'action': 'describe', 'instance_id': EC2_ID},
                                {'success': True}, call_tool=lambda *a, **k: {}, sleep=_NO_SLEEP) is None
 
     def test_rds_delete_still_deleting_is_unconfirmed(self):
@@ -183,6 +189,93 @@ class TestDeleteVerification:
             'delete_rds_instance', {'db_instance_identifier': 'prod-db'}, {'success': True},
             call_tool=lambda n, **k: {'success': True, 'db_instance_identifier': 'prod-db',
                                       'status': 'deleting'},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed'
+
+
+# --------------------------------------------------------------------------
+# module: update verification (Phase 2c)
+# --------------------------------------------------------------------------
+
+class TestUpdateVerification:
+    def test_resize_ec2_applied(self):
+        ann = verify_mutation(
+            'resize_ec2_instance',
+            {'instance_id': EC2_ID, 'new_instance_type': 't3.large'}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'instances': [
+                {'instance_id': EC2_ID, 'instance_type': 't3.large', 'state': 'running'}]},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'confirmed' and ann['action'] == 'update'
+        assert ann['fields'] == ['instance_type']
+
+    def test_resize_ec2_not_yet(self):
+        ann = verify_mutation(
+            'resize_ec2_instance',
+            {'instance_id': EC2_ID, 'new_instance_type': 't3.large'}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'instances': [
+                {'instance_id': EC2_ID, 'instance_type': 't3.micro', 'state': 'stopped'}]},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed' and 'instance_type' in ann['message']
+
+    def test_manage_ec2_start_verified_as_update(self):
+        assert will_verify('manage_ec2_instance', {'action': 'start'})
+        ann = verify_mutation(
+            'manage_ec2_instance', {'instance_id': EC2_ID, 'action': 'start'}, {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'instances': [
+                {'instance_id': EC2_ID, 'state': 'running'}]},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['action'] == 'update' and ann['status'] == 'confirmed'
+
+    def test_ecs_desired_count_applied(self):
+        ann = verify_mutation(
+            'update_ecs_service', {'cluster': 'c', 'service': 'web', 'desired_count': 5},
+            {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'services': [
+                {'service_name': 'web', 'desired_count': 5}]},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'confirmed'
+
+    def test_lambda_memory_not_yet(self):
+        ann = verify_mutation(
+            'update_lambda_function_config', {'function_name': 'fn', 'memory_size': 512},
+            {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'functions': [
+                {'function_name': 'fn', 'memory_size': 256}]},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed'
+
+    def test_rds_modifying_status_counts_as_applied(self):
+        ann = verify_mutation(
+            'modify_rds_instance', {'db_instance_identifier': 'db', 'db_instance_class': 'db.r5.large'},
+            {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'db_instance_identifier': 'db',
+                                      'db_instance_class': 'db.t3.micro', 'status': 'modifying'},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'confirmed'
+
+    def test_update_read_failure_is_unconfirmed_not_applied(self):
+        ann = verify_mutation(
+            'modify_rds_instance', {'db_instance_identifier': 'db', 'db_instance_class': 'db.r5.large'},
+            {'success': True},
+            call_tool=lambda n, **k: {'success': False, 'error_code': 'Throttling'},
+            sleep=_NO_SLEEP,
+        )
+        assert ann['status'] == 'unconfirmed' and 'could not verify' in ann['message']
+
+    def test_update_with_no_checkable_param_is_unconfirmed(self):
+        # modify_rds_instance called with only a param the verifier can't read back
+        ann = verify_mutation(
+            'modify_rds_instance', {'db_instance_identifier': 'db', 'backup_retention_period': 14},
+            {'success': True},
+            call_tool=lambda n, **k: {'success': True, 'db_instance_identifier': 'db',
+                                      'status': 'available'},
             sleep=_NO_SLEEP,
         )
         assert ann['status'] == 'unconfirmed'
@@ -271,10 +364,25 @@ class TestVerifyAndAnnotate:
         assert out['_verification']['status'] == 'confirmed'
         assert out['_verification']['action'] == 'delete'
 
-    def test_non_terminate_manage_ec2_burns_no_verification_slot(self):
+    def test_non_mutating_manage_ec2_burns_no_verification_slot(self):
         agent = _make_agent()
         out = agent._verify_and_annotate(
-            'manage_ec2_instance', {'action': 'stop', 'instance_id': 'i-00112233445566778'},
+            'manage_ec2_instance', {'action': 'describe', 'instance_id': 'i-00112233445566778'},
             {'success': True})
         assert '_verification' not in out
         assert agent._verify_count == 0
+
+    def test_annotates_an_update(self):
+        agent = _make_agent()
+        agent.register_tool('get_ec2_instances', 'read', {}, lambda **kw: {
+            'success': True, 'instances': [
+                {'instance_id': 'i-00112233445566778', 'instance_type': 't3.large',
+                 'state': 'running'}]})
+        with patch('time.sleep', _NO_SLEEP):
+            out = agent._verify_and_annotate(
+                'resize_ec2_instance',
+                {'instance_id': 'i-00112233445566778', 'new_instance_type': 't3.large'},
+                {'success': True})
+        assert out['_verification']['status'] == 'confirmed'
+        assert out['_verification']['action'] == 'update'
+        assert out['_verification']['fields'] == ['instance_type']

@@ -1,20 +1,21 @@
-"""Synchronous read-back verification for creating and deleting tools
+"""Synchronous read-back verification for create / delete / update tools
 (Execution Integrity rule 2 — see docs/execution-integrity.md).
 
-The agent must never report a create or a delete as done on the strength of
-the mutating call's own response — cloud reads lag writes, and a
-fabricated-looking success is indistinguishable from a real one. After a
-create/delete tool returns success, ``verify_mutation`` calls the resource's
-dedicated *read* tool a few times with a short backoff and annotates the
-result:
+The agent must never report a mutation as done on the strength of the call's
+own response — cloud reads lag writes, and a fabricated-looking success is
+indistinguishable from a real one. After a create/delete/update tool returns
+success, ``verify_mutation`` calls the resource's dedicated *read* tool a few
+times with a short backoff and annotates the result:
 
-  {'_verification': {'status': 'confirmed',   'action': 'create'|'delete', 'resource_id', 'via', ...}}
-  {'_verification': {'status': 'unconfirmed', 'action': 'create'|'delete', 'resource_id', 'via', 'message'}}
+  {'_verification': {'status': 'confirmed',   'action': 'create'|'delete'|'update', 'resource_id', 'via', ...}}
+  {'_verification': {'status': 'unconfirmed', 'action': 'create'|'delete'|'update', 'resource_id', 'via', 'message'}}
 
-``status == 'unconfirmed'`` is NOT "the operation failed" — for a create it
-means the read hasn't caught up; for a delete it means the read still shows
-the resource (often it is mid-shutdown) or the read itself is failing. The
-``message`` tells the model exactly what to say.
+``status == 'unconfirmed'`` is NOT "the operation failed":
+  - create: the read hasn't caught up
+  - delete: the read still shows the resource (usually mid-shutdown), or the
+    read itself is failing
+  - update: the read doesn't show the new value yet, or the read is failing
+The ``message`` tells the model exactly what to say.
 
 Kept dependency-free and side-effect-free (``call_tool`` and ``sleep`` are
 injected) so it unit-tests without a cloud account or the agent.
@@ -73,6 +74,28 @@ class _DeleteSpec:
                  read_kwargs=None, applies=None):
         self.read_tool = read_tool
         self.gone = gone                     # (read_result, rid) -> 'gone'|'present'|'unknown'
+        self.id_prefix = id_prefix
+        self.input_key = input_key
+        self.read_kwargs = read_kwargs or (lambda rid, ti: {})
+        self.applies = applies or (lambda ti: True)
+
+
+class _UpdateSpec:
+    __slots__ = ('read_tool', 'id_prefix', 'input_key', 'read_kwargs', 'find',
+                 'expected', 'accepted_states', 'applies')
+
+    def __init__(self, read_tool, *, expected, id_prefix=None, input_key=None,
+                 read_kwargs=None, find=None, accepted_states=(), applies=None):
+        self.read_tool = read_tool
+        # expected: (tool_input) -> {read_field: target_value} for the params the
+        # caller actually passed. Empty dict => nothing checkable => 'unknown'.
+        self.expected = expected
+        # find: (read_result, rid) -> the sub-dict for this resource, for
+        # list-style reads. None => the read result itself is the object.
+        self.find = find
+        # A read whose 'status'/'state' is in accepted_states counts as applied
+        # even before the target value shows (e.g. RDS 'modifying').
+        self.accepted_states = set(accepted_states)
         self.id_prefix = id_prefix
         self.input_key = input_key
         self.read_kwargs = read_kwargs or (lambda rid, ti: {})
@@ -161,6 +184,84 @@ _DELETE_SPECS: Dict[str, _DeleteSpec] = {
         read_kwargs=lambda rid, ti: {}),
 }
 
+# ---- update specs: confirm the new value is LIVE --------------------------
+
+def _find_ec2(read, rid):
+    for inst in (read.get('instances') or []) if isinstance(read, dict) else []:
+        if isinstance(inst, dict) and inst.get('instance_id') == rid:
+            return inst
+    return None
+
+
+def _find_by(key):
+    def _f(read, rid):
+        for item in _iter_records(read):
+            if str(item.get(key)) == str(rid):
+                return item
+        return None
+    return _f
+
+
+def _iter_records(read):
+    if not isinstance(read, dict):
+        return
+    for v in read.values():
+        if isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    yield item
+
+
+_EC2_STATE_TARGET = {'start': 'running', 'stop': 'stopped', 'reboot': 'running'}
+
+_UPDATE_SPECS: Dict[str, _UpdateSpec] = {
+    'resize_ec2_instance': _UpdateSpec(
+        'get_ec2_instances', input_key='instance_id', find=_find_ec2,
+        read_kwargs=lambda rid, ti: {'filters': {'instance-id': rid}},
+        expected=lambda ti: {'instance_type': ti['new_instance_type']}
+        if ti.get('new_instance_type') else {}),
+    'manage_ec2_instance': _UpdateSpec(
+        'get_ec2_instances', input_key='instance_id', find=_find_ec2,
+        read_kwargs=lambda rid, ti: {'filters': {'instance-id': rid}},
+        applies=lambda ti: str(ti.get('action', '')).lower() in _EC2_STATE_TARGET,
+        expected=lambda ti: {'state': _EC2_STATE_TARGET[str(ti['action']).lower()]}),
+    'update_ecs_service': _UpdateSpec(
+        'list_ecs_services', input_key='service', find=_find_by('service_name'),
+        read_kwargs=lambda rid, ti: {'cluster': ti.get('cluster')},
+        expected=lambda ti: {'desired_count': ti['desired_count']}
+        if ti.get('desired_count') is not None else {}),
+    'update_lambda_function_config': _UpdateSpec(
+        'list_lambda_functions', input_key='function_name',
+        find=_find_by('function_name'),
+        read_kwargs=lambda rid, ti: {},
+        expected=lambda ti: {k: ti[k] for k in ('memory_size', 'timeout', 'runtime')
+                             if ti.get(k) is not None}),
+    'modify_rds_instance': _UpdateSpec(
+        'describe_rds_instance', input_key='db_instance_identifier',
+        read_kwargs=lambda rid, ti: {'db_instance_identifier': rid},
+        accepted_states=('modifying',),
+        expected=lambda ti: {k: ti[v] for k, v in (
+            ('db_instance_class', 'db_instance_class'),
+            ('engine_version', 'engine_version')) if ti.get(v)}),
+}
+
+
+def _update_state(spec: _UpdateSpec, read: Any, rid: str, tool_input: dict) -> str:
+    """'applied' | 'not_yet' | 'unknown' for one read-back of an update."""
+    if not isinstance(read, dict) or read.get('success') is not True:
+        return 'unknown'
+    obj = spec.find(read, rid) if spec.find else read
+    if not isinstance(obj, dict):
+        return 'unknown'
+    exp = spec.expected(tool_input)
+    if not exp:
+        return 'unknown'                       # nothing checkable
+    state = str(obj.get('status') or obj.get('state') or '').lower()
+    if spec.accepted_states and state in spec.accepted_states:
+        return 'applied'
+    return 'applied' if all(str(obj.get(k)) == str(v) for k, v in exp.items()) else 'not_yet'
+
+
 _RESOURCE_ID_KEYS = {
     'instanceid', 'instance_id', 'groupid', 'group_id', 'security_group_id',
     'vpcid', 'vpc_id', 'db_instance_identifier', 'dbinstanceidentifier',
@@ -169,18 +270,18 @@ _RESOURCE_ID_KEYS = {
 
 
 def is_verifiable(tool_name: str) -> bool:
-    return tool_name in _CREATE_SPECS or tool_name in _DELETE_SPECS
+    return (tool_name in _CREATE_SPECS or tool_name in _DELETE_SPECS
+            or tool_name in _UPDATE_SPECS)
 
 
 def will_verify(tool_name: str, tool_input: dict) -> bool:
-    """Like ``is_verifiable`` but also honours a delete spec's ``applies``
-    predicate (e.g. ``manage_ec2_instance`` only verifies ``action='terminate'``)
-    — so the caller only spends a per-turn verification slot when a read-back
+    """Like ``is_verifiable`` but also honours a spec's ``applies`` predicate
+    (e.g. ``manage_ec2_instance`` verifies ``action='terminate'`` as a delete
+    and ``start``/``stop``/``reboot`` as an update, but never ``describe``) —
+    so the caller only spends a per-turn verification slot when a read-back
     will actually run."""
-    if tool_name in _CREATE_SPECS:
-        return True
-    dspec = _DELETE_SPECS.get(tool_name)
-    return dspec is not None and dspec.applies(tool_input or {})
+    action, _spec = _pick_spec(tool_name, tool_input or {})
+    return action is not None
 
 
 def _walk_strings(node: Any, depth: int = 0):
@@ -226,6 +327,38 @@ def _confirms_create(read_result: Any, resource_id: str) -> bool:
     return any(val == resource_id for _key, val in _walk_strings(read_result))
 
 
+def _pick_spec(tool_name: str, tool_input: dict):
+    """(action, spec) for this call, or (None, None) — honouring ``applies``."""
+    if tool_name in _CREATE_SPECS:
+        return 'create', _CREATE_SPECS[tool_name]
+    dspec = _DELETE_SPECS.get(tool_name)
+    if dspec is not None and dspec.applies(tool_input):
+        return 'delete', dspec
+    uspec = _UPDATE_SPECS.get(tool_name)
+    if uspec is not None and uspec.applies(tool_input):
+        return 'update', uspec
+    return None, None
+
+
+def _poll(spec, rid, tool_input, call_tool, sleep, backoff, decide):
+    """Run the read-back loop. ``decide(read) -> (verdict, done)``; returns
+    ``(final_verdict, elapsed_seconds)``."""
+    elapsed = 0.0
+    verdict = 'unknown'
+    for delay in backoff:
+        if delay:
+            sleep(delay)
+            elapsed += delay
+        try:
+            read = call_tool(spec.read_tool, **spec.read_kwargs(rid, tool_input))
+        except Exception as e:  # noqa: BLE001 - a failed read is just "not yet"
+            read = {'success': False, 'error': str(e)}
+        verdict, done = decide(read)
+        if done:
+            break
+    return verdict, elapsed
+
+
 def verify_mutation(
     tool_name: str,
     tool_input: dict,
@@ -235,63 +368,58 @@ def verify_mutation(
     sleep: Optional[Callable[[float], None]] = None,
     backoff: tuple = DEFAULT_BACKOFF,
 ) -> Optional[Dict[str, Any]]:
-    """Read-back-verify a successful create/delete tool result.
+    """Read-back-verify a successful create / delete / update tool result.
 
     Returns an annotation dict for ``result['_verification']`` or ``None`` when
     the tool is not verifiable / not applicable / no resource id resolvable.
     Never raises — a read that errors just counts as "not confirmed yet".
     """
     tool_input = tool_input or {}
-    create_spec = _CREATE_SPECS.get(tool_name)
-    delete_spec = _DELETE_SPECS.get(tool_name)
-    if delete_spec is not None and not delete_spec.applies(tool_input):
-        return None
-    spec = create_spec or delete_spec
+    action, spec = _pick_spec(tool_name, tool_input)
     if spec is None:
         return None
-
     rid = _resolve_id(spec, tool_input, result if isinstance(result, dict) else {})
     if not rid:
         return None
-    action = 'create' if create_spec is not None else 'delete'
     _sleep = sleep or time.sleep
-
-    elapsed = 0.0
-    last_state = 'unknown'
-    for delay in backoff:
-        if delay:
-            _sleep(delay)
-            elapsed += delay
-        try:
-            read = call_tool(spec.read_tool, **spec.read_kwargs(rid, tool_input))
-        except Exception as e:  # noqa: BLE001 - a failed read is just "not yet"
-            read = {'success': False, 'error': str(e)}
-
-        if action == 'create':
-            if _confirms_create(read, rid):
-                return {'status': 'confirmed', 'action': 'create', 'resource_id': rid,
-                        'via': spec.read_tool, 'after_seconds': elapsed}
-        else:
-            last_state = delete_spec.gone(read, rid)
-            if last_state == 'gone':
-                return {'status': 'confirmed', 'action': 'delete', 'resource_id': rid,
-                        'via': spec.read_tool, 'after_seconds': elapsed}
+    base = {'action': action, 'resource_id': rid, 'via': spec.read_tool}
 
     if action == 'create':
-        return {
-            'status': 'unconfirmed', 'action': 'create', 'resource_id': rid,
-            'via': spec.read_tool,
-            'message': (
-                f"Create returned ID {rid}, but I cannot confirm it via a read yet "
-                f"— it may still be propagating. Please check the console."
-            ),
-        }
+        verdict, elapsed = _poll(
+            spec, rid, tool_input, call_tool, _sleep, backoff,
+            lambda read: ('confirmed', True) if _confirms_create(read, rid) else ('unconfirmed', False))
+        if verdict == 'confirmed':
+            return {**base, 'status': 'confirmed', 'after_seconds': elapsed}
+        return {**base, 'status': 'unconfirmed', 'message': (
+            f"Create returned ID {rid}, but I cannot confirm it via a read yet "
+            f"— it may still be propagating. Please check the console.")}
 
-    if last_state == 'present':
-        msg = (f"Delete of {rid} returned success, but a read still shows it — it may "
-               f"still be shutting down. Re-check in a minute or confirm in the console.")
-    else:  # 'unknown' — the read kept failing for a non-NotFound reason
-        msg = (f"{rid} was deleted (the delete call returned success), but I could not "
-               f"verify removal — the read-back is failing. Confirm in the console.")
-    return {'status': 'unconfirmed', 'action': 'delete', 'resource_id': rid,
-            'via': spec.read_tool, 'message': msg}
+    if action == 'delete':
+        verdict, elapsed = _poll(
+            spec, rid, tool_input, call_tool, _sleep, backoff,
+            lambda read: (lambda s: (s, s == 'gone'))(spec.gone(read, rid)))
+        if verdict == 'gone':
+            return {**base, 'status': 'confirmed', 'after_seconds': elapsed}
+        if verdict == 'present':
+            msg = (f"Delete of {rid} returned success, but a read still shows it — it may "
+                   f"still be shutting down. Re-check in a minute or confirm in the console.")
+        else:
+            msg = (f"{rid} was deleted (the delete call returned success), but I could not "
+                   f"verify removal — the read-back is failing. Confirm in the console.")
+        return {**base, 'status': 'unconfirmed', 'message': msg}
+
+    # update
+    fields = sorted(spec.expected(tool_input))
+    verdict, elapsed = _poll(
+        spec, rid, tool_input, call_tool, _sleep, backoff,
+        lambda read: (lambda s: (s, s == 'applied'))(_update_state(spec, read, rid, tool_input)))
+    if verdict == 'applied':
+        return {**base, 'status': 'confirmed', 'fields': fields, 'after_seconds': elapsed}
+    if verdict == 'not_yet':
+        msg = (f"Update of {rid} returned success, but a read does not yet show the new "
+               f"value for {', '.join(fields) or 'the changed setting'}. The change may "
+               f"still be applying — re-check or confirm in the console.")
+    else:
+        msg = (f"{rid} was updated (the call returned success), but I could not verify "
+               f"the new value — the read-back is failing. Confirm in the console.")
+    return {**base, 'status': 'unconfirmed', 'fields': fields, 'message': msg}
