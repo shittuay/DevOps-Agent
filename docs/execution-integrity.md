@@ -232,6 +232,60 @@ Branch `feat/iac-fallback`. `services/iac_fallback.py` +
 
 Tests: `tests/test_iac_fallback.py`.
 
+## Phase 5 — shipped (v2.0 rules 3, 4, 10: destructive-action hardening)
+
+Branch `feat/destructive-verification`. The spec's v2.0 added three ⚠️ rules,
+all about deleting deeper and auditing it.
+
+### Rule 3 — double-confirmation (`services/mutation_verifier.py`)
+
+- A delete/terminate's `_verification.status` is `confirmed` only after
+  **`DELETE_CONFIRMING_READS` (2) consecutive live reads** agree the resource
+  is gone / terminal. A `present` or `unknown` read resets the streak.
+- Deletes use `DELETE_BACKOFF = (0, 2, 5, 10, 20, 20)` (~57s — rule 2 v2's
+  longer chain); creates/updates keep `DEFAULT_BACKOFF` (~15s).
+- The annotation carries `reads: [<verdict per attempt>]` and
+  `confirming_reads: 2`.
+- On `unconfirmed`, the `message` tells the agent to **re-issue the terminate**
+  for that id; the prompt's `DELETE NOT CONFIRMED — RE-ISSUE` line makes the
+  agent loop terminate→verify→terminate→verify. The platform never
+  auto-re-terminates (deliberate — no unattended repeat of a destructive op).
+
+### Rule 4 — mutation-verification pair log (`src/agent/core.py`)
+
+The pairing already existed (`_verify_and_annotate` runs the read-back in the
+same tool frame). Phase 5 adds the structured record: greenlet-local
+`_mutation_pairs`, one entry per verified mutation
+(`{mutation, args, mutation_success, verification_via, verification_status,
+verification_reads, verification_after_seconds, final_status}`), exposed via
+`agent.last_mutation_pairs`, plus a `mutation-pair:` log line.
+
+### Rule 10 — destructive audit trail (`_audit_infrastructure_change`)
+
+The 5 executor sites were **reordered** — audit now runs *after*
+`_verify_and_annotate`, so it can read `result['_verification']`. For every
+destructive row, `change_details['audit_trail']` gets `{timestamp,
+user_confirmation, tool_request (secret keys → ***redacted***),
+tool_response, verification (with reads[]), final_confirmed_state
+(gone/still_present/unverified), user_override_flag}`. If the reads show a
+`gone` followed by a non-`gone`, `change_details['audit_alert'] =
+'verification_disagreement'` and a `destructive-audit-alert` warning fires.
+
+`_redact_dict` (module-level in `core.py`) masks keys containing
+`password`/`secret`/`token`/`credential`/`private_key`.
+
+### `record_state_override` tool (rules 9 + 10)
+
+Always-available meta-tool (in `tool_selection.ALWAYS_TOOL_NAMES`).
+`record_state_override(resource_id, corrected_state, evidence='')` → flags the
+most recent `InfrastructureChange` for that resource:
+`audit_trail.user_override_flag = True`, `audit_alert = 'user_override'`, a
+`destructive-audit-alert` warning. The prompt's `STATE DISPUTES` line tells
+the model to call it when the user shows contradicting console/CLI output.
+Low-risk (`record_` prefix — no confirmation).
+
+Tests: `tests/test_destructive_verification.py`.
+
 ## Not covered
 
 - **Terraform** generation (CloudFormation only for now).
@@ -239,6 +293,8 @@ Tests: `tests/test_iac_fallback.py`.
   worker. Separate subsystem; the synchronous IaC fallback covers the common
   "the create failed, do it another way now" case.
 - RDS / IAM / networking-graph (VPC + subnets + route tables) templates.
+- Wiring `check-errors.yml` to surface `destructive-audit-alert` rows (only
+  the log line is emitted today).
 
 ## Deferred — decisions recorded
 

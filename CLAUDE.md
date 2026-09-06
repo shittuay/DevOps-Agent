@@ -873,9 +873,23 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   to `_tools_override` so the model can deploy it this turn. Supported: EC2
   instance (needs `ami_id`), security group, VPC, S3 bucket. One per turn;
   RDS omitted (password handling).
+- **Destructive-action hardening** (Phase 5, v2.0 rules 3/4/10) — a
+  delete/terminate `_verification` is `confirmed` only after **2 consecutive**
+  `gone` reads (`DELETE_CONFIRMING_READS`), using the longer
+  `DELETE_BACKOFF` (~57s); on `unconfirmed` the model re-issues the terminate
+  (platform never auto-repeats). `_audit_infrastructure_change` (now called
+  *after* verify — the 5 sites were reordered) writes
+  `change_details.audit_trail` for every destructive row (tool_request
+  redacted, verification `reads[]`, `final_confirmed_state`,
+  `user_override_flag`) + an `audit_alert` on read disagreement.
+  `agent.last_mutation_pairs` logs each mutation+verification unit. The
+  always-available `record_state_override(resource_id, corrected_state,
+  evidence)` tool lets the model flag a row when the user's console evidence
+  wins (rule 9).
 
 Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
-subsystem, SG-rule / tag update verification.
+subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for
+`destructive-audit-alert`.
 
 ## Historical Fixes & Gotchas
 

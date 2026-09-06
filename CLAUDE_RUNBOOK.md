@@ -2384,3 +2384,50 @@ RDS/IAM/networking-graph templates.
 
 **Tests:** `tests/test_iac_fallback.py` (14 cases). Phase-4 + adjacent suites
 green (219). Full local run 934 passed earlier this session.
+
+## Execution Integrity Phase 5 — destructive-action hardening (2026-09-06)
+
+The spec's v2.0 added three ⚠️ rules, all about deleting deeper and auditing it.
+
+**Rule 3 — double-confirmation (`services/mutation_verifier.py`):** a
+delete/terminate `_verification.status` is `confirmed` only after
+`DELETE_CONFIRMING_READS = 2` **consecutive** live reads agree the resource is
+gone/terminal; a `present`/`unknown` read resets the streak (tracked via a
+closure counter in the delete `_poll` decide). Deletes use
+`DELETE_BACKOFF = (0, 2, 5, 10, 20, 20)` (~57s — rule 2 v2's longer chain);
+creates/updates keep `DEFAULT_BACKOFF`. The annotation carries
+`reads: [<verdict per attempt>]` + `confirming_reads`. `_poll` now returns
+`(verdict, elapsed, reads)`. On `unconfirmed` the message tells the agent to
+**re-issue the terminate**; the prompt's `DELETE NOT CONFIRMED — RE-ISSUE`
+line drives the terminate→verify→terminate loop. Platform never
+auto-re-terminates.
+
+**Rule 4 — mutation-verification pair log:** pairing already existed
+(`_verify_and_annotate` runs the read-back in the same tool frame). Added
+greenlet-local `_mutation_pairs` (one entry per verified mutation) +
+`agent.last_mutation_pairs` + a `mutation-pair:` log line.
+
+**Rule 10 — destructive audit trail (`_audit_infrastructure_change`):** the 5
+executor sites were **reordered** — audit now runs *after*
+`_verify_and_annotate` so it can read `result['_verification']`. Every
+destructive row gets `change_details['audit_trail']` = `{timestamp,
+user_confirmation, tool_request (via module-level `_redact_dict` — masks
+password/secret/token/credential/private_key keys), tool_response,
+verification (reads[]), final_confirmed_state (gone/still_present/unverified),
+user_override_flag}`. A `gone` read followed by a non-`gone` sets
+`change_details['audit_alert'] = 'verification_disagreement'` +
+`destructive-audit-alert` warning.
+
+**`record_state_override` tool (rules 9 + 10):** registered in `__init__`
+alongside `search_tools`, added to `tool_selection.ALWAYS_TOOL_NAMES` (the
+dispute can be about something verified turns ago).
+`_record_state_override_handler(resource_id, corrected_state, evidence='')`
+finds this user's most recent `InfrastructureChange` for the resource, sets
+`audit_trail.user_override_flag = True` + `user_corrected_state`, `audit_alert
+= 'user_override'`, `flag_modified` + commit. Low-risk (`record_` prefix).
+Prompt's `STATE DISPUTES` line tells the model to call it on contradicting
+console evidence.
+
+**Tests:** `tests/test_destructive_verification.py` (16 cases). One existing
+`test_mutation_verifier.py` delete test reworded for the new message. Adjacent
+suites green (155 + 232). Full run pending.

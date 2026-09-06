@@ -134,7 +134,8 @@ class TestDeleteVerification:
             sleep=_NO_SLEEP,
         )
         assert ann['status'] == 'unconfirmed'
-        assert 'could not verify removal' in ann['message']
+        assert 'could not get two consecutive reads' in ann['message']
+        assert set(ann['reads']) == {'unknown'}
 
     def test_ec2_terminal_state_confirms_the_terminate(self):
         for state in ('shutting-down', 'terminated'):
