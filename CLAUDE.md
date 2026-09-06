@@ -819,6 +819,8 @@ means wiring both `_repeat_guard_blocked` and `_repeat_guard_record` into it, an
   (Claude path only). When false, the system prompt is sent as a plain string.
 - `mutation_verify.enabled` (default `true`) — kill-switch for post-create
   read-back verification (Execution Integrity rule 2, below).
+- `tool_cache.enabled` (default `true`) — kill-switch for the 60s per-user
+  read-result cache (Execution Integrity rule 5, `services/tool_cache.py`).
 
 ## Execution Integrity
 
@@ -854,10 +856,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   non-NotFound reason is never read as "gone". Verifiable set: EC2 (+
   `manage_ec2_instance`: `terminate`→delete, `start`/`stop`/`reboot`→update),
   security group, VPC, RDS, S3, ECS service, Lambda config (see the doc).
+- **Credit protection** (Phase 3, rule 5) — `_low_credit_warning()` attaches a
+  `low_credit_warning` to the chat response / SSE `done` event when the balance
+  is 1–5 (`LOW_CREDIT_THRESHOLD`); the UI toasts it (deduped on the value).
+  `services/tool_cache.py`'s `READ_CACHE` caches successful **read** results by
+  `(user_id, tool, args)` for 60s via `DevOpsAgent._invoke_tool` (all 5 exec
+  sites); **any mutating call invalidates that user's whole read cache** so a
+  stale read can't contradict a just-applied change.
 
-Deferred (decisions recorded in the doc): credit pre-warn + 60s read cache,
-real CloudFormation/Terraform fallback generation, SG-rule / tag update
-verification.
+Deferred (decisions recorded in the doc): real CloudFormation/Terraform
+fallback generation (rule 4 runtime), SG-rule / tag update verification.
 
 ## Historical Fixes & Gotchas
 

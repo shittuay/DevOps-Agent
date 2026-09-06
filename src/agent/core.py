@@ -1081,6 +1081,41 @@ class DevOpsAgent:
                     'ts': datetime.utcnow().isoformat(),
                 })
 
+    def _invoke_tool(self, tool_name: str, tool_input: dict) -> Any:
+        """Call a tool handler, with a 60s per-user cache for read-only tools.
+
+        Execution Integrity rule 5 (docs/execution-integrity.md): a reasoning
+        model re-calls ``get_*`` / ``list_*`` / ``describe_*`` repeatedly in one
+        turn and across a conversation; the cloud state does not change second to
+        second. Successful reads are cached by ``(user_id, tool, args)`` for
+        ``TTL_SECONDS``; any *mutating* call drops that user's whole read cache
+        (a stale read that contradicts a just-applied change is worse than a slow
+        one — see the Phase 2 verifier). Kill-switch: ``tool_cache.enabled``.
+        """
+        handler = self.tools[tool_name]
+        if not self.config.get('tool_cache.enabled', True):
+            return handler(**tool_input)
+        try:
+            from services.tool_cache import READ_CACHE, is_read_tool
+        except Exception:
+            return handler(**tool_input)
+
+        uid = getattr(self, '_current_user_id', None)
+        if is_read_tool(tool_name):
+            key = self._repeat_key(tool_name, tool_input)
+            cached = READ_CACHE.get(uid, key)
+            if cached is not None:
+                self.logger.debug("tool-cache hit: %s", tool_name)
+                return cached
+            result = handler(**tool_input)
+            READ_CACHE.put(uid, key, result)
+            return result
+
+        # A mutation — run it, then drop this user's cached reads.
+        result = handler(**tool_input)
+        READ_CACHE.invalidate_user(uid)
+        return result
+
     def _verify_and_annotate(self, tool_name: str, tool_input: dict, result: Any) -> Any:
         """Read-back-verify a successful create/delete/update tool and annotate it.
 
@@ -2030,7 +2065,7 @@ class DevOpsAgent:
                                     self._record_tool_call(tool_name, result, outcome='ran')
                                 elif self._is_tool_offered(tool_name):
                                     try:
-                                        result = self.tools[tool_name](**tool_input)
+                                        result = self._invoke_tool(tool_name, tool_input)
                                         self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
                                         result = self._verify_and_annotate(tool_name, tool_input, result)
@@ -2047,7 +2082,7 @@ class DevOpsAgent:
                             self._record_tool_call(tool_name, result, outcome='ran')
                         elif self._is_tool_offered(tool_name):
                             try:
-                                result = self.tools[tool_name](**tool_input)
+                                result = self._invoke_tool(tool_name, tool_input)
                                 self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
                                 result = self._verify_and_annotate(tool_name, tool_input, result)
@@ -2300,7 +2335,7 @@ class DevOpsAgent:
                                     self._record_tool_call(tool_name, result, outcome='ran')
                                 elif self._is_tool_offered(tool_name):
                                     try:
-                                        result = self.tools[tool_name](**tool_input)
+                                        result = self._invoke_tool(tool_name, tool_input)
                                         self._audit_infrastructure_change(tool_name, tool_input, result)
                                         self._record_tool_call(tool_name, result, outcome='ran')
                                         result = self._verify_and_annotate(tool_name, tool_input, result)
@@ -2320,7 +2355,7 @@ class DevOpsAgent:
                             self._record_tool_call(tool_name, result, outcome='ran')
                         elif self._is_tool_offered(tool_name):
                             try:
-                                result = self.tools[tool_name](**tool_input)
+                                result = self._invoke_tool(tool_name, tool_input)
                                 self._audit_infrastructure_change(tool_name, tool_input, result)
                                 self._record_tool_call(tool_name, result, outcome='ran')
                                 result = self._verify_and_annotate(tool_name, tool_input, result)
@@ -2453,7 +2488,7 @@ class DevOpsAgent:
                         result = generate_mock_result(tool_name, tool_input)
                         self._record_tool_call(tool_name, result, outcome='ran')
                     elif self._is_tool_offered(tool_name):
-                        result = self.tools[tool_name](**tool_input)
+                        result = self._invoke_tool(tool_name, tool_input)
                         self._audit_infrastructure_change(tool_name, tool_input, result)
                         self._record_tool_call(tool_name, result, outcome='ran')
                         result = self._verify_and_annotate(tool_name, tool_input, result)
