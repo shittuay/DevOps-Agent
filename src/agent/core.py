@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..config import ConfigManager
 from ..utils import get_logger, log_operation
+from . import tool_capabilities
 from .conversation import ConversationManager
 from .safety import SafetyValidator
 from .tool_selection import classify_tool, select_tool_definitions, module_category_from_name
@@ -628,6 +629,10 @@ class DevOpsAgent:
         self.tool_definitions: List[Dict[str, Any]] = []
         # Category tag per tool name (for progressive tool loading).
         self.tool_categories: Dict[str, str] = {}
+        # Declared capability block per tool name (governance refactor, Phase 1).
+        # safety.py resolves risk from this before its legacy name-sets; see
+        # src/agent/tool_capabilities.py and config/tool_capabilities.yaml.
+        self.tool_capabilities: Dict[str, Dict[str, Any]] = {}
         # Filtered tool list for the in-flight request (progressive loading).
         self._tools_override: Optional[List[Dict[str, Any]]] = None
         # Token budget for per-request conversation history compaction.
@@ -917,7 +922,8 @@ class DevOpsAgent:
         name: str,
         description: str,
         input_schema: Dict[str, Any],
-        handler: Callable
+        handler: Callable,
+        capability: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Register a tool that Claude can use.
@@ -927,6 +933,10 @@ class DevOpsAgent:
             description: Tool description
             input_schema: JSON schema for tool input
             handler: Function to execute when tool is called
+            capability: Optional declared capability block
+                ({permission, mutating, reversible, produces, pentest}) —
+                the primary risk source for safety.py. See
+                src/agent/tool_capabilities.py.
         """
         # Store tool definition for Claude API
         self.tool_definitions.append({
@@ -937,6 +947,10 @@ class DevOpsAgent:
 
         # Store handler function
         self.tools[name] = handler
+
+        if capability:
+            self.tool_capabilities[name] = capability
+            tool_capabilities.register_declared(name, capability)
 
         self.logger.info(f"Registered tool: {name}")
 
@@ -955,7 +969,8 @@ class DevOpsAgent:
                     name=tool['name'],
                     description=tool['description'],
                     input_schema=tool['input_schema'],
-                    handler=tool['handler']
+                    handler=tool['handler'],
+                    capability=tool.get('capability'),
                 )
                 self.tool_categories[tool['name']] = classify_tool(tool['name'], module_category)
 

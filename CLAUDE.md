@@ -287,7 +287,37 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - **medium_risk_tools**: Update, restart, firewall rule, IAM, scale, cordon operations. Requires user confirmation.
 - **low risk** (default): Create and read operations. No confirmation needed.
 
+### Declared tool capability (governance refactor, Phase 1 — `src/agent/tool_capabilities.py`)
+
+Risk now lives on the tool, resolved **before** the legacy name-sets below.
+`validate_tool_call` computes the legacy risk, then reconciles it with
+`tool_capabilities.resolve(name)` (module-declared `capability=` block →
+`config/tool_capabilities.yaml` → `None`): a declaration can **raise** the risk
+or hold it, never lower it — a more-lenient declaration is logged and ignored at
+runtime, and `tests/test_tool_capabilities.py` fails the build on it.
+
+- `config/tool_capabilities.yaml` is **generated** by `scripts/gen_tool_capabilities.py`
+  from the legacy classification (legacy `high` → `permission: destroy`, `medium`
+  → `modify`). Re-run it after changing the legacy sets; `tests/test_tool_capabilities.py`
+  asserts it is not stale.
+- The pentest gating and the three action-aware `manage_*` special cases run
+  first and are unaffected. Production escalation (`high` → `critical`) still
+  applies after the capability resolves.
+- `mutating` / `reversible` / `produces` are recorded but not yet consumed (Phase
+  5 rollback stack). Full spec: `docs/governance-refactor.md`.
+
 **When adding new tools:**
+- **Preferred:** add a `capability` block to the tool's `get_tools()` entry —
+  `{'permission': 'destroy'|'deploy'|'modify'|'analyze'|'read', 'mutating': bool, 'reversible': bool}`.
+- Otherwise run `python scripts/gen_tool_capabilities.py` to backfill
+  `config/tool_capabilities.yaml`.
+- `tests/test_tool_capabilities.py` fails if a medium/high tool has neither — the
+  safety net the "remember to edit `safety.py`" step below never had.
+- The legacy `high_risk_tools` / `medium_risk_tools` sets and prefix
+  auto-detection remain as the **floor** (removed in a later phase once every
+  module declares inline). The `<provider>_<verb>_<noun>` blind spot documented
+  below still applies to the legacy layer, which is why the capability check now
+  sits in front of it:
 - Every new `delete_*` or `terminate_*` tool MUST be added to `high_risk_tools`
 - Every new `update_*`, `restart_*`, `create_*_rule`, or IAM tool MUST be added to `medium_risk_tools`
 - Forgetting this causes the tool to default to low risk with no confirmation prompt
@@ -929,8 +959,8 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 
 ### General Steps
 1. Create handler function in the appropriate `src/tools/*_tools.py`
-2. Register in `get_tools()` at the bottom of the same file with `{name, description, input_schema, handler}`
-3. Add to `safety.py` risk classification if delete/update operation
+2. Register in `get_tools()` at the bottom of the same file with `{name, description, input_schema, handler}` — add a `capability` block for any mutating tool (`{'permission': 'destroy'|'deploy'|'modify', 'mutating': True, ...}`)
+3. Risk classification: either the `capability` block in step 2, or run `python scripts/gen_tool_capabilities.py` to backfill `config/tool_capabilities.yaml`. Also add to the legacy `safety.py` set for a delete/update operation (still the floor — see Safety System section). `tests/test_tool_capabilities.py` fails if a medium/high tool has no declared capability.
 4. Add sandbox mock branch in `services/learning_sandbox.py` if new tool module
 5. Register the module in `app.py` with `agent.register_tools_from_module(my_tools)` (inside an `if config_manager.get('module.enabled', True):` guard)
 6. Import the module in `src/tools/__init__.py` and add to `__all__`
