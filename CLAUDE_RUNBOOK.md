@@ -2139,3 +2139,55 @@ own `api_tool_use` write site with the same turn-vs-tool `success` conflation
 `_record_tool_call` outcomes, end-to-end Kimi non-streaming for a guessed /
 failed / raising tool) + `tests/test_chat_keepalive.py::test_per_tool_success_and_not_offered_rows_reach_the_usage_log`.
 Full suite green.
+
+## Execution Integrity Phase 1 — prompt rules + session resource registry (2026-09-05)
+
+The user supplied a 9-rule "Execution Integrity & Resilience" spec after the
+2026-09-02 misrouting series, to harden against the whole class (fabricated
+results, eventual-consistency mishandling, dishonest error narration,
+dead-ending, credit waste, state disputes). Full spec + deferred-phase
+decisions: `docs/execution-integrity.md`.
+
+**Phase 1 (this change) is prompt + cheap guardrails only:**
+
+- **`=== EXECUTION INTEGRITY ===`** block added to `STABLE_SYSTEM_PROMPT`
+  (`src/agent/core.py`) — verified-results-only, eventual-consistency ("never
+  call a <5-min-old resource 'not found'", with the exact "I cannot confirm
+  it via a read yet" phrasing), the (a)/(b)/(c) error classification, the
+  retry→generic-API→IaC fallback order, and "console truth beats agent
+  inference". Prompt-cache structural invariants unchanged
+  (`test_prompt_cache.py` green).
+- **Session resource registry (rule 9):** `_is_creating_tool` +
+  `_extract_created_resource_ids` feed `agent._created_resources` per turn;
+  `_audit_chat_deletion` renamed to **`_audit_infrastructure_change`** and
+  extended with an `action_type='create'` branch that stamps
+  `change_details['conversation_id']`. `_session_resource_context()` reads
+  those rows back (same conversation, last 30 min) into the volatile prompt
+  tail via `build_volatile_tail(preferences, trial, session_context=)` (new
+  3rd param — 1/2-arg calls byte-identical). Chosen over an
+  `InfrastructureChange.conversation_id` migration: the id lives in the
+  existing `change_details` JSON and is filtered Python-side (low row count).
+- **Guard-note surfacing (rule 8):** `_repeat_guard_result` and a ≥3×
+  not-offered guess arm `_note_guard`; `_guard_notes_suffix()` appends a
+  plain-language "Tool-selection note" to the user-facing response (never
+  replaces it). Wired into the non-streaming return, the Kimi-streaming
+  yield-from, and the Claude-streaming `end_turn` exit. `_GuardHost` test
+  stub in `test_tool_selection_engaged.py` gained `_note_guard` /
+  `_turn_guard_notes`.
+- Also fixed a pre-existing asymmetry: `process_message` (legacy Claude-only)
+  never reset `_repeat_guard`; now resets all per-turn trackers like the
+  other two entry points.
+
+**Dispatch cannot misroute** — it is a dict lookup; rule 8's "alert on
+`tool_requested` != `tool_executed`" targets a layer that does not fail. The
+real signal (model guessing a wrong/withheld name) is already covered by
+`_repeat_guard` (#171) + `tool-not-offered` log/DB (#173); Phase 1 only adds
+the user-facing surface.
+
+**Deferred (decisions in `docs/execution-integrity.md`):** synchronous
+read-back verification engine (`services/mutation_verifier.py`, ~15s backoff
+cap, not 60s); credit pre-warn + 60s read cache; CloudFormation/Terraform
+fallback generation + retry queue. Rule 6 (tier-gated instance types)
+dropped — no such feature exists.
+
+**Tests:** `tests/test_execution_integrity.py` (18 cases). Full suite green.
