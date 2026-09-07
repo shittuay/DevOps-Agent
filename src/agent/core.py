@@ -530,17 +530,20 @@ Cost Optimization:
 def _greenlet_local_property(name, default=None, default_factory=None):
     """Per-request attribute stored in ``self._local`` instead of directly on the instance.
 
-    A single ``DevOpsAgent`` is shared across every concurrent request in a gunicorn
-    gevent worker (production runs ``--workers 1 --worker-connections 1000``), and
-    gevent monkey-patches ``threading.local`` to be greenlet-local — the same
-    mechanism already relied on for per-user AWS/Azure/GCP credential isolation.
-    Storing per-request state (conversation history, user id, sandbox flag, tool
-    overrides) as a plain instance attribute let one request's data leak into or
-    get clobbered by another request that happened to run on the same worker while
-    the first was waiting on a Claude/Kimi API call (a long, I/O-yielding wait —
-    exactly when gevent switches greenlets). Routing it through ``self._local``
-    keeps each concurrent request isolated without touching any call site: every
-    existing ``self.attr`` read/write still works unchanged.
+    A single ``DevOpsAgent`` is shared across every concurrent request. Production
+    runs gunicorn with ``--worker-class gthread --workers 3 --threads 8`` (since PR
+    #141, 2026-08-15) — real OS-thread concurrency, up to 8 requests interleaving in
+    one process's memory at once — and ``threading.local()`` isolates those threads
+    exactly as it isolated gevent-patched greenlets under the older sync-worker
+    config this docstring used to describe. It's also the same mechanism already
+    relied on for per-user AWS/Azure/GCP credential isolation. Storing per-request
+    state (conversation history, user id, sandbox flag, tool overrides) as a plain
+    instance attribute let one request's data leak into or get clobbered by another
+    request that happened to run on the same worker while the first was waiting on
+    a Claude/Kimi API call (a long, I/O-yielding wait — exactly when a thread yields
+    the GIL). Routing it through ``self._local`` keeps each concurrent request
+    isolated without touching any call site: every existing ``self.attr``
+    read/write still works unchanged.
 
     ``default_factory`` (not ``default``) must be used for mutable defaults (e.g.
     ``list``) — a shared ``default`` object would itself become a cross-greenlet

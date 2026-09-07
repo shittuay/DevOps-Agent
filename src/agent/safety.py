@@ -362,6 +362,15 @@ class SafetyValidator:
             'create_iam_role',
             'create_iam_policy',
             'attach_iam_role_policy',
+            # 'create_' isn't a monitored auto-detect prefix, and this tool accepts a
+            # caller-supplied template_body plus capabilities including CAPABILITY_NAMED_IAM
+            # (can create arbitrary IAM roles/policies) — the same operation create_iam_role/
+            # create_iam_policy are gated for. Its delete_/update_ siblings were already
+            # classified; the create path that actually provisions was missed. The Execution
+            # Integrity IaC fallback (services/iac_fallback.py) now also actively appends this
+            # tool to the model's offered set on any failed create, making it a systematic
+            # unconfirmed recovery path if left low-risk.
+            'create_cloudformation_stack',
             'update_auto_scaling_group',
             'update_ecs_service',
             'update_cloudformation_stack',

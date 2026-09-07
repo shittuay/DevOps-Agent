@@ -891,6 +891,18 @@ Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
 subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for
 `destructive-audit-alert`.
 
+**Not yet fixed, flagged by the 2026-09-07 scheduled audit: three tool-execution paths bypass
+this entire stack.** `services/approval_service.py`'s `_execute_tool()` (approve-and-run for a
+previously-deferred high-risk call), `routes/api_gateway.py`'s `api_execute_tool()` (`/v1/execute`
+developer API), and `routes/mcp.py`'s `_handle_tools_call()` (MCP connector) all invoke the tool
+handler directly instead of through `DevOpsAgent._invoke_tool` → `_verify_and_annotate` →
+`_audit_infrastructure_change` — so an *approved* `terminate_ec2_instance` (by definition the
+highest-risk class of call) gets no read-back verification, no `change_details.audit_trail` row,
+and doesn't invalidate `READ_CACHE`, letting a stale pre-approval read serve for up to 60s
+afterward. Same "duplicated pipeline not ported to sibling call sites" shape as the guardrails
+gap below — deferred because it touches the approval flow, the developer REST API, and the MCP
+connector at once and warrants its own reviewed change. See CLAUDE_RUNBOOK.md's 2026-09-07 entry.
+
 ## Historical Fixes & Gotchas
 
 See [CLAUDE_RUNBOOK.md](CLAUDE_RUNBOOK.md) for historical bug fixes and resolved issues.
