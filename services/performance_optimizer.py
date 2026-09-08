@@ -414,19 +414,43 @@ class PerformanceOptimizer:
         }
 
     def _get_user_recommendations(self, user_id: int) -> dict[str, Recommendation]:
-        """Get or initialize per-user recommendations dict."""
+        """Get or initialize per-user recommendations dict.
+
+        Real recommendations are populated by analyze_resource() from actual
+        infrastructure data. This service has no real-data path of its own yet
+        (see CLAUDE.md's "every feature runs against a real cloud account"
+        rule) — so a first access for a user with no recommendations yet must
+        stay empty, not fabricate output that looks identical to a real scan.
+        The one allowed exception is sandbox mode, same as every other feature:
+        explicit, user-enabled, and labelled [Sandbox].
+        """
         if user_id not in self.recommendations:
             self.recommendations[user_id] = {}
-            self._generate_sample_recommendations(user_id)
+            if self._is_sandbox_mode(user_id):
+                self._generate_sample_recommendations(user_id)
         return self.recommendations[user_id]
 
+    @staticmethod
+    def _is_sandbox_mode(user_id: int) -> bool:
+        try:
+            from models import UserPreferences
+            prefs = UserPreferences.query.filter_by(user_id=user_id).first()
+            return bool(prefs and prefs.sandbox_mode)
+        except Exception:
+            # No app/DB context (e.g. called outside a request) — never treat
+            # that as sandbox mode, since this gate exists to keep fabricated
+            # data from leaking into a real user's real dashboard.
+            return False
+
     def _generate_sample_recommendations(self, user_id: int):
-        """Generate sample recommendations for demo purposes."""
+        """Generate [Sandbox]-labelled sample recommendations. Only called
+        when the user has sandbox_mode explicitly enabled — see
+        _get_user_recommendations()."""
         user_recs = self.recommendations.setdefault(user_id, {})
         samples = [
             Recommendation(
                 id="rec-001",
-                title="Right-size underutilized EC2 instances",
+                title="[Sandbox] Right-size underutilized EC2 instances",
                 description="3 EC2 instances have consistently low CPU utilization (<10%). "
                            "Consider downsizing to smaller instance types.",
                 optimization_type=OptimizationType.COST,
@@ -447,7 +471,7 @@ class PerformanceOptimizer:
             ),
             Recommendation(
                 id="rec-002",
-                title="Enable RDS Multi-AZ for production database",
+                title="[Sandbox] Enable RDS Multi-AZ for production database",
                 description="Production RDS instance 'prod-db' is running in single-AZ mode. "
                            "Enable Multi-AZ for improved availability.",
                 optimization_type=OptimizationType.RELIABILITY,
@@ -466,7 +490,7 @@ class PerformanceOptimizer:
             ),
             Recommendation(
                 id="rec-003",
-                title="Implement Kubernetes HPA for API service",
+                title="[Sandbox] Implement Kubernetes HPA for API service",
                 description="API service experiences traffic spikes but lacks auto-scaling. "
                            "Configure Horizontal Pod Autoscaler.",
                 optimization_type=OptimizationType.SCALABILITY,
@@ -485,7 +509,7 @@ class PerformanceOptimizer:
             ),
             Recommendation(
                 id="rec-004",
-                title="Convert EBS volumes to gp3",
+                title="[Sandbox] Convert EBS volumes to gp3",
                 description="5 EBS volumes are using gp2 type. Converting to gp3 can reduce costs "
                            "while improving performance.",
                 optimization_type=OptimizationType.COST,
@@ -506,7 +530,7 @@ class PerformanceOptimizer:
             ),
             Recommendation(
                 id="rec-005",
-                title="Enable S3 Intelligent-Tiering",
+                title="[Sandbox] Enable S3 Intelligent-Tiering",
                 description="S3 bucket 'data-archive' has 500GB of infrequently accessed data. "
                            "Enable Intelligent-Tiering for automatic cost optimization.",
                 optimization_type=OptimizationType.COST,
@@ -528,6 +552,7 @@ class PerformanceOptimizer:
         ]
 
         for rec in samples:
+            rec.metadata['simulated'] = True
             user_recs[rec.id] = rec
 
     def analyze_resource(self, user_id: int, resource_type: ResourceType, resource_data: dict) -> AnalysisResult:

@@ -2431,3 +2431,83 @@ console evidence.
 **Tests:** `tests/test_destructive_verification.py` (16 cases). One existing
 `test_mutation_verifier.py` delete test reworded for the new message. Adjacent
 suites green (155 + 232). Full run pending.
+
+## Scheduled audit: `manage_ec2_instance` terminate had no audit trail; two more fabricated-data features found, one fixed (2026-09-08)
+
+Routine code-vulnerability/smell/duplicate scan, run via three parallel sub-audits: (1) the
+Execution Integrity feature set (Phases 1–5 above, the newest and least-audited code in the repo),
+(2) risk-classification/tool-selection changes from the past week, (3) a code-smell/duplicate sweep
+plus a re-check of the `analytics_service.py` fabrication finding flagged-not-fixed on 2026-09-02.
+(2) and the git-argument-injection-guard part of (3) found nothing new — all ~744 tool names were
+diffed against `safety.py`'s risk sets and every `<provider>_<verb>_<noun>`-shaped gap already
+documented was confirmed still covered; every `git_tools.py` function passing a caller-supplied
+ref/remote/branch/commit as a bare positional was confirmed to still call `_reject_flag_like()`.
+Two real findings did surface, one fixed here and one flagged for a dedicated pass:
+
+**1. FIXED — `manage_ec2_instance(action='terminate')` got read-back verified but never got an
+audit-trail row, silently breaking rule 9 (`record_state_override`) for every instance terminated
+through it.** `core.py`'s `_audit_infrastructure_change()` classified `is_destructive` with a bare
+`tool_name.startswith(self._DESTRUCTIVE_PREFIXES)` check — `manage_ec2_instance` doesn't start with
+`terminate_`/`delete_`/etc. (start/stop/reboot/terminate all share one action-aware tool name), so
+it also failed the `is_resize`/`is_sg_modify`/`is_create` checks and the function returned before
+creating any `InfrastructureChange` row. Meanwhile `services/mutation_verifier.py`'s
+`_DELETE_SPECS['manage_ec2_instance']` (`applies=lambda ti: ti['action']=='terminate'`) *did* run
+read-back verification on the exact same call — so a real termination executed and was
+confirmed/unconfirmed, but Rule 10's audit trail (`change_details.audit_trail`: tool_request,
+verification reads, final_confirmed_state) was never written for it, and `record_state_override`'s
+"most recent `InfrastructureChange` for this resource_id" lookup came up empty, so a user's
+console-contradicts-agent correction on such an instance silently failed with "no change record...
+to flag" — defeating the exact safety mechanism Phase 5 (2026-09-06, above) added. Since
+`manage_ec2_instance` is a documented CRITICAL-risk path in `safety.py` (terminate on a production
+instance escalates), this wasn't an edge case. **Fix:** `is_destructive` now also matches
+`tool_name == 'manage_ec2_instance' and tool_input['action'].lower() == 'terminate'` — mirroring the
+predicate `mutation_verifier.py` already uses for the same tool — with `resource_type` hardcoded to
+`'ec2'` for that branch (the prefix-stripping slug logic doesn't apply to a name with no destructive
+prefix). start/stop/reboot through the same tool are deliberately left with no audit row, matching
+existing behavior for every other non-destructive tool call. Added
+`test_manage_ec2_instance_terminate_gets_an_audit_row` (asserts the row now exists with
+`resource_type='ec2'`) and `test_manage_ec2_instance_stop_is_not_treated_as_delete` (pins that the
+fix doesn't overreach into the other three actions) to `tests/test_destructive_verification.py`.
+
+**2. FIXED — `services/performance_optimizer.py` was the third instance of the "canned output
+indistinguishable from a real query" bug (after Drift 2026-08-12 and Predictive Scaling 2026-09-02),
+backing the entire `/optimization/` dashboard and recommendations pages.** `_get_user_recommendations()`
+called `_generate_sample_recommendations()` unconditionally on a user's first access — no
+cloud-credential check, no sandbox_mode check — seeding 5 hardcoded `Recommendation`s including a
+CRITICAL "Enable RDS Multi-AZ for production database" against a literal `resource_id="prod-db"`
+and a HIGH "Right-size underutilized EC2 instances" against `resource_id="i-0abc123def456"` (the
+exact literal from the original Drift Detection incident), byte-identical for every user, with no
+`[Sandbox]` label anywhere. Three of the five had `auto_fixable=True`, so a real user could click
+"Implement" on `/optimization/recommendations` and get a genuine `success: True` response
+(`update_recommendation_status` just flips an in-memory enum) with zero AWS API call ever made —
+same "fake applied success" shape as the Predictive Scaling `/api/apply` bug. Unlike
+`analytics_service.py` (still flagged below — 4 unread consumer templates, fabrication threaded
+through 6+ methods), this was self-contained to one seed method feeding two simple templates that
+already guard on `{% if recommendations %}` with a proper empty state ("No pending recommendations"),
+so a safe fix fit in this pass. **Fix:** gated `_generate_sample_recommendations()` behind
+`UserPreferences.sandbox_mode` (the one documented exception — explicit, user-enabled) via a new
+`_is_sandbox_mode(user_id)` helper that fails closed to `False` (including on any DB/import error,
+so a call outside app/DB context never accidentally shows fabricated data); every sample title now
+has a `[Sandbox]` prefix and `metadata['simulated'] = True`. A real user with no sandbox mode and no
+real analysis yet now sees the same honest empty state Predictive Scaling's fix produces, instead of
+canned findings. The real-data path (`analyze_resource()`, fed by an actual cloud read from
+elsewhere) is untouched and still populates real recommendations regardless of sandbox_mode. Added
+`tests/test_performance_optimizer_fabrication.py` (4 cases: real user gets `[]`/zeroed summary,
+sandbox user gets labelled samples, `analyze_resource()` still works). Full suite: 969 passed
+(1 pre-existing unrelated failure — missing `ANTHROPIC_API_KEY` in the audit sandbox).
+
+**3. Flagged, not fixed — two more instances of the same bug class, found but out of scope for a
+same-pass fix.** `services/chatops_service.py`'s `_cmd_metrics()` (`# In a real implementation, this
+would fetch from Prometheus/CloudWatch`) and `_cmd_oncall()` (`# In a real implementation, this
+would integrate with PagerDuty/OpsGenie`) return hardcoded fake metrics (45% CPU, 0.05% error rate,
+etc.) and a fake on-call schedule (`@devops-team`/`@sre-team`) for any Slack/Teams chatops command,
+despite real `monitoring_tools.py` (Prometheus/Datadog/Grafana) and `alerting_tools.py`
+(PagerDuty/OpsGenie) tools already existing in this codebase. Not fixed here because `process_message`
+passes a chat-platform `user_id` (a Slack user id string) into these handlers, not an app `User.id` —
+routing to real per-user monitoring/alerting credentials needs the Slack-workspace-to-app-account
+mapping worked out first (unclear from this file alone whether that mapping exists anywhere yet),
+which is exactly the kind of broader-context work the `analytics_service.py` finding below was
+already deferred for. `services/analytics_service.py` itself: re-confirmed still present, unchanged
+since the 2026-09-02 entry above (`_ensure_sample_data()` lines 199–275, `random.uniform` at 148/
+211/452/481, hardcoded `_cost_by_service`/`_cost_by_team` dicts) — still the top-priority item for a
+dedicated PR, now joined by chatops_service.py as a second candidate for that same follow-up.

@@ -159,6 +159,39 @@ class TestDestructiveAuditTrail:
         assert row.change_details['audit_alert'] == 'verification_disagreement'
         assert row.change_details['audit_trail']['final_confirmed_state'] == 'still_present'
 
+    def test_manage_ec2_instance_terminate_gets_an_audit_row(self, app, test_user, db_session):
+        # manage_ec2_instance is action-aware (start/stop/reboot/terminate share
+        # one tool name) — a bare tool-name prefix check misses its terminate
+        # path entirely, so this must classify the same as terminate_ec2_instances.
+        from models import InfrastructureChange
+        agent = _make_agent()
+        agent._current_user_id = test_user.id
+        result = {'success': True, '_verification': {
+            'action': 'delete', 'status': 'confirmed', 'reads': ['gone', 'gone'],
+            'resource_id': EC2_ID}}
+        agent._audit_infrastructure_change('manage_ec2_instance',
+                                           {'instance_id': EC2_ID, 'action': 'terminate'}, result)
+
+        row = InfrastructureChange.query.filter_by(
+            user_id=test_user.id, action_type='delete').first()
+        assert row is not None
+        assert row.resource_type == 'ec2'
+        assert row.resource_id == EC2_ID
+        assert row.change_details['audit_trail']['final_confirmed_state'] == 'gone'
+
+    def test_manage_ec2_instance_stop_is_not_treated_as_delete(self, app, test_user, db_session):
+        from models import InfrastructureChange
+        agent = _make_agent()
+        agent._current_user_id = test_user.id
+        agent._audit_infrastructure_change('manage_ec2_instance',
+                                           {'instance_id': EC2_ID, 'action': 'stop'},
+                                           {'success': True})
+        row = InfrastructureChange.query.filter_by(user_id=test_user.id).first()
+        # stop/start/reboot aren't destructive/resize/sg-modify/create, so no
+        # audit row is expected here — this pins that the terminate fix above
+        # doesn't overreach into the other manage_ec2_instance actions.
+        assert row is None
+
     def test_tool_request_is_redacted(self, app, test_user, db_session):
         from models import InfrastructureChange
         agent = _make_agent()

@@ -167,9 +167,19 @@ endpoint that reported fake `status: 'applied'` success without calling any clou
 CLAUDE_RUNBOOK.md's 2026-09-02 entry). The same audit found `services/analytics_service.py`'s
 "Advanced Analytics Dashboard" (`/analytics/*`) doing the identical thing at larger scope —
 hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `random.uniform()` noise
-— **flagged, not yet fixed** (needs its 4 consumer templates read first). If a new feature's data
-doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
-same bug until traced.
+— **flagged, not yet fixed** (needs its 4 consumer templates read first). A 2026-09-08 scheduled
+audit fixed a third instance — `services/performance_optimizer.py` (`/optimization/*`) fabricated 5
+hardcoded recommendations (including a CRITICAL finding against literal `resource_id="prod-db"`)
+for every user on first access, 3 of them `auto_fixable=True` so a real user's "Implement" click
+returned a genuine success with zero AWS API call; fixed by gating sample generation behind
+`UserPreferences.sandbox_mode` with a `[Sandbox]`-prefixed/`metadata['simulated']=True` label,
+same pattern as everywhere else this rule applies (see CLAUDE_RUNBOOK.md's 2026-09-08 entry). That
+audit also found a fourth instance — `services/chatops_service.py`'s `_cmd_metrics()`/`_cmd_oncall()`
+return hardcoded fake metrics/on-call data for any Slack/Teams chatops command despite real
+`monitoring_tools.py`/`alerting_tools.py` integrations existing — **flagged, not yet fixed** (needs
+the chat-platform-user-id-to-app-user-id mapping worked out first). If a new feature's data doesn't
+visibly come from `credential_service`/a provider tool/a real DB query, assume it's the same bug
+until traced.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
@@ -886,6 +896,21 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   always-available `record_state_override(resource_id, corrected_state,
   evidence)` tool lets the model flag a row when the user's console evidence
   wins (rule 9).
+- **`_audit_infrastructure_change`'s destructive-tool classification must be
+  action-aware for any tool that shares one name across multiple actions.**
+  `is_destructive` was a bare `tool_name.startswith(_DESTRUCTIVE_PREFIXES)`
+  check, which misses `manage_ec2_instance(action='terminate')` entirely (it
+  doesn't start with `terminate_`) — so a real termination through that tool
+  got read-back verified by `mutation_verifier.py` but never got a rule-10
+  audit-trail row, and `record_state_override` (rule 9) silently failed with
+  "no change record" for any instance only ever terminated this way. Fixed
+  2026-09-08 by also matching `tool_name == 'manage_ec2_instance' and
+  action == 'terminate'`, mirroring the predicate `mutation_verifier.py`'s
+  `_DELETE_SPECS['manage_ec2_instance']` already uses for the same tool — see
+  CLAUDE_RUNBOOK.md's 2026-09-08 entry. Any future action-aware tool
+  (`manage_vm`, `manage_compute_instance`, or a new one) needs the same
+  explicit predicate here, not just in `safety.py`/`mutation_verifier.py` —
+  a bare name-prefix check is blind to it by construction.
 
 Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
 subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for

@@ -717,8 +717,16 @@ class DevOpsAgent:
         that later turns cross-check before reporting a resource as missing
         (see EXECUTION INTEGRITY in STABLE_SYSTEM_PROMPT).
         """
-        # Check if this is a destructive or high-impact operation
-        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES)
+        # Check if this is a destructive or high-impact operation.
+        # manage_ec2_instance is action-aware (start/stop/reboot/terminate all
+        # share one tool name), so a bare prefix test on the name misses its
+        # terminate path entirely — mirror the predicate mutation_verifier.py's
+        # _DELETE_SPECS['manage_ec2_instance'] already uses for the same tool.
+        is_manage_terminate = (
+            tool_name == 'manage_ec2_instance'
+            and str(tool_input.get('action', '')).lower() == 'terminate'
+        )
+        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES) or is_manage_terminate
         is_resize = 'resize_ec2_instance' in tool_name
         is_sg_modify = 'modify_security_group' in tool_name
         is_create = _is_creating_tool(tool_name)
@@ -755,11 +763,14 @@ class DevOpsAgent:
             # Determine action_type and resource_type
             if is_destructive:
                 action_type = 'delete'
-                slug = tool_name
-                for prefix in self._DESTRUCTIVE_PREFIXES:
-                    slug = slug.replace(prefix, '', 1)
-                # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
-                resource_type = slug.split('_')[0]
+                if is_manage_terminate:
+                    resource_type = 'ec2'
+                else:
+                    slug = tool_name
+                    for prefix in self._DESTRUCTIVE_PREFIXES:
+                        slug = slug.replace(prefix, '', 1)
+                    # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
+                    resource_type = slug.split('_')[0]
             elif is_resize:
                 action_type = 'resize'
                 resource_type = 'ec2'
