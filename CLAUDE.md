@@ -167,9 +167,16 @@ endpoint that reported fake `status: 'applied'` success without calling any clou
 CLAUDE_RUNBOOK.md's 2026-09-02 entry). The same audit found `services/analytics_service.py`'s
 "Advanced Analytics Dashboard" (`/analytics/*`) doing the identical thing at larger scope —
 hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `random.uniform()` noise
-— **flagged, not yet fixed** (needs its 4 consumer templates read first). If a new feature's data
-doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
-same bug until traced.
+— **flagged, not yet fixed** (needs its 4 consumer templates read first; still unfixed as of the
+2026-09-09 scheduled audit). That same 2026-09-09 audit found a third, previously unflagged
+instance: `services/chatops_service.py`'s `/metrics` and `/oncall` ChatOps slash commands
+(`_cmd_metrics`/`_cmd_oncall`) return fully hardcoded literal values — a fixed fake CPU/error-rate/
+latency block, a fixed `@devops-team`/`@sre-team` on-call schedule — as if they came from the
+Prometheus/CloudWatch and PagerDuty/OpsGenie integrations this codebase already has
+(`monitoring_tools.py`, `alerting_tools.py`), with no `[Sandbox]` label. **Also flagged, not yet
+fixed** — needs the commands wired to real per-user monitoring/alerting calls rather than a
+drive-by fix during an audit pass. If a new feature's data doesn't visibly come from
+`credential_service`/a provider tool/a real DB query, assume it's the same bug until traced.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
@@ -327,6 +334,11 @@ so only the overwrite path had no gate at all.
 Pub/Sub topics commonly fan out to push subscriptions (arbitrary external HTTP endpoints) or
 trigger downstream Cloud Functions/Cloud Run; its own `create_pubsub_subscription` sibling was
 already medium-risk but the publish path itself had no gate.
+`send_sqs_message` joined after the 2026-09-09 scheduled audit — same "arbitrary content to an
+external sink with no confirmation" shape as `publish_sns_message`/`publish_pubsub_message`
+(caller-controlled `queue_url` + `message_body`, and SQS queues commonly trigger Lambda/ECS
+consumers on arrival); `send_` isn't an auto-detected prefix, and this one was missed by the
+sweeps that caught its SNS/Pub-Sub siblings.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -886,6 +898,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   always-available `record_state_override(resource_id, corrected_state,
   evidence)` tool lets the model flag a row when the user's console evidence
   wins (rule 9).
+  **`_audit_infrastructure_change`'s `is_destructive` check is a tool-name
+  prefix match and does not by itself cover action-aware tools.**
+  `manage_ec2_instance` never starts with a destructive prefix, so a
+  terminate through it produced no audit row / disagreement alert /
+  `record_state_override` target at all until the 2026-09-09 scheduled audit
+  added an explicit `action`-aware branch (`is_manage_terminate` folded into
+  `is_destructive`, `is_manage_update` for `start`/`stop`/`reboot` as a new
+  `update` row) — see CLAUDE_RUNBOOK.md. A future action-aware tool
+  (`manage_vm`, `manage_compute_instance`) needs the same explicit branch;
+  it will not be picked up by the prefix check.
 
 Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
 subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for

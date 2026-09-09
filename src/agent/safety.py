@@ -608,6 +608,13 @@ class SafetyValidator:
             # point a topic at a new external endpoint) was already medium-risk; this sibling
             # publish path was missed until the 2026-09-02 scheduled audit.
             'publish_pubsub_message',
+            # Same shape again, missed by the same sweeps that caught the SNS/Pub-Sub
+            # siblings above: send_sqs_message accepts a fully caller-controlled
+            # queue_url + message_body with no confirmation. SQS queues commonly
+            # trigger Lambda/ECS consumers on message arrival, so this is "arbitrary
+            # content to an external sink" the same as publish_sns_message /
+            # publish_pubsub_message, and send_ isn't an auto-detected prefix either.
+            'send_sqs_message',
         }
 
         # Check if tool is a pentest tool
