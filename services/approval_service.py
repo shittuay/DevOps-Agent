@@ -315,13 +315,15 @@ def _execute_tool(req) -> dict:
     InfrastructureChange audit row (and no purge from the synced-resource list)
     and no Execution Integrity read-back verification, the two things this class
     of tool call needs most:
-      - _audit_infrastructure_change: writes the audit trail row.
       - _record_tool_call: per-call observability (see core._record_tool_call).
-      - _verify_and_annotate: read-back-verifies a create/delete before the
-        result is shown to the requester.
-    These three read self._current_user_id / self._current_conversation_id
+      - _verify_and_annotate: read-back-verifies a create/delete/update and
+        attaches result['_verification'].
+      - _audit_infrastructure_change: writes the audit trail row — runs last so
+        a destructive row can record the verification result (Phase 5 rule 10).
+    These read self._current_user_id / self._current_conversation_id
     (greenlet-local, same mechanism as the cloud credential context above), so
-    they must be set alongside it and cleared in the same finally.
+    they must be set alongside it and cleared in the same finally, and the
+    per-turn trackers reset first (agent._reset_turn_tool_state()).
     """
     try:
         from app import agent
@@ -330,6 +332,9 @@ def _execute_tool(req) -> dict:
             return {'success': False, 'error': f'Unknown tool: {tool_name}'}
         tool_input = req.tool_input or {}
         try:
+            # This is a 4th tool-execution entry point — reset the per-turn
+            # trackers _verify_and_annotate reads (stale on a pooled worker).
+            agent._reset_turn_tool_state()
             agent._set_cloud_user_context(req.requester_id)
             agent._current_user_id = req.requester_id
             agent._current_conversation_id = req.conversation_id
@@ -339,9 +344,13 @@ def _execute_tool(req) -> dict:
                 result = {'success': False, 'error': str(e)}
                 agent._record_tool_call(tool_name, result, outcome='raised')
                 return result
-            agent._audit_infrastructure_change(tool_name, tool_input, result)
+            # Order matches core.py's model-loop sites (Phase 5): record, then
+            # verify (attaches result['_verification']), then audit — so the
+            # rule-10 destructive audit trail can read the verification result.
             agent._record_tool_call(tool_name, result, outcome='ran')
-            return agent._verify_and_annotate(tool_name, tool_input, result)
+            result = agent._verify_and_annotate(tool_name, tool_input, result)
+            agent._audit_infrastructure_change(tool_name, tool_input, result)
+            return result
         finally:
             agent._current_user_id = None
             agent._current_conversation_id = None

@@ -96,6 +96,7 @@ def test_execute_tool_audits_records_and_verifies_like_every_other_execution_sit
     fake_agent = _passthrough_agent()
     call_order = []
     fake_agent._set_cloud_user_context.side_effect = lambda uid: call_order.append('set_ctx')
+    fake_agent._reset_turn_tool_state.side_effect = lambda: call_order.append('reset')
     fake_agent._audit_infrastructure_change.side_effect = lambda *a: call_order.append('audit')
     fake_agent._record_tool_call.side_effect = lambda *a, **k: call_order.append('record')
     fake_agent._verify_and_annotate.side_effect = lambda name, ti, result: (call_order.append('verify'), result)[1]
@@ -121,8 +122,10 @@ def test_execute_tool_audits_records_and_verifies_like_every_other_execution_sit
         'delete_ec2_instance', result, outcome='ran')
     fake_agent._verify_and_annotate.assert_called_once_with(
         'delete_ec2_instance', {'instance_id': 'i-0abc123def456789'}, result)
-    # Order: credential context, then the tool, then audit/record/verify, then clear.
-    assert call_order == ['set_ctx', 'run', 'audit', 'record', 'verify', 'clear_ctx']
+    # Order matches core.py's model-loop sites: reset per-turn state, set the
+    # credential context, run the tool, then record -> verify -> audit (audit
+    # last so it can read result['_verification']), then clear.
+    assert call_order == ['reset', 'set_ctx', 'run', 'record', 'verify', 'audit', 'clear_ctx']
     # requester_id must be visible on the agent as the current-user context so
     # _audit_infrastructure_change (which reads self._current_user_id) attributes
     # the change correctly, and it must not leak past this call.
