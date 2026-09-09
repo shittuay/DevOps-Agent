@@ -14017,7 +14017,12 @@ def get_tools() -> List[Dict[str, Any]]:
                 'exists; it cannot create one. '
                 'IMPORTANT: By default, this creates exactly ONE instance. '
                 'Only specify count parameter if multiple instances are explicitly requested. '
-                'If user asks for "an instance" or "one instance", use count=1 (the default).'
+                'If user asks for "an instance" or "one instance", use count=1 (the default). '
+                'If the instance must be configured at launch (install packages, start a '
+                'service, write files), pass the setup script as user_data now — do not plan '
+                'to configure it afterwards via ssm_run_command unless you have already '
+                'confirmed SSM works for this account, or you will have to terminate and '
+                'relaunch.'
             ),
             'input_schema': {
                 'type': 'object',

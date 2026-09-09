@@ -42,6 +42,7 @@ src/
     pentest_tools.py     # 12 Security audit/scan tools (require pentest_config.enabled=True)
     ansible_tools.py     # 13 Ansible tools (playbooks, adhoc, inventory, vault, galaxy)
     alerting_tools.py    # 16 PagerDuty + OpsGenie alerting tools
+    verification_tools.py # 2 service-reachability probes (http_check, tcp_check) — always registered, in ALWAYS_TOOL_NAMES
   config/
     config_manager.py
 services/
@@ -78,11 +79,13 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (746 total, 17 modules)
+## Tool Inventory (748 total, 18 modules)
 
-> Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`.
-> Two modules below are not detailed in the per-provider sections:
-> `command_tools` (2) and `devops_operations_tools` (10).
+> Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`
+> (`tests/test_tool_counts.py` guards this against the user-facing pages).
+> Three modules below are not detailed in the per-provider sections:
+> `command_tools` (2), `devops_operations_tools` (10), and `verification_tools`
+> (2 — `http_check`, `tcp_check`).
 
 ### AWS (352 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
@@ -712,7 +715,14 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
      this, follow-ups that carry no keywords of their own ("yes go ahead", "now
      delete it") matched nothing and fell back to shipping all ~746 schemas,
      which is the single largest avoidable latency source on the Kimi path.
-- **`ALWAYS_TOOL_NAMES`** — `search_tools` only, unconditionally. The eight
+- **`ALWAYS_TOOL_NAMES`** — `search_tools`, `record_state_override`, `http_check`
+  and `tcp_check`, unconditionally. The last two are cheap read-only SSRF-guarded
+  reachability probes (`src/tools/verification_tools.py`) the model needs to
+  verify anything it just built ("is nginx serving on port 80") regardless of the
+  turn's topic — without them it improvised (`git clone http://<ip>/`, reading the
+  404 as success). `run_smoke_test` (in `cicd_tools`) is re-homed to the
+  `verification` category via a `classify_tool` name override so it surfaces on
+  "reachable / serving / health check" tasks too. The eight
   provider-generic escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`,
   `k8s_*`) that the system prompt tells the model to fall back on are now
   **scoped per turn** via `HATCH_PAIRS_BY_PROVIDER` / `_hatch_providers_for()`
@@ -835,6 +845,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   resource 'not found'"), the (a)/(b)/(c) error classification, the
   retry→generic-API→IaC fallback order, and "console truth beats agent
   inference" on state disputes.
+- **Service reachability** (2026-09-09) — four bullets in the same block:
+  *SERVICE REACHABILITY* (use `http_check`/`tcp_check`/`run_smoke_test`, never
+  infer HTTP reachability from another tool's error text — a live run had the
+  agent `git clone http://<ip>/` and read the 404 as success); *A RESPONSE IS
+  NOT SUCCESS* (a non-2xx/3xx or `matched_expected: false` = port open but app
+  not serving what you intended — say exactly that); *NAME YOUR BLIND SPOTS*
+  (no SSM / console / shell → your probe is your only evidence, don't narrate
+  on-instance state you haven't read); *PROVISION THEN CONFIGURE IN ONE SHOT*
+  (bake config into `user_data` on the first `create_ec2_instance` — don't
+  launch bare, hit an IAM wall, and terminate+relaunch).
 - **Session resource registry** — a creating tool (`create_`/`run_`/`launch_`/
   `provision_`/`deploy_`, excluding `_rule`/`change_request`) that succeeds is
   recorded by `_audit_infrastructure_change` (renamed from
@@ -924,7 +944,7 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **746** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **748** across 18 modules (`verification_tools` added 2026-09-09). Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:

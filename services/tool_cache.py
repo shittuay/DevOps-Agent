@@ -36,6 +36,9 @@ _READ_SUBSTRINGS = ('_api_read',)
 _READ_DENY = frozenset({
     'get_secret_value', 'get_iam_credential_report', 'generate_s3_presigned_url',
     'get_ec2_console_output', 'get_s3_object_metadata',
+    # Reachability probes must run live every time — a cached "reachable: false"
+    # from 60s ago would misreport a service that has since come up (or vice versa).
+    'http_check', 'tcp_check', 'run_smoke_test',
 })
 
 

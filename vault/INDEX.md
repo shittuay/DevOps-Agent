@@ -12,6 +12,7 @@ Read this index first, then follow only the links relevant to the current task.
 ## Decisions
 - [[pin-requirements-exactly]] — why requirements.txt is fully ==-pinned (2026-07-15, PR #50)
 - [[ssm-deploy-no-ssh]] — why deploys go through AWS SSM instead of inbound SSH
+- [[service-reachability-probes]] — http_check/tcp_check + "a 404 is not success" prompt rules (2026-09-09)
 
 ## Debugging / Postmortems
 - [[coverage-7-15-1-ci-outage]] — loose `coverage>=` pin took CI down Jul 13–15, 2026
