@@ -367,6 +367,13 @@ class TestSafetyClassifications:
     def test_publish_sns_message_is_medium_risk(self):
         assert self._classify('publish_sns_message') == 'medium'
 
+    # --- high-risk: Azure secret/credential disclosure (same class as
+    # get_secret_value/create_ec2_keypair/generate_s3_presigned_url) ---
+    def test_list_storage_account_keys_is_high_risk(self):
+        # Returns the live Azure Storage Account master key value — full
+        # read/write/delete on the account with no further Azure auth.
+        assert self._classify('list_storage_account_keys') == 'high'
+
     def test_subscribe_sns_topic_is_medium_risk(self):
         assert self._classify('subscribe_sns_topic') == 'medium'
 

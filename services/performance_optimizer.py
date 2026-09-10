@@ -414,121 +414,19 @@ class PerformanceOptimizer:
         }
 
     def _get_user_recommendations(self, user_id: int) -> dict[str, Recommendation]:
-        """Get or initialize per-user recommendations dict."""
-        if user_id not in self.recommendations:
-            self.recommendations[user_id] = {}
-            self._generate_sample_recommendations(user_id)
-        return self.recommendations[user_id]
+        """Get or initialize per-user recommendations dict.
 
-    def _generate_sample_recommendations(self, user_id: int):
-        """Generate sample recommendations for demo purposes."""
-        user_recs = self.recommendations.setdefault(user_id, {})
-        samples = [
-            Recommendation(
-                id="rec-001",
-                title="Right-size underutilized EC2 instances",
-                description="3 EC2 instances have consistently low CPU utilization (<10%). "
-                           "Consider downsizing to smaller instance types.",
-                optimization_type=OptimizationType.COST,
-                resource_type=ResourceType.EC2_INSTANCE,
-                resource_id="i-0abc123def456",
-                priority=Priority.HIGH,
-                estimated_savings=150.00,
-                estimated_savings_percent=40,
-                impact="Reduce monthly EC2 costs by approximately $150",
-                action_steps=[
-                    "Review instance utilization metrics",
-                    "Identify appropriate smaller instance type",
-                    "Schedule resize during maintenance window",
-                    "Monitor performance after resize"
-                ],
-                auto_fixable=False,
-                risk_level="medium"
-            ),
-            Recommendation(
-                id="rec-002",
-                title="Enable RDS Multi-AZ for production database",
-                description="Production RDS instance 'prod-db' is running in single-AZ mode. "
-                           "Enable Multi-AZ for improved availability.",
-                optimization_type=OptimizationType.RELIABILITY,
-                resource_type=ResourceType.RDS_INSTANCE,
-                resource_id="prod-db",
-                priority=Priority.CRITICAL,
-                impact="Improve database availability to 99.95% SLA",
-                action_steps=[
-                    "Review Multi-AZ pricing impact",
-                    "Enable Multi-AZ in RDS console",
-                    "Verify failover mechanism",
-                    "Update monitoring for Multi-AZ"
-                ],
-                auto_fixable=True,
-                risk_level="low"
-            ),
-            Recommendation(
-                id="rec-003",
-                title="Implement Kubernetes HPA for API service",
-                description="API service experiences traffic spikes but lacks auto-scaling. "
-                           "Configure Horizontal Pod Autoscaler.",
-                optimization_type=OptimizationType.SCALABILITY,
-                resource_type=ResourceType.KUBERNETES_POD,
-                resource_id="default/api-service",
-                priority=Priority.MEDIUM,
-                impact="Handle traffic spikes automatically without manual intervention",
-                action_steps=[
-                    "Define CPU/memory thresholds for scaling",
-                    "Create HPA manifest",
-                    "Test scaling behavior under load",
-                    "Set up alerts for scaling events"
-                ],
-                auto_fixable=False,
-                risk_level="low"
-            ),
-            Recommendation(
-                id="rec-004",
-                title="Convert EBS volumes to gp3",
-                description="5 EBS volumes are using gp2 type. Converting to gp3 can reduce costs "
-                           "while improving performance.",
-                optimization_type=OptimizationType.COST,
-                resource_type=ResourceType.EBS_VOLUME,
-                resource_id="vol-0xyz789",
-                priority=Priority.MEDIUM,
-                estimated_savings=45.00,
-                estimated_savings_percent=20,
-                impact="Reduce EBS costs by 20% with same or better performance",
-                action_steps=[
-                    "Identify gp2 volumes eligible for conversion",
-                    "Snapshot volumes before conversion",
-                    "Convert volumes to gp3",
-                    "Verify application performance"
-                ],
-                auto_fixable=True,
-                risk_level="low"
-            ),
-            Recommendation(
-                id="rec-005",
-                title="Enable S3 Intelligent-Tiering",
-                description="S3 bucket 'data-archive' has 500GB of infrequently accessed data. "
-                           "Enable Intelligent-Tiering for automatic cost optimization.",
-                optimization_type=OptimizationType.COST,
-                resource_type=ResourceType.S3_BUCKET,
-                resource_id="data-archive",
-                priority=Priority.LOW,
-                estimated_savings=30.00,
-                estimated_savings_percent=30,
-                impact="Automatically optimize storage costs based on access patterns",
-                action_steps=[
-                    "Review bucket access patterns",
-                    "Configure Intelligent-Tiering",
-                    "Set up lifecycle policies",
-                    "Monitor cost changes"
-                ],
-                auto_fixable=True,
-                risk_level="low"
-            ),
-        ]
-
-        for rec in samples:
-            user_recs[rec.id] = rec
+        Recommendations are populated only by `analyze_resource()` against real
+        resource data — this must never seed canned/sample rows. Per CLAUDE.md's
+        "every feature runs against a real cloud account" rule, a user with no
+        analyzed resources yet sees an honest empty list, not fabricated findings
+        (this file previously auto-seeded 5 hardcoded recommendations, including
+        literal fake resource ids like "i-0abc123def456" and "prod-db", into
+        every user's dashboard on first load — found by the 2026-09-10 scheduled
+        audit, same bug shape as the Drift/Predictive-Scaling/Analytics incidents
+        this rule was written for).
+        """
+        return self.recommendations.setdefault(user_id, {})
 
     def analyze_resource(self, user_id: int, resource_type: ResourceType, resource_data: dict) -> AnalysisResult:
         """Analyze a specific resource and generate recommendations."""

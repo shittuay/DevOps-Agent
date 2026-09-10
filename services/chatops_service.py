@@ -493,28 +493,21 @@ class ChatOpsService:
         return ChatResponse(text=f"Analysis completed but no root causes identified. See full report: /analysis/{result.id}")
 
     def _cmd_metrics(self, args: list, **kwargs) -> ChatResponse:
-        """Get metrics summary."""
-        service_filter = args[0] if args else None
+        """Get metrics summary.
 
-        # In a real implementation, this would fetch from Prometheus/CloudWatch
-        text = """*Metrics Summary*
-
-📊 *Infrastructure*
-• CPU Utilization: 45% (avg)
-• Memory Usage: 62% (avg)
-• Disk I/O: Normal
-
-🌐 *Application*
-• Request Rate: 1.2k/min
-• Error Rate: 0.05%
-• P95 Latency: 120ms
-
-🗄️ *Database*
-• Connection Pool: 45/100
-• Query Time (avg): 15ms
-• Replication Lag: 0ms
-"""
-        return ChatResponse(text=text)
+        No monitoring integration is wired into ChatOps yet — there is also no
+        mapping from a Slack/Teams user to a DevOps Agent account, so even a
+        real query couldn't know whose metrics to fetch. Per CLAUDE.md's
+        "every feature runs against a real cloud account" rule, this must say
+        so rather than return fabricated numbers (this previously returned
+        hardcoded values like "CPU Utilization: 45% (avg)" indistinguishable
+        from a real query — found by the 2026-09-10 scheduled audit).
+        """
+        return ChatResponse(
+            text="Metrics aren't available here yet — ChatOps isn't connected to a "
+                 "monitoring backend (Prometheus/CloudWatch/Datadog) for this workspace. "
+                 "Check the dashboard at `/monitoring` instead."
+        )
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
         """List recent deployments."""
@@ -540,22 +533,19 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_oncall(self, args: list, **kwargs) -> ChatResponse:
-        """Show on-call information."""
-        # In a real implementation, this would integrate with PagerDuty/OpsGenie
+        """Show on-call information.
 
-        text = """*On-Call Schedule*
-
-🔴 *Primary:* @devops-team
-🟡 *Secondary:* @sre-team
-
-*Escalation:*
-1. Primary (0-15 min)
-2. Secondary (15-30 min)
-3. Engineering Lead (30+ min)
-
-_To update on-call schedule, visit PagerDuty._
-"""
-        return ChatResponse(text=text)
+        No PagerDuty/OpsGenie integration is wired into ChatOps yet. Per
+        CLAUDE.md's "every feature runs against a real cloud account" rule,
+        this must say so rather than return a fabricated on-call roster (this
+        previously returned a hardcoded "@devops-team" / "@sre-team" schedule
+        with no source at all — found by the 2026-09-10 scheduled audit).
+        """
+        return ChatResponse(
+            text="On-call schedule isn't available here yet — ChatOps isn't connected to "
+                 "an alerting backend (PagerDuty/OpsGenie) for this workspace. Check your "
+                 "PagerDuty/OpsGenie schedule directly."
+        )
 
     def format_slack_blocks(self, response: ChatResponse) -> list:
         """Format response as Slack blocks."""

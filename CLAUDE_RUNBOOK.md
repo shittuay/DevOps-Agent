@@ -2504,3 +2504,89 @@ entry points) — `_verify_and_annotate` reads greenlet-local `_verify_count`
 (cap 3) / `_iac_fallback_emitted`, and a pooled gthread worker that ran a
 chat turn earlier would otherwise carry stale values into the approval-run
 and silently skip verification.
+
+## Scheduled audit (2026-09-10): unclassified Azure key disclosure, two fabricated-data features, and a broken ChatOps command surface
+
+Four parallel sub-audits (SSRF/git-injection guard coverage, `safety.py` risk
+classification, user-isolation/IDOR, general code smells) ran against the repo
+at HEAD (no findings pending from any earlier audit — the 2026-09-06 work above
+was already merged). SSRF/git-injection and IDOR both came back clean — see
+their audit methodology inline in this entry for what was checked, since
+nothing needed fixing there. Three real issues were found and fixed, plus one
+found-but-deferred:
+
+**1. `list_storage_account_keys` (Azure) had no risk classification —
+fixed.** Returns the live Storage Account master key `value` in the tool
+result: full read/write/delete on every blob/queue/table/file share in the
+account, no further Azure auth required. Same disclosure class as
+`get_secret_value`/`create_ec2_keypair`/`generate_s3_presigned_url` (see
+CLAUDE.md's Safety System section) — its sibling `regenerate_storage_key`
+(returns the same field after rotating) was already medium-risk, but the
+non-destructive disclosure path itself had no gate at all, falling through to
+low risk with no confirmation. `list_` isn't a monitored auto-detect prefix.
+Fixed by adding it to `high_risk_tools` in `src/agent/safety.py`. Test:
+`tests/test_new_tools.py::TestSafetyClassifications::test_list_storage_account_keys_is_high_risk`.
+
+**2. `services/performance_optimizer.py` fabricated every recommendation on
+the `/optimization/` and `/optimization/recommendations` dashboards — fixed.**
+`_get_user_recommendations()` auto-seeded 5 hardcoded `Recommendation` rows
+(literal fake resource ids `"i-0abc123def456"`/`"prod-db"`, dollar-figure
+savings, a 99.95% SLA claim) into every user's in-memory dict the first time
+it was accessed — no cloud query, no DB read, no sandbox-mode gate. This is
+the exact fabrication shape CLAUDE.md's "every feature runs against a real
+cloud account" rule was written for (Drift/Predictive-Scaling/Analytics), but
+a distinct, previously unflagged feature — and a purer case than any of
+those: the file's real analysis engine (`analyze_resource()`, driven by
+per-resource CPU/memory/connection data through `EC2Analyzer`/`RDSAnalyzer`/
+`KubernetesAnalyzer`) is never actually called from anywhere in the app, so
+the sample data was the *only* thing that ever populated a user's
+recommendations. Fixed by removing the auto-seed entirely — `_get_user_recommendations`
+now just returns the (possibly empty) per-user dict, and the dashboard
+template already had a proper empty state ("No pending recommendations") so
+no template change was needed. **Not fixed (follow-up, larger scope):** no
+caller anywhere feeds `analyze_resource()` real data — doing so needs a live
+CloudWatch/Azure Monitor/GCP-Monitoring metrics pull per synced resource
+(`InfrastructureResource` only stores metadata, not utilization history), a
+real integration on the scale of the Drift/prevention_engine work, not a
+one-file patch. Tests: `tests/test_performance_optimizer_no_fabrication.py`.
+
+**3. `services/chatops_service.py`'s `/metrics` and `/oncall` Slack/Teams
+commands fabricated data — fixed.** `_cmd_metrics` returned a hardcoded
+"CPU Utilization: 45% (avg)" / "Error Rate: 0.05%" block under a `# In a real
+implementation, this would fetch from Prometheus/CloudWatch` comment;
+`_cmd_oncall` returned a hardcoded `@devops-team`/`@sre-team` roster under a
+`# ...would integrate with PagerDuty/OpsGenie` comment — both indistinguishable
+from a real query to the Slack/Teams user who typed the command. Fixed by
+replacing both with an honest "not connected" response, matching the same
+rule as finding 2. Tests: `tests/test_chatops_no_fabrication.py`.
+
+**4. Found, not fixed — `services/chatops_service.py`'s command handlers are
+broken against the current shape of the services they call, and there is no
+identity link between a Slack/Teams user and a DevOps Agent account at all.**
+This is a functional bug (fails to a visible "Error executing command: ..."
+via `process_message`'s catch-all, not a cross-user data leak), but it's wide
+enough to need its own pass rather than a drive-by fix in an audit that was
+scoped to `/metrics`/`/oncall`:
+- `IncidentResponseEngine`'s methods (`get_stats`, `list_incidents`, `get_incident`,
+  `acknowledge_incident`, `resolve_incident`, `execute_playbook`, `list_playbooks`)
+  and `ProactiveMonitoringService.get_status` all now take a required `user_id: int`
+  as their first argument (per-user scoping added after this file was written) —
+  `_cmd_status`, `_cmd_incidents`, `_cmd_incident_detail`, `_cmd_acknowledge`,
+  `_cmd_resolve`, `_cmd_playbooks`, `_cmd_execute` call them with none.
+- `_cmd_alerts` calls `service.get_alerts(status='firing')`, which doesn't
+  exist on `ProactiveMonitoringService` at all — the real method is
+  `get_active_alerts(user_id)`, which also returns plain `dict`s, not objects
+  with `.severity`/`.name`/`.message` attributes the way `_cmd_alerts` reads them.
+- Even fixing the call signatures doesn't fully fix this: nothing in
+  `routes/chatops.py` maps a Slack `user_id` (e.g. `"U012ABC"`) or Teams
+  `from.id` to a DevOps Agent `User.id` — there is no linking model/flow at
+  all. Without one, no per-user command has a real account to scope its
+  `user_id: int` argument to. Building that link (likely a per-organization
+  Slack/Teams workspace install flow, similar in spirit to the SSO
+  `metadata_url` config in `routes/organizations.py`) is a prerequisite for
+  fixing 1 and 2 above correctly, not an independent nice-to-have.
+- Whoever picks this up next: fix the identity-link gap first, then update
+  each handler's call signature and the `_cmd_alerts` return-shape assumption
+  together, with real test coverage this file currently has none of beyond
+  `tests/test_chatops_teams_auth.py` (webhook auth only, no command-handler
+  coverage).

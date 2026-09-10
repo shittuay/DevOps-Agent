@@ -261,6 +261,14 @@ class SafetyValidator:
             # with no further AWS auth, the same live-access-credential disclosure class as
             # get_secret_value/create_ec2_keypair.
             'generate_s3_presigned_url',
+            # Returns the live Azure Storage Account master key `value` in the tool result —
+            # grants full read/write/delete on every blob/queue/table/file share in the
+            # account with no further Azure auth. Same disclosure class as get_secret_value/
+            # create_ec2_keypair/generate_s3_presigned_url. Its sibling regenerate_storage_key
+            # (which returns the same field after rotating) was already high-risk; this
+            # non-destructive disclosure path had no gate at all until the 2026-09-10
+            # scheduled audit.
+            'list_storage_account_keys',
             'delete_cloud_run_service',
             'delete_gke_cluster',
             'delete_firewall_rule',
