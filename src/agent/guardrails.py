@@ -23,6 +23,8 @@ from typing import Dict, List, Tuple
 
 import anthropic
 
+from services.input_sanitizer import MAX_MESSAGE_LENGTH
+
 logger = logging.getLogger(__name__)
 
 # ===========================
@@ -258,7 +260,15 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
     3. Semantic classification via Claude Haiku (AI-powered, fails open)
 
     Args:
-        message: The user message to classify (only first 3000 chars are sent to Haiku)
+        message: The user message to classify. Every real call site invokes
+            validate_message() first, which already caps length at
+            MAX_MESSAGE_LENGTH — the slice below is a defense-in-depth ceiling
+            for that same bound, not an independent, smaller truncation. It
+            used to be a hardcoded 3000, which left the semantic screen blind
+            to chars 3001-10000 of an otherwise-valid message: a caller could
+            pad the front with filler text to push a paraphrased, non-regex-
+            matching attack past Haiku's view entirely while everything sent
+            still passed validate_message().
         api_key: Anthropic API key. Falls back to ANTHROPIC_API_KEY env var.
 
     Returns:
@@ -309,7 +319,7 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
             messages=[
                 {
                     "role": "user",
-                    "content": f"Classify this message:\n<message>\n{message[:3000]}\n</message>"
+                    "content": f"Classify this message:\n<message>\n{message[:MAX_MESSAGE_LENGTH]}\n</message>"
                 }
             ]
         )

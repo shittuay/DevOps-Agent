@@ -2504,3 +2504,47 @@ entry points) — `_verify_and_annotate` reads greenlet-local `_verify_count`
 (cap 3) / `_iac_fallback_emitted`, and a pooled gthread worker that ran a
 chat turn earlier would otherwise carry stale values into the approval-run
 and silently skip verification.
+
+## Scheduled audit (2026-09-11), follow-up fix: Haiku semantic screen only saw the first 3000 of 10,000 allowed chars
+
+Second fix from the same 2026-09-11 scheduled audit of `services/input_sanitizer.py`
++ `src/agent/guardrails.py` (the first fix, a compound-qualifier regex bypass
+in `validate_message()`'s `INJECTION_PATTERNS`, is tracked separately — see
+its own runbook entry / PR).
+
+`guardrails.screen_message()` hardcoded `message[:3000]` when building the
+prompt sent to the Haiku semantic classifier, even though `validate_message()`
+— which every real call site runs immediately before `screen_message()` — allows
+messages up to `MAX_MESSAGE_LENGTH` (10,000 chars, `services/input_sanitizer.py`).
+Anything from char 3001 onward of an otherwise-valid message was invisible to
+the one layer specifically designed to catch attacks that don't match a
+literal regex (paraphrased jailbreaks, indirect social engineering, novel
+out-of-scope-attack/malware-request phrasing). A message padded with ~3000
+chars of benign filler before the actual ask would defeat the semantic screen
+while still passing `validate_message()` unchanged.
+
+**Fix:** import `MAX_MESSAGE_LENGTH` from `services.input_sanitizer` in
+`src/agent/guardrails.py` and slice on that instead of the hardcoded `3000`,
+so the semantic screen's window matches the ceiling `validate_message()`
+already enforces rather than an independent, smaller one. Confirmed no
+circular import (`input_sanitizer.py` has no dependency back into
+`src/agent`). Verified behaviorally with a mocked Anthropic client: a marker
+placed past the old 3000-char cutoff now reaches the classifier's prompt; a
+marker placed past `MAX_MESSAGE_LENGTH` still does not (the slice is a
+defense-in-depth ceiling matching the already-enforced bound, not an
+unbounded pass-through — `screen_message()` can still be called directly,
+e.g. in tests, without going through `validate_message()` first).
+
+**Tests:** new `tests/test_guardrail_screen_length.py` (4 cases, mocked
+`anthropic.Anthropic` client — no network calls: full-length message reaches
+Haiku, message beyond `MAX_MESSAGE_LENGTH` is still capped, crisis detection
+still short-circuits before Haiku, safe messages still pass). Full suite:
+989 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
+an environment-only missing-`ANTHROPIC_API_KEY` gap already noted elsewhere in
+this file as reproducible on unmodified `HEAD`, not a regression from this
+change).
+
+**Not fixed in this pass, still flagged for follow-up:** `detect_crisis_language()`
+logs matched self-harm keyword substrings verbatim via `logger.warning` with no
+redaction, into general application logs rather than a purpose-built,
+access-controlled audit trail.
