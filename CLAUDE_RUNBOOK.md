@@ -2505,6 +2505,57 @@ entry points) — `_verify_and_annotate` reads greenlet-local `_verify_count`
 chat turn earlier would otherwise carry stale values into the approval-run
 and silently skip verification.
 
+## Scheduled audit (2026-09-11): compound-qualifier prompt-injection regex bypass in `validate_message()`
+
+Daily scheduled security review found no commits in the prior 26h, so ran the
+rotating fallback audit (day-of-month mod 6) on `services/input_sanitizer.py`
++ `src/agent/guardrails.py`. Found and fixed a real regex gap in
+`INJECTION_PATTERNS`'s ignore/forget/disregard entries — the three patterns
+each allowed exactly **one** qualifier word between the verb and the
+instructions-type noun (`ignore\s+(previous|above|all|prior)\s+(instructions?|...)`).
+Verified live: `"ignore previous instructions"` was blocked, but
+`"ignore all previous instructions"`, `"disregard all prior instructions"`,
+and `"forget all your previous instructions"` — arguably the single most
+common real-world jailbreak phrasing, and one of the Haiku screen's own
+`SCREEN_SYSTEM_PROMPT` examples ("disregard all prior context") — all
+bypassed the regex layer entirely, matching zero of the patterns.
+
+This mattered more than a typical layer-1 miss because `validate_message()`'s
+pattern list is documented above (see the "Guardrail screen fails open" row
+in this file) as *"always the first line of defense"* — it is the only
+deterministic check still active when `screen_message()`'s Haiku call is
+skipped for lack of an `ANTHROPIC_API_KEY` (`guardrails.py`, returns
+`blocked=False` immediately) or errors (fails open by design). In that
+failure mode the compound-qualifier phrasing passed straight through with
+zero blocking, other than the hardened system prompt in `core.py` (layer 3,
+not audited in this pass).
+
+**Fix:** `services/input_sanitizer.py` — replaced the single-qualifier group
+in the `ignore`/`forget`/`disregard` patterns with a shared `_QUALIFIER`
+alternation repeated `{1,3}` times (`\bignore\s+(?:{_QUALIFIER}\s+){1,3}(instructions?|...)`),
+so any 1-3 word combination of `all|your|the|previous|prior|above` before the
+noun is caught. Verified: all six previously-bypassed phrasings now blocked;
+all four previously-caught phrasings still blocked (no regression); five
+benign DevOps messages containing "previous"/"disregard"/"forget" as
+ordinary English (e.g. "review the previous PR", "disregard the earlier
+ticket") still pass — no new false positives from the wider qualifier group.
+
+**Tests:** new `tests/test_input_sanitizer.py` (18 cases: compound-qualifier
+bypass regression, single-qualifier no-regression, benign-message false-positive
+check, plus basic `sanitize_input()` coverage). Full suite could not be run in
+the audit sandbox (missing `flask`/app dependencies entirely — an environment
+gap, not related to this change); the new test file's 18 cases pass in
+isolation and no other test in the repo references `validate_message`,
+`INJECTION_PATTERNS`, or `guardrails.screen_message` behavior.
+
+**Not fixed in this pass, flagged for follow-up:** (1) `screen_message()`
+(`guardrails.py`) only sends the first 3000 of the 10,000 chars
+`validate_message()` allows to the Haiku classifier — a padded message can
+push a paraphrased, non-regex-matching attack past the semantic screen's
+view entirely. (2) `detect_crisis_language()` logs matched self-harm keyword
+substrings verbatim via `logger.warning` with no redaction, into general
+application logs rather than a purpose-built, access-controlled audit trail.
+
 ## Scheduled audit (2026-09-11), follow-up fix: Haiku semantic screen only saw the first 3000 of 10,000 allowed chars
 
 Second fix from the same 2026-09-11 scheduled audit of `services/input_sanitizer.py`
