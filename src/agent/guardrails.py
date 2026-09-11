@@ -269,8 +269,16 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
     # ===== FIRST: CRISIS DETECTION (FAIL CLOSED) =====
     is_crisis, crisis_severity, crisis_keywords = detect_crisis_language(message)
     if is_crisis:
+        # Do NOT log the matched keyword text itself — these are verbatim
+        # self-harm phrases, and this logger writes to general application
+        # logs (broader read-access, different retention than a purpose-
+        # built store). The actual keywords are already persisted to the
+        # access-controlled CrisisIncident table (admin-role-gated
+        # /api/admin/crisis-incidents) via GuardrailResult.crisis_keywords —
+        # that's the intended audit trail for the support team, this log
+        # line is only for ops-level "a crisis was detected" visibility.
         logger.warning(
-            f"Crisis language detected. severity={crisis_severity} keywords={list(crisis_keywords.keys())}"
+            f"Crisis language detected. severity={crisis_severity} matched_keyword_count={len(crisis_keywords)}"
         )
         return GuardrailResult(
             blocked=True,

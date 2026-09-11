@@ -2504,3 +2504,40 @@ entry points) — `_verify_and_annotate` reads greenlet-local `_verify_count`
 (cap 3) / `_iac_fallback_emitted`, and a pooled gthread worker that ran a
 chat turn earlier would otherwise carry stale values into the approval-run
 and silently skip verification.
+
+## Scheduled audit (2026-09-11), third fix: crisis keywords logged in plaintext to general application logs
+
+Third finding from the 2026-09-11 scheduled security audit of
+`services/input_sanitizer.py` + `src/agent/guardrails.py` (finding #1, a
+regex bypass, and finding #2, a truncated semantic screen, are tracked
+separately in their own PRs — all three are independent).
+
+`guardrails.screen_message()` logged the verbatim matched self-harm keyword
+text on every crisis detection: `logger.warning(f"Crisis language detected.
+severity={crisis_severity} keywords={list(crisis_keywords.keys())}")`. That
+logger writes to general application logs (`journalctl`/`logs/agent.log`/
+whatever aggregator ingests them in production) — a much broader-access,
+longer/less-deliberately-retained channel than the purpose-built store this
+data already has: `CrisisIncident` (`models.py`), an explicit "audit trail —
+logs when crisis language is detected" table, populated from
+`GuardrailResult.crisis_keywords` at all three real call sites (`app.py` x2,
+`routes/curriculum.py`) and only readable through `/api/admin/crisis-incidents`,
+which does check `current_user.role != 'admin'` before returning anything.
+Those three call sites' own `logger.warning()` lines were already clean
+(`user_id`+`severity` only, no keyword text) — only the one inside
+`guardrails.py` itself leaked the raw phrases.
+
+**Fix:** log `severity` + `matched_keyword_count` (an integer) instead of the
+keyword list. `GuardrailResult.crisis_keywords` is untouched — it still
+carries the full dict through to `CrisisIncident.crisis_keywords`, which is
+the intended, access-controlled home for this data; only the redundant,
+broader-access copy in the plain log line is gone.
+
+**Tests:** new `tests/test_crisis_keyword_log_redaction.py` (3 cases, using
+pytest's `caplog`): the matched phrase never appears in log output;
+`GuardrailResult.crisis_keywords` still carries it (so the audit-trail path
+is unaffected); severity is still logged for ops-level visibility. Existing
+`tests/test_crisis_detection.py` (25 tests) passes unchanged. Full suite:
+970 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
+the same environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in
+this file — not a regression).
