@@ -2505,6 +2505,101 @@ entry points) — `_verify_and_annotate` reads greenlet-local `_verify_count`
 chat turn earlier would otherwise carry stale values into the approval-run
 and silently skip verification.
 
+## Scheduled audit (2026-09-11): compound-qualifier prompt-injection regex bypass in `validate_message()`
+
+Daily scheduled security review found no commits in the prior 26h, so ran the
+rotating fallback audit (day-of-month mod 6) on `services/input_sanitizer.py`
++ `src/agent/guardrails.py`. Found and fixed a real regex gap in
+`INJECTION_PATTERNS`'s ignore/forget/disregard entries — the three patterns
+each allowed exactly **one** qualifier word between the verb and the
+instructions-type noun (`ignore\s+(previous|above|all|prior)\s+(instructions?|...)`).
+Verified live: `"ignore previous instructions"` was blocked, but
+`"ignore all previous instructions"`, `"disregard all prior instructions"`,
+and `"forget all your previous instructions"` — arguably the single most
+common real-world jailbreak phrasing, and one of the Haiku screen's own
+`SCREEN_SYSTEM_PROMPT` examples ("disregard all prior context") — all
+bypassed the regex layer entirely, matching zero of the patterns.
+
+This mattered more than a typical layer-1 miss because `validate_message()`'s
+pattern list is documented above (see the "Guardrail screen fails open" row
+in this file) as *"always the first line of defense"* — it is the only
+deterministic check still active when `screen_message()`'s Haiku call is
+skipped for lack of an `ANTHROPIC_API_KEY` (`guardrails.py`, returns
+`blocked=False` immediately) or errors (fails open by design). In that
+failure mode the compound-qualifier phrasing passed straight through with
+zero blocking, other than the hardened system prompt in `core.py` (layer 3,
+not audited in this pass).
+
+**Fix:** `services/input_sanitizer.py` — replaced the single-qualifier group
+in the `ignore`/`forget`/`disregard` patterns with a shared `_QUALIFIER`
+alternation repeated `{1,3}` times (`\bignore\s+(?:{_QUALIFIER}\s+){1,3}(instructions?|...)`),
+so any 1-3 word combination of `all|your|the|previous|prior|above` before the
+noun is caught. Verified: all six previously-bypassed phrasings now blocked;
+all four previously-caught phrasings still blocked (no regression); five
+benign DevOps messages containing "previous"/"disregard"/"forget" as
+ordinary English (e.g. "review the previous PR", "disregard the earlier
+ticket") still pass — no new false positives from the wider qualifier group.
+
+**Tests:** new `tests/test_input_sanitizer.py` (18 cases: compound-qualifier
+bypass regression, single-qualifier no-regression, benign-message false-positive
+check, plus basic `sanitize_input()` coverage). Full suite could not be run in
+the audit sandbox (missing `flask`/app dependencies entirely — an environment
+gap, not related to this change); the new test file's 18 cases pass in
+isolation and no other test in the repo references `validate_message`,
+`INJECTION_PATTERNS`, or `guardrails.screen_message` behavior.
+
+**Not fixed in this pass, flagged for follow-up:** (1) `screen_message()`
+(`guardrails.py`) only sends the first 3000 of the 10,000 chars
+`validate_message()` allows to the Haiku classifier — a padded message can
+push a paraphrased, non-regex-matching attack past the semantic screen's
+view entirely. (2) `detect_crisis_language()` logs matched self-harm keyword
+substrings verbatim via `logger.warning` with no redaction, into general
+application logs rather than a purpose-built, access-controlled audit trail.
+
+## Scheduled audit (2026-09-11), follow-up fix: Haiku semantic screen only saw the first 3000 of 10,000 allowed chars
+
+Second fix from the same 2026-09-11 scheduled audit of `services/input_sanitizer.py`
++ `src/agent/guardrails.py` (the first fix, a compound-qualifier regex bypass
+in `validate_message()`'s `INJECTION_PATTERNS`, is tracked separately — see
+its own runbook entry / PR).
+
+`guardrails.screen_message()` hardcoded `message[:3000]` when building the
+prompt sent to the Haiku semantic classifier, even though `validate_message()`
+— which every real call site runs immediately before `screen_message()` — allows
+messages up to `MAX_MESSAGE_LENGTH` (10,000 chars, `services/input_sanitizer.py`).
+Anything from char 3001 onward of an otherwise-valid message was invisible to
+the one layer specifically designed to catch attacks that don't match a
+literal regex (paraphrased jailbreaks, indirect social engineering, novel
+out-of-scope-attack/malware-request phrasing). A message padded with ~3000
+chars of benign filler before the actual ask would defeat the semantic screen
+while still passing `validate_message()` unchanged.
+
+**Fix:** import `MAX_MESSAGE_LENGTH` from `services.input_sanitizer` in
+`src/agent/guardrails.py` and slice on that instead of the hardcoded `3000`,
+so the semantic screen's window matches the ceiling `validate_message()`
+already enforces rather than an independent, smaller one. Confirmed no
+circular import (`input_sanitizer.py` has no dependency back into
+`src/agent`). Verified behaviorally with a mocked Anthropic client: a marker
+placed past the old 3000-char cutoff now reaches the classifier's prompt; a
+marker placed past `MAX_MESSAGE_LENGTH` still does not (the slice is a
+defense-in-depth ceiling matching the already-enforced bound, not an
+unbounded pass-through — `screen_message()` can still be called directly,
+e.g. in tests, without going through `validate_message()` first).
+
+**Tests:** new `tests/test_guardrail_screen_length.py` (4 cases, mocked
+`anthropic.Anthropic` client — no network calls: full-length message reaches
+Haiku, message beyond `MAX_MESSAGE_LENGTH` is still capped, crisis detection
+still short-circuits before Haiku, safe messages still pass). Full suite:
+989 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
+an environment-only missing-`ANTHROPIC_API_KEY` gap already noted elsewhere in
+this file as reproducible on unmodified `HEAD`, not a regression from this
+change).
+
+**Not fixed in this pass, still flagged for follow-up:** `detect_crisis_language()`
+logs matched self-harm keyword substrings verbatim via `logger.warning` with no
+redaction, into general application logs rather than a purpose-built,
+access-controlled audit trail.
+
 ## Scheduled audit (2026-09-11), third fix: crisis keywords logged in plaintext to general application logs
 
 Third finding from the 2026-09-11 scheduled security audit of
