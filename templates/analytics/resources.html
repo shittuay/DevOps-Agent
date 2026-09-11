@@ -31,7 +31,7 @@
             <div class="metric-icon"><i class="fas fa-memory"></i></div>
             <div class="metric-content">
                 <span class="metric-label">Avg Memory Usage</span>
-                <span class="metric-value" id="avgMemory">--</span>
+                <span class="metric-value" id="avgMemory" title="Requires the CloudWatch agent — not collected yet">N/A</span>
             </div>
         </div>
     </div>
@@ -49,11 +49,9 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(r => r.json())
         .then(data => {
             document.getElementById('totalResources').textContent = data.total_resources || 0;
-            document.getElementById('avgCpu').textContent = (data.utilization_avg || 0).toFixed(1) + '%';
+            document.getElementById('avgCpu').textContent = data.utilization_avg != null ? data.utilization_avg.toFixed(1) + '%' : 'N/A';
             const byType = data.by_type || {};
-            const total = data.total_resources || 1;
-            const rdsCount = byType.rds || 0;
-            document.getElementById('avgMemory').textContent = ((rdsCount / total) * 100).toFixed(1) + '%';
+            // Memory utilization isn't collected (requires the CloudWatch agent) — left as N/A rather than a derived stand-in.
 
             const labels = Object.keys(byType).map(k => k.toUpperCase());
             const values = Object.values(byType);

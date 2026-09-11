@@ -165,9 +165,16 @@ Scaling feature (`/scaling`, `services/predictive_scaling.py`) unconditionally f
 named resources and their metric history for every user with no `[Sandbox]` label, plus an "Apply"
 endpoint that reported fake `status: 'applied'` success without calling any cloud API — fixed (see
 CLAUDE_RUNBOOK.md's 2026-09-02 entry). The same audit found `services/analytics_service.py`'s
-"Advanced Analytics Dashboard" (`/analytics/*`) doing the identical thing at larger scope —
-hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `random.uniform()` noise
-— **flagged, not yet fixed** (needs its 4 consumer templates read first). If a new feature's data
+"Advanced Analytics Dashboard" (`/analytics/*`, plus the paid developer API's
+`GET /v1/analytics/costs`) doing the identical thing at larger scope — hardcoded
+per-service/per-team cost breakdowns, a cost *forecast* built on `random.uniform()`
+noise — fixed by a 2026-09-11 scheduled audit: cost now reads real AWS Cost Explorer
+with a real-DB-aggregate fallback (`services/analytics_service.py`'s `_get_real_costs`,
+same shape as `/api/dashboard/costs` in `app.py`), resources/incidents/API-calls read
+real `InfrastructureResource`/`IncidentModel`/`UsageLog` rows, and deployment stats
+(no real per-user CI/CD event log exists anywhere in this codebase) honestly report
+`available: False` instead of a derived fake success rate — see CLAUDE_RUNBOOK.md's
+2026-09-11 "fourth pass" entry. If a new feature's data
 doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
 same bug until traced.
 

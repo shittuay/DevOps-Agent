@@ -2636,3 +2636,89 @@ is unaffected); severity is still logged for ops-level visibility. Existing
 970 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
 the same environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in
 this file — not a regression).
+
+## Scheduled audit (2026-09-11), fourth pass: fixed the top-priority item flagged 2026-09-02 — Analytics Dashboard fabricated all cost/resource/incident/deployment data
+
+Picked up the item the 2026-09-02 Predictive Scaling audit explicitly flagged
+and deferred: *"`services/analytics_service.py` has the identical pattern, at
+larger scope... a safe fix needs to read all 4 consumer templates/JS first...
+treat as the top-priority item for the next audit."* Confirmed still present
+and unfixed on `HEAD` (`_ensure_sample_data()` unchanged since that audit).
+
+**What was fabricated:** every metric behind `/analytics/*` (the "Advanced
+Analytics Dashboard", reachable from the chat UI, plus the paid developer API's
+`GET /v1/analytics/costs` in `routes/api_gateway.py`) — a 90-day daily cost
+series seeded from `base_cost = 150` plus `random.uniform(-20, 30)` noise; a
+`_cost_by_service`/`_cost_by_team` breakdown with literal hardcoded dollar
+figures (`'EC2': 450.00, 'RDS': 280.00, ...`), byte-identical for every user;
+fabricated resource-count/incident/deployment/API-call time series; a cost
+*forecast* built on the same fake series via linear regression plus more
+`random.uniform()` noise (`CostForecast.generate_forecast`); and
+`get_resource_utilization()` returning a fresh `random.uniform(40, 75)`
+"utilization_avg" on every call. All of it rendered identically whether or not
+the user had ever connected a cloud account — exactly the failure mode the
+"every feature runs against a real cloud account" rule exists to prevent, and
+here it reached a paying developer-API customer's own integration, not just
+the web UI.
+
+**Fix:** rewrote `services/analytics_service.py` to source every metric from a
+real per-user place, matching the fallback shape already used by
+`/api/dashboard/costs` in `app.py`:
+- **Cost** (`_get_real_costs`) — real AWS Cost Explorer via
+  `services.cost_explorer.get_actual_costs`/`get_cost_forecast`; on exception
+  (no credentials, no CE permission, API error) falls back to a real DB
+  aggregate of `InfrastructureResource.monthly_cost`, never to noise. `by_team`
+  had no real source anywhere in the codebase (no cost-allocation-tag/team
+  concept exists) and wasn't read by any of the 4 templates — dropped rather
+  than invented.
+- **Resources** (`get_resource_utilization`) — live count/by-type from
+  `InfrastructureResource`, excluding `terminated`/`deleted`. No historical
+  resource-count table exists, so `get_time_series('resource_count', ...)`
+  returns a single real current-snapshot point instead of a fabricated trend.
+  `utilization_avg` is honestly `None` — averaging real CloudWatch CPU across
+  every running resource inline on each request would mean up to ~40 serial
+  AWS API calls per page load; reporting "unavailable" is truthful, a slow or
+  rate-limited live average is a separate, deliberately deferred feature.
+- **Incidents** (`get_alerts_summary`) — real per-user `IncidentModel` rows in
+  the requested window, grouped by real `severity`/`status`, trend from a real
+  previous-period comparison.
+- **API calls** — real `UsageLog` rows (same table `routes/analytics.py`'s
+  existing `api_tool_usage` endpoint already queried directly), bucketed by
+  hour or day.
+- **Deployments** — confirmed no real per-user deployment/CI-CD event log
+  exists anywhere in the codebase (`cicd_tools.py` has only stateless
+  wrapper functions with no persistence; `InfrastructureChange` and
+  `WorkflowExecution` are both different concepts). `get_deployment_stats`
+  now honestly returns zeros with `available: False` rather than a derived
+  fake success rate — same treatment Predictive Scaling's `/api/apply` got
+  for the identical "no real backing implementation" case.
+- Removed the now-unreachable fabrication machinery entirely: `CostForecast`
+  (regression + `random.uniform` noise), `get_chart_data`/`get_trend_analysis`
+  (confirmed dead code — not called by any route or by the external API),
+  the `AggregationType` enum they alone used, and the unused `math` import.
+
+**Frontend fabrication found in the same sweep:** `templates/analytics/resources.html`
+computed `avgMemory` client-side as `(rdsCount / total) * 100` — literally "the
+percentage of synced resources that are RDS," mislabeled as an "Avg Memory
+Usage" percentage, with no real memory metric behind it anywhere (CloudWatch
+doesn't expose guest-OS memory without the CloudWatch agent, which this app
+doesn't install). Fixed to display "N/A" with a tooltip explaining why, instead
+of a formula-shaped number that looks like telemetry.
+
+**Verified via the actual template rendering, not just the service layer:**
+a fresh test-client user with zero synced resources, zero incidents, and no
+AWS credentials hits all 18 `/analytics/*` page and API routes — every one
+returns 200 with honest empty/zero data (Chart.js and the `|| 0`/`?.`-guarded
+JS in all 4 templates already handled this gracefully; none of it needed
+changing beyond the `avgMemory` fix above).
+
+**Tests:** new `tests/test_analytics_service.py` (15 cases): no
+`_ensure_sample_data`/cache attributes remain, `random` is no longer imported
+by the module at all, every metric is zero/empty/`available: False` for an
+unknown user with Cost Explorer mocked to fail closed, and — once real
+`InfrastructureResource`/`IncidentModel`/`UsageLog` rows exist for a real
+test user — the service reports them accurately, respects per-user isolation,
+and excludes terminated resources from live counts. Full suite: 1007 passed,
+1 pre-existing failure (`test_initialize_agent_populates_config`, the same
+environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in this file
+— not a regression, reproducible on unmodified `HEAD`).
