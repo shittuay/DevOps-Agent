@@ -213,7 +213,12 @@ jobs:
     # unconfigured token must never block a deploy. Promote it by adding
     # `sonarcloud` to status-check's `needs` and its result check.
     env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # The GitHub secret is named SONAR_TOKEN1, not SONAR_TOKEN. GitHub cannot
+      # rename a secret, so rather than leave a dead SONAR_TOKEN shadowing the
+      # live one, the lookup points at the name this repo actually has. The
+      # environment variable stays SONAR_TOKEN because that is the name the
+      # scanner itself reads - only the lookup differs.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN1 }}
     steps:
       - name: Check whether SonarCloud is configured
         id: guard
@@ -225,7 +230,7 @@ jobs:
           # the scanner 403s without it. Checking only the token let a repo with
           # a token but no variables fail the job instead of skipping it.
           missing=""
-          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN(secret)"
+          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN1(secret)"
           [ -n "$SONAR_ORGANIZATION" ] || missing="$missing SONAR_ORGANIZATION(variable)"
           if [ -n "$missing" ]; then
             echo "SonarCloud is not configured - skipping analysis."
@@ -243,6 +248,55 @@ jobs:
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "args=$args" >> "$GITHUB_OUTPUT"
+
+      # The scanner's failure mode here is genuinely misleading: it reports
+      #   "HTTP 403 ... Please check the property sonar.token or the
+      #    environment variable SONAR_TOKEN"
+      # for a missing organization as well as for a bad credential, and the
+      # endpoint it fails on (api.sonarcloud.io/analysis/jres) answers 200
+      # unauthenticated - so a 403 there means a token was sent and rejected.
+      # The scanner's failure mode here is genuinely misleading: it reports
+      #   "HTTP 403 ... Please check the property sonar.token or the
+      #    environment variable SONAR_TOKEN"
+      # for a missing organization as well as for a bad credential, and the
+      # endpoint it fails on (api.sonarcloud.io/analysis/jres) answers 200
+      # unauthenticated - so a 403 there means a token was sent and rejected.
+      # This step isolates the credential from the configuration before the
+      # scan runs. It prints only an HTTP status, never the token.
+      - name: Verify the SonarCloud token
+        if: steps.guard.outputs.configured == 'true'
+        run: |
+          url="https://sonarcloud.io/api/authentication/validate"
+          code=$(curl -sS -o /tmp/sonar_validate.json -w '%{http_code}' -u "$SONAR_TOKEN:" "$url" || echo "000")
+
+          if [ "$code" = "200" ] && grep -q '"valid":true' /tmp/sonar_validate.json; then
+            echo "SONAR_TOKEN authenticates against SonarCloud."
+            exit 0
+          fi
+
+          if [ "$code" = "200" ]; then
+            # The endpoint answers 200 and puts the verdict in the body, so a
+            # 200 here means SonarCloud looked the token up and rejected it,
+            # not that the request failed. Reporting only the status code made
+            # this read as a contradiction.
+            echo "SonarCloud rejected the token: validate answered 200 with"
+            echo '{"valid":false}. The token is not recognised by SonarCloud.'
+          else
+            echo "Could not reach SonarCloud to validate the token (HTTP $code)."
+          fi
+
+          echo
+          echo "This is the credential, not the organization or project key."
+          echo "Check, in order:"
+          echo "  1. This job reads the secret SONAR_TOKEN1 (see the env block"
+          echo "     above). GitHub cannot rename a secret, so a token stored"
+          echo "     under any other name is never read."
+          echo "  2. It is a SonarCloud token, not a SonarQube Server one -"
+          echo "     different products, tokens are not interchangeable."
+          echo "  3. It has not been revoked or expired: regenerate at"
+          echo "     https://sonarcloud.io -> My Account -> Security."
+          echo "See docs/sonarqube.md."
+          exit 1
 
       - name: Checkout code
         if: steps.guard.outputs.configured == 'true'
@@ -262,7 +316,7 @@ jobs:
         if: steps.guard.outputs.configured == 'true'
         uses: SonarSource/sonarqube-scan-action@v5
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN1 }}
           SONAR_HOST_URL: https://sonarcloud.io
         with:
           args: ${{ steps.guard.outputs.args }}

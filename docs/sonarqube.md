@@ -111,6 +111,28 @@ That message points at the token, which is misleading — the token was fine; th
 scan was invoked as `sonar-scanner -Dsonar.organization= -Dsonar.projectKey=`.
 **If you see that 403, check the org variable before regenerating the token.**
 
+### Reading the 403
+
+The scan job runs a **token pre-check** before the scanner, because the
+scanner's own 403 does not distinguish a bad credential from a missing
+organization - it blames `sonar.token` either way. The pre-check calls
+`api/authentication/validate` with the token and prints only an HTTP status,
+never the token itself. If it fails, the credential is the problem; if it
+passes and the scan still 403s, the configuration is.
+
+Useful fact when diagnosing by hand: `api.sonarcloud.io/analysis/jres` answers
+**200 unauthenticated**. So a 403 from it means a token *was* sent and
+*rejected* - it is never a symptom of no token at all.
+
+GitHub cannot rename a secret, so the name has to match exactly. **In this repo
+the secret is named `SONAR_TOKEN1`**, and `ci.yml`'s `sonarcloud` job reads
+`secrets.SONAR_TOKEN1` for that reason - it maps it onto the `SONAR_TOKEN`
+*environment variable*, which is the name the scanner itself requires. Only the
+lookup differs. A token stored under any other name is never read, and the job
+then fails exactly as if the token were invalid, which is what happened three
+times before this was spotted. If you ever consolidate on a plain `SONAR_TOKEN`
+secret, the `env:` block at the top of that job is the single place to change.
+
 `SONAR_PROJECT_KEY` is optional: `sonar-project.properties` already sets
 `sonar.projectKey=devops-agent`, and the guard appends `-Dsonar.projectKey` only
 when the variable is non-empty. Passing it unconditionally sent an empty
@@ -124,10 +146,23 @@ outage cannot block a deploy. To promote it to a hard gate, add `sonarcloud` to
 
 1. Sign in at <https://sonarcloud.io> with GitHub and import this repository.
 2. Under **Administration → Analysis Method**, disable Automatic Analysis
-   (CI-based analysis and automatic analysis are mutually exclusive).
+   (CI-based analysis and automatic analysis are mutually exclusive). Skipping
+   this does not fail early or quietly - the scan runs almost to completion,
+   binds the project, auto-detects the PR and loads quality profiles, then
+   stops with:
+
+   ```
+   ERROR You are running CI analysis while Automatic Analysis is enabled.
+         Please consider disabling one or the other.
+   ```
+
+   Everything before that line succeeding is what makes it confusing: the job
+   looks configured because it *is* configured. The toggle lives on the
+   SonarCloud project, not in this repo, so no change here can fix it.
 3. Generate a token: **My Account → Security → Generate Token**.
 4. In GitHub → **Settings → Secrets and variables → Actions**:
-   - Secret `SONAR_TOKEN` — the token from step 3.
+   - Secret `SONAR_TOKEN1` — the token from step 3. The trailing `1` is
+     deliberate and matches what `ci.yml` reads; see "Reading the 403" above.
    - Variable `SONAR_ORGANIZATION` — your SonarCloud org key.
    - Variable `SONAR_PROJECT_KEY` — *optional*. Set it only if SonarCloud
      assigned a key different from the `sonar.projectKey=devops-agent` already
