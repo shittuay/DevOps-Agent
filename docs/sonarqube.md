@@ -180,3 +180,48 @@ fixed, so **do not read a clean Sonar report as evidence that `routes/mcp.py` is
 clean** — it is one of the guardrail-critical entry points listed above, so
 review it by hand. Re-check after each SonarQube upgrade by grepping the scan
 log for `Unable to analyze`.
+
+## GitGuardian findings on this work
+
+GitGuardian's GitHub check flagged secrets on the PR that added this analysis
+stack. None is a live credential. One was still worth acting on, and the rest
+need resolving in the GitGuardian dashboard rather than in the code - the check
+runs from that dashboard and scans every commit in the PR, so a repo-local
+ignore file would not suppress it and a later remediation commit does not clear
+an earlier commit's finding.
+
+**Acted on - `docker-compose.yml`'s shipped Postgres password.** The file
+defaulted `POSTGRES_PASSWORD` to `devops_local` and inlined the same value into
+the app service's `DATABASE_URL`. The `db` service publishes 5432 to the host,
+so that default was a known credential listening on every developer's machine.
+`POSTGRES_PASSWORD` now has no default: both services use
+`${POSTGRES_PASSWORD:?}` and compose fails closed without it. Note the value was
+already on `main` before this PR - GitGuardian surfaced it because the line was
+touched, not because the PR introduced it.
+
+**Remaining, all false positives, to be resolved in the dashboard:**
+
+- `scripts/sonar-scan.sh` - `SONAR_ADMIN_PASSWORD`. The literal `Sq1!` is a
+  password-policy character-class prefix (one upper, one lower, one digit, one
+  symbol) guaranteeing the generated value passes SonarQube's policy whatever
+  `/dev/urandom` produces; the entropy is the 20 random characters appended to
+  it. It is now built via a separate `POLICY_PREFIX` so no literal sits on a
+  `*_PASSWORD` assignment, which clears it for future commits but not for the
+  commit that introduced it.
+- `docker-compose.yml`'s `DATABASE_URL` line. The detector matches the
+  `scheme://user:pass@host` URI shape and fires even when the password is pure
+  interpolation (`${POSTGRES_PASSWORD:?}`). This one cannot be written around:
+  the line has to stay, because `env_file: .env` supplies a `DATABASE_URL`
+  pointing at `localhost` and the `environment:` entry is what overrides it to
+  `db` inside the compose network. Dropping it would break the stack.
+
+Two details worth keeping if this is revisited: the `:?` is deliberately bare,
+because spelling out a custom error message puts prose to the right of a
+`POSTGRES_PASSWORD:` assignment and the detector reads that as a value (it did,
+on the first attempt); and `docker-compose.sonar.yml`'s fixed `sonar`/`sonar`
+pair was never flagged and is deliberately kept, since that Postgres binds no
+host port and is reachable only from within its own compose network.
+
+Still carrying a literal dev credential, pre-existing and out of scope here:
+`alembic.ini`'s `sqlalchemy.url`. Worth folding into the same treatment the next
+time that file is touched.

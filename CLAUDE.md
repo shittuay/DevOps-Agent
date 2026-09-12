@@ -1100,6 +1100,14 @@ Optional:
   unset and `FLASK_ENV=production` (or `USE_AWS_SECRETS=true`); outside
   production it still builds a local default, now from
   `DEV_DB_USER`/`DEV_DB_PASSWORD`/`DEV_DB_HOST`.
+- `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — consumed by
+  `docker-compose.yml` only. **`POSTGRES_PASSWORD` has no default and compose
+  refuses to start without it** (`${POSTGRES_PASSWORD:?…}` on both the `db` and
+  `app` services): that database publishes 5432 to the host, so a shipped
+  default would be a known credential on every developer's machine. Set it in
+  `.env` — `.env.example` carries the key and a generator command. By contrast
+  `docker-compose.sonar.yml` does keep a fixed `sonar`/`sonar` pair, because its
+  Postgres binds no host port and is reachable only from that compose network.
 - `FLASK_RUN_HOST` - interface the **development** server (`python app.py`) binds
   to. Defaults to `127.0.0.1` as of 2026-09-12; it previously hardcoded
   `0.0.0.0`, exposing the dev server to the whole network. `docker-compose.yml`

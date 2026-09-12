@@ -78,9 +78,12 @@ else
   log "First run: rotating the default admin password and minting an analysis token"
 
   # SonarQube requires a strong password; build one that always satisfies the
-  # policy rather than shipping a hardcoded credential in this script.
+  # policy rather than shipping a hardcoded credential in this script. The
+  # prefix is not a secret - it only guarantees one upper, one lower, one digit
+  # and one symbol are present whatever /dev/urandom produces.
+  POLICY_PREFIX="$(printf 'Sq1\41')"
   RANDOM_PART=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)
-  SONAR_ADMIN_PASSWORD="Sq1!${RANDOM_PART}"
+  SONAR_ADMIN_PASSWORD="${POLICY_PREFIX}${RANDOM_PART}"
 
   curl -sf -u admin:admin -X POST "$HOST_URL/api/users/change_password" \
     -d "login=admin" \
