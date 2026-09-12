@@ -124,9 +124,14 @@ Useful fact when diagnosing by hand: `api.sonarcloud.io/analysis/jres` answers
 **200 unauthenticated**. So a 403 from it means a token *was* sent and
 *rejected* - it is never a symptom of no token at all.
 
-GitHub cannot rename a secret. A token stored under any name other than
-`SONAR_TOKEN` is simply never read, and the job fails exactly as if the token
-were invalid. Create a new secret named `SONAR_TOKEN` and delete the old one.
+GitHub cannot rename a secret, so the name has to match exactly. **In this repo
+the secret is named `SONAR_TOKEN1`**, and `ci.yml`'s `sonarcloud` job reads
+`secrets.SONAR_TOKEN1` for that reason - it maps it onto the `SONAR_TOKEN`
+*environment variable*, which is the name the scanner itself requires. Only the
+lookup differs. A token stored under any other name is never read, and the job
+then fails exactly as if the token were invalid, which is what happened three
+times before this was spotted. If you ever consolidate on a plain `SONAR_TOKEN`
+secret, the `env:` block at the top of that job is the single place to change.
 
 `SONAR_PROJECT_KEY` is optional: `sonar-project.properties` already sets
 `sonar.projectKey=devops-agent`, and the guard appends `-Dsonar.projectKey` only
@@ -144,7 +149,8 @@ outage cannot block a deploy. To promote it to a hard gate, add `sonarcloud` to
    (CI-based analysis and automatic analysis are mutually exclusive).
 3. Generate a token: **My Account → Security → Generate Token**.
 4. In GitHub → **Settings → Secrets and variables → Actions**:
-   - Secret `SONAR_TOKEN` — the token from step 3.
+   - Secret `SONAR_TOKEN1` — the token from step 3. The trailing `1` is
+     deliberate and matches what `ci.yml` reads; see "Reading the 403" above.
    - Variable `SONAR_ORGANIZATION` — your SonarCloud org key.
    - Variable `SONAR_PROJECT_KEY` — *optional*. Set it only if SonarCloud
      assigned a key different from the `sonar.projectKey=devops-agent` already

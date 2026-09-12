@@ -1268,12 +1268,24 @@ GitHub Actions workflows live in `.github/workflows/`:
   `ci.yml` also has a **`sonarcloud`** job (added 2026-09-12) that runs after
   `test` and reuses that job's `coverage.xml` artifact rather than re-running the
   suite — which is why the `coverage-report` artifact now uploads `coverage.xml`
-  alongside `htmlcov/`. It **skips itself cleanly until BOTH the `SONAR_TOKEN`
-  secret and the `SONAR_ORGANIZATION` repo *variable* are set**, so it is inert
-  until SonarCloud is configured (setup steps in `docs/sonarqube.md`). Checking
-  only the token was not enough and shipped red: this repo already had a
-  `SONAR_TOKEN` secret but neither variable, so the job ran and 403'd — a token
-  alone cannot authenticate, since `sonar.organization` has no default. The
+  alongside `htmlcov/`. **The GitHub secret it reads is `SONAR_TOKEN1`, not
+  `SONAR_TOKEN`** — GitHub cannot rename a secret, so the job's `env:` block maps
+  `secrets.SONAR_TOKEN1` onto the `SONAR_TOKEN` *environment variable* the
+  scanner requires; only the lookup differs, and that `env:` block is the single
+  place to change if the secret is ever consolidated. It **skips itself cleanly
+  until BOTH that secret and the `SONAR_ORGANIZATION` repo *variable* are set**,
+  so it is inert until SonarCloud is configured (setup steps in
+  `docs/sonarqube.md`). Checking only the token was not enough and shipped red:
+  this repo already had a stale `SONAR_TOKEN` secret but neither variable, so the
+  job ran and 403'd — a token alone cannot authenticate, since
+  `sonar.organization` has no default. **That 403 is deeply misleading and cost
+  three debugging cycles:** the scanner prints "Please check the property
+  sonar.token or the environment variable SONAR_TOKEN" for a missing
+  *organization* too, and `api.sonarcloud.io/analysis/jres` — the endpoint it
+  fails on — answers 200 unauthenticated, so a 403 there always means a token was
+  sent and rejected, never that none was sent. A `Verify the SonarCloud token`
+  pre-check step now isolates the credential from the configuration before the
+  scan runs, printing only an HTTP status. The
   `SONAR_PROJECT_KEY` variable stays optional because `sonar-project.properties`
   already sets `sonar.projectKey`; the guard only appends `-Dsonar.projectKey`
   when the variable is non-empty, because passing it unconditionally sent an

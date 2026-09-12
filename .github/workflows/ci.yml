@@ -213,7 +213,12 @@ jobs:
     # unconfigured token must never block a deploy. Promote it by adding
     # `sonarcloud` to status-check's `needs` and its result check.
     env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # The GitHub secret is named SONAR_TOKEN1, not SONAR_TOKEN. GitHub cannot
+      # rename a secret, so rather than leave a dead SONAR_TOKEN shadowing the
+      # live one, the lookup points at the name this repo actually has. The
+      # environment variable stays SONAR_TOKEN because that is the name the
+      # scanner itself reads - only the lookup differs.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN1 }}
     steps:
       - name: Check whether SonarCloud is configured
         id: guard
@@ -225,7 +230,7 @@ jobs:
           # the scanner 403s without it. Checking only the token let a repo with
           # a token but no variables fail the job instead of skipping it.
           missing=""
-          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN(secret)"
+          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN1(secret)"
           [ -n "$SONAR_ORGANIZATION" ] || missing="$missing SONAR_ORGANIZATION(variable)"
           if [ -n "$missing" ]; then
             echo "SonarCloud is not configured - skipping analysis."
@@ -263,8 +268,9 @@ jobs:
             echo
             echo "This is the credential, not the organization or project key."
             echo "Check, in order:"
-            echo "  1. The secret is named exactly SONAR_TOKEN (GitHub cannot"
-            echo "     rename a secret - a differently-named one is never read)."
+            echo "  1. The secret this job reads is SONAR_TOKEN1 (see the env"
+            echo "     block above). GitHub cannot rename a secret, so a token"
+            echo "     stored under any other name here is never read."
             echo "  2. The token is a SonarCloud token, not a SonarQube Server one."
             echo "  3. It has not been revoked or expired: regenerate at"
             echo "     https://sonarcloud.io -> My Account -> Security."
@@ -290,7 +296,7 @@ jobs:
         if: steps.guard.outputs.configured == 'true'
         uses: SonarSource/sonarqube-scan-action@v5
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN1 }}
           SONAR_HOST_URL: https://sonarcloud.io
         with:
           args: ${{ steps.guard.outputs.args }}
