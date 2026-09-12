@@ -100,7 +100,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: htmlcov/
+          path: |
+            htmlcov/
+            coverage.xml
           retention-days: 7
 
   security:
@@ -202,6 +204,68 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
         continue-on-error: true
+
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    needs: [test]
+    # Deliberately NOT in status-check's needs: a SonarCloud outage or an
+    # unconfigured token must never block a deploy. Promote it by adding
+    # `sonarcloud` to status-check's `needs` and its result check.
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Check whether SonarCloud is configured
+        id: guard
+        env:
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          # The token alone is not enough: sonar.organization has no default and
+          # the scanner 403s without it. Checking only the token let a repo with
+          # a token but no variables fail the job instead of skipping it.
+          missing=""
+          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN(secret)"
+          [ -n "$SONAR_ORGANIZATION" ] || missing="$missing SONAR_ORGANIZATION(variable)"
+          if [ -n "$missing" ]; then
+            echo "SonarCloud is not configured - skipping analysis."
+            echo "Missing:$missing"
+            echo "See docs/sonarqube.md for one-time setup."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          args="-Dsonar.organization=$SONAR_ORGANIZATION"
+          # projectKey already has a value in sonar-project.properties; only
+          # override it when the variable is set. Passing it unconditionally
+          # sent an empty -Dsonar.projectKey= that clobbered that value.
+          if [ -n "$SONAR_PROJECT_KEY" ]; then
+            args="$args -Dsonar.projectKey=$SONAR_PROJECT_KEY"
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/checkout@v4
+        with:
+          # Full history so SonarCloud can attribute new code to commits, which
+          # is what the Clean as You Code quality gate is measured against.
+          fetch-depth: 0
+
+      - name: Download coverage from the test job
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: SonarCloud scan
+        if: steps.guard.outputs.configured == 'true'
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: ${{ steps.guard.outputs.args }}
 
   status-check:
     name: All Checks Passed

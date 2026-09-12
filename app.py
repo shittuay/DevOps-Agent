@@ -240,7 +240,22 @@ app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 
 # Database configuration
 # PostgreSQL for both local dev and production
-database_url = os.environ.get('DATABASE_URL', 'postgresql://devops:devops_local@localhost:5432/devops_agent')
+database_url = os.environ.get('DATABASE_URL')
+if not database_url:
+    # The local-dev fallback below carries a well-known password (it matches
+    # docker-compose.yml's dev database). Falling back to it in production would
+    # either fail obscurely or, worse, connect to some unintended local database,
+    # so refuse instead of guessing.
+    if os.environ.get('FLASK_ENV') == 'production' or os.environ.get('USE_AWS_SECRETS') == 'true':
+        raise RuntimeError(
+            "DATABASE_URL is not set. It is required in production - refusing to "
+            "fall back to the local development database."
+        )
+    database_url = (
+        f"postgresql://{os.environ.get('DEV_DB_USER', 'devops')}"
+        f":{os.environ.get('DEV_DB_PASSWORD', 'devops_local')}"
+        f"@{os.environ.get('DEV_DB_HOST', 'localhost')}:5432/devops_agent"
+    )
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
@@ -518,9 +533,12 @@ def handle_rate_limit(e):
     limit = getattr(e, 'description', str(e))
     if request.path.startswith('/api/') or request.path.startswith('/chat'):
         return jsonify({'error': f'Rate limit exceeded. {limit}'}), 429
-    return render_template('429.html', limit=limit) if _template_exists('429.html') else (
-        f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
-    )
+    # Both branches must carry the status explicitly: render_template() alone
+    # returns a bare string, which Flask serves as 200 - so adding a 429.html
+    # would have quietly turned every rate-limited response into a success.
+    if _template_exists('429.html'):
+        return render_template('429.html', limit=limit), 429
+    return f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
 
 
 def _template_exists(name):
@@ -6408,4 +6426,9 @@ if __name__ == '__main__':
         print(f"  Warning: Scheduler failed to start: {e}")
 
     debug_mode = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False, threaded=True)
+    # Loopback by default so `python app.py` does not expose the development
+    # server to the whole network. Containers need to bind all interfaces to be
+    # reachable through a published port, so docker-compose.yml sets
+    # FLASK_RUN_HOST=0.0.0.0 explicitly. Production serves via gunicorn, not here.
+    run_host = os.environ.get('FLASK_RUN_HOST', '127.0.0.1')
+    app.run(host=run_host, port=port, debug=debug_mode, use_reloader=False, threaded=True)

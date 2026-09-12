@@ -1091,7 +1091,29 @@ Required:
 
 Optional:
 - `CREDENTIAL_ENCRYPTION_KEY` - For credential encryption
-- `DATABASE_URL` - Database connection string
+- `DATABASE_URL` - Database connection string. **Required in production as of
+  2026-09-12**: `app.py` used to default to
+  `postgresql://devops:devops_local@localhost:5432/devops_agent` — a hardcoded,
+  well-known credential shared with `docker-compose.yml` — which meant a
+  production process that lost its `DATABASE_URL` would silently try a local
+  database instead of failing. It now raises at startup when `DATABASE_URL` is
+  unset and `FLASK_ENV=production` (or `USE_AWS_SECRETS=true`); outside
+  production it still builds a local default, now from
+  `DEV_DB_USER`/`DEV_DB_PASSWORD`/`DEV_DB_HOST`.
+- `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — consumed by
+  `docker-compose.yml` only. **`POSTGRES_PASSWORD` has no default and compose
+  refuses to start without it** (`${POSTGRES_PASSWORD:?…}` on both the `db` and
+  `app` services): that database publishes 5432 to the host, so a shipped
+  default would be a known credential on every developer's machine. Set it in
+  `.env` — `.env.example` carries the key and a generator command. By contrast
+  `docker-compose.sonar.yml` does keep a fixed `sonar`/`sonar` pair, because its
+  Postgres binds no host port and is reachable only from that compose network.
+- `FLASK_RUN_HOST` - interface the **development** server (`python app.py`) binds
+  to. Defaults to `127.0.0.1` as of 2026-09-12; it previously hardcoded
+  `0.0.0.0`, exposing the dev server to the whole network. `docker-compose.yml`
+  sets it to `0.0.0.0` explicitly, since a container must bind all interfaces for
+  its published port to be reachable. Production serves via gunicorn and never
+  reaches this line.
 - `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi API key (required for Kimi model provider)
@@ -1180,9 +1202,30 @@ python -m pytest tests/ -v   # Verbose
 
 Tests run against **SQLite in-memory** (forced in `tests/conftest.py`, overriding
 `DATABASE_URL`) — Postgres is not required to run the suite. Current suite:
-**497 passing**. `tests/test_stripe.py` and `tests/test_secrets_manager.py` are
+**992 passing, 1 skipped** (~4 minutes with coverage; verified 2026-09-12 — this
+line previously read "497 passing", which had drifted badly out of date).
+`tests/test_stripe.py` and `tests/test_secrets_manager.py` are
 diagnostic scripts that hit live Stripe/AWS APIs; they are excluded from pytest
 collection (`collect_ignore` in `conftest.py`) and run directly instead.
+
+### Static analysis (SonarQube)
+
+`docker-compose.sonar.yml` + `scripts/sonar-scan.sh` run a local SonarQube
+server for analysing this repo; `.github/workflows/ci.yml` has a matching
+SonarCloud job. Full operator guide, including which findings must **not** be
+auto-fixed, is in [docs/sonarqube.md](docs/sonarqube.md).
+
+```bash
+docker compose -f docker-compose.sonar.yml up -d
+./scripts/sonar-scan.sh --coverage        # http://localhost:9000
+```
+
+**Sonar does not know this codebase's security invariants and will recommend
+changes that break them.** The duplicated four-step guardrails pipeline, the
+`safety.py` risk sets, `_reject_flag_like`/`assert_safe_url` call sites, and
+`routes/auth.py`'s deliberately-uniform timing all read to Sonar as duplication,
+redundancy, or dead computation. Findings in those files get reviewed by a
+human, never bulk-applied — `docs/sonarqube.md` lists them.
 
 ## Dependency Pinning Policy
 
@@ -1222,6 +1265,26 @@ GitHub Actions workflows live in `.github/workflows/`:
   (`/home/ubuntu/.ssh/deploy_key`, wired through the repo's `core.sshCommand`) so no
   token is ever passed through SSM command parameters/CloudTrail. Deploy targets the
   real layout: repo `/var/www/devops-agent`, venv `…/venv`, health on port `8000`.
+  `ci.yml` also has a **`sonarcloud`** job (added 2026-09-12) that runs after
+  `test` and reuses that job's `coverage.xml` artifact rather than re-running the
+  suite — which is why the `coverage-report` artifact now uploads `coverage.xml`
+  alongside `htmlcov/`. It **skips itself cleanly until BOTH the `SONAR_TOKEN`
+  secret and the `SONAR_ORGANIZATION` repo *variable* are set**, so it is inert
+  until SonarCloud is configured (setup steps in `docs/sonarqube.md`). Checking
+  only the token was not enough and shipped red: this repo already had a
+  `SONAR_TOKEN` secret but neither variable, so the job ran and 403'd — a token
+  alone cannot authenticate, since `sonar.organization` has no default. The
+  `SONAR_PROJECT_KEY` variable stays optional because `sonar-project.properties`
+  already sets `sonar.projectKey`; the guard only appends `-Dsonar.projectKey`
+  when the variable is non-empty, because passing it unconditionally sent an
+  empty `-Dsonar.projectKey=` that clobbered the properties file's value. **A
+  guard over a multi-value integration must check every value that has no
+  default, not just the secret-shaped one.** It is deliberately **not** in
+  `status-check`'s `needs`, so a SonarCloud outage or an expired token can never
+  block a deploy — promoting it to a hard gate means adding it there and checking
+  its result. SonarCloud's default **Clean as You Code** gate only measures *new*
+  code, so the existing ~121k lines stay a legacy baseline instead of failing
+  every PR with a five-figure backlog.
 - **`security-scan.yml`** — routine vulnerability scan on a **daily cron
   (`0 6 * * *`, 06:00 UTC)**, independent of pushes/PRs. Also runnable on demand
   via `workflow_dispatch` (Actions tab → "Scheduled Security Scan" → Run workflow).
