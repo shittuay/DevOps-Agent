@@ -255,28 +255,48 @@ jobs:
       # for a missing organization as well as for a bad credential, and the
       # endpoint it fails on (api.sonarcloud.io/analysis/jres) answers 200
       # unauthenticated - so a 403 there means a token was sent and rejected.
+      # The scanner's failure mode here is genuinely misleading: it reports
+      #   "HTTP 403 ... Please check the property sonar.token or the
+      #    environment variable SONAR_TOKEN"
+      # for a missing organization as well as for a bad credential, and the
+      # endpoint it fails on (api.sonarcloud.io/analysis/jres) answers 200
+      # unauthenticated - so a 403 there means a token was sent and rejected.
       # This step isolates the credential from the configuration before the
       # scan runs. It prints only an HTTP status, never the token.
       - name: Verify the SonarCloud token
         if: steps.guard.outputs.configured == 'true'
         run: |
-          code=$(curl -sS -o /tmp/sonar_validate.json -w '%{http_code}'             -u "$SONAR_TOKEN:"             "https://sonarcloud.io/api/authentication/validate" || echo "000")
+          url="https://sonarcloud.io/api/authentication/validate"
+          code=$(curl -sS -o /tmp/sonar_validate.json -w '%{http_code}' -u "$SONAR_TOKEN:" "$url" || echo "000")
+
           if [ "$code" = "200" ] && grep -q '"valid":true' /tmp/sonar_validate.json; then
             echo "SONAR_TOKEN authenticates against SonarCloud."
-          else
-            echo "SONAR_TOKEN did not authenticate with SonarCloud (HTTP $code)."
-            echo
-            echo "This is the credential, not the organization or project key."
-            echo "Check, in order:"
-            echo "  1. The secret this job reads is SONAR_TOKEN1 (see the env"
-            echo "     block above). GitHub cannot rename a secret, so a token"
-            echo "     stored under any other name here is never read."
-            echo "  2. The token is a SonarCloud token, not a SonarQube Server one."
-            echo "  3. It has not been revoked or expired: regenerate at"
-            echo "     https://sonarcloud.io -> My Account -> Security."
-            echo "See docs/sonarqube.md."
-            exit 1
+            exit 0
           fi
+
+          if [ "$code" = "200" ]; then
+            # The endpoint answers 200 and puts the verdict in the body, so a
+            # 200 here means SonarCloud looked the token up and rejected it,
+            # not that the request failed. Reporting only the status code made
+            # this read as a contradiction.
+            echo "SonarCloud rejected the token: validate answered 200 with"
+            echo '{"valid":false}. The token is not recognised by SonarCloud.'
+          else
+            echo "Could not reach SonarCloud to validate the token (HTTP $code)."
+          fi
+
+          echo
+          echo "This is the credential, not the organization or project key."
+          echo "Check, in order:"
+          echo "  1. This job reads the secret SONAR_TOKEN1 (see the env block"
+          echo "     above). GitHub cannot rename a secret, so a token stored"
+          echo "     under any other name is never read."
+          echo "  2. It is a SonarCloud token, not a SonarQube Server one -"
+          echo "     different products, tokens are not interchangeable."
+          echo "  3. It has not been revoked or expired: regenerate at"
+          echo "     https://sonarcloud.io -> My Account -> Security."
+          echo "See docs/sonarqube.md."
+          exit 1
 
       - name: Checkout code
         if: steps.guard.outputs.configured == 'true'

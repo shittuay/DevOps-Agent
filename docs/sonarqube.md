@@ -146,7 +146,19 @@ outage cannot block a deploy. To promote it to a hard gate, add `sonarcloud` to
 
 1. Sign in at <https://sonarcloud.io> with GitHub and import this repository.
 2. Under **Administration → Analysis Method**, disable Automatic Analysis
-   (CI-based analysis and automatic analysis are mutually exclusive).
+   (CI-based analysis and automatic analysis are mutually exclusive). Skipping
+   this does not fail early or quietly - the scan runs almost to completion,
+   binds the project, auto-detects the PR and loads quality profiles, then
+   stops with:
+
+   ```
+   ERROR You are running CI analysis while Automatic Analysis is enabled.
+         Please consider disabling one or the other.
+   ```
+
+   Everything before that line succeeding is what makes it confusing: the job
+   looks configured because it *is* configured. The toggle lives on the
+   SonarCloud project, not in this repo, so no change here can fix it.
 3. Generate a token: **My Account → Security → Generate Token**.
 4. In GitHub → **Settings → Secrets and variables → Actions**:
    - Secret `SONAR_TOKEN1` — the token from step 3. The trailing `1` is
