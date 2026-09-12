@@ -1268,11 +1268,11 @@ GitHub Actions workflows live in `.github/workflows/`:
   `ci.yml` also has a **`sonarcloud`** job (added 2026-09-12) that runs after
   `test` and reuses that job's `coverage.xml` artifact rather than re-running the
   suite — which is why the `coverage-report` artifact now uploads `coverage.xml`
-  alongside `htmlcov/`. **The GitHub secret it reads is `SONAR_TOKEN1`, not
-  `SONAR_TOKEN`** — GitHub cannot rename a secret, so the job's `env:` block maps
-  `secrets.SONAR_TOKEN1` onto the `SONAR_TOKEN` *environment variable* the
-  scanner requires; only the lookup differs, and that `env:` block is the single
-  place to change if the secret is ever consolidated. It **skips itself cleanly
+  alongside `htmlcov/`. It reads the `SONAR_TOKEN` secret (the `env:` block at
+  the top of the job is the only place that name appears). GitHub cannot rename
+  a secret, and a token under any other name is never read and fails *exactly*
+  like an invalid one — that cost three debugging cycles here while a valid
+  token sat in a secret named `SONAR_TOKEN1`. It **skips itself cleanly
   until BOTH that secret and the `SONAR_ORGANIZATION` repo *variable* are set**,
   so it is inert until SonarCloud is configured (setup steps in
   `docs/sonarqube.md`). Checking only the token was not enough and shipped red:
