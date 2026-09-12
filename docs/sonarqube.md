@@ -94,11 +94,31 @@ areas as **reports to review, not instructions to apply**:
 `ci.yml` has a `sonarcloud` job that runs after `test`, reusing that job's
 `coverage.xml` artifact instead of re-running the suite.
 
-It **skips cleanly when `SONAR_TOKEN` is unset**, so the pipeline is unaffected
-until you finish the one-time setup below. It is also deliberately *not* part of
-`status-check`'s `needs`, so a SonarCloud outage cannot block a deploy. To
-promote it to a hard gate, add `sonarcloud` to `status-check`'s `needs` and
-check its result there.
+It **skips cleanly until both `SONAR_TOKEN` (secret) and `SONAR_ORGANIZATION`
+(variable) are set**, so the pipeline is unaffected until you finish the one-time
+setup below. Both are required: a token on its own cannot authenticate, because
+`sonar.organization` has no default and the scanner 403s without it. An earlier
+version of the guard checked only the token, and since this repo already had a
+`SONAR_TOKEN` secret but neither variable, the job ran and failed on every PR:
+
+```
+ERROR Failed to query JRE metadata: GET https://api.sonarcloud.io/analysis/jres
+      failed with HTTP 403. Please check the property sonar.token or the
+      environment variable SONAR_TOKEN.
+```
+
+That message points at the token, which is misleading — the token was fine; the
+scan was invoked as `sonar-scanner -Dsonar.organization= -Dsonar.projectKey=`.
+**If you see that 403, check the org variable before regenerating the token.**
+
+`SONAR_PROJECT_KEY` is optional: `sonar-project.properties` already sets
+`sonar.projectKey=devops-agent`, and the guard appends `-Dsonar.projectKey` only
+when the variable is non-empty. Passing it unconditionally sent an empty
+`-Dsonar.projectKey=` on the command line, which clobbered the properties value.
+
+It is also deliberately *not* part of `status-check`'s `needs`, so a SonarCloud
+outage cannot block a deploy. To promote it to a hard gate, add `sonarcloud` to
+`status-check`'s `needs` and check its result there.
 
 ### One-time setup
 
@@ -109,8 +129,9 @@ check its result there.
 4. In GitHub → **Settings → Secrets and variables → Actions**:
    - Secret `SONAR_TOKEN` — the token from step 3.
    - Variable `SONAR_ORGANIZATION` — your SonarCloud org key.
-   - Variable `SONAR_PROJECT_KEY` — the project key SonarCloud assigned
-     (typically `<org>_<repo>`).
+   - Variable `SONAR_PROJECT_KEY` — *optional*. Set it only if SonarCloud
+     assigned a key different from the `sonar.projectKey=devops-agent` already
+     in `sonar-project.properties` (it typically assigns `<org>_<repo>`).
 
 The default **Clean as You Code** quality gate only measures *new* code, so the
 existing ~121k lines become a legacy baseline instead of failing every PR with a

@@ -1268,10 +1268,18 @@ GitHub Actions workflows live in `.github/workflows/`:
   `ci.yml` also has a **`sonarcloud`** job (added 2026-09-12) that runs after
   `test` and reuses that job's `coverage.xml` artifact rather than re-running the
   suite — which is why the `coverage-report` artifact now uploads `coverage.xml`
-  alongside `htmlcov/`. It **skips itself cleanly when the `SONAR_TOKEN` secret is
-  unset**, so it is inert until SonarCloud is configured (setup steps in
-  `docs/sonarqube.md`; it also needs the `SONAR_ORGANIZATION` and
-  `SONAR_PROJECT_KEY` repo *variables*). It is deliberately **not** in
+  alongside `htmlcov/`. It **skips itself cleanly until BOTH the `SONAR_TOKEN`
+  secret and the `SONAR_ORGANIZATION` repo *variable* are set**, so it is inert
+  until SonarCloud is configured (setup steps in `docs/sonarqube.md`). Checking
+  only the token was not enough and shipped red: this repo already had a
+  `SONAR_TOKEN` secret but neither variable, so the job ran and 403'd — a token
+  alone cannot authenticate, since `sonar.organization` has no default. The
+  `SONAR_PROJECT_KEY` variable stays optional because `sonar-project.properties`
+  already sets `sonar.projectKey`; the guard only appends `-Dsonar.projectKey`
+  when the variable is non-empty, because passing it unconditionally sent an
+  empty `-Dsonar.projectKey=` that clobbered the properties file's value. **A
+  guard over a multi-value integration must check every value that has no
+  default, not just the secret-shaped one.** It is deliberately **not** in
   `status-check`'s `needs`, so a SonarCloud outage or an expired token can never
   block a deploy — promoting it to a hard gate means adding it there and checking
   its result. SonarCloud's default **Clean as You Code** gate only measures *new*
