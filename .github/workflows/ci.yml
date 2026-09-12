@@ -213,12 +213,7 @@ jobs:
     # unconfigured token must never block a deploy. Promote it by adding
     # `sonarcloud` to status-check's `needs` and its result check.
     env:
-      # The GitHub secret is named SONAR_TOKEN1, not SONAR_TOKEN. GitHub cannot
-      # rename a secret, so rather than leave a dead SONAR_TOKEN shadowing the
-      # live one, the lookup points at the name this repo actually has. The
-      # environment variable stays SONAR_TOKEN because that is the name the
-      # scanner itself reads - only the lookup differs.
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN1 }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Check whether SonarCloud is configured
         id: guard
@@ -230,7 +225,7 @@ jobs:
           # the scanner 403s without it. Checking only the token let a repo with
           # a token but no variables fail the job instead of skipping it.
           missing=""
-          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN1(secret)"
+          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN(secret)"
           [ -n "$SONAR_ORGANIZATION" ] || missing="$missing SONAR_ORGANIZATION(variable)"
           if [ -n "$missing" ]; then
             echo "SonarCloud is not configured - skipping analysis."
@@ -249,12 +244,6 @@ jobs:
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "args=$args" >> "$GITHUB_OUTPUT"
 
-      # The scanner's failure mode here is genuinely misleading: it reports
-      #   "HTTP 403 ... Please check the property sonar.token or the
-      #    environment variable SONAR_TOKEN"
-      # for a missing organization as well as for a bad credential, and the
-      # endpoint it fails on (api.sonarcloud.io/analysis/jres) answers 200
-      # unauthenticated - so a 403 there means a token was sent and rejected.
       # The scanner's failure mode here is genuinely misleading: it reports
       #   "HTTP 403 ... Please check the property sonar.token or the
       #    environment variable SONAR_TOKEN"
@@ -288,9 +277,9 @@ jobs:
           echo
           echo "This is the credential, not the organization or project key."
           echo "Check, in order:"
-          echo "  1. This job reads the secret SONAR_TOKEN1 (see the env block"
-          echo "     above). GitHub cannot rename a secret, so a token stored"
-          echo "     under any other name is never read."
+          echo "  1. The secret is named exactly SONAR_TOKEN. GitHub cannot"
+          echo "     rename a secret, so a token stored under any other name"
+          echo "     is never read and fails exactly like an invalid one."
           echo "  2. It is a SonarCloud token, not a SonarQube Server one -"
           echo "     different products, tokens are not interchangeable."
           echo "  3. It has not been revoked or expired: regenerate at"
@@ -314,9 +303,14 @@ jobs:
 
       - name: SonarCloud scan
         if: steps.guard.outputs.configured == 'true'
-        uses: SonarSource/sonarqube-scan-action@v5
+        # Pinned to a SHA, not a tag: GHSA-5xq9-5g24-4g6f was an argument
+        # injection in this action itself (affects >=4.0.0, <6.0.0), and a
+        # mutable tag is re-pointable by whoever controls the repository.
+        # v8.2.1 - `args` and `projectBaseDir` are unchanged from v5, verified
+        # against the v8.2.1 action.yml before bumping.
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN1 }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
         with:
           args: ${{ steps.guard.outputs.args }}
