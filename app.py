@@ -533,9 +533,12 @@ def handle_rate_limit(e):
     limit = getattr(e, 'description', str(e))
     if request.path.startswith('/api/') or request.path.startswith('/chat'):
         return jsonify({'error': f'Rate limit exceeded. {limit}'}), 429
-    return render_template('429.html', limit=limit) if _template_exists('429.html') else (
-        f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
-    )
+    # Both branches must carry the status explicitly: render_template() alone
+    # returns a bare string, which Flask serves as 200 - so adding a 429.html
+    # would have quietly turned every rate-limited response into a success.
+    if _template_exists('429.html'):
+        return render_template('429.html', limit=limit), 429
+    return f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
 
 
 def _template_exists(name):

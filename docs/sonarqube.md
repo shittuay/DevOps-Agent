@@ -134,6 +134,33 @@ file by hand, or wipe the server with `down -v` (destroys history).
 `docker-compose.sonar.yml` mounts the repo root at `/usr/src`, which is the
 scanner image's default working directory.
 
+## Triage backlog (first scan, 2026-09-12)
+
+The first scan reported 2203 issues (63 vulnerabilities, 197 bugs, 1943 smells;
+20 BLOCKER). Everything BLOCKER was fixed or dispositioned. What remains, ranked
+by value per unit of risk:
+
+| # | Work | Size | Notes |
+| --- | --- | --- | --- |
+| 1 | **Template accessibility** — `Web:InputWithoutLabelCheck` (105), `Web:MouseEventWithoutKeyboardEquivalentCheck` (68), `Web:S6853` (84), `Web:S6848` (67) | ~170 bugs + ~150 smells across ~25 templates | Real WCAG defects: inputs with no associated `<label>`, and click handlers on non-interactive elements with no keyboard path. Mechanical but wide, and templates have no render tests, so it wants its own PR with visual checks. Highest user-visible value left. |
+| 2 | **`python:S6903` — `datetime.utcnow()`** (292) | 292 sites, `models.py` (24), `infrastructure_sync.py` (22), `app.py` (19) | Deprecated in 3.12; returns a naive datetime. Migrating to `datetime.now(timezone.utc)` changes values from naive to aware, which **will** break comparisons against existing naive datetimes. Needs a deliberate, tested migration, not a find-and-replace. |
+| 3 | **`python:S1192` — duplicated literals** (230) | `aws_tools.py` (39), `app.py` (20) | Low risk, low reward. Good first-issue material. |
+| 4 | **`python:S3776` — cognitive complexity** (138) | `app.py` (14), `src/agent/core.py` (11) | Genuine complexity, but these are the most safety-critical functions in the codebase. Refactor only alongside tests for the function being split. |
+| 5 | **`css:S7924` — contrast** (275) | `base.html` (12), and most page templates | Accessibility; pairs naturally with item 1. |
+| 6 | **Remaining template duplication** (~4500 lines) | `about`/`security`, `404`/`500`, `privacy`/`usage`, `billing`, `profile` | Only `forgot_password`/`reset_password` were byte-identical and safe to extract mechanically. The rest are *similar*, not identical (Sonar's CPD is token-based), so consolidating them means adopting a shared base layout for public pages — a design change, per `CLAUDE.md`'s rule that such work gets its own reviewed PR. |
+
+Findings marked **False Positive** in SonarQube, with justifications recorded on
+each issue — do not "fix" these if they reappear:
+
+- `routes/auth.py` `_DUMMY_PASSWORD_HASH` (`python:S6437`) — the fixed hash is
+  what makes login's bcrypt cost uniform for unknown accounts. Removing or
+  randomising it reopens account enumeration.
+- `services/learning_sandbox.py` simulated GitLab trigger token (`python:S6418`)
+  — mock data, authenticates nothing.
+- `templates/analytics/*.html` `new Chart(...)` (`javascript:S1848`) ×3 — the
+  Chart.js constructor renders via side effect; the reference is intentionally
+  not retained because the chart is built once and never re-rendered.
+
 ## Known gaps
 
 **`routes/mcp.py` is not analysed.** The Python analyzer shipped with SonarQube
