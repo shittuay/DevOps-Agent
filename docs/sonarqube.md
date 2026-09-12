@@ -111,6 +111,23 @@ That message points at the token, which is misleading — the token was fine; th
 scan was invoked as `sonar-scanner -Dsonar.organization= -Dsonar.projectKey=`.
 **If you see that 403, check the org variable before regenerating the token.**
 
+### Reading the 403
+
+The scan job runs a **token pre-check** before the scanner, because the
+scanner's own 403 does not distinguish a bad credential from a missing
+organization - it blames `sonar.token` either way. The pre-check calls
+`api/authentication/validate` with the token and prints only an HTTP status,
+never the token itself. If it fails, the credential is the problem; if it
+passes and the scan still 403s, the configuration is.
+
+Useful fact when diagnosing by hand: `api.sonarcloud.io/analysis/jres` answers
+**200 unauthenticated**. So a 403 from it means a token *was* sent and
+*rejected* - it is never a symptom of no token at all.
+
+GitHub cannot rename a secret. A token stored under any name other than
+`SONAR_TOKEN` is simply never read, and the job fails exactly as if the token
+were invalid. Create a new secret named `SONAR_TOKEN` and delete the old one.
+
 `SONAR_PROJECT_KEY` is optional: `sonar-project.properties` already sets
 `sonar.projectKey=devops-agent`, and the guard appends `-Dsonar.projectKey` only
 when the variable is non-empty. Passing it unconditionally sent an empty
