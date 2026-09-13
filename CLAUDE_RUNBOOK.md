@@ -2637,3 +2637,78 @@ is unaffected); severity is still logged for ops-level visibility. Existing
 970 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
 the same environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in
 this file — not a regression).
+
+## Scheduled audit (2026-09-13): ChatOps `/metrics` and `/oncall` fabricated data; `/status` silently showed 0 for two real counters
+
+Routine review of `src/tools/`, `services/`, and `routes/` for vulnerabilities,
+smells, and duplication. Grepped for the standing fabrication tells this repo
+already tracks (`# In a real implementation`, `random.uniform`/`random.randint`
+outside `learning_sandbox.py`'s intentional mock generator) and found two more
+in `services/chatops_service.py`'s `_cmd_metrics` and `_cmd_oncall` — the same
+file that had its per-user-arity `TypeError`s fixed the day before (2026-09-12,
+see the SonarQube entry above), but this bug was invisible to that pass because
+it never raises: it's a silent wrong-data bug, not a crash.
+
+Unlike every sibling command in the file (`_cmd_status`, `_cmd_incidents`,
+`_cmd_alerts`, `_cmd_playbooks`, ...), which all call `_require_app_user()` and
+read real per-user state from `incident_response`/`proactive_monitoring`,
+`_cmd_metrics` took no user argument at all and returned a fixed block of
+invented numbers ("CPU Utilization: 45% (avg)", "Request Rate: 1.2k/min",
+"Replication Lag: 0ms") to every account running `/metrics` in Slack or Teams.
+`_cmd_oncall` did the same for a fake on-call roster ("Primary: @devops-team",
+"Secondary: @sre-team") on every `/oncall`. Both are exactly the class of bug
+CLAUDE.md's "Non-negotiable: every feature runs against a real cloud account"
+section exists to catch — canned output indistinguishable from a real query —
+just for chat-command status instead of a dashboard.
+
+Separately, `_cmd_status` read `mon_status.get('active_rules', 0)` and
+`mon_status.get('alerts_count', 0)`, but `ProactiveMonitoringService.get_status()`
+returns `rules_enabled` and `alerts_active` — neither key `_cmd_status` read
+has ever existed in that dict, so "Active Rules" and "Active Alerts" silently
+displayed 0 in every `/status` reply regardless of the account's real counts.
+`.get(key, default)` swallows the typo with no exception, which is why Sonar's
+arity-mismatch scan (S930) didn't catch this one either.
+
+**Fix (`services/chatops_service.py`):**
+- `_cmd_status` now reads `rules_enabled` / `alerts_active`, the keys
+  `get_status()` actually returns.
+- `_cmd_metrics` now calls `_require_app_user()` and lists the caller's real
+  configured monitoring rules from `ProactiveMonitoringService.get_rules()`
+  (name, source, last collected value, state, threshold) with the same
+  `service_filter` argument now matching against rule name/labels. An account
+  with no monitoring rules configured gets an honest "no monitoring rules are
+  configured" message instead of invented numbers — fail closed, not fake
+  data, matching the pattern already used by Drift Detection and Predictive
+  Scaling for the same underlying rule.
+- `_cmd_oncall` now says plainly that no live PagerDuty/OpsGenie on-call is
+  connected, rather than showing a schedule that was never true for any real
+  account. There is no per-user PagerDuty/OpsGenie credential store the way
+  there is for AWS/Azure/GCP (`UserCloudCredential`) for this command to read
+  safely — `pagerduty_list_oncalls`/`opsgenie_get_oncall` in
+  `alerting_tools.py` take a caller-supplied `api_key` or fall back to a
+  single app-wide env var, neither of which is the right credential source
+  for a per-tenant chat command — so building a real integration here is left
+  as a follow-up rather than reusing the wrong credential model under audit
+  time pressure.
+
+**Not fixed in this pass, already flagged in CLAUDE.md and still open:**
+`services/analytics_service.py`'s Advanced Analytics Dashboard (hardcoded
+per-service/per-team cost breakdowns, a cost forecast built on
+`random.uniform()` noise) — same fabrication class, larger surface (needs its
+4 consumer templates read first per the existing note), intentionally left to
+its own reviewed change rather than folded into this drive-by fix.
+
+**Tests:** new `tests/test_chatops_fabricated_data.py` (5 cases, no Flask/app
+import required — mocks `get_monitoring_service`/`get_incident_engine`
+directly): `/metrics` with no rules configured reports honestly and contains
+none of the old static numbers; `/metrics` with a real rule shows its actual
+name/source/value and still contains none of the old static numbers;
+`/metrics` raises `_UnresolvedAppUser` with no caller identity, like every
+other per-user command; `/oncall` no longer mentions the fake `@devops-team`/
+`@sre-team` names; `/status` reports the real `rules_enabled`/`alerts_active`
+values instead of always 0. Could not run the full suite in this audit
+environment (missing `flask`/`bcrypt` and the rest of the app's dependency
+tree, the same environment gap noted in the 2026-09-11 audit entries above) —
+the new test file imports only `services.chatops_service` directly and passes
+in isolation; no other test in the repo references `_cmd_metrics`/`_cmd_oncall`
+or `ProactiveMonitoringService.get_status()`'s exact key names.
