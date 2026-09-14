@@ -544,28 +544,57 @@ class ChatOpsService:
         return ChatResponse(text=f"Analysis completed but no root causes identified. See full report: /analysis/{result.id}")
 
     def _cmd_metrics(self, args: list, **kwargs) -> ChatResponse:
-        """Get metrics summary."""
-        service_filter = args[0] if args else None
+        """Get metrics summary from the configured monitoring integration.
 
-        # In a real implementation, this would fetch from Prometheus/CloudWatch
-        text = """*Metrics Summary*
+        There is no per-user Prometheus/CloudWatch endpoint on record for
+        this command to query (those tools take an explicit, caller-supplied
+        `prometheus_url` — there is no single "the" instance to default to),
+        so this reports real Datadog monitor state when Datadog is configured
+        and fails closed otherwise, rather than inventing plausible-looking
+        infrastructure numbers.
+        """
+        import os
+        if not (os.environ.get('DATADOG_API_KEY') and os.environ.get('DATADOG_APP_KEY')):
+            return ChatResponse(text=(
+                "No monitoring integration is configured for `/metrics`. "
+                "Set `DATADOG_API_KEY`/`DATADOG_APP_KEY` to enable it, or query "
+                "Prometheus/CloudWatch directly from the chat agent."
+            ))
 
-📊 *Infrastructure*
-• CPU Utilization: 45% (avg)
-• Memory Usage: 62% (avg)
-• Disk I/O: Normal
+        from src.tools.monitoring_tools import get_datadog_monitors
 
-🌐 *Application*
-• Request Rate: 1.2k/min
-• Error Rate: 0.05%
-• P95 Latency: 120ms
+        service_filter = args[0].lower() if args else None
+        result = get_datadog_monitors()
+        if not result.get('success'):
+            return ChatResponse(text=f"❌ Could not reach Datadog: {result.get('error')}")
 
-🗄️ *Database*
-• Connection Pool: 45/100
-• Query Time (avg): 15ms
-• Replication Lag: 0ms
-"""
-        return ChatResponse(text=text)
+        monitors = result.get('monitors', [])
+        if service_filter:
+            monitors = [
+                m for m in monitors
+                if service_filter in m.get('name', '').lower()
+                or any(service_filter in tag.lower() for tag in m.get('tags', []))
+            ]
+
+        if not monitors:
+            return ChatResponse(text="No matching Datadog monitors found.")
+
+        state_emoji = {'Alert': '🔴', 'Warn': '🟡', 'No Data': '⚪', 'OK': '🟢'}
+        state_counts: dict = {}
+        for m in monitors:
+            state_counts[m.get('overall_state', 'Unknown')] = state_counts.get(m.get('overall_state', 'Unknown'), 0) + 1
+
+        lines = ["*Metrics Summary (Datadog)*\n"]
+        for state, count in sorted(state_counts.items(), key=lambda kv: kv[1], reverse=True):
+            lines.append(f"{state_emoji.get(state, '⚪')} {state}: {count}")
+
+        alerting = [m for m in monitors if m.get('overall_state') in ('Alert', 'Warn')][:5]
+        if alerting:
+            lines.append("\n*Alerting monitors:*")
+            for m in alerting:
+                lines.append(f"{state_emoji.get(m.get('overall_state'), '⚪')} {m.get('name', 'unnamed')}")
+
+        return ChatResponse(text="\n".join(lines))
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
         """List recent deployments."""
@@ -591,22 +620,56 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_oncall(self, args: list, **kwargs) -> ChatResponse:
-        """Show on-call information."""
-        # In a real implementation, this would integrate with PagerDuty/OpsGenie
+        """Show on-call information from the configured PagerDuty/OpsGenie integration."""
+        import os
 
-        text = """*On-Call Schedule*
+        if os.environ.get('PAGERDUTY_API_KEY'):
+            from src.tools.alerting_tools import pagerduty_list_oncalls
 
-🔴 *Primary:* @devops-team
-🟡 *Secondary:* @sre-team
+            result = pagerduty_list_oncalls()
+            if not result.get('success'):
+                return ChatResponse(text=f"❌ Could not reach PagerDuty: {result.get('error')}")
 
-*Escalation:*
-1. Primary (0-15 min)
-2. Secondary (15-30 min)
-3. Engineering Lead (30+ min)
+            oncalls = result.get('oncalls', [])
+            if not oncalls:
+                return ChatResponse(text="No on-call schedules found in PagerDuty.")
 
-_To update on-call schedule, visit PagerDuty._
-"""
-        return ChatResponse(text=text)
+            lines = ["*On-Call Schedule (PagerDuty)*\n"]
+            for oc in oncalls[:10]:
+                who = oc.get('user') or oc.get('user_email') or 'unassigned'
+                lines.append(
+                    f"• {who} — {oc.get('schedule', 'unknown schedule')} "
+                    f"({oc.get('escalation_policy', 'unknown policy')}, level {oc.get('escalation_level', '?')})"
+                )
+            return ChatResponse(text="\n".join(lines))
+
+        if os.environ.get('OPSGENIE_API_KEY'):
+            from src.tools.alerting_tools import opsgenie_list_schedules, opsgenie_get_oncall
+
+            schedules_result = opsgenie_list_schedules()
+            if not schedules_result.get('success'):
+                return ChatResponse(text=f"❌ Could not reach OpsGenie: {schedules_result.get('error')}")
+
+            schedules = [s for s in schedules_result.get('schedules', []) if s.get('enabled')]
+            if not schedules:
+                return ChatResponse(text="No enabled OpsGenie schedules found.")
+
+            lines = ["*On-Call Schedule (OpsGenie)*\n"]
+            for sched in schedules[:5]:
+                oncall = opsgenie_get_oncall(sched['id'])
+                if not oncall.get('success'):
+                    lines.append(f"• {sched.get('name')}: could not load on-call ({oncall.get('error')})")
+                    continue
+                participants = oncall.get('oncall_participants', [])
+                who = ', '.join(p.get('name', 'unknown') for p in participants) or 'nobody scheduled'
+                lines.append(f"• {sched.get('name')}: {who}")
+
+            return ChatResponse(text="\n".join(lines))
+
+        return ChatResponse(text=(
+            "No on-call integration is configured. Set `PAGERDUTY_API_KEY` or "
+            "`OPSGENIE_API_KEY` to enable `/oncall`."
+        ))
 
     def format_slack_blocks(self, response: ChatResponse) -> list:
         """Format response as Slack blocks."""

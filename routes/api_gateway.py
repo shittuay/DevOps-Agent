@@ -740,6 +740,8 @@ def api_agent_stream():
     model_config = resolve_model_with_preference(tier_name, prefs_provider)
 
     def generate():
+        from services.secret_detector import redact_secrets, StreamingRedactor
+        _secret_redactor = StreamingRedactor()
         try:
             full_response = []
             for chunk in agent_instance.process_message_streaming(
@@ -755,12 +757,20 @@ def api_agent_stream():
                     elif chunk.get('type') == 'text':
                         text = chunk.get('text', '')
                         full_response.append(text)
-                        yield f"data: {_json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                        _safe = _secret_redactor.feed(text)
+                        if _safe:
+                            yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                 elif isinstance(chunk, str):
                     full_response.append(chunk)
-                    yield f"data: {_json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                    _safe = _secret_redactor.feed(chunk)
+                    if _safe:
+                        yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
 
-            response_text = ensure_non_empty_response(''.join(full_response))
+            _safe = _secret_redactor.flush()
+            if _safe:
+                yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
+
+            response_text = redact_secrets(ensure_non_empty_response(''.join(full_response)))
             tools_used = getattr(agent_instance, 'last_tools_used', [])
 
             with current_app.app_context():
@@ -910,6 +920,8 @@ def api_agent():
             provider=provider if provider == 'kimi' else None,
             model_override=model_config.model,
         )
+        from services.secret_detector import redact_secrets
+        response_text = redact_secrets(response_text)
         response_text = ensure_non_empty_response(response_text)
         tools_used = agent_instance.last_tools_used
         success = True

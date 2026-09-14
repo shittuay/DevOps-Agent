@@ -171,9 +171,13 @@ hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `rand
 from a real SQL aggregation over the user's own `InfrastructureResource`/`IncidentModel`/
 `InfrastructureChange` rows, and fails closed with `data_available: false` when nothing is synced;
 per-team cost and cost forecasting stayed unavailable rather than fabricated, since no team-cost
-association or cost-history table exists anywhere in this codebase). If a new feature's data
-doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
-same bug until traced.
+association or cost-history table exists anywhere in this codebase). The same 2026-09-14 audit also
+found and fixed two ChatOps commands (`services/chatops_service.py`'s `/metrics` and `/oncall`) doing
+the small-scale version of this — a byte-identical hardcoded "status report" string on every call,
+under an explicit `# In a real implementation` comment — now real Datadog monitor state / PagerDuty
+or OpsGenie on-call data, failing closed with "no integration configured" when neither is set up
+(see CLAUDE_RUNBOOK.md's 2026-09-14 entry). If a new feature's data doesn't visibly come from
+`credential_service`/a provider tool/a real DB query, assume it's the same bug until traced.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
@@ -282,6 +286,33 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - `record_guardrail_violation()` — increments counter; blocks for 1 hour after 3 violations
 - `is_guardrail_blocked()` — auto-unblocks and resets counter after block expires
 - Run `migrate_missing_columns.py` to add these columns to existing databases
+
+### Secret redaction on chat/agent response paths (`services/secret_detector.py`)
+
+The backstop for `get_secret_value`/`create_ec2_keypair`-class tools (both classified high-risk in
+`safety.py` specifically because they disclose live secret plaintext into the response path):
+`redact_secrets(text)` scans a whole string against `SECRET_PATTERNS` (AWS/Anthropic/OpenAI/Stripe/
+GitHub keys, bearer tokens, private key blocks, DB connection strings, Slack/Discord webhooks, etc.)
+and replaces matches with `[REDACTED]`. **Every chat-to-agent response surface must redact before
+persisting to `ChatMessage` and before returning/streaming to the caller** — found missing entirely
+on 3 of the 4 documented guardrail-gated entry points (`routes/api_gateway.py`'s `/v1/agent`+
+`/v1/agent/stream`, `api/v1/conversations.py`'s `send_message()`+`api_v1_chat_stream()`) by the
+2026-09-14 scheduled audit; only `app.py`'s `/api/chat`+`/api/chat/stream` had it, and even there
+with a chunk-boundary gap (see below). All fixed the same day — see CLAUDE_RUNBOOK.md.
+
+**A streaming response cannot just call `redact_secrets(chunk)` per chunk.** Anthropic's raw
+`content_block_delta` events are often just a handful of characters, so a real 20+ char secret has a
+high chance of landing split across two or more chunks and matching nothing per-chunk, even though
+the final assembled string is redacted correctly before it's saved to the DB — the persisted history
+looks clean while the raw secret already reached the browser during streaming. Use
+`StreamingRedactor` (same module) instead: `feed(chunk)` holds back a trailing window of unredacted
+text (long enough for any `SECRET_PATTERNS` match, and never cuts through a match still forming at
+the boundary) and returns only the portion now safe to emit; call `flush()` once at stream end for
+whatever's left buffered. Wired into all 3 streaming loops (`app.py`, `routes/api_gateway.py`,
+`api/v1/conversations.py`); the Kimi streaming path buffers its whole response before yielding for
+unrelated hallucination-check reasons and was never affected. `routes/curriculum.py`'s
+`/curriculum/api/ai-guide` is a plain curriculum Q&A completion with no tool execution, so it has no
+path to disclose a live cloud secret and doesn't need this.
 
 ## Safety System (`src/agent/safety.py`)
 
@@ -467,6 +498,19 @@ docstring warns about; its sibling `git_show_file_at_commit` already guarded the
 parameter). Both now call `_reject_flag_like()` and are classified medium-risk in `safety.py`.
 **Confirms the "not yet enforced by an automated check" gap above is real, not theoretical** — a
 security-focused audit still has to walk every bare-positional call site in this file by hand.
+
+**2026-09-14 — same argv-ambiguity shape found outside `git_tools.py`, in `ansible_tools.py`.**
+`ansible_playbook_run`'s `playbook_path` and `ansible_adhoc_command`'s `host_pattern` are the first
+bare positional in a `subprocess.run([...])` argv list with no leading-`-` check, same shape as
+every guarded function above. No concrete RCE was confirmed (ansible's own arg parser appears to
+reject rather than silently redirect on a flag-like positional, and the module allowlist already
+excludes `shell`/`command`/`raw`/`script`), but guarded anyway per this section's own stated
+precedent of closing the ambiguity even without a per-parameter confirmed exploit. A local
+`_reject_flag_like()` (same shape, not shared with `git_tools.py`'s) now guards both — see
+CLAUDE_RUNBOOK.md. **This class of bug is generic to any tool that builds a `subprocess`/CLI argv
+from a caller-supplied string placed as a bare positional** — when adding a new tool shaped like
+this in any file, not just `git_tools.py`, check for it explicitly; nothing scans for it
+automatically.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 

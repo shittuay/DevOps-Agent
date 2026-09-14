@@ -18,6 +18,22 @@ logger = get_logger(__name__)
 #   - authorized_key: lets a caller inject an attacker-controlled SSH public
 #     key onto the target for persistent access, independent of any other
 #     credential control on that host.
+def _reject_flag_like(value: Optional[str], param_name: str) -> None:
+    """Reject a caller-supplied value that looks like a CLI flag.
+
+    `subprocess.run([...])` hands args straight to the `ansible`/`ansible-playbook`
+    executable with no shell involved, but those CLIs parse a leading '-' as an
+    option regardless of the caller's intent that it be a literal path/host
+    pattern — the same argv-ambiguity class `git_tools.py`'s `_reject_flag_like`
+    exists to close. `playbook_path`/`host_pattern` are always placed as the
+    first bare positional in their respective command lists; reject any value
+    starting with '-' before it reaches subprocess, defense-in-depth even
+    without a confirmed exploit chain for a given flag.
+    """
+    if value and value.startswith('-'):
+        raise ValueError(f"Invalid {param_name}: must not start with '-' ({value!r})")
+
+
 _ALLOWED_ANSIBLE_MODULES: frozenset = frozenset({
     'ping', 'setup', 'gather_facts',
     'file', 'copy', 'fetch', 'template', 'lineinfile', 'blockinfile',
@@ -135,6 +151,7 @@ def ansible_playbook_run(
         Dictionary with playbook execution result
     """
     try:
+        _reject_flag_like(playbook_path, 'playbook_path')
         command = ['ansible-playbook', playbook_path]
 
         if inventory:
@@ -216,6 +233,7 @@ def ansible_adhoc_command(
         Dictionary with command result
     """
     try:
+        _reject_flag_like(host_pattern, 'host_pattern')
         if module not in _ALLOWED_ANSIBLE_MODULES:
             logger.warning(f"Blocked ansible ad-hoc call with non-allowlisted module: {module}")
             return {

@@ -2747,3 +2747,135 @@ system's Debian-patched `setuptools`, unrelated to this change) — worked aroun
 throwaway stub `jenkins` module (not committed) purely so `python -m pytest` could import
 `src/tools/cicd_tools.py`; same class of pre-existing environment gap noted in the 2026-09-11
 entries above. Full suite result recorded once available.
+
+## Scheduled audit (2026-09-14): webhook secrets/events lost across gunicorn workers, secret redaction gap on 3 of 4 streaming chat surfaces, two more fabricated ChatOps responses, ansible argv-injection
+
+Ran alongside the 2026-09-14 Analytics fix above (separate agent, same audit session — see that
+entry for the `services/analytics_service.py` fix). Four independent findings, all fixed:
+
+**1. `services/webhook_integrations.py` — webhook secrets and events lived only in per-process
+memory, silently disabling signature validation on 2 of 3 gunicorn workers.**
+`WebhookIntegrationService.__init__` stored `secrets: dict` and `events: list` as plain instance
+attributes with no DB backing at all (confirmed: no webhook model existed in `models.py`) — the
+same per-process-memory bug already fixed once for Drift Detection (2026-08-12, see that entry)
+and Predictive Scaling (2026-09-02), in a third, newer file neither fix touched. Production runs
+`--workers 3` separate OS processes, each importing its own singleton via `get_webhook_service()`.
+Consequence: `POST /webhooks/api/configure` (`routes/webhooks.py`) only ever updated the one
+worker process that handled that request; the other two workers' `receive_github`/`receive_gitlab`
+handlers evaluated `secret = service.secrets.get('github')` as `None` and their `if secret:` gate
+skipped HMAC/token signature validation **entirely**, processing whatever payload arrived as
+trusted input. A caller could repeatedly POST forged `X-GitHub-Event`/`X-Gitlab-Event` payloads to
+`/webhooks/github`/`/webhooks/gitlab` until round-robin routing landed on an unconfigured worker,
+at which point the forged payload — including a fabricated "deployment failure" that
+`_handle_failure_event()` turns into a real `Incident` row — was accepted with zero authentication.
+Separately, `events` being per-process meant the admin dashboard (`/webhooks/`) and
+`api_list_events`/`api_stats` only ever showed whichever fraction of events happened to land on the
+worker serving that particular read, and the whole history vanished on every deploy.
+
+**Fix:** two new DB models mirroring `DriftBaselineModel`/`DriftReportModel`'s precedent —
+`WebhookSecret` (Fernet-encrypted via `UserCloudCredential._get_encryption_key()`, the same key
+derivation every other encrypted-at-rest secret in this codebase uses) and `WebhookEventRecord`.
+`WebhookIntegrationService.set_secret`/new `get_secret` and `process_webhook`/`get_events`/
+`get_stats` now read/write through the DB instead of the in-process dict/list. `routes/webhooks.py`
+updated to call `service.get_secret(source)` instead of the removed `service.secrets.get(source)`.
+Public API/return shapes unchanged (`get_events()` still returns `WebhookEvent` dataclasses,
+reconstructed from the DB row) so `services/chatops_service.py`'s `_cmd_deployments` (the only other
+caller) needed no changes.
+
+**Tests:** new `tests/test_webhook_cross_worker_persistence.py` (6 tests) — constructs two separate
+`WebhookIntegrationService()` instances (standing in for two worker processes) and asserts a secret/
+event set on one is visible on the other, including a full HMAC signature-validation round trip
+through the persisted secret.
+
+**2. Secret redaction was missing entirely on 3 of the 4 documented chat-to-agent streaming/response
+surfaces, and had a chunk-boundary gap on the 4th.** `services/secret_detector.redact_secrets()` is
+this codebase's backstop for `get_secret_value`/`create_ec2_keypair`-class tool results (both
+high-risk specifically because they disclose live secret plaintext into the response path) —
+auditing all 4 documented guardrail-gated chat entry points found:
+- `routes/api_gateway.py`'s `/v1/agent` and `/v1/agent/stream` (the Professional/Business developer
+  REST API) called `redact_secrets` **nowhere in the file** — the full agent response text, tool
+  results included, was saved to `ChatMessage` and returned to the caller completely unredacted.
+- `api/v1/conversations.py`'s `send_message()` and `api_v1_chat_stream()` (the `/conversations/<id>/
+  messages` and `/chat/stream` REST endpoints) had the identical gap — also zero calls to
+  `redact_secrets` anywhere in the file.
+- `app.py`'s `/api/chat/stream` (the main web-UI SSE path) *did* call `redact_secrets(chunk)` on
+  every streamed chunk, but Anthropic's raw `content_block_delta` events are often just a handful of
+  characters — most of `SECRET_PATTERNS`'s 20+ char tokens land split across two or more chunks and
+  match nothing when redacted one chunk at a time, even though the final assembled `complete` string
+  (built from unredacted `full_response` pieces) was correctly redacted before being saved to the
+  DB. That meant the persisted chat history looked clean while the raw secret had already reached
+  the browser over the wire during streaming. `/api/chat` (non-streaming) and the Kimi streaming
+  path (which buffers the whole response before yielding, for hallucination-checking reasons
+  unrelated to this) were both unaffected.
+
+**Fix:** new `StreamingRedactor` class in `services/secret_detector.py` — holds back a trailing
+120-char window of unredacted buffered text on every `feed(chunk)` call (long enough for any
+`SECRET_PATTERNS` match; never cuts through the middle of a match still forming at the boundary),
+returning only the portion now safe to emit; `flush()` redacts and returns whatever's left at stream
+end. Wired into all 3 streaming loops (`app.py`, `routes/api_gateway.py`, `api/v1/conversations.py`)
+in place of the per-chunk `redact_secrets()` call (or the total absence of one), and a whole-string
+`redact_secrets()` call added to the two previously-unguarded non-streaming paths (`api_agent()` in
+`api_gateway.py`, `send_message()` in `conversations.py`) before DB save / JSON response.
+`routes/curriculum.py`'s `/curriculum/api/ai-guide` was checked and left alone — it's a plain
+curriculum Q&A completion with no tool execution, so it has no path to disclose a live cloud secret.
+
+**Tests:** new `tests/test_streaming_secret_redaction.py` (6 tests) — a secret split across two
+chunks, split across many single-character chunks (matching real `content_block_delta` granularity),
+a secret still sitting in the tail window at `flush()` time, plain text passing through unchanged,
+and instance isolation between two `StreamingRedactor()`s.
+
+**3. `services/chatops_service.py`'s `/metrics` and `/oncall` ChatOps commands returned hardcoded
+fabricated infrastructure data.** Same bug class as the Analytics/Predictive-Scaling fixes, a fresh
+instance in a file that already had one fabrication-adjacent fix (2026-09-12, dead command handlers
+raising `TypeError` — a different defect shape, since that one crashed rather than returning
+confident fake output). `_cmd_metrics` returned a byte-identical `"*Metrics Summary*"` block (CPU
+45%, error rate 0.05%, replication lag 0ms, etc.) on every invocation regardless of account;
+`_cmd_oncall` returned a byte-identical `"*On-Call Schedule*"` naming `@devops-team`/`@sre-team`
+under an explicit `# In a real implementation, this would integrate with PagerDuty/OpsGenie`
+comment. Neither crashed, so neither tripped SonarQube's dead-code check that caught the 2026-09-12
+defects — a real DevOps engineer running `/devops metrics` or `/devops oncall` during an actual
+incident got a confident, plausible-looking status report with zero relationship to their
+infrastructure.
+
+**Fix:** `_cmd_metrics` now calls `src.tools.monitoring_tools.get_datadog_monitors()` and summarizes
+real monitor state (counts by `overall_state`, names of currently-alerting monitors) when
+`DATADOG_API_KEY`/`DATADOG_APP_KEY` are set, and fails closed ("No monitoring integration is
+configured") otherwise. There is no per-user/per-org Prometheus or CloudWatch endpoint on record for
+this command to default to (those tools take an explicit, caller-supplied `prometheus_url` — there
+is no single "the" instance), so wiring either in was out of scope without inventing a config
+mechanism that doesn't exist; flagged, not attempted, matching this file's own precedent of scoping
+a fabrication fix to what has a real backing source. `_cmd_oncall` now calls
+`src.tools.alerting_tools.pagerduty_list_oncalls()` (if `PAGERDUTY_API_KEY` set) or
+`opsgenie_list_schedules()` + `opsgenie_get_oncall()` per enabled schedule (if `OPSGENIE_API_KEY`
+set), and fails closed otherwise. Both tools already existed in `alerting_tools.py`, unused by
+ChatOps until now.
+
+**Tests:** new `tests/test_chatops_no_fabricated_data.py` (6 tests) — both commands fail closed with
+no integration configured (asserting the specific old hardcoded strings never reappear), report real
+mocked-API data when configured, and surface a real upstream error distinctly from either case.
+
+**4. `src/tools/ansible_tools.py` — `ansible_playbook_run`'s `playbook_path` and
+`ansible_adhoc_command`'s `host_pattern` had the identical argv-ambiguity shape `git_tools.py`'s
+`_reject_flag_like()` exists to close, unguarded.** Both are passed as the first bare positional
+argument in a `subprocess.run([...])` argv list (`['ansible-playbook', playbook_path, ...]` /
+`['ansible', host_pattern, '-m', module, ...]`) with no check against a leading `-`, and both CLIs —
+like `git` — parse a leading `-` as an option regardless of the caller's intent that it be a literal
+path/host pattern. No concrete RCE chain was confirmed for either parameter in this pass (ansible's
+own required-positional validation appears to reject the resulting argv rather than silently
+redirecting execution, and `ansible_adhoc_command`'s module allowlist already excludes `shell`/
+`command`/`raw`/`script`) — flagged low-confidence rather than live-verified, unlike the 2026-08-04
+git RCE entry. Guarded anyway, matching this codebase's own stated policy in `git_tools.py` of
+closing this argv-ambiguity class "given the ambiguity of how each git subcommand's argument parser
+treats a dash-prefixed positional" even without a confirmed exploit for every guarded parameter.
+
+**Fix:** new `_reject_flag_like()` in `ansible_tools.py` (same shape as `git_tools.py`'s), called on
+`playbook_path` and `host_pattern` before the `subprocess.run` argv is built.
+
+**Tests:** new `tests/test_ansible_tools_argument_injection.py` (6 tests), modeled directly on
+`tests/test_git_tools_argument_injection.py`.
+
+**Full suite:** 1035 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`, the
+same environment-only missing-`ANTHROPIC_API_KEY` gap noted throughout this file — not a regression
+from this change). `test_chat_keepalive.py::test_turn_is_still_persisted_when_the_deadline_closes_the_response`
+failed once under full-suite load and passed cleanly both in isolation and on a full-suite re-run —
+a pre-existing timing flake in that test's own deadline-simulation logic, unrelated to this change.
