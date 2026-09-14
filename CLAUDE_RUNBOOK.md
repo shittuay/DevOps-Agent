@@ -2637,3 +2637,113 @@ is unaffected); severity is still logged for ops-level visibility. Existing
 970 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
 the same environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in
 this file — not a regression).
+
+## Advanced Analytics Dashboard fabricated cost/incident/deployment data for every user (FIXED 2026-09-14)
+
+Follow-up to the 2026-09-02 scheduled audit's flagged-but-not-fixed finding #2 (Predictive
+Scaling's identical bug, finding #1, was fixed the same day it was found). This pass read
+`services/analytics_service.py` in full, its two callers (`routes/analytics.py`,
+`routes/api_gateway.py`'s `/v1/analytics/costs`), and all 4 consumer templates
+(`templates/analytics/{dashboard,costs,performance,resources}.html`) before touching anything, per
+the earlier audit's own note that a safe fix needed those read first.
+
+**What was fabricated.** `AnalyticsService._ensure_sample_data()` was the single entry point every
+public method funneled through (`get_time_series`, `get_cost_breakdown`, `get_cost_forecast`,
+`get_trend_analysis`, `get_dashboard_metrics`, `get_resource_utilization`, `get_alerts_summary`,
+`get_deployment_stats` — all of it, unconditionally, with no `[Sandbox]` label anywhere and no
+dependency on whether the user had a cloud account connected):
+- A 90-day daily cost series seeded from `base_cost = 150` plus `random.uniform(-20, 30)` noise,
+  then `CostForecast.generate_forecast()` added a further `random.uniform(-0.05, 0.05)` noise term
+  on top of its own linear-regression output — a fabricated number layered on a fabricated series.
+- Hardcoded `_cost_by_service` (`'EC2': 450.00, 'RDS': 280.00, 'S3': 45.00, 'Lambda': 35.00, ...`)
+  and `_cost_by_team` (`'Development': 380.00, 'Production': 420.00, 'Staging': 85.00, 'Testing':
+  35.00`) dicts — byte-identical dollar figures for every user regardless of account.
+- Fabricated incident/deployment/API-call time series (`random.choices`/`random.randint`).
+- `get_resource_utilization()` returned a **fresh** `random.uniform(40, 75)` "utilization_avg" on
+  every single call — not even cached, so reloading the page changed the number.
+- `get_deployment_stats()` reported a hardcoded 92%/8% success/fail split and
+  `random.uniform(5, 20)` minutes as "avg duration", neither derived from anything real.
+
+This backed the entire `/analytics/*` surface (dashboard, costs, performance, resources pages) plus
+the developer-API `/v1/analytics/costs` endpoint — someone could have sized a real budget off a
+`random.uniform()`-noised "forecast".
+
+**What real data source now backs each piece.** No new table or external integration was added —
+per the audit's own scope note, this uses only data this codebase already collects:
+- **Cost breakdown by service** — real, `SUM(InfrastructureResource.monthly_cost)` grouped by
+  `resource_type`, for this user. `monthly_cost` is itself a real estimate computed per resource
+  from a live cloud API read (`services/infrastructure_sync.py`'s `calculate_*_cost` helpers), the
+  same source `services/prevention_engine.py` already trusted for its own recommendations.
+- **Resource counts by type** — real, `COUNT(*)` grouped by `resource_type` over the same table.
+- **Incidents/alerts summary** — real, aggregated from `IncidentModel` rows (written by
+  `services/incident_response.py` from real monitoring events, not sample data): total, per-severity
+  counts, resolved vs. open, all scoped to `user_id` and a real `triggered_at` window.
+- **Deployment/change stats** — real, `COUNT(*)` over `InfrastructureChange` rows in the window
+  (written by `src/agent/core.py`'s `_audit_infrastructure_change()` whenever a create/resize/
+  security-group-modify tool succeeds from chat).
+- **Trend direction** (`up`/`down`/`stable`) for incidents, deployments, and resource growth — real,
+  computed by splitting the requested window in half and comparing real event-timestamp counts
+  (`AnalyticsService._real_trend`), not a canned value.
+- **`api_calls` time series** — real, daily-bucketed `UsageLog` rows for the user.
+
+**What genuinely has no real data source and now fails closed instead of being invented (the scope
+note's carve-out):**
+- **Per-team cost breakdown (`by_team`).** There is no team-cost association anywhere in this
+  codebase — `InfrastructureResource` has no `team_id` or any link to the `Team`/`TeamMember`
+  models (which exist only for organization membership, `routes/organizations.py`). `by_team` is
+  now always `{}` with an explicit `by_team_available: false`, never invented. **This is a real
+  product gap, not just a missing query** — building it for real would need a resource-to-team
+  tagging mechanism that doesn't exist yet; flagging for a human product decision, not attempting it
+  here.
+- **Cost forecasting / historical cost trend.** `InfrastructureResource.monthly_cost` is a live
+  snapshot, overwritten in place by every sync (`services/infrastructure_sync.py`'s
+  get-or-create-then-update pattern) — no day-by-day cost history is ever stored anywhere.
+  `forecast_costs()` now always returns `status: 'insufficient_data'` (`no_account` when there's no
+  connected account at all) with `monthly_projection: None`, rather than a random-noised guess.
+  `CostForecast.generate_forecast()` (the linear-regression algorithm itself, now with its
+  variance-noise line removed) is kept as dead code for a future real cost-history source to call —
+  it was never itself the bug, feeding it fake history was.
+- **CPU/memory utilization (`utilization_avg`).** No live metrics source (CloudWatch/Prometheus) is
+  wired into this service. Now `None` with `utilization_available: false` instead of
+  `random.uniform(40, 75)`.
+- **Deployment success/failure split and duration.** `_audit_infrastructure_change()` only ever
+  writes a row when the underlying tool call *succeeds* — there is no real failure signal in this
+  table to report a rate from. Now `success_rate`/`avg_duration_minutes` are `None` with
+  `*_available: false` flags, instead of the hardcoded 92%/8% split.
+
+**Fail-closed behavior.** `AnalyticsDataError` (mirrors `drift_detection.DriftScanError`) is raised
+internally by a new `_require_data_source()` when the user has no verified cloud credential and
+nothing has ever produced a real row for them (checked across `InfrastructureResource`,
+`IncidentModel`, and `InfrastructureChange` — a user can have real incidents/changes logged even
+without a currently-synced resource). Every public method catches it itself and returns a zeroed
+shape carrying `data_available: false` and a human-readable `message`, so routes needed no
+exception-handling changes — `jsonify(service.get_x())` still just works. A user with a connected
+account but genuinely zero cost/resources gets a real, honest zero (`data_available: true`), which
+is a different, legitimate state from "no account connected."
+
+**Template/route changes.** Routes (`routes/analytics.py`, `routes/api_gateway.py`) needed no
+changes — the new response shape is additive (existing keys unchanged, `data_available`/`message`/
+`*_available` flags added). All 4 consumer templates got a small `#noAccountBanner` element (styled
+once in `templates/base.html`, reused by the 3 templates that inherit its default CSS; `dashboard.html`
+has its own local `<style>` block so got its own copy) that shows the real `message` when the
+primary endpoint on that page reports `data_available: false`, and stays hidden otherwise — no other
+UI/layout changes.
+
+**Tests:** new `tests/test_analytics_service.py` (20 tests, modeled on
+`tests/test_predictive_scaling.py`'s fabrication-guard pattern but DB-backed like
+`tests/test_drift_baseline_capture.py`, since analytics now reads real rows instead of in-memory
+state): a fresh user with no account gets `data_available: false` and all-zero output from every
+public method; an AST-based check (not a text search, since this file's own docstrings now
+legitimately mention the old `random.uniform` calls) asserts `analytics_service.py` never imports or
+references `random` again; `forecast_costs()`/`get_resource_utilization()` are asserted deterministic
+across repeated calls with real data present; real `InfrastructureResource`/`IncidentModel`/
+`InfrastructureChange` rows produce exactly the numbers they should, nothing extra (explicitly checks
+the old hardcoded `S3`/`Lambda` figures are absent); `by_team` stays unavailable even with real cost
+data present; per-user isolation (one user's real data never leaks into another's response).
+
+**Environment note:** this sandbox's `pip install -r requirements.txt` fails on `python-jenkins`'s
+`multi-key-dict` dependency (a `setup.py`/`distutils` `install_layout` incompatibility with the
+system's Debian-patched `setuptools`, unrelated to this change) — worked around locally with a
+throwaway stub `jenkins` module (not committed) purely so `python -m pytest` could import
+`src/tools/cicd_tools.py`; same class of pre-existing environment gap noted in the 2026-09-11
+entries above. Full suite result recorded once available.

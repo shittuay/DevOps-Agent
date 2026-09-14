@@ -12,6 +12,11 @@
         <a href="{{ url_for('analytics.performance_analytics') }}" class="nav-item">Performance</a>
         <a href="{{ url_for('analytics.resource_analytics') }}" class="nav-item active">Resources</a>
     </div>
+    <div id="noAccountBanner" class="no-account-banner" hidden>
+        <i class="fas fa-plug"></i>
+        <span id="noAccountMessage">Connect a cloud account to see real resource data.</span>
+        <a href="/settings#cloud">Connect account &rarr;</a>
+    </div>
     <div class="metrics-grid">
         <div class="metric-card">
             <div class="metric-icon"><i class="fas fa-server"></i></div>
@@ -48,6 +53,15 @@ document.addEventListener('DOMContentLoaded', function() {
     fetch('/analytics/api/resources/utilization')
         .then(r => r.json())
         .then(data => {
+            const banner = document.getElementById('noAccountBanner');
+            if (data.data_available === false) {
+                document.getElementById('noAccountMessage').textContent =
+                    data.message || 'Connect a cloud account to see real resource data.';
+                banner.hidden = false;
+            } else {
+                banner.hidden = true;
+            }
+
             document.getElementById('totalResources').textContent = data.total_resources || 0;
             document.getElementById('avgCpu').textContent = (data.utilization_avg || 0).toFixed(1) + '%';
             const byType = data.by_type || {};
