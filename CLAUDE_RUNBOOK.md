@@ -2637,3 +2637,115 @@ is unaffected); severity is still logged for ops-level visibility. Existing
 970 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
 the same environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in
 this file — not a regression).
+
+## Scheduled audit (2026-09-15): git-clone flag injection, six safety.py risk gaps; several open items flagged for follow-up
+
+Four parallel review passes: the three 2026-09-11 guardrail commits above,
+`src/tools/git_tools.py`'s flag-injection guard coverage (the class fixed
+three times before — see its section higher up), `safety.py`'s risk
+classification against the full ~746-tool catalog, and a sweep for
+fabricated-data/missing-user-filter patterns. Fixed the concrete,
+mechanically-verifiable findings below; the rest need design judgment and are
+recorded here rather than patched blind.
+
+**Fixed — `git_clone_repository`'s `dest_path` was the one bare-positional
+git-tool parameter never covered by `_reject_flag_like()`.** `url` is SSRF/
+allowlist-validated and `branch`/`depth` become option *values*, but
+`dest_path` (fully caller-controlled, required in the tool's `input_schema`)
+went straight into `Repo.clone_from(url, dest_path, ...)` as the trailing
+positional of `git clone <options> <url> <dest_path>`. git's option parser
+permutes — a flag-shaped positional after the URL is still parsed as an
+option — so `dest_path="--config=core.hooksPath=/tmp/h"` runs
+attacker-chosen `post-checkout`/`post-merge` hooks *during the clone itself*;
+`--template=/tmp/t` copies arbitrary hooks into the new `.git/hooks`;
+`--separate-git-dir=/path` is an arbitrary directory/file write. GitPython's
+own `unsafe_git_clone_options` check doesn't cover this: it only inspects
+`kwargs`/`multi_options`, never the positional `to_path`, and is disabled
+outright here anyway (`allow_unsafe_options=True`, needed for the
+`-c http.followRedirects=false` SSRF fix in the same function). Fixed with
+one `_reject_flag_like(dest_path, 'dest_path')` call before `Repo.clone_from`
+— same pattern as every other guarded function in the file. New test:
+`tests/test_git_tools_argument_injection.py::test_clone_rejects_flag_like_dest_path`
+(mocks `_validate_git_url` so the case isolates the `dest_path` check from
+DNS/network behavior). Every other function in the file that passes a
+caller-supplied value to a git subprocess call was walked by hand and is
+either already guarded, guarded via `--` pathspec termination, a pure option
+*value* (never a leading positional), or never reaches a git subprocess at
+all — no other gap found. Also fixed in the same pass: `git_create_tag`'s
+`ref=commit` with `commit=None` stringified to the literal `"None"` instead
+of defaulting to HEAD (`ref = commit or 'HEAD'`) — a correctness bug, not
+security, caught while reading the function.
+
+**Fixed — six tools with no confirmation gate despite a `provider_verb_noun`
+shape that defeats the `delete_`/`terminate_`/... prefix auto-detector**
+(the same recurring gap fixed on 2026-08-08/19/23/25 and 09-02): `high_risk_tools`
+gained `list_storage_account_keys` (Azure — returns the raw storage-account
+access key, a full data-plane credential, into the chat/tool-trace/LLM path;
+same disclosure class as `get_secret_value`/`create_ec2_keypair`, and the
+mutating sibling `regenerate_storage_key` was already gated but not this
+read) and `terraform_state_pull` (returns the entire state file, which
+routinely holds plaintext secrets — its `_push`/`_move`/`_rm` siblings were
+already classified). `medium_risk_tools` gained `send_sqs_message` (same
+"pages a live downstream consumer with caller-controlled content" shape as
+the already-medium `publish_sns_message`/`publish_pubsub_message`),
+`pagerduty_add_note` and `opsgenie_add_note` (post caller-controlled content
+onto a live incident/alert; every sibling verb in the same module was
+already medium), and `git_stash_save` (the one stash operation that actually
+discards working-tree state — `git_stash_apply`/`git_stash_drop` were
+already medium, the destructive one wasn't). Verified each classification
+takes effect via `SafetyValidator.validate_tool_call(name, {})`.
+
+**Not fixed — flagged for a follow-up change, not patched in this pass:**
+
+- **The 2026-09-11 injection-regex fix (`f591c87`) closes the reported
+  example, not the bypass class.** Live-verified current bypasses:
+  `ignore any/every previous instructions` (qualifier set gap), `ignore all
+  of the previous instructions`, punctuation between qualifiers
+  (`ignore all, previous instructions`), and — pre-existing, same class —
+  Unicode confusables surviving NFC-only normalization (fullwidth `ｉgnore`,
+  Cyrillic `ѕ`). The same commit's added `the` qualifier now also blocks
+  legitimate messages (`ignore the context`, `ignore the rules` — both
+  ordinary Kubernetes/security-group vocabulary), each one burning a
+  `record_guardrail_violation()` strike toward the 3-strike lockout.
+- **`src/agent/guardrails.py:330`'s Haiku pre-screen interpolates the raw
+  message inside `<message>…</message>` with no escaping** — a message
+  containing a literal `</message>` can close the tag and append its own
+  instruction to the classifier, undermining the screen the 09-11 commit
+  widened the window of.
+- **`c28c259`'s crisis-log redaction removed the only trace of crisis
+  language on 4 of 6 call sites.** Its rationale (already captured in
+  `CrisisIncident`) holds for the 3 sites wired to that model
+  (`app.py:2898`, `app.py:3545`, `routes/curriculum.py:192`) but not
+  `api/v1/conversations.py:310`/`:502` or `routes/api_gateway.py:711`/`:863`,
+  which never create a `CrisisIncident` row — on those surfaces a user in
+  crisis now gets a generic content-policy violation strike with no record
+  anywhere that crisis language was involved.
+- **`services/analytics_service.py` is still exactly the fabricated-data bug
+  flagged (not fixed) on 2026-09-02** — `_ensure_sample_data()` generates 90
+  days of cost/resource/incident data from `random.uniform/randint/choices`
+  plus hardcoded `_cost_by_service`/`_cost_by_team` dicts, never consulted
+  against `user_id` or any credential; `CostForecast.generate_forecast` adds
+  `random.uniform` noise and reports a confidence score computed over that
+  fake series. Four consumer templates (`analytics/dashboard.html`,
+  `costs.html`, `performance.html`, `resources.html`) render it with no
+  sandbox/no-account guard. **Same bug class found in three more places, not
+  previously flagged:** `services/performance_optimizer.py`'s
+  `_generate_sample_recommendations()` (seeds the literal `i-0abc123def456`
+  fake instance id from the 2026-08-12 drift incident, for every user, at
+  `/optimization/`), `services/ai_infrastructure.py`'s `get_recommendations()`
+  (hardcoded list ignoring `user_id`) and `apply_recommendation()` (reports
+  `success: True` without calling any cloud API — the same fake-Apply shape
+  as the fixed predictive-scaling bug), and `services/chatops_service.py`'s
+  `_cmd_metrics`/`_cmd_oncall` (hardcoded metrics/on-call roster delivered
+  into Slack as live data). All deferred: fixing analytics_service.py alone
+  needs its 4 templates read first per the existing note; the newly-found
+  ones need the same treatment and are large enough to warrant their own
+  reviewed change.
+- **Latent (not currently reachable, same shape as the twice-fixed
+  `compliance_service` bug):** `services/api_gateway.py`'s `get_api_key`/
+  `get_webhook` and `services/multi_tenancy.py`'s `get_organization`/
+  `get_team` are bare `Model.query.get(id)` despite an instance-level
+  `self.user_id` — every current caller happens to pass its own `user_id`
+  filter or sits behind a membership check, so nothing is exploitable today,
+  but a future caller that omits that filter reopens the cross-tenant read
+  this class of bug already caused twice.
