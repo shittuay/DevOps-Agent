@@ -267,6 +267,16 @@ class SafetyValidator:
             'delete_bigquery_dataset',
             'delete_cloud_function',
             'delete_disk_snapshot',
+            # Same disclosure class as get_secret_value/create_ec2_keypair/
+            # generate_s3_presigned_url: an Azure storage account key is a live bearer
+            # credential granting full read/write/delete over every blob/queue/table/file
+            # in the account until manually regenerated, and both of these return the raw
+            # key value(s) directly in the tool result (chat/tool-trace/LLM-provider path).
+            # list_storage_account_keys had no risk classification at all (defaulted to
+            # low risk, no confirmation); regenerate_storage_key was only medium-risk even
+            # though it discloses the new key value the same way create_ec2_keypair does.
+            'list_storage_account_keys',
+            'regenerate_storage_key',
             # Docker destructive
             'docker_manage_container',  # includes remove action
             'docker_remove_image',
@@ -385,7 +395,6 @@ class SafetyValidator:
             'create_nsg_rule',
             'create_sql_firewall_rule',
             'restart_container_instance',
-            'regenerate_storage_key',
             'restart_cloud_sql_instance',
             'create_firewall_rule',
             'create_eventbridge_rule',
