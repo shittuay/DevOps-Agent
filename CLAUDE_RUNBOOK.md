@@ -346,6 +346,23 @@ now-2-arg `revoke_api_key(key_id)` with one arg (would crash). It was dead code
 `user_id` owner check and fixed the revoke call to pass the owner.
 Guarded by `tests/test_api_key_rotate_ownership.py`.
 
+**Follow-up (2026-09-16 scheduled audit):** the hardening above fixed the
+*caller-side* check in `rotate_api_key` but left `get_api_key(key_id)` itself —
+the method it calls internally — doing a bare `APIKey.query.get(key_id)` with
+no ownership filter at all, the exact `ComplianceService.get_policy` anti-pattern
+CLAUDE.md warns about for any `self.user_id`-storing service class. Still dead
+code (no route calls `APIGatewayService.get_api_key`/`rotate_api_key` directly —
+`api/v1/api_keys.py`'s routes use their own correctly-scoped `APIKey.query.filter_by`
+calls and a separate `api_key_service.rotate_key`), so not currently exploitable,
+but a landmine for whoever wires a route to it next. Fixed by giving
+`get_api_key` the same optional `user_id: Optional[int] = None` parameter
+(filters by owner when given, matching `revoke_api_key`'s existing convention —
+this class's real ownership boundary is the explicit per-call `user_id` param,
+not `self.user_id`, since every real call site constructs `APIGatewayService()`
+with none) and having `rotate_api_key` pass its `user_id` through to the fetch
+instead of re-checking `old_key.user_id` after the fact. Existing
+`tests/test_api_key_rotate_ownership.py` still covers the observable behavior.
+
 ---
 
 ## Scheduled audit: 5 confirmed vulnerabilities across concurrency, timing, SSRF, and IDOR (2026-07-24)
