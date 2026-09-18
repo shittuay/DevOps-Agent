@@ -248,7 +248,20 @@ same bug until traced.
   `if not user or not user.check_password(password)` check (independent login form for the MCP
   connector flow) and reopened the same side channel — fixed by importing and routing through
   `routes.auth._run_timing_safe_password_check()` there too. Any other route that authenticates a
-  user with a password must use this helper, not a direct `check_password()` call.
+  user with a password must use this helper, not a direct `check_password()` call. That same
+  `oauth_authorize()` fix left a second gap standing: it never called `User.is_locked()` /
+  `record_failed_login()`, so the account-lockout invariant on this line was enforced only on
+  `/login` — a known email could be brute-forced through `/mcp/oauth/authorize` (and its
+  `/authorize` alias) with no per-account limit at all, no matter how many failed attempts
+  `/login` itself would have already blocked. Found by the 2026-09-18 scheduled audit and fixed by
+  wiring in the same `is_locked`/`record_failed_login`/`update_last_login` calls `/login` uses,
+  plus a `@limiter.limit("10 per minute")` matching `/login`'s own rate limit (the route previously
+  had none of its own, only the blueprint-wide default of 100/hour per IP). **A route that
+  reimplements password verification instead of calling a shared login helper must also
+  reimplement every invariant that helper enforces, not just the timing-safety one that happened
+  to already have a name and a runbook entry** — the same lesson as the guardrails-pipeline
+  duplication problem elsewhere in this file, just for authentication instead of jailbreak
+  screening.
 - `forgot_password()` dispatches token generation, persistence, and the password-reset email send
   through `_dispatch_password_reset_email()` on a background daemon thread, rather than doing that
   work inline before responding — an existing account's token write + synchronous outbound email
