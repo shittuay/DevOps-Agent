@@ -3,14 +3,18 @@ Advanced Analytics Service for DevOps Agent.
 
 Provides charts, trends, cost forecasting, and usage analytics.
 Uses database persistence for dashboards and widgets.
+
+All metrics are derived from the user's real synced data (InfrastructureResource,
+IncidentModel, UsageLog) or real cloud credentials — never fabricated. A metric with
+no real data source backing it yet (e.g. deployments, CPU/memory utilization) reports
+an empty/zero result rather than inventing one. See CLAUDE.md's "every feature runs
+against a real cloud account" rule.
 """
 
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from enum import Enum
-import random
-import math
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +149,9 @@ class CostForecast:
         for i in range(1, days_ahead + 1):
             forecast_date = last_date + timedelta(days=i)
             forecast_value = max(0, intercept + slope * (n + i - 1))
-            variance = random.uniform(-0.05, 0.05) * forecast_value
             self.forecast.append(DataPoint(
                 forecast_date,
-                round(forecast_value + variance, 2),
+                round(forecast_value, 2),
                 f"Forecast Day {i}"
             ))
 
@@ -177,9 +180,6 @@ class AnalyticsService:
 
     def __init__(self, user_id: Optional[int] = None):
         self.user_id = user_id
-        self._time_series_cache: Dict[str, TimeSeries] = {}
-        self._cost_by_service: Dict[str, float] = {}
-        self._cost_by_team: Dict[str, float] = {}
 
     def _get_db(self):
         """Get database session."""
@@ -196,90 +196,132 @@ class AnalyticsService:
         from models import AnalyticsWidget
         return AnalyticsWidget
 
-    def _ensure_sample_data(self):
-        """Ensure sample time series data exists."""
-        if self._time_series_cache:
-            return
+    def _get_infra_model(self):
+        from models import InfrastructureResource
+        return InfrastructureResource
 
-        now = datetime.utcnow()
+    def _get_incident_model(self):
+        from models import IncidentModel
+        return IncidentModel
 
-        cost_series = TimeSeries('daily_cost', MetricType.COST)
-        cost_series.unit = 'USD'
-        base_cost = 150
-        for i in range(90, 0, -1):
-            date = now - timedelta(days=i)
-            daily_variation = random.uniform(-20, 30)
-            weekly_factor = 1.1 if date.weekday() < 5 else 0.8
-            trend = i * 0.5
-            cost = max(0, (base_cost + daily_variation + trend) * weekly_factor)
-            cost_series.add_point(date, round(cost, 2))
-        self._time_series_cache['daily_cost'] = cost_series
+    def _get_usage_log_model(self):
+        from models import UsageLog
+        return UsageLog
 
-        resource_series = TimeSeries('resource_count', MetricType.RESOURCES)
-        resource_series.unit = 'count'
-        base_resources = 15
-        for i in range(90, 0, -1):
-            date = now - timedelta(days=i)
-            change = random.randint(-1, 2) if random.random() > 0.7 else 0
-            base_resources = max(5, base_resources + change)
-            resource_series.add_point(date, base_resources)
-        self._time_series_cache['resource_count'] = resource_series
+    def _has_connected_account(self) -> bool:
+        """Whether this user has at least one active cloud credential connected."""
+        if self.user_id is None:
+            return False
+        from models import UserCloudCredential
+        return UserCloudCredential.query.filter_by(
+            user_id=self.user_id, is_active=True
+        ).first() is not None
 
-        incident_series = TimeSeries('incidents', MetricType.INCIDENTS)
-        incident_series.unit = 'count'
-        for i in range(90, 0, -1):
-            date = now - timedelta(days=i)
-            incidents = random.choices([0, 1, 2, 3], weights=[50, 30, 15, 5])[0]
-            incident_series.add_point(date, incidents)
-        self._time_series_cache['incidents'] = incident_series
+    @staticmethod
+    def _coerce_day(value) -> datetime:
+        """Normalize a SQL date/func.date() result (str on SQLite, date on Postgres) to datetime."""
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            return datetime.strptime(value[:10], '%Y-%m-%d')
+        return datetime(value.year, value.month, value.day)
 
-        deploy_series = TimeSeries('deployments', MetricType.DEPLOYMENTS)
-        deploy_series.unit = 'count'
-        for i in range(90, 0, -1):
-            date = now - timedelta(days=i)
-            deploys = random.choices([0, 1, 2, 3, 4, 5], weights=[20, 25, 25, 15, 10, 5])[0]
-            if date.weekday() >= 5:
-                deploys = max(0, deploys - 2)
-            deploy_series.add_point(date, deploys)
-        self._time_series_cache['deployments'] = deploy_series
+    def _daily_count_series(self, series_name: str, metric_type: 'MetricType', unit: str,
+                             model, timestamp_column, lookback_days: int) -> TimeSeries:
+        """Build a real per-day count series for a user-scoped model over the lookback window."""
+        series = TimeSeries(series_name, metric_type)
+        series.unit = unit
+        if self.user_id is None:
+            return series
 
-        api_series = TimeSeries('api_calls', MetricType.API_CALLS)
-        api_series.unit = 'calls'
-        for i in range(30 * 24, 0, -1):
-            date = now - timedelta(hours=i)
-            hour = date.hour
-            if 9 <= hour <= 17:
-                calls = random.randint(50, 200)
-            elif 6 <= hour <= 21:
-                calls = random.randint(20, 80)
-            else:
-                calls = random.randint(5, 30)
-            api_series.add_point(date, calls)
-        self._time_series_cache['api_calls'] = api_series
+        from sqlalchemy import func
+        db = self._get_db()
+        since = datetime.utcnow() - timedelta(days=lookback_days)
+        rows = (
+            db.session.query(
+                func.date(timestamp_column).label('day'),
+                func.count(model.id).label('count'),
+            )
+            .filter(model.user_id == self.user_id, timestamp_column >= since)
+            .group_by(func.date(timestamp_column))
+            .order_by(func.date(timestamp_column))
+            .all()
+        )
+        for row in rows:
+            series.add_point(self._coerce_day(row.day), row.count)
+        return series
 
-        self._cost_by_service = {
-            'EC2': 450.00,
-            'RDS': 280.00,
-            'S3': 45.00,
-            'Lambda': 35.00,
-            'CloudFront': 25.00,
-            'ELB': 55.00,
-            'Other': 30.00
-        }
+    def _cost_time_series(self) -> TimeSeries:
+        """Current total monthly cost as a single real data point.
 
-        self._cost_by_team = {
-            'Development': 380.00,
-            'Production': 420.00,
-            'Staging': 85.00,
-            'Testing': 35.00
-        }
+        There is no persisted daily cost history yet, so this reports the real
+        current snapshot rather than fabricating a 90-day trend.
+        """
+        series = TimeSeries('daily_cost', MetricType.COST)
+        series.unit = 'USD'
+        if not self._has_connected_account() or self.user_id is None:
+            return series
+
+        InfrastructureResource = self._get_infra_model()
+        resources = InfrastructureResource.query.filter(
+            InfrastructureResource.user_id == self.user_id,
+            InfrastructureResource.status != 'terminated',
+        ).all()
+        total = sum(r.monthly_cost or 0.0 for r in resources)
+        series.add_point(datetime.utcnow(), round(total, 2), 'Current')
+        return series
+
+    def _resource_count_time_series(self) -> TimeSeries:
+        """Current resource count as a single real data point (no historical count is tracked)."""
+        series = TimeSeries('resource_count', MetricType.RESOURCES)
+        series.unit = 'count'
+        if self.user_id is None:
+            return series
+
+        InfrastructureResource = self._get_infra_model()
+        count = InfrastructureResource.query.filter(
+            InfrastructureResource.user_id == self.user_id,
+            InfrastructureResource.status != 'terminated',
+        ).count()
+        series.add_point(datetime.utcnow(), count, 'Current')
+        return series
+
+    def _incidents_time_series(self) -> TimeSeries:
+        """Real per-day incident counts from IncidentModel.triggered_at."""
+        IncidentModel = self._get_incident_model()
+        return self._daily_count_series(
+            'incidents', MetricType.INCIDENTS, 'count',
+            IncidentModel, IncidentModel.triggered_at, lookback_days=90,
+        )
+
+    def _api_calls_time_series(self) -> TimeSeries:
+        """Real per-day tool/API call counts from UsageLog."""
+        UsageLog = self._get_usage_log_model()
+        return self._daily_count_series(
+            'api_calls', MetricType.API_CALLS, 'calls',
+            UsageLog, UsageLog.created_at, lookback_days=30,
+        )
+
+    def _deployments_time_series(self) -> TimeSeries:
+        """No deployment record model exists yet — report empty rather than infer/fabricate."""
+        series = TimeSeries('deployments', MetricType.DEPLOYMENTS)
+        series.unit = 'count'
+        return series
+
+    _SERIES_BUILDERS = {
+        'daily_cost': '_cost_time_series',
+        'resource_count': '_resource_count_time_series',
+        'incidents': '_incidents_time_series',
+        'deployments': '_deployments_time_series',
+        'api_calls': '_api_calls_time_series',
+    }
 
     def get_time_series(self, name: str, time_range: TimeRange = TimeRange.MONTH) -> Optional[TimeSeries]:
-        """Get time series data."""
-        self._ensure_sample_data()
-        series = self._time_series_cache.get(name)
-        if not series:
+        """Get real time series data for a known metric name, filtered to the requested range."""
+        builder_name = self._SERIES_BUILDERS.get(name)
+        if not builder_name:
             return None
+        series = getattr(self, builder_name)()
 
         now = datetime.utcnow()
         if time_range == TimeRange.HOUR:
@@ -301,10 +343,14 @@ class AnalyticsService:
         return filtered
 
     def get_cost_forecast(self, days_ahead: int = 30) -> CostForecast:
-        """Get cost forecast."""
-        self._ensure_sample_data()
-        cost_series = self._time_series_cache.get('daily_cost')
-        if not cost_series:
+        """Get cost forecast from real cost history.
+
+        No daily cost history is persisted yet (only a current snapshot), so this
+        currently always returns an empty forecast (CostForecast requires 7+ real
+        historical points before it will project) rather than fabricating one.
+        """
+        cost_series = self._cost_time_series()
+        if not cost_series.data_points:
             return CostForecast([])
 
         forecast = CostForecast(cost_series.data_points)
@@ -312,18 +358,28 @@ class AnalyticsService:
         return forecast
 
     def get_cost_breakdown(self) -> Dict:
-        """Get cost breakdown by service and team."""
-        self._ensure_sample_data()
+        """Get real cost breakdown by resource type, from the user's synced infrastructure."""
+        by_service: Dict[str, float] = {}
+        if self._has_connected_account() and self.user_id is not None:
+            InfrastructureResource = self._get_infra_model()
+            resources = InfrastructureResource.query.filter(
+                InfrastructureResource.user_id == self.user_id,
+                InfrastructureResource.status != 'terminated',
+            ).all()
+            for r in resources:
+                key = (r.resource_type or 'other').upper()
+                by_service[key] = round(by_service.get(key, 0.0) + (r.monthly_cost or 0.0), 2)
+
         return {
-            'by_service': self._cost_by_service,
-            'by_team': self._cost_by_team,
-            'total': sum(self._cost_by_service.values())
+            'by_service': by_service,
+            # No team/cost-center attribution exists on InfrastructureResource yet.
+            'by_team': {},
+            'total': round(sum(by_service.values()), 2),
         }
 
     def get_trend_analysis(self, metric: str) -> Dict:
-        """Analyze trends for a metric."""
-        self._ensure_sample_data()
-        series = self._time_series_cache.get(metric)
+        """Analyze trends for a metric using real data."""
+        series = self.get_time_series(metric, TimeRange.QUARTER)
         if not series or len(series.data_points) < 7:
             return {'error': 'Insufficient data'}
 
@@ -441,45 +497,83 @@ class AnalyticsService:
         return self.get_cost_forecast(days_ahead=days).to_dict()
 
     def get_resource_utilization(self) -> Dict:
-        """Get resource utilization summary."""
+        """Get real resource utilization summary from synced infrastructure."""
+        by_type: Dict[str, int] = {}
+        if self.user_id is not None:
+            from sqlalchemy import func
+            db = self._get_db()
+            InfrastructureResource = self._get_infra_model()
+            rows = (
+                db.session.query(InfrastructureResource.resource_type, func.count(InfrastructureResource.id))
+                .filter(
+                    InfrastructureResource.user_id == self.user_id,
+                    InfrastructureResource.status != 'terminated',
+                )
+                .group_by(InfrastructureResource.resource_type)
+                .all()
+            )
+            by_type = {rtype: count for rtype, count in rows}
+
         resource_series = self.get_time_series('resource_count', TimeRange.MONTH)
-        latest = resource_series.data_points[-1].value if resource_series and resource_series.data_points else 0
         trend = resource_series.get_trend() if resource_series else 'stable'
         return {
-            'total_resources': int(latest),
+            'total_resources': sum(by_type.values()),
             'trend': trend,
-            'by_type': {'ec2': int(latest * 0.5), 'rds': int(latest * 0.2), 'other': int(latest * 0.3)},
-            'utilization_avg': round(random.uniform(40, 75), 1),
+            'by_type': by_type,
+            # No CPU/memory monitoring source (e.g. CloudWatch) is wired in yet.
+            'utilization_avg': None,
         }
 
     def get_alerts_summary(self, days: int = 7) -> Dict:
-        """Get alerts summary for the given number of days."""
-        self._ensure_sample_data()
+        """Get real alerts/incidents summary for the given number of days."""
+        empty = {'total': 0, 'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
+                  'resolved': 0, 'open': 0, 'trend': 'stable'}
+        if self.user_id is None:
+            return empty
+
+        IncidentModel = self._get_incident_model()
+        since = datetime.utcnow() - timedelta(days=days)
+        incidents = IncidentModel.query.filter(
+            IncidentModel.user_id == self.user_id,
+            IncidentModel.triggered_at >= since,
+        ).all()
+
+        total = len(incidents)
+        by_severity = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
+        resolved = 0
+        for incident in incidents:
+            severity = (incident.severity or '').lower()
+            if severity in by_severity:
+                by_severity[severity] += 1
+            if incident.status in ('resolved', 'closed'):
+                resolved += 1
+
         incident_series = self.get_time_series('incidents', TimeRange.WEEK if days <= 7 else TimeRange.MONTH)
-        total = int(sum(p.value for p in incident_series.data_points)) if incident_series else 0
         return {
             'total': total,
-            'critical': int(total * 0.1),
-            'high': int(total * 0.3),
-            'medium': int(total * 0.4),
-            'low': int(total * 0.2),
-            'resolved': int(total * 0.8),
-            'open': int(total * 0.2),
+            'critical': by_severity['critical'],
+            'high': by_severity['high'],
+            'medium': by_severity['medium'],
+            'low': by_severity['low'],
+            'resolved': resolved,
+            'open': total - resolved,
             'trend': incident_series.get_trend() if incident_series else 'stable',
         }
 
     def get_deployment_stats(self, days: int = 30) -> Dict:
-        """Get deployment statistics for the given number of days."""
-        time_range = TimeRange.MONTH if days >= 28 else TimeRange.WEEK
-        deploy_series = self.get_time_series('deployments', time_range)
-        total = int(sum(p.value for p in deploy_series.data_points)) if deploy_series else 0
+        """Get deployment statistics for the given number of days.
+
+        No deployment-record model exists in this app yet (CI/CD tool calls are chat
+        actions, not deployment records) — report zeros/unavailable rather than infer
+        or fabricate one.
+        """
         return {
-            'total': total,
-            'successful': int(total * 0.92),
-            'failed': int(total * 0.08),
-            'success_rate': 92.0,
-            'avg_duration_minutes': round(random.uniform(5, 20), 1),
-            'trend': deploy_series.get_trend() if deploy_series else 'stable',
+            'total': 0,
+            'successful': 0,
+            'failed': 0,
+            'success_rate': None,
+            'avg_duration_minutes': None,
+            'trend': 'stable',
         }
 
     def get_incident_stats(self, days: int = 30) -> Dict:

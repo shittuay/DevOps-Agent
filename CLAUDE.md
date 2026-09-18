@@ -167,8 +167,11 @@ endpoint that reported fake `status: 'applied'` success without calling any clou
 CLAUDE_RUNBOOK.md's 2026-09-02 entry). The same audit found `services/analytics_service.py`'s
 "Advanced Analytics Dashboard" (`/analytics/*`) doing the identical thing at larger scope —
 hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `random.uniform()` noise
-— **flagged, not yet fixed** (needs its 4 consumer templates read first). If a new feature's data
-doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
+— flagged 2026-09-02, **fixed 2026-09-18** (see CLAUDE_RUNBOOK.md's 2026-09-18 entry): every
+metric now derives from real per-user rows (`InfrastructureResource`, `IncidentModel`,
+`UsageLog`) or reports zero/`None` when no real source backs it yet (deployments,
+CPU/memory utilization), rather than inventing one. If a new feature's data doesn't
+visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
 same bug until traced.
 
 **When building or reviewing a feature:**

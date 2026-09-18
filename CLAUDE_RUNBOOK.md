@@ -2637,3 +2637,74 @@ is unaffected); severity is still logged for ops-level visibility. Existing
 970 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
 the same environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in
 this file — not a regression).
+
+## Scheduled audit (2026-09-18): `services/analytics_service.py` fabricated every Advanced Analytics Dashboard metric — fixed
+
+Routine code review found the fabrication CLAUDE.md's 2026-09-02 entry flagged and
+explicitly left unfixed ("needs its 4 consumer templates read first"). Confirmed by
+reading `services/analytics_service.py` directly: `_ensure_sample_data()` generated
+**every** metric — 90 days of daily cost, resource count, incidents, and deployments,
+plus 30 days of hourly API-call volume — with `random.uniform`/`random.randint`/
+`random.choices`, cached once per instance and served to every user regardless of
+whether they had a cloud account connected. On top of that: `CostForecast.generate_forecast()`
+added `random.uniform(-0.05, 0.05)` jitter on top of a regression run over the fake
+data; `get_cost_breakdown()` returned two hardcoded dicts (`by_service`/`by_team`)
+with the same numbers for every account; `get_resource_utilization()` invented a
+`utilization_avg` via `random.uniform(40, 75)` and split the fake resource count into
+ec2/rds/other by a fixed 50/20/30 ratio; `get_alerts_summary()` and
+`get_deployment_stats()` derived `critical`/`high`/`medium`/`low`/`resolved`/`open`
+and `successful`/`failed`/`success_rate`/`avg_duration_minutes` as fixed percentages
+of the fake incident/deployment totals rather than real per-incident data. This was
+larger in blast radius than the Drift/Predictive-Scaling fabrications it echoes (see
+this file's 2026-08-12 and 2026-09-02 entries) because it's also exposed externally
+via the paid developer API (`routes/api_gateway.py`'s `/v1/analytics/costs`).
+
+**Fix:** every metric now reads real per-user rows instead of the cache:
+- **Cost** (`_cost_time_series`, `get_cost_breakdown`) — sums `InfrastructureResource.monthly_cost`
+  for the user's non-terminated synced resources, gated on `_has_connected_account()`
+  (checks for an active `UserCloudCredential` row) so a user with no cloud account
+  connected sees zero, not a canned number. `by_service` is now a real
+  `GROUP BY resource_type` sum; `by_team` returns `{}` — no team/cost-center field
+  exists on `InfrastructureResource`, so no template consumes it either (verified by
+  reading all 4 `templates/analytics/*.html` files), and inventing one would be the
+  same bug in a new shape.
+- **Resources** (`_resource_count_time_series`, `get_resource_utilization`) — real
+  `COUNT`/`GROUP BY resource_type` over the user's non-terminated resources.
+  `utilization_avg` is now `None` — no CPU/memory monitoring source (e.g. CloudWatch)
+  is wired into this app, so there is nothing real to report; the templates already
+  treat a missing value as `0` (`(x || 0).toFixed(1)`), so this fails closed without
+  a template change.
+- **Incidents** (`_incidents_time_series`, `get_alerts_summary`) — real per-day counts
+  from `IncidentModel.triggered_at`, and real severity/status breakdowns (`critical`/
+  `high`/`medium`/`low` from `IncidentModel.severity`, `resolved`/`open` from
+  `status in ('resolved', 'closed')`) instead of fixed percentages of a fake total.
+- **API calls** (`_api_calls_time_series`) — real per-day counts from `UsageLog`,
+  the same table `/analytics/api/tool-usage` already queried for real (that endpoint
+  was never part of the bug).
+- **Deployments** (`_deployments_time_series`, `get_deployment_stats`) — no
+  deployment-record model exists anywhere in this app (CI/CD tool calls are chat
+  actions, not deployment records); inferring one from `UsageLog` tool names was
+  considered and rejected as still a form of fabrication. Reports zeros /
+  `None` for `success_rate`/`avg_duration_minutes` instead.
+- **Forecast** (`CostForecast.generate_forecast`) — deleted the `random.uniform(-0.05, 0.05)`
+  jitter line entirely; real data doesn't need synthetic noise. Since no daily cost
+  history is persisted yet (only a current snapshot), `get_cost_forecast` now always
+  returns an empty forecast (the existing `len(historical) < 7` guard already handled
+  this) rather than fabricating 90 days of history to feed it.
+
+**Response shapes were kept 100% stable on purpose** — every field every one of the
+12 `routes/analytics.py` API endpoints and `routes/api_gateway.py`'s `/v1/analytics/costs`
+already returned is still present with the same key names; only the values changed
+from fabricated to real (or to an honest zero/`None`). No route or template needed
+any change. `import random` / `import math` (the latter already unused) removed from
+the module — nothing in it uses randomness anymore.
+
+**Tests:** new `tests/test_analytics_service_real_data.py` (13 cases): a user with no
+connected account and no real rows gets zeros/empty dicts/`None` everywhere, never a
+fabricated value; a user with real `InfrastructureResource`/`IncidentModel`/`UsageLog`
+rows gets exactly those values back (including a cross-user isolation check — another
+user's resources must never leak into this user's cost breakdown); and a source-inspection
+test that fails if the word `random` ever reappears in the module. Full suite: 1005
+passed, 1 pre-existing failure (`test_initialize_agent_populates_config`, the same
+environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in this file — not a
+regression from this change).
