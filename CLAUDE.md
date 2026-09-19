@@ -167,7 +167,13 @@ endpoint that reported fake `status: 'applied'` success without calling any clou
 CLAUDE_RUNBOOK.md's 2026-09-02 entry). The same audit found `services/analytics_service.py`'s
 "Advanced Analytics Dashboard" (`/analytics/*`) doing the identical thing at larger scope —
 hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `random.uniform()` noise
-— **flagged, not yet fixed** (needs its 4 consumer templates read first). If a new feature's data
+— flagged at the time, not yet fixed. **Fixed by the 2026-09-19 scheduled audit**: every metric now
+sources from the user's real AWS Cost Explorer/CloudWatch data (`services/cost_explorer.py`,
+already used elsewhere in the app) or this app's own per-user tables (`InfrastructureResource`,
+`IncidentModel`, `UsageLog`), falling back to honest zeros/empty series — never invented numbers.
+See CLAUDE_RUNBOOK.md's 2026-09-19 entry for the full before/after and what's still an approximation
+(deployment stats are derived from CI/CD tool call history, since this app has no dedicated
+Deployment model). If a new feature's data
 doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
 same bug until traced.
 
