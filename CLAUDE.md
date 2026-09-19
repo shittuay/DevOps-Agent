@@ -261,6 +261,47 @@ same bug until traced.
   by id inside the thread, never pass a live ORM object across the thread boundary) so response
   time stays uniform.
 
+### CSRF enforcement (`app.py`'s `_enforce_csrf_on_form_submissions`)
+
+`CSRFProtect(app)` is initialized but `WTF_CSRF_CHECK_DEFAULT` is **`False`**, so Flask-WTF's
+automatic per-request check is off. That is deliberate — the JSON surfaces (`/api/*`, the MCP
+transport, the developer REST gateway, the HMAC-signed inbound webhook receiver) send no CSRF
+token and would break under a blanket check. **Disabling it was only ever half a design**: the
+other half, per-endpoint `@csrf.protect`, was never written. Four auth routes — `/login`,
+`/signup`, `/forgot-password`, `/reset-password` — do validate by hand through `routes/auth.py`'s
+`_check_csrf()`, and **those four were the only form endpoints ever checked**. Every other
+form-encoded POST (`/profile`, the organization create/invite/settings forms, compliance policy
+and evidence, API key and webhook creation) rendered no token and validated none. The four
+`_check_csrf()` calls are deliberately kept: the hook preempts them, but their inline error
+message is the only feedback those pages can give, since none of the four auth templates render
+flash messages. See CLAUDE_RUNBOOK.md's 2026-09-19 entry.
+
+The enforcement now lives in a single `@app.before_request` hook, `_enforce_csrf_on_form_submissions()`:
+
+- **It gates on MIME type, not on route.** Only `application/x-www-form-urlencoded` and
+  `multipart/form-data` (`_CSRF_FORM_MIMETYPES`) are checked. This is the actual security
+  boundary, not a convenience: those two are CORS "simple requests" that any cross-origin page
+  can send with the victim's cookies attached, whereas a cross-origin page cannot send
+  `Content-Type: application/json` without a preflight it has no way to satisfy. **A new JSON
+  endpoint needs no exemption; a new form endpoint is covered automatically.**
+- **It mirrors Flask-WTF's own `csrf_protect` hook** — it reads that extension's private
+  `csrf._exempt_blueprints` / `csrf._exempt_views` sets so existing `csrf.exempt(...)` calls keep
+  working. That is why `flask-wtf` must stay `==`-pinned (see the Dependency Pinning Policy);
+  **re-verify this hook against `flask_wtf/csrf.py` if that pin moves.**
+- **A rejection is a 303 redirect, not a 400.** `handle_csrf_error` flashes "Your session
+  expired…" and bounces the browser back — a failure here is far more often a stale session than
+  a real forgery. The referrer is validated through `routes.auth._is_safe_redirect()` before being
+  used as the target: on a genuinely forged request the referrer points at the attacker's page,
+  and redirecting there would make the error handler itself an open redirect.
+- Guarded by `tests/test_csrf_enforcement.py` (8 tests). The 303 is the discriminator the tests
+  key on — no ordinary `/login` outcome returns it (bad password re-renders 200, success is 302).
+  **A regression here is silent** (forms keep working, they just stop being checked), so both
+  halves are asserted: form-without-token rejected *and* JSON-without-token not blocked.
+
+**When adding a form-rendering template, it must include
+`<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`** — the hook will otherwise
+reject the submission at runtime with no compile-time warning.
+
 ### Guardrails (Jailbreak / Prompt Injection Defense)
 Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer REST API
 (`/v1/agent`, `/v1/agent/stream` in `routes/api_gateway.py`) before any credit is deducted:
