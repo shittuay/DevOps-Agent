@@ -128,6 +128,26 @@ CHAT_KEEPALIVE_INTERVAL_SECONDS = 15
 # in the background and persists itself (see _finalize_turn).
 CHAT_MAX_TURN_SECONDS = int(os.environ.get('CHAT_MAX_TURN_SECONDS', '840'))
 
+# At or below this many credits, chat responses carry a `low_credit_warning`
+# so the UI can warn the user before they spend their next credit (Execution
+# Integrity rule 5). The existing one-time email fires only at exactly 5.
+LOW_CREDIT_THRESHOLD = 5
+
+
+def _low_credit_warning(credits_remaining):
+    """A `low_credit_warning` payload when the balance is running low, else None."""
+    if credits_remaining is None or credits_remaining > LOW_CREDIT_THRESHOLD:
+        return None
+    if credits_remaining <= 0:
+        return None  # the exhausted path has its own upgrade pitch
+    return {
+        'credits_remaining': credits_remaining,
+        'message': (
+            f"You have {credits_remaining} credit{'s' if credits_remaining != 1 else ''} "
+            f"left. Each message costs 1 — top up to keep going."
+        ),
+    }
+
 # Trust proxy headers (Cloudflare → nginx → Flask).
 # Without this, Talisman sees HTTP and redirects Stripe webhooks, losing the body + signature.
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -220,7 +240,22 @@ app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 
 # Database configuration
 # PostgreSQL for both local dev and production
-database_url = os.environ.get('DATABASE_URL', 'postgresql://devops:devops_local@localhost:5432/devops_agent')
+database_url = os.environ.get('DATABASE_URL')
+if not database_url:
+    # The local-dev fallback below carries a well-known password (it matches
+    # docker-compose.yml's dev database). Falling back to it in production would
+    # either fail obscurely or, worse, connect to some unintended local database,
+    # so refuse instead of guessing.
+    if os.environ.get('FLASK_ENV') == 'production' or os.environ.get('USE_AWS_SECRETS') == 'true':
+        raise RuntimeError(
+            "DATABASE_URL is not set. It is required in production - refusing to "
+            "fall back to the local development database."
+        )
+    database_url = (
+        f"postgresql://{os.environ.get('DEV_DB_USER', 'devops')}"
+        f":{os.environ.get('DEV_DB_PASSWORD', 'devops_local')}"
+        f"@{os.environ.get('DEV_DB_HOST', 'localhost')}:5432/devops_agent"
+    )
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
@@ -498,9 +533,12 @@ def handle_rate_limit(e):
     limit = getattr(e, 'description', str(e))
     if request.path.startswith('/api/') or request.path.startswith('/chat'):
         return jsonify({'error': f'Rate limit exceeded. {limit}'}), 429
-    return render_template('429.html', limit=limit) if _template_exists('429.html') else (
-        f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
-    )
+    # Both branches must carry the status explicitly: render_template() alone
+    # returns a bare string, which Flask serves as 200 - so adding a 429.html
+    # would have quietly turned every rate-limited response into a success.
+    if _template_exists('429.html'):
+        return render_template('429.html', limit=limit), 429
+    return f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
 
 
 def _template_exists(name):
@@ -2753,6 +2791,70 @@ def admin_add_credits():
     })
 
 
+def _record_tool_usage(*, user_id, conversation_id, ai_model, primary_row,
+                        primary_tool, tool_calls, tools_used, turn_success):
+    """Emit the per-tool ``UsageLog`` rows for a finished chat turn.
+
+    Shared by ``/api/chat`` and ``/api/chat/stream``. Each row carries the
+    tool's OWN outcome — ``usage_logs.success`` on a per-tool row used to be the
+    turn-completion flag, which is what produced the false "unwanted RDS
+    instance" alarm (CLAUDE_RUNBOOK.md, 2026-09-02). A tool the model guessed
+    that progressive selection never sent is written as ``tool_not_offered`` so
+    a recurrence of that day's misrouting is visible from one DB query.
+
+    ``primary_row`` is the already-created turn row; its ``success`` /
+    ``error_message`` are corrected in place if the primary tool actually
+    failed. Returns the list of extra rows to add to the session.
+
+    Falls back to one turn-flagged row per distinct executed tool when the
+    structured ``tool_calls`` log is unavailable (e.g. the Groq no-tools
+    fallback path).
+    """
+    rows = []
+    seen = {primary_tool} if primary_tool else set()
+
+    if tool_calls:
+        outcome = {}  # tool -> (success, error, status); any failure wins
+        for tc in tool_calls:
+            name = tc.get('tool')
+            if not name:
+                continue
+            ok = bool(tc.get('success'))
+            if name not in outcome or (outcome[name][0] and not ok):
+                outcome[name] = (ok, tc.get('error') or None, tc.get('status'))
+
+        if primary_tool in outcome and not outcome[primary_tool][0] and primary_row.success:
+            primary_row.success = False
+            primary_row.error_message = primary_row.error_message or outcome[primary_tool][1]
+
+        for name, (ok, err, status) in outcome.items():
+            if name in seen:
+                continue
+            seen.add(name)
+            rows.append(UsageLog(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                action_type='tool_not_offered' if status == 'not_offered' else 'tool_use',
+                tool_name=name,
+                credits_used=0,
+                success=ok,
+                error_message=None if ok else err,
+                ai_model=ai_model,
+            ))
+    else:
+        for name in tools_used[1:]:
+            rows.append(UsageLog(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                action_type='tool_use',
+                tool_name=name,
+                credits_used=0,
+                success=turn_success,
+                ai_model=ai_model,
+            ))
+    return rows
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
@@ -3009,16 +3111,20 @@ def api_chat():
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
-        # Scope tools to task type and enforce per-tier max_tools cap; inject mode prompt
+        # Inject mode prompt. Tool narrowing is NOT done here: passing a
+        # tools_override (even a full-list one) makes core._maybe_select_tools
+        # early-return, which silently disabled progressive tool loading on
+        # every chat turn — scope_tools() documents that it ignores max_tools
+        # and returns all ~742 tools reordered. Kimi then picked nmap_port_scan
+        # 150 times for "create an ec2 instance" and never once called
+        # create_ec2_instance. Pass max_tools instead and let the agent's own
+        # category-based selection narrow the set (~50 tools for that message).
+        # See CLAUDE_RUNBOOK.md 2026-09-02.
         from services.devopsagent_prompts import (
-            DevOpsAgentSessionFactory, detect_task_type,
+            DevOpsAgentSessionFactory,
             SANDBOX_SYSTEM_PROMPT, REAL_AGENT_SYSTEM_PROMPT,
         )
         _factory = DevOpsAgentSessionFactory()
-        _task_type = detect_task_type(message)
-        _filtered_tools = _factory.scope_tools(
-            agent.tool_definitions, _task_type, model_config.max_tools
-        )
         if sandbox_active:
             _session = _factory.create_sandbox_session()
             preferences_context = (preferences_context or '') + '\n\n' + SANDBOX_SYSTEM_PROMPT
@@ -3115,16 +3221,13 @@ def api_chat():
                 ai_model=_model.model
             )
             db.session.add(usage_log)
-            for _extra_tool in _tools_used[1:]:
-                db.session.add(UsageLog(
-                    user_id=_user_id,
-                    conversation_id=conversation_id,
-                    action_type='tool_use',
-                    tool_name=_extra_tool,
-                    credits_used=0,
-                    success=success,
-                    ai_model=_model.model
-                ))
+            for _row in _record_tool_usage(
+                user_id=_user_id, conversation_id=conversation_id, ai_model=_model.model,
+                primary_row=usage_log, primary_tool=_primary_tool,
+                tool_calls=_agent_result.get('tool_calls') or [],
+                tools_used=_tools_used, turn_success=success,
+            ):
+                db.session.add(_row)
 
             # Track first-ever tool use for conversion funnel
             if _tools_used and success:
@@ -3204,10 +3307,11 @@ def api_chat():
 
                 logger.info(f"Download ready for user {_user_id}: {download_storage[download_token]['filename']}")
 
+            _bal = CreditService.balance(_user_id)
             response_data = {
                 'response': response,
                 'timestamp': datetime.now().isoformat(),
-                'credits_remaining': CreditService.balance(_user_id),
+                'credits_remaining': _bal,
                 'credits_used_this_month': _subscription.credits_used_this_month if _subscription else 0,
                 'conversation_title': _conversation.title if _conversation else None,
                 'model_info': {
@@ -3217,6 +3321,9 @@ def api_chat():
                     'supports_tools': _model.supports_tools,
                 }
             }
+            _lcw = _low_credit_warning(_bal)
+            if _lcw:
+                response_data['low_credit_warning'] = _lcw
 
             # Add download URL if available
             if download_url:
@@ -3247,7 +3354,7 @@ def api_chat():
                             trial_context=trial_context,
                             sandbox_mode=sandbox_active,
                             provider='kimi',
-                            tools_override=_filtered_tools,
+                            max_tools=model_config.max_tools,
                             trust_tool_results=model_config.trust_tool_results,
                             swarm_max_agents=_swarm_max_agents,
                         )
@@ -3260,7 +3367,7 @@ def api_chat():
                             model_override=model_config.model,
                             trial_context=trial_context,
                             sandbox_mode=sandbox_active,
-                            tools_override=_filtered_tools,
+                            max_tools=model_config.max_tools,
                             trust_tool_results=model_config.trust_tool_results,
                         )
                     else:
@@ -3282,6 +3389,12 @@ def api_chat():
                 _agent_result['tools_used'] = list(agent.last_tools_used or [])
             except Exception:
                 _agent_result['tools_used'] = []
+            try:
+                # Per-call record (name + real per-tool outcome), including tools
+                # the model guessed that were never offered — see core._record_tool_call.
+                _agent_result['tool_calls'] = list(getattr(agent, 'last_tool_calls', []) or [])
+            except Exception:
+                _agent_result['tool_calls'] = []
             try:
                 _agent_result['pending_download'] = agent.pending_download
                 agent.pending_download = None
@@ -3685,16 +3798,13 @@ def api_chat_stream():
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
-        # Scope tools to task type and enforce per-tier max_tools cap; inject mode prompt
+        # Inject mode prompt. Tool narrowing happens inside the agent via
+        # max_tools — see the matching comment on the non-streaming path above.
         from services.devopsagent_prompts import (
-            DevOpsAgentSessionFactory as _SessionFactory, detect_task_type as _detect_task,
+            DevOpsAgentSessionFactory as _SessionFactory,
             SANDBOX_SYSTEM_PROMPT as _SANDBOX_PROMPT, REAL_AGENT_SYSTEM_PROMPT as _REAL_PROMPT,
         )
         _sfactory = _SessionFactory()
-        _stask_type = _detect_task(message)
-        _sfiltered_tools = _sfactory.scope_tools(
-            agent.tool_definitions, _stask_type, model_config.max_tools
-        )
         if sandbox_active:
             _ssession = _sfactory.create_sandbox_session()
             preferences_context = (preferences_context or '') + '\n\n' + _SANDBOX_PROMPT
@@ -3715,7 +3825,7 @@ def api_chat_stream():
         mc = model_config
         tc = trial_context
         sb = sandbox_active
-        _stream_filtered_tools = _sfiltered_tools
+        _stream_max_tools = model_config.max_tools
         _stream_trust = model_config.trust_tool_results
 
         db.session.commit()
@@ -3763,7 +3873,7 @@ def api_chat_stream():
                             trial_context=tc,
                             sandbox_mode=sb,
                             provider=_provider_arg,
-                            tools_override=_stream_filtered_tools,
+                            max_tools=_stream_max_tools,
                             trust_tool_results=_stream_trust,
                             swarm_max_agents=(
                                 getattr(mc, 'swarm_max_agents', 0)
@@ -3903,16 +4013,16 @@ def api_chat_stream():
                         ai_model=actual_mc.model
                     )
                     db.session.add(usage_log)
-                    for _st in _stream_tools[1:]:
-                        db.session.add(UsageLog(
-                            user_id=uid,
-                            conversation_id=cid,
-                            action_type='tool_use',
-                            tool_name=_st,
-                            credits_used=0,
-                            success=True,
-                            ai_model=actual_mc.model
-                        ))
+
+                    # The Kimi streaming tier writes no tool_trace, so these
+                    # per-tool rows are the only per-tool signal it produces.
+                    for _row in _record_tool_usage(
+                        user_id=uid, conversation_id=cid, ai_model=actual_mc.model,
+                        primary_row=usage_log, primary_tool=_stream_primary,
+                        tool_calls=list(getattr(agent, 'last_tool_calls', []) or []),
+                        tools_used=_stream_tools, turn_success=True,
+                    ):
+                        db.session.add(_row)
 
                     # Update conversation: title (first message) + clear streaming flag
                     c = Conversation.query.filter_by(id=cid, user_id=uid).first()
@@ -3940,7 +4050,11 @@ def api_chat_stream():
                         except Exception:
                             pass
 
-                yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
+                _done_evt = {'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}}
+                _lcw = _low_credit_warning(remaining)
+                if _lcw:
+                    _done_evt['low_credit_warning'] = _lcw
+                yield f"data: {_json.dumps(_done_evt)}\n\n"
 
             except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                 # Client disconnected mid-stream — silently clean up, do not try to yield
@@ -3955,12 +4069,33 @@ def api_chat_stream():
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             except Exception as e:
+                # Report the REAL balance here, not a hardcoded 0. This handler
+                # fires for any unrelated failure (a provider timeout, a tool
+                # crash, a malformed response) — none of which mean the user's
+                # credits are exhausted. The frontend's `credits_remaining === 0`
+                # check (templates/index.html) treats that value as "trial
+                # ended": it disables the message input/send button and shows
+                # an upgrade banner, with no way to dismiss it short of a page
+                # reload. A user with real credits left got permanently locked
+                # out of chat by an unrelated transient error. See
+                # CLAUDE_RUNBOOK.md's 2026-09-02 entry.
                 with app.app_context():
                     db.session.rollback()
+                    try:
+                        _real_balance = CreditService.balance(uid)
+                    except Exception:
+                        _real_balance = None
                 try:
                     yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-                    # Always send done so the frontend doesn't hang waiting for stream close
-                    yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': 0, 'error': True})}\n\n"
+                    # Always send done so the frontend doesn't hang waiting for stream close.
+                    # Omit credits_remaining entirely if the balance lookup itself
+                    # failed — the frontend already treats "undefined" as "leave the
+                    # current display alone" (see the `!== undefined` checks), which
+                    # is strictly safer here than guessing a number.
+                    _done_payload = {'type': 'done', 'error': True}
+                    if _real_balance is not None:
+                        _done_payload['credits_remaining'] = _real_balance
+                    yield f"data: {_json.dumps(_done_payload)}\n\n"
                 except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                     pass
             finally:
@@ -6291,4 +6426,9 @@ if __name__ == '__main__':
         print(f"  Warning: Scheduler failed to start: {e}")
 
     debug_mode = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False, threaded=True)
+    # Loopback by default so `python app.py` does not expose the development
+    # server to the whole network. Containers need to bind all interfaces to be
+    # reachable through a published port, so docker-compose.yml sets
+    # FLASK_RUN_HOST=0.0.0.0 explicitly. Production serves via gunicorn, not here.
+    run_host = os.environ.get('FLASK_RUN_HOST', '127.0.0.1')
+    app.run(host=run_host, port=port, debug=debug_mode, use_reloader=False, threaded=True)

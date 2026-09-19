@@ -12,6 +12,8 @@ and `git rebase --exec=<cmd>`. A chat-driven caller of git_pull/git_push/
 git_rebase_branch (etc.) could previously pass e.g.
 remote="--upload-pack=touch$IFS/tmp/pwned" and reach command execution.
 """
+from unittest.mock import patch
+
 import pytest
 
 from src.tools.git_tools import (
@@ -30,6 +32,7 @@ from src.tools.git_tools import (
     git_diff_stat,
     git_show_file_at_commit,
     git_blame_file,
+    git_clone_repository,
 )
 
 
@@ -70,6 +73,21 @@ def test_flag_like_argument_rejected_before_touching_repo(fn, kwargs):
     """The rejection must happen before _get_repo() runs, so a bogus repo_path
     proves the flag check -- not a path error -- is what fails the call."""
     result = fn(**kwargs)
+    assert result['success'] is False
+    assert 'must not start with' in result['error']
+
+
+def test_clone_rejects_flag_like_dest_path():
+    """dest_path is the trailing bare positional of `git clone <url> <dest_path>`;
+    git's option parser permutes arguments, so a dash-leading dest_path (e.g.
+    `--config=core.hooksPath=/tmp/h`) is parsed as a clone option instead of a
+    destination -- letting a clone run attacker-chosen hooks. url validation is
+    mocked out so this isolates the dest_path check from network/DNS behavior."""
+    with patch('src.tools.git_tools._validate_git_url', return_value=True):
+        result = git_clone_repository(
+            url='https://example.com/repo.git',
+            dest_path='--config=core.hooksPath=/tmp/h',
+        )
     assert result['success'] is False
     assert 'must not start with' in result['error']
 

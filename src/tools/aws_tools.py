@@ -254,11 +254,28 @@ def manage_ec2_instance(
 
     except ClientError as e:
         logger.error(f"AWS API error: {str(e)}")
-        return {
+        error_code = e.response['Error']['Code']
+        result = {
             'success': False,
             'error': str(e),
-            'error_code': e.response['Error']['Code']
+            'error_code': error_code
         }
+        # This is the self-correcting half of the 2026-09-02 fix (see
+        # CLAUDE_RUNBOOK.md): a model that tries to "create" an instance by
+        # calling manage_ec2_instance(action='start', instance_id=<guessed>)
+        # gets this exact AWS error — enrich it in place, at the moment the
+        # mistake actually happens, rather than relying on the model having
+        # read either tool's description carefully beforehand.
+        if error_code.startswith('InvalidInstanceID'):
+            result['message'] = (
+                f'Instance "{instance_id}" does not exist. manage_ec2_instance '
+                'only starts/stops/reboots/terminates an instance that already '
+                'exists — it cannot create one, including with action="start". '
+                'To create a new instance, call create_ec2_instance instead '
+                '(call find_ami first if you need to resolve an OS name to an '
+                'ami_id).'
+            )
+        return result
     except Exception as e:
         logger.error(f"Error managing EC2 instance: {str(e)}", exc_info=True)
         return {
@@ -2738,8 +2755,8 @@ def delete_ec2_keypair(key_name: str, region: Optional[str] = None) -> Dict[str,
 
 
 def create_ec2_instance(
-    ami_id: str,
-    instance_type: str,
+    ami_id: Optional[str] = None,
+    instance_type: str = None,
     key_name: Optional[str] = None,
     security_group_ids: Optional[List[str]] = None,
     subnet_id: Optional[str] = None,
@@ -2752,7 +2769,8 @@ def create_ec2_instance(
     Create EC2 instance(s).
 
     Args:
-        ami_id: AMI ID to use (e.g., ami-0c55b159cbfafe1f0)
+        ami_id: AMI ID to use (e.g., ami-0c55b159cbfafe1f0). If the caller has
+            only an OS/distro name (e.g. "ubuntu"), call find_ami first.
         instance_type: Instance type (e.g., t2.micro, t3.small)
         key_name: SSH key pair name
         security_group_ids: List of security group IDs
@@ -2765,6 +2783,30 @@ def create_ec2_instance(
     Returns:
         Dictionary with created instance information
     """
+    # ami_id/instance_type are functionally required but kept Optional in the
+    # signature so a call missing either lands here as a normal early return
+    # instead of a bare TypeError before the function body runs — the
+    # generic exception string from a missing-argument TypeError gave no
+    # path back to find_ami (see CLAUDE_RUNBOOK.md's 2026-09-02 entry).
+    if not ami_id:
+        return {
+            'success': False,
+            'error': 'ami_id is required and was not provided.',
+            'message': (
+                'No ami_id was given. If you only have an OS/distro name '
+                '(e.g. "ubuntu"), call find_ami first to resolve it to a '
+                'concrete ami_id, then call create_ec2_instance again with '
+                'that value. Do not call manage_ec2_instance — it can only '
+                'start/stop/reboot/terminate an instance that already exists.'
+            ),
+        }
+    if not instance_type:
+        return {
+            'success': False,
+            'error': 'instance_type is required and was not provided.',
+            'message': 'Specify an instance_type (e.g. t2.micro, t3.small).',
+        }
+
     try:
         # Validate count
         if count < 1 or count > 10:
@@ -11489,6 +11531,115 @@ def resize_ebs_volume(
         return {'success': False, 'error': str(e)}
 
 
+# Canonical AMI publishers, by the owner alias/account the AMI is published under.
+# Looking an AMI up by name alone is unsafe: anyone can publish a public image whose
+# name mimics a distro's, so an unfiltered describe_images can return an impostor.
+# Every entry here is the distro vendor's own well-known owner id/alias.
+_AMI_OWNERS: Dict[str, Dict[str, Any]] = {
+    'ubuntu': {'owners': ['099720109477'], 'publisher': 'Canonical'},
+    'amazon-linux': {'owners': ['amazon'], 'publisher': 'Amazon'},
+    'debian': {'owners': ['136693071363'], 'publisher': 'Debian'},
+    'rhel': {'owners': ['309956199498'], 'publisher': 'Red Hat'},
+    'suse': {'owners': ['013907871322'], 'publisher': 'SUSE'},
+    'windows': {'owners': ['amazon'], 'publisher': 'Amazon (Windows)'},
+}
+
+# Default name patterns per distro. `{version}` is substituted from the caller's
+# `version` argument, or replaced by a wildcard when they don't pin one.
+_AMI_NAME_PATTERNS: Dict[str, str] = {
+    'ubuntu': 'ubuntu/images/hvm-ssd*/ubuntu-*-{version}-amd64-server-*',
+    'amazon-linux': 'al2023-ami-2023.*-x86_64',
+    'debian': 'debian-{version}-amd64-*',
+    'rhel': 'RHEL-{version}*_HVM-*-x86_64-*',
+    'suse': 'suse-sles-{version}-v*-hvm-ssd-x86_64',
+    'windows': 'Windows_Server-{version}-English-Full-Base-*',
+}
+
+
+def find_ami(
+    distro: str = 'ubuntu',
+    version: Optional[str] = None,
+    architecture: str = 'x86_64',
+    region: Optional[str] = None,
+    limit: int = 5
+) -> Dict[str, Any]:
+    """
+    Find the most recent official AMI ID for a Linux/Windows distribution.
+
+    This is the lookup step that must precede create_ec2_instance, which requires
+    a concrete ami_id and has no way to resolve a distro name on its own. Results
+    are restricted to the distribution vendor's own AWS owner id, so a public
+    image with a lookalike name can never be returned.
+
+    Args:
+        distro: One of ubuntu, amazon-linux, debian, rhel, suse, windows
+        version: Version to pin (e.g. '24.04', '12', '9'). Newest if omitted.
+        architecture: x86_64 (default) or arm64
+        region: AWS region (defaults to the caller's configured region)
+        limit: How many matching AMIs to return, newest first
+
+    Returns:
+        Dict with the newest matching AMI plus a few alternates.
+    """
+    key = (distro or '').strip().lower()
+    if key not in _AMI_OWNERS:
+        return {
+            'success': False,
+            'error': f'Unknown distro "{distro}". Supported: {", ".join(sorted(_AMI_OWNERS))}. '
+                     'For anything else use aws_api_read("ec2", "describe_images", {...}) '
+                     'with an explicit Owners filter.'
+        }
+    try:
+        ec2 = _get_boto_client('ec2', region)
+        pattern = _AMI_NAME_PATTERNS[key].replace('{version}', version.strip() if version else '*')
+        response = ec2.describe_images(
+            Owners=_AMI_OWNERS[key]['owners'],
+            Filters=[
+                {'Name': 'name', 'Values': [pattern]},
+                {'Name': 'state', 'Values': ['available']},
+                {'Name': 'architecture', 'Values': [architecture]},
+                {'Name': 'virtualization-type', 'Values': ['hvm']},
+            ],
+        )
+        images = sorted(
+            response.get('Images', []),
+            key=lambda i: i.get('CreationDate', ''),
+            reverse=True
+        )
+        if not images:
+            return {
+                'success': False,
+                'error': f'No {_AMI_OWNERS[key]["publisher"]} AMI matched '
+                         f'{"version " + version if version else "any version"} '
+                         f'({architecture}) in {_get_effective_region(region)}. '
+                         'Try omitting the version, or a different architecture/region.'
+            }
+        newest = images[0]
+        return {
+            'success': True,
+            'ami_id': newest['ImageId'],
+            'name': newest.get('Name'),
+            'description': newest.get('Description'),
+            'creation_date': newest.get('CreationDate'),
+            'architecture': newest.get('Architecture'),
+            'publisher': _AMI_OWNERS[key]['publisher'],
+            'region': _get_effective_region(region),
+            'alternates': [
+                {'ami_id': i['ImageId'], 'name': i.get('Name'), 'creation_date': i.get('CreationDate')}
+                for i in images[1:max(1, limit)]
+            ],
+            'message': f'Newest {_AMI_OWNERS[key]["publisher"]} {distro} AMI in '
+                       f'{_get_effective_region(region)}: {newest["ImageId"]} ({newest.get("Name")}). '
+                       'Pass this as ami_id to create_ec2_instance.'
+        }
+    except ClientError as e:
+        logger.error(f"AWS API error (find_ami): {str(e)}")
+        return {'success': False, 'error': str(e), 'error_code': e.response['Error']['Code']}
+    except Exception as e:
+        logger.error(f"Error finding AMI: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
 def create_ami(
     instance_id: str,
     name: str,
@@ -13857,6 +14008,13 @@ def get_tools() -> List[Dict[str, Any]]:
             'name': 'create_ec2_instance',
             'description': (
                 'Create one or more EC2 instances with specified configuration. '
+                'REQUIRES a concrete ami_id — it cannot resolve an OS name like '
+                '"ubuntu" or "amazon linux" on its own. If the user named a '
+                'distro/OS instead of giving an ami_id, call find_ami FIRST to '
+                'resolve it, then pass the returned ami_id here. Do not guess an '
+                'AMI ID and do not call manage_ec2_instance instead — that tool '
+                'only starts/stops/reboots/terminates an instance that already '
+                'exists; it cannot create one. '
                 'IMPORTANT: By default, this creates exactly ONE instance. '
                 'Only specify count parameter if multiple instances are explicitly requested. '
                 'If user asks for "an instance" or "one instance", use count=1 (the default).'
@@ -13930,7 +14088,14 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'manage_ec2_instance',
-            'description': 'Manage EC2 instance - start, stop, reboot, or terminate',
+            'description': (
+                'Start, stop, reboot, or terminate an EC2 instance that ALREADY '
+                'EXISTS. Requires a real instance_id — it cannot create a new '
+                'instance under any action, including "start". To create a new '
+                'instance, call create_ec2_instance instead (which needs an '
+                'ami_id — use find_ami first if the user named an OS instead of '
+                'an AMI).'
+            ),
             'input_schema': {
                 'type': 'object',
                 'properties': {
@@ -17840,6 +18005,33 @@ def get_tools() -> List[Dict[str, Any]]:
                 'required': ['volume_id']
             },
             'handler': resize_ebs_volume
+        },
+        {
+            'name': 'find_ami',
+            'description': (
+                'Find the newest official AMI ID for a Linux/Windows distribution '
+                '(ubuntu, amazon-linux, debian, rhel, suse, windows). USE THIS FIRST '
+                'whenever the user asks for an instance by OS name rather than by AMI '
+                'ID — create_ec2_instance requires a concrete ami_id and cannot resolve '
+                '"ubuntu" on its own. Results are restricted to the distribution '
+                "vendor's own AWS account, so lookalike public images are never returned."
+            ),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'distro': {
+                        'type': 'string',
+                        'enum': ['ubuntu', 'amazon-linux', 'debian', 'rhel', 'suse', 'windows'],
+                        'description': 'Distribution to look up (default: ubuntu)'
+                    },
+                    'version': {'type': 'string', 'description': 'Version to pin, e.g. "24.04" for Ubuntu, "12" for Debian. Newest available if omitted.'},
+                    'architecture': {'type': 'string', 'enum': ['x86_64', 'arm64'], 'description': 'CPU architecture (default x86_64). Use x86_64 for t2/t3/m5; arm64 for Graviton (t4g/m6g).'},
+                    'region': {'type': 'string', 'description': 'AWS region to search (AMI IDs are region-specific)'},
+                    'limit': {'type': 'integer', 'description': 'How many alternates to return alongside the newest match (default 5)'}
+                },
+                'required': []
+            },
+            'handler': find_ami
         },
         {
             'name': 'create_ami',

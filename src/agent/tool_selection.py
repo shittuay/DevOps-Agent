@@ -13,7 +13,8 @@ Safety contract:
   unsure).
 - ``search_tools`` is always retained so the model can recover any tool at runtime.
 """
-from typing import Any, Dict, List, Optional, Tuple
+import re
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # Always available regardless of message content.
 ALWAYS_CATEGORIES = ('command', 'devops_operations')
@@ -140,6 +141,7 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     'aws.apigateway': ('api gateway', 'apigateway'),
     'aws.stepfunctions': ('step function', 'state machine'),
     'aws.quota': ('service quota', 'quota', 'limit increase'),
+    'aws.common': ('resource', 'inventory', 'tagged', 'tagging', 'everything i have'),
     'kubernetes': ('pod', 'kubectl', 'namespace', 'deployment', 'k8s', 'kubernetes',
                    'node', 'ingress', 'configmap', 'cordon', 'crashloop'),
     'azure': ('azure', 'blob', 'cosmos', 'nsg', 'vnet', 'az vm', 'resource group'),
@@ -186,9 +188,122 @@ def classify_tool(name: str, module_category: str) -> str:
     return module_category
 
 
+# Meta-tools callable on every turn unconditionally: search_tools is the
+# universal tool-recovery path; record_state_override lets the model honour a
+# user's console evidence against a stale verification result on any turn (the
+# dispute can be about something verified turns ago).
+ALWAYS_TOOL_NAMES = frozenset({SEARCH_TOOL_NAME, 'record_state_override'})
+
+# The provider-generic API tools the system prompt tells the model to fall
+# back on ("NEVER say 'I don't have a tool'"), keyed by the provider they
+# belong to. Offered only for providers this turn's matched categories
+# actually implicate (see _hatch_providers_for) — NOT unconditionally on
+# every turn. An earlier version of this fix made all eight always-present
+# regardless of relevance, which meant a plain "create an ec2 instance"
+# request always carried GCP/Azure/Kubernetes escape hatches too; a model
+# struggling to find the right AWS tool reached for whichever generic hatch
+# was easiest to grab instead. Confirmed live 2026-09-02: k8s_api_read
+# executed for a "create an ec2 instance using ubuntu" request purely
+# because it was always offered, though nothing about the request implicated
+# Kubernetes. See CLAUDE_RUNBOOK.md.
+HATCH_PAIRS_BY_PROVIDER: Dict[str, Tuple[str, str]] = {
+    'aws': ('aws_api_read', 'aws_api_write'),
+    'azure': ('azure_api_read', 'azure_api_write'),
+    'gcp': ('gcp_api_read', 'gcp_api_write'),
+    'kubernetes': ('k8s_api_read', 'k8s_api_write'),
+}
+
+# Provider-agnostic nouns -> categories that could satisfy them, in preference
+# order. Weaker than CATEGORY_KEYWORDS (ranked below explicit matches) and, when
+# the caller knows which cloud accounts are connected, filtered to those
+# providers. Explicit keyword matches are never filtered by connected providers.
+GENERIC_NOUNS: Dict[str, Tuple[str, ...]] = {
+    'server': ('aws.ec2', 'azure', 'gcp'),
+    'vm': ('aws.ec2', 'azure', 'gcp'),
+    'virtual machine': ('aws.ec2', 'azure', 'gcp'),
+    'database': ('aws.rds', 'aws.dynamodb', 'azure', 'gcp'),
+    'db': ('aws.rds', 'aws.dynamodb', 'azure', 'gcp'),
+    'container': ('kubernetes', 'aws.ecs', 'aws.eks', 'azure', 'gcp', 'docker'),
+    'cluster': ('kubernetes', 'aws.eks', 'aws.ecs', 'gcp', 'azure'),
+    'log': ('aws.cloudwatch', 'kubernetes', 'gcp', 'azure'),
+    'storage': ('aws.s3', 'aws.efs', 'azure', 'gcp'),
+    'firewall': ('aws.vpc', 'azure', 'gcp'),
+}
+
+# How many prior user messages inform selection. Follow-ups ("yes go ahead",
+# "now delete it") carry no keywords of their own; without this they fell back
+# to the full catalog on every turn.
+HISTORY_WINDOW = 6
+
+_AWS_SEED_CATEGORIES = ('aws.ec2', 'aws.s3', 'aws.iam', 'aws.vpc')
+
+# "list everything in us-east-1" names no service but is unambiguously an AWS
+# query. Without this it matched nothing and fell back to the full catalog.
+_AWS_REGION_RE = re.compile(
+    r'\b(?:us|eu|ap|sa|ca|me|af|il)-(?:east|west|north|south|central|northeast|'
+    r'southeast|northwest|southwest)-\d\b'
+)
+
+
+def _mentions_aws(message: str) -> bool:
+    return 'aws' in message or bool(_AWS_REGION_RE.search(message))
+
+
 def _category_score(category: str, message: str) -> int:
     """Number of the category's keywords present in the message."""
     return sum(1 for kw in CATEGORY_KEYWORDS.get(category, ()) if kw in message)
+
+
+def _explicit_matches(message: str) -> Dict[str, int]:
+    """Categories explicitly named in ``message`` (lowercased) -> keyword score."""
+    matched = {}
+    for cat in CATEGORY_KEYWORDS:
+        score = _category_score(cat, message)
+        if score:
+            matched[cat] = score
+    return matched
+
+
+def _generic_matches(message: str) -> List[str]:
+    """Categories implied by provider-agnostic nouns, in preference order."""
+    out: List[str] = []
+    for noun, cats in GENERIC_NOUNS.items():
+        if re.search(r'\b' + re.escape(noun) + r's?\b', message):
+            for cat in cats:
+                if cat not in out:
+                    out.append(cat)
+    return out
+
+
+def provider_of_category(category: str) -> Optional[str]:
+    """``aws.ec2`` -> ``aws``; ``azure``/``gcp`` -> themselves; else ``None``."""
+    if category.startswith('aws.'):
+        return 'aws'
+    if category in ('azure', 'gcp'):
+        return category
+    return None
+
+
+def _hatch_provider_of(category: str) -> Optional[str]:
+    """Like ``provider_of_category`` but also resolves ``kubernetes``.
+
+    Kept separate from ``provider_of_category`` deliberately: that function
+    also drives the connected-providers filter for generic nouns, and
+    ``connected_providers`` (from ``get_user_configured_providers``) has no
+    notion of a "connected" Kubernetes cluster — making it kubernetes-aware
+    there would silently drop Kubernetes from noun matches for every
+    non-sandbox user.
+    """
+    if category == 'kubernetes':
+        return 'kubernetes'
+    return provider_of_category(category)
+
+
+def _hatch_providers_for(categories: Iterable[str]) -> set:
+    """Which providers' generic API escape hatches this turn should carry,
+    given every category matched by the current message, generic nouns, and
+    history."""
+    return {p for c in categories if (p := _hatch_provider_of(c)) is not None}
 
 
 def select_tool_definitions(
@@ -196,50 +311,84 @@ def select_tool_definitions(
     tool_categories: Dict[str, str],
     user_message: str,
     max_tools: Optional[int] = None,
+    history_messages: Optional[List[str]] = None,
+    connected_providers: Optional[Dict[str, bool]] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Select a relevant subset of tool definitions for a message.
 
-    Returns ``None`` when the message matches no category (caller should then use
-    the full tool list). Otherwise returns a filtered list (original order
-    preserved) that always includes the ALWAYS_CATEGORIES and ``search_tools``.
+    Signals, strongest first:
+      1. categories whose keywords appear in ``user_message``;
+      2. categories implied by provider-agnostic nouns ("server", "database"),
+         filtered to ``connected_providers`` when given;
+      3. categories matched by the last ``HISTORY_WINDOW`` ``history_messages``
+         (prior user turns), so follow-ups keep the working tool set.
+
+    Returns ``None`` when no signal matches (caller should then use the full
+    tool list). Otherwise returns a filtered list (original order preserved) that
+    always includes ALWAYS_CATEGORIES, ``search_tools``, and the provider-generic
+    API escape hatches for whichever providers this turn actually implicates
+    (see HATCH_PAIRS_BY_PROVIDER) — not unconditionally for every provider.
+
+    ``max_tools`` is honored greedily, with one exception: every category tied
+    for the top explicit score is always kept. When the message names two
+    things equally ("pods in my eks cluster" -> kubernetes + aws.eks) dropping
+    either hides exactly the tool the user asked for.
     """
     message = (user_message or '').lower()
 
-    matched = {cat for cat in CATEGORY_KEYWORDS if _category_score(cat, message) > 0}
+    current = _explicit_matches(message)
 
-    # General AWS mention with no specific service -> seed the common services.
-    if 'aws' in message and not any(c.startswith('aws.') for c in matched):
-        matched.update({'aws.ec2', 'aws.s3', 'aws.iam', 'aws.vpc'})
+    generic = _generic_matches(message)
+    # General AWS mention (or a bare region) with no specific service named:
+    # seed the common services. This is a guess, so it rides in the greedy tier
+    # rather than the cap-exempt one — four seeded categories tied for "top"
+    # would otherwise push a plain "what is my aws bill" past max_tools.
+    if _mentions_aws(message) and not any(
+        c.startswith('aws.') and c != AWS_COMMON_CATEGORY for c in current
+    ):
+        for cat in _AWS_SEED_CATEGORIES:
+            if cat not in generic:
+                generic.append(cat)
+    generic = [c for c in generic if c not in current]
+    if connected_providers is not None:
+        generic = [
+            c for c in generic
+            if provider_of_category(c) is None or connected_providers.get(provider_of_category(c))
+        ]
 
-    if not matched:
+    history: List[str] = []
+    for prior in (history_messages or [])[-HISTORY_WINDOW:]:
+        for cat in _explicit_matches((prior or '').lower()):
+            if cat not in current and cat not in generic and cat not in history:
+                history.append(cat)
+
+    if not current and not generic and not history:
         return None
 
-    # Generic AWS utilities (api/tags/inventory) ride along with any AWS query.
     base = set(ALWAYS_CATEGORIES)
-    if any(c.startswith('aws.') for c in matched):
+    all_matched = [*current, *generic, *history]
+    if any(c.startswith('aws.') for c in all_matched):
         base.add(AWS_COMMON_CATEGORY)
 
-    keep = base | matched
+    # Scope the provider-generic escape hatches to providers this turn's
+    # matched categories actually implicate — see HATCH_PAIRS_BY_PROVIDER.
+    always_tool_names = set(ALWAYS_TOOL_NAMES)
+    for provider in _hatch_providers_for(all_matched):
+        always_tool_names.update(HATCH_PAIRS_BY_PROVIDER[provider])
 
     def _subset_for(cats: set) -> List[Dict[str, Any]]:
         return [
             td for td in tool_definitions
-            if tool_categories.get(td['name']) in cats or td['name'] == SEARCH_TOOL_NAME
+            if tool_categories.get(td['name']) in cats or td['name'] in always_tool_names
         ]
 
-    subset = _subset_for(keep)
+    ranked_current = sorted(current, key=lambda c: current[c], reverse=True)
+    top_score = current[ranked_current[0]] if ranked_current else 0
+    keep = set(base) | {c for c in ranked_current if current[c] == top_score}
+    ordered = [c for c in ranked_current if c not in keep] + generic + history
+    for cat in ordered:
+        candidate = keep | {cat}
+        if not max_tools or len(_subset_for(candidate)) <= max_tools:
+            keep = candidate
 
-    # Enforce the max_tools cap. Always keep the base categories + the top-scored
-    # matched category (so the user's primary target is never dropped), then
-    # greedily add the rest while staying under the cap.
-    if max_tools and len(subset) > max_tools:
-        ranked = sorted(matched, key=lambda c: _category_score(c, message), reverse=True)
-        keep = set(base)
-        if ranked:
-            keep.add(ranked[0])
-        for cat in ranked[1:]:
-            if len(_subset_for(keep | {cat})) <= max_tools:
-                keep.add(cat)
-        subset = _subset_for(keep)
-
-    return subset
+    return _subset_for(keep)

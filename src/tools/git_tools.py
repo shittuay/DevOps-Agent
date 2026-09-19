@@ -423,6 +423,7 @@ def git_clone_repository(url: str, dest_path: str, branch: Optional[str] = None,
     try:
         if not _validate_git_url(url):
             return {'success': False, 'error': f'Invalid or disallowed git URL: {url}'}
+        _reject_flag_like(dest_path, 'dest_path')
 
         kwargs = {}
         if branch:
@@ -1002,10 +1003,13 @@ def git_create_tag(repo_path: str, tag_name: str, message: Optional[str] = None,
         _reject_flag_like(tag_name, 'tag_name')
         _reject_flag_like(commit, 'commit')
         repo = _get_repo(repo_path)
+        # ref=None stringifies to the literal "None" instead of defaulting to
+        # HEAD, so an omitted commit must be passed through explicitly.
+        ref = commit or 'HEAD'
         if message:
-            repo.create_tag(tag_name, ref=commit, message=message)
+            repo.create_tag(tag_name, ref=ref, message=message)
         else:
-            repo.create_tag(tag_name, ref=commit)
+            repo.create_tag(tag_name, ref=ref)
         return {
             'success': True,
             'tag_name': tag_name,

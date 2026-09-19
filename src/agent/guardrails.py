@@ -23,6 +23,8 @@ from typing import Dict, List, Tuple
 
 import anthropic
 
+from services.input_sanitizer import MAX_MESSAGE_LENGTH
+
 logger = logging.getLogger(__name__)
 
 # ===========================
@@ -258,7 +260,15 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
     3. Semantic classification via Claude Haiku (AI-powered, fails open)
 
     Args:
-        message: The user message to classify (only first 3000 chars are sent to Haiku)
+        message: The user message to classify. Every real call site invokes
+            validate_message() first, which already caps length at
+            MAX_MESSAGE_LENGTH — the slice below is a defense-in-depth ceiling
+            for that same bound, not an independent, smaller truncation. It
+            used to be a hardcoded 3000, which left the semantic screen blind
+            to chars 3001-10000 of an otherwise-valid message: a caller could
+            pad the front with filler text to push a paraphrased, non-regex-
+            matching attack past Haiku's view entirely while everything sent
+            still passed validate_message().
         api_key: Anthropic API key. Falls back to ANTHROPIC_API_KEY env var.
 
     Returns:
@@ -269,8 +279,16 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
     # ===== FIRST: CRISIS DETECTION (FAIL CLOSED) =====
     is_crisis, crisis_severity, crisis_keywords = detect_crisis_language(message)
     if is_crisis:
+        # Do NOT log the matched keyword text itself — these are verbatim
+        # self-harm phrases, and this logger writes to general application
+        # logs (broader read-access, different retention than a purpose-
+        # built store). The actual keywords are already persisted to the
+        # access-controlled CrisisIncident table (admin-role-gated
+        # /api/admin/crisis-incidents) via GuardrailResult.crisis_keywords —
+        # that's the intended audit trail for the support team, this log
+        # line is only for ops-level "a crisis was detected" visibility.
         logger.warning(
-            f"Crisis language detected. severity={crisis_severity} keywords={list(crisis_keywords.keys())}"
+            f"Crisis language detected. severity={crisis_severity} matched_keyword_count={len(crisis_keywords)}"
         )
         return GuardrailResult(
             blocked=True,
@@ -309,7 +327,7 @@ def screen_message(message: str, api_key: str | None = None) -> GuardrailResult:
             messages=[
                 {
                     "role": "user",
-                    "content": f"Classify this message:\n<message>\n{message[:3000]}\n</message>"
+                    "content": f"Classify this message:\n<message>\n{message[:MAX_MESSAGE_LENGTH]}\n</message>"
                 }
             ]
         )

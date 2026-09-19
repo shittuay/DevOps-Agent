@@ -1,0 +1,22 @@
+# Coverage settings for the SonarQube analysis (scripts/sonar-scan.sh --coverage).
+# Mirrors sonar.exclusions in sonar-project.properties so the coverage ratio
+# Sonar imports is measured against the same file set it analyses.
+[run]
+branch = True
+omit =
+    venv/*
+    .venv/*
+    env/*
+    */node_modules/*
+    */__pycache__/*
+    migrations/versions/*
+    tests/*
+    scripts/*
+    */site-packages/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:

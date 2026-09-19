@@ -105,3 +105,8 @@ instance/
 # Obsidian UI state (vault/ notes ARE committed; this is per-machine workspace churn)
 vault/.obsidian/workspace*
 vault/.obsidian/cache/
+
+# SonarQube local analysis
+.sonar-token
+.scannerwork/
+coverage.xml
