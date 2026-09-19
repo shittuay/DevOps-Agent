@@ -382,6 +382,42 @@ class TestSafetyClassifications:
     def test_create_route53_record_is_medium_risk(self):
         assert self._classify('create_route53_record') == 'medium'
 
+    # --- high-risk: live credential/secret disclosure (same class as
+    # get_secret_value/create_ec2_keypair), caught by the 2026-09-15 audit ---
+    def test_list_storage_account_keys_is_high_risk(self):
+        # Returns the raw Azure Storage account access key — a full
+        # data-plane credential over every blob/file/queue/table in the
+        # account. Its mutating sibling regenerate_storage_key was already
+        # medium-risk but this read path had no gate.
+        assert self._classify('list_storage_account_keys') == 'high'
+
+    def test_terraform_state_pull_is_high_risk(self):
+        # Returns the entire Terraform state file, which routinely stores
+        # sensitive resource attributes (DB passwords, TLS keys, API tokens)
+        # in plaintext.
+        assert self._classify('terraform_state_pull') == 'high'
+
+    # --- medium-risk: 2026-09-15 audit, provider_verb_noun shape defeats
+    # prefix auto-detection ---
+    def test_send_sqs_message_is_medium_risk(self):
+        # Same "pages a live downstream consumer with caller-controlled
+        # content" shape as publish_sns_message/publish_pubsub_message.
+        assert self._classify('send_sqs_message') == 'medium'
+
+    def test_pagerduty_add_note_is_medium_risk(self):
+        # Posts caller-controlled content onto a live incident, visible to
+        # every responder on it.
+        assert self._classify('pagerduty_add_note') == 'medium'
+
+    def test_opsgenie_add_note_is_medium_risk(self):
+        assert self._classify('opsgenie_add_note') == 'medium'
+
+    def test_git_stash_save_is_medium_risk(self):
+        # The one stash operation that actually reverts the working tree,
+        # discarding uncommitted changes from view — git_stash_apply/
+        # git_stash_drop were already medium, this one wasn't.
+        assert self._classify('git_stash_save') == 'medium'
+
     # --- production escalation ---
     def test_high_risk_on_production_escalates_to_critical(self):
         from src.agent.safety import SafetyValidator
