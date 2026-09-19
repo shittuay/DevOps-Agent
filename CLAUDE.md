@@ -171,6 +171,22 @@ hardcoded per-service/per-team cost breakdowns, a cost *forecast* built on `rand
 doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
 same bug until traced.
 
+**Still recurring — three more instances found by the 2026-09-15 scheduled audit, all flagged,
+none fixed yet:** `services/performance_optimizer.py`'s `_generate_sample_recommendations()`
+seeds the literal `i-0abc123def456` fake instance id (the same id from the 2026-08-12 drift
+incident above) for every user with no cloud account, rendered at `/optimization/`;
+`services/ai_infrastructure.py`'s `get_recommendations()` returns a hardcoded list ignoring
+`user_id`, and its `apply_recommendation()` reports `success: True` without calling any cloud
+API — the identical fake-Apply shape the Predictive Scaling fix above closed, just in a
+different service; `services/chatops_service.py`'s `_cmd_metrics`/`_cmd_oncall` deliver a
+hardcoded metrics block and on-call roster into Slack as if live. See CLAUDE_RUNBOOK.md's
+2026-09-15 entry for exact line numbers. This is now five known instances of the same bug
+class (Drift, Predictive Scaling, Analytics, Performance Optimizer, AI Infrastructure/ChatOps)
+found independently across five separate audits — the recurrence itself, not just any one
+instance, is the signal that this needs a structural fix (e.g. a shared "no live account →
+fail closed" helper every new recommendation/analytics feature is required to call) rather than
+another one-off patch next time it's found again.
+
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
   — however finished the UI looks.
@@ -248,7 +264,20 @@ same bug until traced.
   `if not user or not user.check_password(password)` check (independent login form for the MCP
   connector flow) and reopened the same side channel — fixed by importing and routing through
   `routes.auth._run_timing_safe_password_check()` there too. Any other route that authenticates a
-  user with a password must use this helper, not a direct `check_password()` call.
+  user with a password must use this helper, not a direct `check_password()` call. That same
+  `oauth_authorize()` fix left a second gap standing: it never called `User.is_locked()` /
+  `record_failed_login()`, so the account-lockout invariant on this line was enforced only on
+  `/login` — a known email could be brute-forced through `/mcp/oauth/authorize` (and its
+  `/authorize` alias) with no per-account limit at all, no matter how many failed attempts
+  `/login` itself would have already blocked. Found by the 2026-09-18 scheduled audit and fixed by
+  wiring in the same `is_locked`/`record_failed_login`/`update_last_login` calls `/login` uses,
+  plus a `@limiter.limit("10 per minute")` matching `/login`'s own rate limit (the route previously
+  had none of its own, only the blueprint-wide default of 100/hour per IP). **A route that
+  reimplements password verification instead of calling a shared login helper must also
+  reimplement every invariant that helper enforces, not just the timing-safety one that happened
+  to already have a name and a runbook entry** — the same lesson as the guardrails-pipeline
+  duplication problem elsewhere in this file, just for authentication instead of jailbreak
+  screening.
 - `forgot_password()` dispatches token generation, persistence, and the password-reset email send
   through `_dispatch_password_reset_email()` on a background daemon thread, rather than doing that
   work inline before responding — an existing account's token write + synchronous outbound email
@@ -295,10 +324,10 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - **Auto-detection only matches the verb as a prefix of the tool name** (`name.startswith(...)`). A tool shaped `<provider>_<verb>_<noun>` (e.g. `git_delete_branch`, `pagerduty_update_incident`) is NOT caught by auto-detection even though `delete`/`update` appear in the name — it silently defaults to low risk unless explicitly added to `high_risk_tools`/`medium_risk_tools`. Check for this shape specifically when adding tools whose name doesn't start with the destructive verb.
 
 **Current high-risk additions (beyond auto-detection):**
-`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase), `create_ec2_keypair` (AWS — returns the raw PEM private key material directly in the tool result, same disclosure class as `get_secret_value`; its `delete_ec2_keypair` sibling was already high-risk but the create path that actually discloses the secret was missed until the 2026-08-23 scheduled audit), `generate_s3_presigned_url` (AWS — generates an unauthenticated bearer URL, up to 7 days, for `get_object` or `put_object` with no further AWS auth required; same live-access-credential disclosure class, also caught by the 2026-08-23 audit)
+`abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase), `create_ec2_keypair` (AWS — returns the raw PEM private key material directly in the tool result, same disclosure class as `get_secret_value`; its `delete_ec2_keypair` sibling was already high-risk but the create path that actually discloses the secret was missed until the 2026-08-23 scheduled audit), `generate_s3_presigned_url` (AWS — generates an unauthenticated bearer URL, up to 7 days, for `get_object` or `put_object` with no further AWS auth required; same live-access-credential disclosure class, also caught by the 2026-08-23 audit), `list_storage_account_keys` (Azure — returns the raw storage-account access key, a full data-plane credential over every blob/file/queue/table in the account, into the chat/tool-trace/LLM-provider path; same disclosure class as `get_secret_value`/`create_ec2_keypair` — its mutating sibling `regenerate_storage_key` was then only medium-risk and this read path had no gate at all, caught by the 2026-09-15 audit; both are now high-risk), `regenerate_storage_key` (Azure — discloses the newly-generated key value the same way `list_storage_account_keys` does; was previously only medium-risk despite the identical disclosure shape as the high-risk tools above, escalated in the same audit), `terraform_state_pull` (returns the entire Terraform state file, which routinely stores sensitive resource attributes — DB passwords, TLS keys, API tokens — in plaintext; its `terraform_state_push`/`_move`/`_rm` siblings were already classified, also caught 2026-09-15)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`, `publish_sns_message`, `subscribe_sns_topic`, `create_route53_record`, `publish_pubsub_message`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_stash_save`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `pagerduty_add_note`, `opsgenie_add_note`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`, `publish_sns_message`, `subscribe_sns_topic`, `create_route53_record`, `publish_pubsub_message`, `send_sqs_message`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -327,6 +356,16 @@ so only the overwrite path had no gate at all.
 Pub/Sub topics commonly fan out to push subscriptions (arbitrary external HTTP endpoints) or
 trigger downstream Cloud Functions/Cloud Run; its own `create_pubsub_subscription` sibling was
 already medium-risk but the publish path itself had no gate.
+`send_sqs_message`, `pagerduty_add_note`, and `opsgenie_add_note` joined after the 2026-09-15
+scheduled audit — `send_sqs_message` is the same "pages a live downstream consumer with
+caller-controlled content" shape as `publish_sns_message`/`publish_pubsub_message` (SQS queues
+routinely trigger downstream Lambda/consumers); `pagerduty_add_note`/`opsgenie_add_note` post
+caller-controlled content onto a live incident/alert, visible to every responder on it, and are
+the same `provider_verb_noun` shape as the other alerting gaps above — every other write verb in
+those modules (`create`/`update`/`acknowledge`/`close`/`escalate`) was already medium.
+`git_stash_save` joined its already-medium `git_stash_apply`/`git_stash_drop` siblings the same
+day — it's the one stash operation that actually reverts the working tree (discarding
+uncommitted changes from view), and was the only one of the three without a gate.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -463,6 +502,22 @@ docstring warns about; its sibling `git_show_file_at_commit` already guarded the
 parameter). Both now call `_reject_flag_like()` and are classified medium-risk in `safety.py`.
 **Confirms the "not yet enforced by an automated check" gap above is real, not theoretical** — a
 security-focused audit still has to walk every bare-positional call site in this file by hand.
+
+**2026-09-15 follow-up — third recurrence, one more function.** A scheduled audit found
+`git_clone_repository`'s `dest_path` (fully caller-controlled, required in the tool's
+`input_schema`) still unguarded: it's the trailing bare positional of
+`Repo.clone_from(url, dest_path, ...)`, i.e. `git clone <options> <url> <dest_path>`, and git's
+option parser permutes — a dash-leading `dest_path` is still parsed as a clone option even after
+the URL. `dest_path="--config=core.hooksPath=/tmp/h"` runs attacker-chosen `post-checkout`/
+`post-merge` hooks *during the clone itself*. GitPython's own `unsafe_git_clone_options` check
+doesn't catch this — it only inspects `kwargs`/`multi_options`, never the positional `to_path`,
+and is disabled outright in this function anyway (`allow_unsafe_options=True`, needed for the
+`-c http.followRedirects=false` SSRF fix in the same call). Fixed with the same
+`_reject_flag_like(dest_path, 'dest_path')` pattern as every other guarded function in the file
+— see CLAUDE_RUNBOOK.md's 2026-09-15 entry. **Every other bare-positional git-subprocess
+parameter in the file was re-walked by hand in the same audit and is guarded** — this appears to
+close the gap for now, but per the note above, nothing stops the next new function from repeating
+it.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 
