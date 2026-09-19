@@ -315,7 +315,7 @@ class CacheService:
                 key_parts.extend(str(arg) for arg in args)
                 key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
                 cache_key = ":".join(key_parts)
-                cache_key = hashlib.md5(cache_key.encode()).hexdigest()
+                cache_key = hashlib.md5(cache_key.encode(), usedforsecurity=False).hexdigest()
 
                 # Try to get from cache
                 cached_value = self.get(cache_key)
@@ -334,7 +334,7 @@ class CacheService:
                 hashlib.md5(":".join([key_prefix or func.__name__] +
                     [str(a) for a in args] +
                     [f"{k}={v}" for k, v in sorted(kwargs.items())]
-                ).encode()).hexdigest()
+                ).encode(), usedforsecurity=False).hexdigest()
             )
 
             return wrapper
@@ -369,13 +369,13 @@ class CacheService:
 
     def cache_api_response(self, endpoint: str, params: dict, response: Any, ttl: int = 60):
         """Cache API response."""
-        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()
+        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode(), usedforsecurity=False).hexdigest()
         key = f"api:{endpoint}:{params_hash}"
         return self.set(key, response, ttl)
 
     def get_api_response(self, endpoint: str, params: dict) -> Optional[Any]:
         """Get cached API response."""
-        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()
+        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode(), usedforsecurity=False).hexdigest()
         key = f"api:{endpoint}:{params_hash}"
         return self.get(key)
 

@@ -1227,6 +1227,22 @@ changes that break them.** The duplicated four-step guardrails pipeline, the
 redundancy, or dead computation. Findings in those files get reviewed by a
 human, never bulk-applied — `docs/sonarqube.md` lists them.
 
+Other deliberate findings to leave alone: `models.py`'s fixed PBKDF2 salt in
+credential key derivation (changing it makes every stored credential
+undecryptable), SHA-1 in `associate_eks_oidc_provider` (AWS mandates SHA-1
+thumbprints) and in legacy `sha1=` webhook HMAC verification, `http://` for S3
+website endpoints and ip-api.com's free tier (HTTP-only), and `Access-Control-Allow-Origin: *`
+on the public `/.well-known/oauth-*` discovery documents.
+
+`scripts/sonar-scan.sh` stores the local server's admin password and scanner
+token in `.sonar-token` (gitignored) on first run. After a
+`docker compose -f docker-compose.sonar.yml down -v`, that file is stale: put
+a freshly generated token in its `SONAR_TOKEN` line or the scan fails auth.
+
+All S3 backup uploads go through `services/backup_upload.upload_backup_to_s3()`,
+which sets `ExpectedBucketOwner` (from `BACKUP_S3_BUCKET_OWNER`, else the
+caller's own account via STS) — never call `upload_file` for a backup directly.
+
 ## Dependency Pinning Policy
 
 `requirements.txt` is **fully `==`-pinned** (since 2026-07-15, PR #50). Never
