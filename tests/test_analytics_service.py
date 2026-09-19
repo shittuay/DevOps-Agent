@@ -54,6 +54,7 @@ def test_dashboard_metrics_reflect_real_synced_resources_only(app, db_session, t
     from models import User, InfrastructureResource, IncidentModel, UsageLog
 
     other = User(email='other-analytics@example.com', username='other_analytics')
+    other.set_password('OtherPassword123!')
     db_session.add(other)
     db_session.commit()
 
