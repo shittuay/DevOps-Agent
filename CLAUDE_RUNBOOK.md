@@ -8,6 +8,8 @@ This document archives fixed issues and their solutions for reference. Most issu
 
 | Issue | Solution |
 |-------|----------|
+| **Scheduled MCP OAuth audit found a DCR client with empty `redirect_uris` bypassed the redirect allowlist entirely, plus `/mcp/oauth/authorize` had no account lockout on password guessing (FOUND & FIXED 2026-09-18)** | Routine rotating security audit (day-of-month mod 6 landed on `routes/mcp.py` OAuth flows). **Bug 1 — redirect_uri allowlist bypass, critical.** `oauth_authorize()` computed `allowed_redirect_uris = client_record.get('redirect_uris') or None`, then only enforced membership with `if allowed_redirect_uris and redirect_uri not in allowed_redirect_uris`. A DCR client registered via the fully open, unauthenticated `POST /mcp/oauth/register` with `redirect_uris: []` (or the key omitted, or `null`) collapsed to `None`, which made the whole check a no-op — that client could then send an authorization code to *any* `redirect_uri`, https-scheme only. This is the exact same bug class the 2026-08-30 fix closed for the *built-in* `claude-connector` client (see that entry below); the DCR path had an independent copy of it. Exploit: register a client with an empty array, get a `client_id` with zero restrictions, then phish a victim with a link on the real `devopsagent.io` domain (`/mcp/oauth/authorize?client_id=<id>&redirect_uri=https://attacker.tld/cb&...`) — the victim sees a legitimate host and a plausible `client_name` (also attacker-supplied), logs in, clicks Authorize, and their auth code — redeemable for a full-scope MCP access token covering all 746 cloud/infra tools — is sent straight to the attacker. **Fixed at both ends:** `oauth_register()` now rejects registration outright (`400 invalid_client_metadata`) unless `redirect_uris` contains at least one non-empty string (RFC 7591 §2 requires it for the `authorization_code` grant anyway); and `oauth_authorize()` now always keeps `allowed_redirect_uris` as a real (possibly empty) set and always enforces membership — an empty allowlist now means "reject every redirect_uri", never "skip the check" — so even a pre-existing DB row with an empty list (from before this fix, or written directly rather than through the now-validating registration endpoint) fails closed. `redirect_uri` was also made mandatory (previously validated only `if redirect_uri:`, so omitting it entirely skipped both the https check and the allowlist check). **Bug 2 — no account lockout, high.** The same POST handler correctly used `_run_timing_safe_password_check()` (no timing side-channel — see the entry above) but never called `User.is_locked()`/`record_failed_login()`, and carried no `@limiter.limit` of its own (falling back to the blueprint-wide default: 500/day, 100/hour per IP — no per-account limit at all, and ~10x weaker than `/login`'s explicit `10 per minute`). A known email could be brute-forced through this endpoint indefinitely, regardless of how many attempts `/login` itself would already have locked out. Fixed by wiring in the same `is_locked()` (checked before the password comparison)/`record_failed_login()` (on failure)/`update_last_login()` (on success, resetting the counter) calls `/login` uses, plus a matching `@limiter.limit("10 per minute")` on both `/mcp/oauth/authorize` and its `/authorize` alias. Regression tests added to `tests/test_mcp_oauth.py` (`TestEmptyRedirectUrisBypass`, `TestOAuthAuthorizeAccountLockout` — 7 new tests); full suite re-run clean (999/1000 passing, the one failure being a pre-existing environment-only test unrelated to this file that needs a real `ANTHROPIC_API_KEY` exported). **Lesson:** a secondary authentication entry point that reimplements a primary route's password check has to reimplement *every* security invariant that check enforces, not just the ones that already have a name and a prior incident attached — this is the second time `oauth_authorize()` specifically has been the copy that only got half the fix (see the 2026-08-30 and login-timing entries), and the general pattern (a fix applied to one call site not reaching a duplicate in a sibling file) is the same one CLAUDE.md's guardrails-pipeline and SSRF-guard sections already call out. |
+| **`list_storage_account_keys` had no risk classification at all — any user could disclose a live Azure storage account key with zero confirmation prompt (FOUND & FIXED 2026-09-16 scheduled audit)** | Routine code-vulnerability/smell/duplicate scan. Cross-referenced every one of the 744 registered tool names against `src/agent/safety.py`'s `high_risk_tools`/`medium_risk_tools` sets and its auto-detection prefixes, looking for the same disclosure-class gap already fixed three times before (`get_secret_value`, `create_ec2_keypair`, `generate_s3_presigned_url` — see the 2026-08-23 entry). Found it a fourth time: `azure_tools.list_storage_account_keys()` returns `k.value` — the raw plaintext storage account access key, a live bearer credential granting full read/write/delete over every blob/queue/table/file in the account until manually regenerated — directly in the tool result. `list_` isn't a monitored prefix in either direction, and the tool wasn't in either explicit set, so it defaulted to low risk: no confirmation, straight into the chat/tool-trace/LLM-provider path, same exposure class as the three prior fixes. Its sibling `regenerate_storage_key` has the identical disclosure shape (returns the newly-generated key's `value`) but was only medium-risk, presumably classified for the *mutation* (rotating a key breaks anything still using the old one) without anyone separately reasoning about the *disclosure*. **Fixed by adding `list_storage_account_keys` to `high_risk_tools` and moving `regenerate_storage_key` there from `medium_risk_tools`**, both with an inline comment naming the precedent. No sandbox mock or test referenced either tool name, so nothing else needed updating. **Verified:** `scripts/check_security_invariants.py`'s two AST checks still pass; `py_compile`/AST-parse on the edited file; confirmed by source read that `list_secrets_manager_secrets` (AWS), `list_secrets` (GCP), `list_k8s_secrets`, and `list_iam_access_keys` are all metadata-only (names/ARNs/dates, never values) so none of them have the same gap. Full `pytest` wasn't possible in this sandbox (`pip install -r requirements.txt` fails on the same pre-existing `multi-key-dict` wheel-build error noted in earlier scheduled-audit entries). **Lesson:** the "does this tool return decrypted/raw credential material" question has to be asked per-tool, not inferred from the verb — `list_`/`get_`/`regenerate_` all read as ordinary read/update operations, and three of the four tools now carrying this exact justification comment have names that don't contain the word "secret" at all. |
 | **SonarQube's first run found the entire ChatOps command surface was dead code that would raise on every invocation (FOUND & FIXED 2026-09-12)** | Stood up a local SonarQube (`docker-compose.sonar.yml`) and scanned the repo for the first time: 2203 issues, of which **20 BLOCKER**. Eleven of those were `python:S930` ("Add 1 missing arguments") clustered in `services/chatops_service.py`, and they turned out to be one bug with one cause. The incident engine and monitoring service had been refactored to be per-user — `get_stats(user_id)`, `get_status(user_id)`, `list_incidents(user_id, ...)`, `get_incident(user_id, incident_id)`, `acknowledge_incident(user_id, incident_id, user)`, `list_playbooks(user_id)`, `execute_playbook(user_id, incident, ...)`, `analyze_incident(user_id, incident_data)`, `process_alert(user_id, alert_data)` — but **`chatops_service.py` was never updated**, so every one of `/status`, `/incidents`, `/incident`, `/ack`, `/playbooks`, `/execute`, `/analyze` raised `TypeError` the moment it ran. `process_message` catches bare `Exception` and returns `f"Error executing command: {e}"`, so the feature failed as a cryptic chat reply rather than a log-visible crash, which is why it survived. **Two worse defects sat in the same file that Sonar did *not* flag,** found by reading the signatures while fixing the ones it did: `_cmd_resolve` called `engine.resolve_incident(incident_id, resolution)` against `resolve_incident(self, user_id, incident_id, resolution=None)` — the **arity matches**, so it silently passed an incident id as a `user_id` and a resolution note as an incident id; and `_cmd_alerts` called `service.get_alerts(status='firing')`, a method that **does not exist** (the real API is `get_active_alerts(user_id)`, which also returns dicts where the handler did attribute access). **The fix is not simply to pass the id through.** ChatOps `user_id` is a *chat platform* identity (Slack `U01ABC123`), the engine keys on `User.id`, and no mapping between them exists anywhere in the codebase — forwarding it would have read an empty namespace or another user's. So `process_message` gained an explicit `app_user_id: int` parameter distinct from the platform `user_id`; per-user handlers resolve it through `_require_app_user()`, which raises `_UnresolvedAppUser` and is rendered as a plain "this chat identity is not linked to an account" reply. `routes/chatops.py`'s `@login_required` test endpoint passes `current_user.id`; the Slack and Teams webhooks pass nothing and get the honest refusal. `services/webhook_integrations.py` had the identical shape (`process_alert` with no user) and got the same treatment: `process_webhook` takes an optional `app_user_id`, and `_handle_failure_event` logs and returns instead of creating an incident in a namespace it cannot determine. **Still open (design decision, not a bug):** there is no Slack/Teams→`User` account-linking model, so ChatOps remains non-functional from chat itself — it now says so instead of erroring. Building that mapping is the follow-up. **Lesson:** a `try/except Exception` around a command dispatcher converts "this entire feature is broken" into "this command returned a confusing message", and nothing else in the system distinguishes those. Static analysis caught the arity mismatches; only reading the callee signatures caught the same-arity wrong-order call and the nonexistent method, which is the reminder that S930's absence is not evidence a call is correct. |
 | **Agent called `nmap_port_scan` 150 times for "create an ec2 instance" — progressive tool loading was dead on the chat path (FIXED 2026-09-02)** | A user asked the live app to create an EC2 instance. Production logs show `Kimi tool call: nmap_port_scan` **150 times** over 71s at ~500ms intervals, plus `nmap_service_detection` ×3, `find_ami` ×69, `list_iam_roles` ×20, `gcp_api_read` ×19, `nexus_get_repository` ×11 — and `create_ec2_instance` / `create_ec2_keypair` **zero times**. Nothing in the user's AWS account changed; only an unset `PENTEST_ALLOWED_TARGETS` whitelist stopped a real scan. **Root cause 1 — the documented tool narrowing never ran.** `app.py` computed `_filtered_tools = _factory.scope_tools(agent.tool_definitions, task_type, model_config.max_tools)` and passed it as `tools_override=` on all three chat call sites. `scope_tools`'s own docstring says *"max_tools is intentionally ignored — all tools are always returned"*; it only reorders. And `core._maybe_select_tools` opens with `if self._tools_override is not None: return`. So a non-None override that filtered nothing disabled progressive tool loading on every chat turn, and Kimi chose from all 742 schemas. Confirmed by the log: `"Progressive tool loading: N/M tools selected"` appears **zero** times in `logs/agent.log`. Run in isolation the selector is fine — `"create an ec2 instance"` → 50 tools, nmap excluded, `create_ec2_keypair` included. **Fix:** the chat routes pass `max_tools=` instead of `tools_override=`; `scope_tools` and its `tests/test_anti_hallucination.py` contract are untouched (it is simply off the chat path). **Root cause 2 — no loop breaker.** Nothing noticed the retry was byte-identical to the failure before it. **Fix:** `DevOpsAgent._repeat_guard` (greenlet-local, reset per turn because gthread reuses worker threads) counts consecutive failures per `(tool_name, canonical args)`; at `MAX_IDENTICAL_TOOL_FAILURES` (3) the call is refused with an instruction to stop retrying, and a success clears the count. Wired into **all three** execution paths (Kimi non-streaming, Kimi streaming, Claude) — a guard on one leaves the bug reproducible on the others. Also fixed alongside: `pentest.enabled` now defaults to **false** (12 attack tools were registered into every user's catalog, which is what made nmap a candidate at all), and `MetricCollector._collect_prometheus` got a 300s circuit breaker (8 queries × every 60s × every active user, all failing, since no Prometheus is deployed — one warning per outage now). Guarded by `tests/test_tool_selection_engaged.py` (12 tests), including an AST check that no chat call site reintroduces `tools_override`. |
 | **Scheduled audit closed the deferred remote-control auth gap, fixed two silent "success:true on a real API failure" tools, and found the agent's own `.claude/settings.json` hooks brick the Bash tool after any `cd` (FIXED 2026-08-27)** | Routine code-vulnerability/smell/duplicate scan. **(1)** `tools/remote-control/server.py` — a personal LAN convenience server (phone → quick-action buttons: `git_pull`, `run_app`/`stop_app`, `run_tests`, etc.) binding `0.0.0.0:9090` with **zero authentication** and `Access-Control-Allow-Origin: *` — was flagged by the 2026-08-07 audit and deliberately left unfixed, deferring the trust-model choice ("add a shared-secret token? bind to localhost + reverse-tunnel only?") to the repo owner rather than unilaterally changing a personal tool. Closed this pass with the minimal option that preserves the tool's actual purpose (phone access over WiFi): a random `AUTH_TOKEN` (`secrets.token_urlsafe(24)`, overridable via `REMOTE_CONTROL_TOKEN` so it survives a restart) gates every endpoint (`/`, `/app-status`, `/output/<id>`, `POST /run/<id>`) via `X-Auth-Token` header or `?token=` query param, checked with `hmac.compare_digest`; the startup banner now prints the token-bearing URL; the index page's own JS embeds the token and sends it as a header on every subsequent fetch; the blanket CORS wildcard was removed since nothing needs cross-origin reads once requests are token-gated. Closes both risks the 2026-08-07 entry named: unauthenticated LAN command execution, and the CSRF-style trigger from any website the developer's browser visits while the server is running (a plain cross-origin POST fires regardless of CORS — only a secret the page can't guess actually stops it). **(2)** `src/tools/aws_tools.py`'s `list_load_balancers`/`list_waf_web_acls` (cataloged, not fixed, in the same 2026-08-07 entry) wrapped each sub-call (`elbv2.describe_load_balancers`, classic `elb.describe_load_balancers`, WAFv2 regional/CloudFront `list_web_acls`) in a bare `except Exception: pass`, so a permissions or throttling error on any one of them looked identical to "this account has zero [load balancers/Web ACLs]" — the same "cannot read the account" vs. "clean account" conflation CLAUDE.md's drift-detection rule exists to prevent, just in two tools that predate that rule being written down. Fixed by capturing and logging each sub-call's exception into an `errors` dict included in the response only when non-empty (`result['errors'] = {...}` — response shape is unchanged when everything succeeds, so no caller/test relies on a shape this touches); `list_waf_web_acls`'s CLOUDFRONT-scope call additionally distinguishes AWS's expected `WAFInvalidParameterException` (CloudFront-scope ACLs can only be queried from `us-east-1` — a real, benign restriction, not a read failure) from any other error, so that call doesn't turn into permanent error-noise for every non-`us-east-1` region. **(3)** While running this review's own Bash commands, a `cd` into `tools/remote-control/` to test the fix above **permanently broke every subsequent Bash tool call for the rest of the session** — `.claude/settings.json`'s `PreToolUse`/`PostToolUse`/`Stop` hooks invoke `python scripts/hooks/security_check.py` etc. as a bare relative path, resolved against the harness's current working directory rather than the project root; the instant that cwd is anywhere other than repo root (completely normal mid-session, e.g. testing a script that lives in a subdirectory), the hook can never find its own script again and every Bash call fails closed with a `PreToolUse hook error` before running. Not a vulnerability in the deployed app, but a real, live-reproduced footgun in the repo's own agent tooling that would silently degrade every future Claude Code session (scheduled audits included) the moment any command changes directory. Fixed by rewriting all three hook commands to `python "$CLAUDE_PROJECT_DIR/scripts/hooks/<name>.py"` — Claude Code's project-root variable, immune to the agent's own cwd. Verified live in-session: reproduced the lockout, applied the fix, confirmed the very next Bash call succeeded with no session restart needed (hook config is read fresh per invocation, not cached at session start). **Verified:** `scripts/check_security_invariants.py`'s two AST checks (SSRF guard usage, password-check duplication) clean; `py_compile` on both edited `.py` files; a standalone smoke test of the remote-control server (unauthenticated request → 401, token-bearing request → 200, token embedded in the served page) passed. Full `pytest` run wasn't possible in this sandbox (`pip install -r requirements.txt` fails on the same pre-existing unrelated `multi-key-dict` wheel-build error noted in the 2026-08-07 entry) — verification relied on the invariant scanner, `py_compile`, and manual call-chain tracing, same fallback prior sandbox-constrained audits used. **Lesson:** a finding explicitly deferred to "the repo owner's call" is still a finding — it's worth re-surfacing on the next pass with a concrete minimal proposal rather than leaving it cataloged indefinitely once enough time has passed with no owner decision; and a hook configuration that works fine in the common case (agent never leaves repo root) but silently self-destructs the moment it doesn't is exactly the kind of "safe by accident" fragility this codebase's own audit culture exists to catch — including, apparently, in its own tooling. |
@@ -344,6 +346,23 @@ now-2-arg `revoke_api_key(key_id)` with one arg (would crash). It was dead code
 (no route/caller), so not exploitable — hardened defensively: added an optional
 `user_id` owner check and fixed the revoke call to pass the owner.
 Guarded by `tests/test_api_key_rotate_ownership.py`.
+
+**Follow-up (2026-09-16 scheduled audit):** the hardening above fixed the
+*caller-side* check in `rotate_api_key` but left `get_api_key(key_id)` itself —
+the method it calls internally — doing a bare `APIKey.query.get(key_id)` with
+no ownership filter at all, the exact `ComplianceService.get_policy` anti-pattern
+CLAUDE.md warns about for any `self.user_id`-storing service class. Still dead
+code (no route calls `APIGatewayService.get_api_key`/`rotate_api_key` directly —
+`api/v1/api_keys.py`'s routes use their own correctly-scoped `APIKey.query.filter_by`
+calls and a separate `api_key_service.rotate_key`), so not currently exploitable,
+but a landmine for whoever wires a route to it next. Fixed by giving
+`get_api_key` the same optional `user_id: Optional[int] = None` parameter
+(filters by owner when given, matching `revoke_api_key`'s existing convention —
+this class's real ownership boundary is the explicit per-call `user_id` param,
+not `self.user_id`, since every real call site constructs `APIGatewayService()`
+with none) and having `rotate_api_key` pass its `user_id` through to the fetch
+instead of re-checking `old_key.user_id` after the fact. Existing
+`tests/test_api_key_rotate_ownership.py` still covers the observable behavior.
 
 ---
 
@@ -2637,6 +2656,193 @@ is unaffected); severity is still logged for ops-level visibility. Existing
 970 passed, 1 pre-existing failure (`test_initialize_agent_populates_config`,
 the same environment-only missing-`ANTHROPIC_API_KEY` gap noted elsewhere in
 this file — not a regression).
+
+## Scheduled audit (2026-09-15): git-clone flag injection, six safety.py risk gaps; several open items flagged for follow-up
+
+Four parallel review passes: the three 2026-09-11 guardrail commits above,
+`src/tools/git_tools.py`'s flag-injection guard coverage (the class fixed
+three times before — see its section higher up), `safety.py`'s risk
+classification against the full ~746-tool catalog, and a sweep for
+fabricated-data/missing-user-filter patterns. Fixed the concrete,
+mechanically-verifiable findings below; the rest need design judgment and are
+recorded here rather than patched blind.
+
+**Fixed — `git_clone_repository`'s `dest_path` was the one bare-positional
+git-tool parameter never covered by `_reject_flag_like()`.** `url` is SSRF/
+allowlist-validated and `branch`/`depth` become option *values*, but
+`dest_path` (fully caller-controlled, required in the tool's `input_schema`)
+went straight into `Repo.clone_from(url, dest_path, ...)` as the trailing
+positional of `git clone <options> <url> <dest_path>`. git's option parser
+permutes — a flag-shaped positional after the URL is still parsed as an
+option — so `dest_path="--config=core.hooksPath=/tmp/h"` runs
+attacker-chosen `post-checkout`/`post-merge` hooks *during the clone itself*;
+`--template=/tmp/t` copies arbitrary hooks into the new `.git/hooks`;
+`--separate-git-dir=/path` is an arbitrary directory/file write. GitPython's
+own `unsafe_git_clone_options` check doesn't cover this: it only inspects
+`kwargs`/`multi_options`, never the positional `to_path`, and is disabled
+outright here anyway (`allow_unsafe_options=True`, needed for the
+`-c http.followRedirects=false` SSRF fix in the same function). Fixed with
+one `_reject_flag_like(dest_path, 'dest_path')` call before `Repo.clone_from`
+— same pattern as every other guarded function in the file. New test:
+`tests/test_git_tools_argument_injection.py::test_clone_rejects_flag_like_dest_path`
+(mocks `_validate_git_url` so the case isolates the `dest_path` check from
+DNS/network behavior). Every other function in the file that passes a
+caller-supplied value to a git subprocess call was walked by hand and is
+either already guarded, guarded via `--` pathspec termination, a pure option
+*value* (never a leading positional), or never reaches a git subprocess at
+all — no other gap found. Also fixed in the same pass: `git_create_tag`'s
+`ref=commit` with `commit=None` stringified to the literal `"None"` instead
+of defaulting to HEAD (`ref = commit or 'HEAD'`) — a correctness bug, not
+security, caught while reading the function.
+
+**Fixed — six tools with no confirmation gate despite a `provider_verb_noun`
+shape that defeats the `delete_`/`terminate_`/... prefix auto-detector**
+(the same recurring gap fixed on 2026-08-08/19/23/25 and 09-02): `high_risk_tools`
+gained `list_storage_account_keys` (Azure — returns the raw storage-account
+access key, a full data-plane credential, into the chat/tool-trace/LLM path;
+same disclosure class as `get_secret_value`/`create_ec2_keypair`, and the
+mutating sibling `regenerate_storage_key` was already gated but not this
+read) and `terraform_state_pull` (returns the entire state file, which
+routinely holds plaintext secrets — its `_push`/`_move`/`_rm` siblings were
+already classified). `medium_risk_tools` gained `send_sqs_message` (same
+"pages a live downstream consumer with caller-controlled content" shape as
+the already-medium `publish_sns_message`/`publish_pubsub_message`),
+`pagerduty_add_note` and `opsgenie_add_note` (post caller-controlled content
+onto a live incident/alert; every sibling verb in the same module was
+already medium), and `git_stash_save` (the one stash operation that actually
+discards working-tree state — `git_stash_apply`/`git_stash_drop` were
+already medium, the destructive one wasn't). Verified each classification
+takes effect via `SafetyValidator.validate_tool_call(name, {})`.
+
+**Not fixed — flagged for a follow-up change, not patched in this pass:**
+
+- **The 2026-09-11 injection-regex fix (`f591c87`) closes the reported
+  example, not the bypass class.** Live-verified current bypasses:
+  `ignore any/every previous instructions` (qualifier set gap), `ignore all
+  of the previous instructions`, punctuation between qualifiers
+  (`ignore all, previous instructions`), and — pre-existing, same class —
+  Unicode confusables surviving NFC-only normalization (fullwidth `ｉgnore`,
+  Cyrillic `ѕ`). The same commit's added `the` qualifier now also blocks
+  legitimate messages (`ignore the context`, `ignore the rules` — both
+  ordinary Kubernetes/security-group vocabulary), each one burning a
+  `record_guardrail_violation()` strike toward the 3-strike lockout.
+- **`src/agent/guardrails.py:330`'s Haiku pre-screen interpolates the raw
+  message inside `<message>…</message>` with no escaping** — a message
+  containing a literal `</message>` can close the tag and append its own
+  instruction to the classifier, undermining the screen the 09-11 commit
+  widened the window of.
+- **`c28c259`'s crisis-log redaction removed the only trace of crisis
+  language on 4 of 6 call sites.** Its rationale (already captured in
+  `CrisisIncident`) holds for the 3 sites wired to that model
+  (`app.py:2898`, `app.py:3545`, `routes/curriculum.py:192`) but not
+  `api/v1/conversations.py:310`/`:502` or `routes/api_gateway.py:711`/`:863`,
+  which never create a `CrisisIncident` row — on those surfaces a user in
+  crisis now gets a generic content-policy violation strike with no record
+  anywhere that crisis language was involved.
+- **`services/analytics_service.py` is still exactly the fabricated-data bug
+  flagged (not fixed) on 2026-09-02** — `_ensure_sample_data()` generates 90
+  days of cost/resource/incident data from `random.uniform/randint/choices`
+  plus hardcoded `_cost_by_service`/`_cost_by_team` dicts, never consulted
+  against `user_id` or any credential; `CostForecast.generate_forecast` adds
+  `random.uniform` noise and reports a confidence score computed over that
+  fake series. Four consumer templates (`analytics/dashboard.html`,
+  `costs.html`, `performance.html`, `resources.html`) render it with no
+  sandbox/no-account guard. **Same bug class found in three more places, not
+  previously flagged:** `services/performance_optimizer.py`'s
+  `_generate_sample_recommendations()` (seeds the literal `i-0abc123def456`
+  fake instance id from the 2026-08-12 drift incident, for every user, at
+  `/optimization/`), `services/ai_infrastructure.py`'s `get_recommendations()`
+  (hardcoded list ignoring `user_id`) and `apply_recommendation()` (reports
+  `success: True` without calling any cloud API — the same fake-Apply shape
+  as the fixed predictive-scaling bug), and `services/chatops_service.py`'s
+  `_cmd_metrics`/`_cmd_oncall` (hardcoded metrics/on-call roster delivered
+  into Slack as live data). All deferred: fixing analytics_service.py alone
+  needs its 4 templates read first per the existing note; the newly-found
+  ones need the same treatment and are large enough to warrant their own
+  reviewed change.
+- **Latent (not currently reachable, same shape as the twice-fixed
+  `compliance_service` bug):** `services/api_gateway.py`'s `get_api_key`/
+  `get_webhook` and `services/multi_tenancy.py`'s `get_organization`/
+  `get_team` are bare `Model.query.get(id)` despite an instance-level
+  `self.user_id` — every current caller happens to pass its own `user_id`
+  filter or sits behind a membership check, so nothing is exploitable today,
+  but a future caller that omits that filter reopens the cross-tenant read
+  this class of bug already caused twice.
+
+## Scheduled audit (2026-09-13): ChatOps `/metrics` and `/oncall` fabricated data; `/status` silently showed 0 for two real counters
+
+Routine review of `src/tools/`, `services/`, and `routes/` for vulnerabilities,
+smells, and duplication. Grepped for the standing fabrication tells this repo
+already tracks (`# In a real implementation`, `random.uniform`/`random.randint`
+outside `learning_sandbox.py`'s intentional mock generator) and found two more
+in `services/chatops_service.py`'s `_cmd_metrics` and `_cmd_oncall` — the same
+file that had its per-user-arity `TypeError`s fixed the day before (2026-09-12,
+see the SonarQube entry above), but this bug was invisible to that pass because
+it never raises: it's a silent wrong-data bug, not a crash.
+
+Unlike every sibling command in the file (`_cmd_status`, `_cmd_incidents`,
+`_cmd_alerts`, `_cmd_playbooks`, ...), which all call `_require_app_user()` and
+read real per-user state from `incident_response`/`proactive_monitoring`,
+`_cmd_metrics` took no user argument at all and returned a fixed block of
+invented numbers ("CPU Utilization: 45% (avg)", "Request Rate: 1.2k/min",
+"Replication Lag: 0ms") to every account running `/metrics` in Slack or Teams.
+`_cmd_oncall` did the same for a fake on-call roster ("Primary: @devops-team",
+"Secondary: @sre-team") on every `/oncall`. Both are exactly the class of bug
+CLAUDE.md's "Non-negotiable: every feature runs against a real cloud account"
+section exists to catch — canned output indistinguishable from a real query —
+just for chat-command status instead of a dashboard.
+
+Separately, `_cmd_status` read `mon_status.get('active_rules', 0)` and
+`mon_status.get('alerts_count', 0)`, but `ProactiveMonitoringService.get_status()`
+returns `rules_enabled` and `alerts_active` — neither key `_cmd_status` read
+has ever existed in that dict, so "Active Rules" and "Active Alerts" silently
+displayed 0 in every `/status` reply regardless of the account's real counts.
+`.get(key, default)` swallows the typo with no exception, which is why Sonar's
+arity-mismatch scan (S930) didn't catch this one either.
+
+**Fix (`services/chatops_service.py`):**
+- `_cmd_status` now reads `rules_enabled` / `alerts_active`, the keys
+  `get_status()` actually returns.
+- `_cmd_metrics` now calls `_require_app_user()` and lists the caller's real
+  configured monitoring rules from `ProactiveMonitoringService.get_rules()`
+  (name, source, last collected value, state, threshold) with the same
+  `service_filter` argument now matching against rule name/labels. An account
+  with no monitoring rules configured gets an honest "no monitoring rules are
+  configured" message instead of invented numbers — fail closed, not fake
+  data, matching the pattern already used by Drift Detection and Predictive
+  Scaling for the same underlying rule.
+- `_cmd_oncall` now says plainly that no live PagerDuty/OpsGenie on-call is
+  connected, rather than showing a schedule that was never true for any real
+  account. There is no per-user PagerDuty/OpsGenie credential store the way
+  there is for AWS/Azure/GCP (`UserCloudCredential`) for this command to read
+  safely — `pagerduty_list_oncalls`/`opsgenie_get_oncall` in
+  `alerting_tools.py` take a caller-supplied `api_key` or fall back to a
+  single app-wide env var, neither of which is the right credential source
+  for a per-tenant chat command — so building a real integration here is left
+  as a follow-up rather than reusing the wrong credential model under audit
+  time pressure.
+
+**Not fixed in this pass, already flagged in CLAUDE.md and still open:**
+`services/analytics_service.py`'s Advanced Analytics Dashboard (hardcoded
+per-service/per-team cost breakdowns, a cost forecast built on
+`random.uniform()` noise) — same fabrication class, larger surface (needs its
+4 consumer templates read first per the existing note), intentionally left to
+its own reviewed change rather than folded into this drive-by fix.
+
+**Tests:** new `tests/test_chatops_fabricated_data.py` (5 cases, no Flask/app
+import required — mocks `get_monitoring_service`/`get_incident_engine`
+directly): `/metrics` with no rules configured reports honestly and contains
+none of the old static numbers; `/metrics` with a real rule shows its actual
+name/source/value and still contains none of the old static numbers;
+`/metrics` raises `_UnresolvedAppUser` with no caller identity, like every
+other per-user command; `/oncall` no longer mentions the fake `@devops-team`/
+`@sre-team` names; `/status` reports the real `rules_enabled`/`alerts_active`
+values instead of always 0. Could not run the full suite in this audit
+environment (missing `flask`/`bcrypt` and the rest of the app's dependency
+tree, the same environment gap noted in the 2026-09-11 audit entries above) —
+the new test file imports only `services.chatops_service` directly and passes
+in isolation; no other test in the repo references `_cmd_metrics`/`_cmd_oncall`
+or `ProactiveMonitoringService.get_status()`'s exact key names.
 
 ## Scheduled audit (2026-09-19): `services/analytics_service.py` fabricated every Advanced Analytics Dashboard metric — fixed
 
