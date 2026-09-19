@@ -2844,6 +2844,78 @@ the new test file imports only `services.chatops_service` directly and passes
 in isolation; no other test in the repo references `_cmd_metrics`/`_cmd_oncall`
 or `ProactiveMonitoringService.get_status()`'s exact key names.
 
+## Scheduled audit (2026-09-19): `services/analytics_service.py` fabricated every Advanced Analytics Dashboard metric — fixed
+
+Routine "review code for vulnerabilities, smells, duplicates" audit. CLAUDE.md's own "every
+feature runs against a real cloud account" section already flagged this file back on 2026-09-02 as
+found-but-not-fixed ("needs its 4 consumer templates read first"), so this pass read the 4
+templates (`templates/analytics/dashboard.html`, `costs.html`, `resources.html`,
+`performance.html`) and `routes/analytics.py`, confirmed the fabrication was still live, and fixed
+it.
+
+**What was wrong:** `AnalyticsService._ensure_sample_data()` built 90 days of `random`-seeded
+cost/resource/incident/deployment history on first access and cached it for the life of the
+instance; `_cost_by_service`/`_cost_by_team` were hardcoded dicts (`EC2: 450.00, RDS: 280.00, ...`,
+`Development: 380.00, ...`); `CostForecast.generate_forecast()` added `random.uniform(-0.05, 0.05)`
+variance on top of that already-fake history. Every one of the 12 `/analytics/api/*` endpoints in
+`routes/analytics.py` read through this, so every logged-in user — regardless of whether they had
+a cloud account connected at all — saw the exact same invented cost breakdown, forecast, resource
+count, incident count, and deployment count. This was also reachable externally via the paid
+developer REST API (`routes/api_gateway.py`'s `/v1/analytics/costs` → `get_cost_analytics()`), so a
+third-party integration built on top of this API was making decisions on fiction too.
+
+**The fix wires it to data this app already collects for real, some of it via a module
+(`services/cost_explorer.py`) that already does real AWS Cost Explorer/CloudWatch calls elsewhere
+(`app.py`'s `/api/dashboard/costs`, `src/tools/devops_operations_tools.py`) but was never
+connected to this file:**
+- Cost breakdown/forecast: `cost_explorer.get_actual_costs()`/`get_cost_forecast()` (real AWS Cost
+  Explorer) first; on failure (no credentials, non-AWS account, API error), the same DB fallback
+  `/api/dashboard/costs` already uses — sum `InfrastructureResource.monthly_cost` grouped by
+  `resource_type` for that user. Both paths are real; a `source` field (`cost_explorer` |
+  `database`) says which one answered.
+- `CostForecast` keeps its linear-regression projection (a legitimate method) but now runs it over
+  the real daily-cost history above, with the `random.uniform()` variance line deleted — identical
+  input now produces identical output, not a different fake number on every request.
+- Resource count/utilization: `InfrastructureResource` filtered to this user and non-terminated
+  statuses (same exclusion list `services/infrastructure_sync.get_dashboard_summary()` uses).
+  `utilization_avg` now samples real CloudWatch CPU (`cost_explorer.get_instance_utilization()`)
+  across up to 5 running EC2 instances and averages them; with none available it's `0.0`, never a
+  plausible-looking invented percentage.
+- Incidents: real `IncidentModel` rows for the user, grouped by `severity`/`status`, trended
+  against the prior period of the same length.
+- Deployments: this app has **no dedicated Deployment model**, so rather than invent one, deploy
+  activity is now counted from real `UsageLog` rows whose `tool_name` is a CI/CD trigger/apply tool
+  (`trigger_jenkins_job`, `trigger_github_workflow`, `trigger_gitlab_pipeline`,
+  `rerun_failed_github_jobs`, `deploy_cloud_run_service`, `docker_compose_up`, `terraform_apply`) —
+  a real proxy for deployment activity, not a random count. `avg_duration_minutes` (previously
+  `random.uniform(5, 20)`) is dropped entirely rather than approximated, since `UsageLog` has no
+  duration column and no template reads that field.
+- `by_team` cost attribution has no real backing data anywhere in this schema (no per-team cost
+  tracking exists) — left honestly empty rather than reintroducing a hardcoded
+  Development/Production/Staging/Testing split. No template reads it.
+
+All 4 templates already degrade gracefully on empty data (`data.x || 0`, `if (labels.length)`
+guards before building any chart), confirmed by reading each one first — so a disconnected account
+now renders as zeros/"No Data" instead of requiring template changes.
+
+**Tests:** new `tests/test_analytics_service.py` — empty-account-returns-zeros for every metric,
+real per-user rows produce the right numbers *and* stay isolated from a second user's rows in the
+same tables (regression guard for the user-isolation rule elsewhere in this file), and
+`CostForecast` produces byte-identical output for identical input twice in a row (regression guard
+against the removed `random.uniform()` call). Verified directly with a standalone script against
+`models.py` + `services/analytics_service.py` under a real Flask/SQLAlchemy app context and
+in-memory SQLite (this sandbox has no project dependencies installed beyond that, so the full
+`pytest` suite — which imports the whole `app.py`, including boto3/anthropic/stripe/etc. — could
+not be run here; same environment limitation noted in the 2026-09-11 entries above). The new test
+file follows the existing `app`/`db_session`/`test_user` fixture pattern from `tests/conftest.py`
+and should be run in CI to confirm.
+
+**Not changed in this pass:** the resource-count time series (`_series_resource_count`) derives a
+running total from each resource's `created_at`, which only reflects resources still on record —
+one that was synced and later removed drops out of the historical total rather than showing a dip.
+This is an honest limitation of not maintaining a historical resource-count table, not a
+fabrication, and is called out in the method's docstring.
+
 ## Scheduled audit: `create_cloudformation_stack` unclassified; Execution Integrity's own audit trail has three unwired bypass paths (2026-09-07)
 
 Routine audit of the ~3200-line Execution Integrity feature (Phases 1-5, merged
