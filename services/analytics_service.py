@@ -253,7 +253,10 @@ class AnalyticsService:
                 'source': 'cost_explorer',
             }
         except Exception as e:
-            logger.info(f"Cost Explorer unavailable for user {self.user_id}, falling back to synced resource costs: {e}")
+            logger.info(
+                "Cost Explorer unavailable for user %s, falling back to synced resource costs: %s",
+                self.user_id, e,
+            )
 
         from models import InfrastructureResource
         db = self._get_db()
