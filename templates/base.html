@@ -585,7 +585,10 @@
                 {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
                 <a href="/approvals" class="header-button" id="approvalsNavBtn" style="position:relative;">
                     <span>&#9203;</span> Approvals
-                    <span id="approvalNavBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:50%;width:18px;height:18px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;"></span>
+                    <!-- Hidden until the count fetch below finds pending approvals, which
+                         sets display:flex itself. A second inline display:flex here used to
+                         override the display:none and show an empty badge on every page. -->
+                    <span id="approvalNavBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:50%;width:18px;height:18px;font-size:11px;font-weight:700;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;"></span>
                 </a>
                 <script>
                 (function() {

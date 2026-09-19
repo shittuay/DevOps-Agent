@@ -48,6 +48,8 @@ from typing import Any, Dict, Optional
 from flask import (Blueprint, Response, has_request_context, jsonify, redirect,
                    render_template_string, request, stream_with_context)
 
+from extensions import limiter
+
 logger = logging.getLogger(__name__)
 
 mcp_bp = Blueprint('mcp', __name__, url_prefix='/mcp')
@@ -1021,6 +1023,7 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 
 
 @mcp_bp.route('/oauth/authorize', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
 def oauth_authorize():
     """OAuth 2.0 authorization endpoint."""
     client_id              = request.values.get('client_id', '')
@@ -1051,21 +1054,36 @@ def oauth_authorize():
         if client_record is None:
             return jsonify({'error': 'invalid_client',
                             'error_description': 'Unknown client_id — register via /mcp/oauth/register first'}), 400
-        allowed_redirect_uris = client_record.get('redirect_uris') or None
+        # A client that registered with NO redirect_uris has nowhere valid to
+        # send a code — that must mean "reject every redirect_uri", never
+        # "skip the check". `client_record.get(...) or None` previously
+        # collapsed an empty list to None, and the check below was gated on
+        # `if allowed_redirect_uris`, so a client registered with
+        # `redirect_uris: []` (trivial via the open POST /mcp/oauth/register)
+        # bypassed the allowlist entirely and could redirect any victim's
+        # auth code to an arbitrary attacker-controlled origin. Keep it as a
+        # (possibly empty) set and always enforce membership — see the
+        # regression tests added alongside this fix.
+        allowed_redirect_uris = set(client_record.get('redirect_uris') or [])
         client_name = client_record.get('client_name')
+
+    # redirect_uri is mandatory — an authorization response with no verified
+    # destination to send the code to is unsafe by construction (and used to
+    # silently skip the https/allowlist checks below entirely).
+    if not redirect_uri:
+        return jsonify({'error': 'invalid_request', 'error_description': 'redirect_uri required'}), 400
 
     # Redirect target guard: https for real clients, plain http only for
     # loopback (Claude Desktop / Claude Code use http://localhost:<port>).
-    if redirect_uri:
-        from urllib.parse import urlparse
-        parsed = urlparse(redirect_uri)
-        is_loopback = parsed.hostname in ('localhost', '127.0.0.1', '::1')
-        if parsed.scheme != 'https' and not (parsed.scheme == 'http' and is_loopback):
-            return jsonify({'error': 'invalid_request',
-                            'error_description': 'redirect_uri must be https (or http on loopback)'}), 400
-        if allowed_redirect_uris and redirect_uri not in allowed_redirect_uris:
-            return jsonify({'error': 'invalid_request',
-                            'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
+    from urllib.parse import urlparse
+    parsed = urlparse(redirect_uri)
+    is_loopback = parsed.hostname in ('localhost', '127.0.0.1', '::1')
+    if parsed.scheme != 'https' and not (parsed.scheme == 'http' and is_loopback):
+        return jsonify({'error': 'invalid_request',
+                        'error_description': 'redirect_uri must be https (or http on loopback)'}), 400
+    if redirect_uri not in allowed_redirect_uris:
+        return jsonify({'error': 'invalid_request',
+                        'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
 
     if request.method == 'GET':
         return render_template_string(_AUTHORIZE_HTML,
@@ -1085,11 +1103,27 @@ def oauth_authorize():
         from models import User
         from routes.auth import _run_timing_safe_password_check
         user = User.query.filter_by(email=email).first()
+
+        # Enforce the same account-lockout invariant as the real /login route
+        # (models.User.is_locked/record_failed_login — 15-minute lock after 5
+        # failed attempts). This endpoint previously checked the password with
+        # no lockout at all, so a known email could be brute-forced here with
+        # no per-account limit, bypassed entirely regardless of how many
+        # attempts /login itself would have blocked by now.
+        if user and user.is_locked():
+            raise ValueError('Account temporarily locked due to multiple failed login attempts. Try again in 15 minutes.')
+
         # Always pay bcrypt's cost, even for an unknown email, so response time
         # can't be used to enumerate valid accounts (see _run_timing_safe_password_check).
         password_matches = _run_timing_safe_password_check(user, password)
         if not user or not password_matches:
+            if user:
+                user.record_failed_login()
             raise ValueError('Invalid email or password')
+
+        # Correct password: reset the shared failed-attempt counter, mirroring
+        # /login's own success path.
+        user.update_last_login(ip_address=request.remote_addr)
     except ValueError as e:
         return render_template_string(_AUTHORIZE_HTML,
                                       client_id=client_id,
@@ -1240,8 +1274,23 @@ def oauth_register():
         return Response('', 204, headers=_cors_headers())
 
     body = request.get_json(silent=True) or {}
-    redirect_uris = body.get('redirect_uris', [])
+    redirect_uris = body.get('redirect_uris') or []
     client_name = body.get('client_name', 'MCP Client')
+
+    # RFC 7591 §2: redirect_uris is REQUIRED for the authorization_code grant,
+    # which is the only grant a newly-registered client can use here. A client
+    # registered with none would previously end up with an unrestricted
+    # allowlist at /oauth/authorize (see the fix there) instead of one that
+    # can never authorize — reject the registration outright instead.
+    redirect_uris = [u for u in redirect_uris if isinstance(u, str) and u.strip()]
+    if not redirect_uris:
+        resp = jsonify({'error': 'invalid_client_metadata',
+                        'error_description': 'redirect_uris must contain at least one URI'})
+        resp.status_code = 400
+        for k, v in _cors_headers().items():
+            resp.headers[k] = v
+        return resp
+
     client_id = _find_existing_client_by_redirect_uris(redirect_uris)
     if client_id:
         logger.info(f"MCP: reusing existing OAuth client {client_id!r} ({client_name}) for repeat registration")
@@ -1280,6 +1329,7 @@ mcp_oauth_alias_bp = Blueprint('mcp_oauth_alias', __name__)
 
 
 @mcp_oauth_alias_bp.route('/authorize', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
 def oauth_authorize_alias():
     return oauth_authorize()
 

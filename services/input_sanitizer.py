@@ -29,14 +29,21 @@ DANGEROUS_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
 # Unicode categories to strip (format chars, private use, surrogates)
 STRIP_CATEGORIES = {'Cf', 'Co', 'Cs'}
 
+# Qualifier words that commonly stack before "instructions"/"rules"/etc. in
+# real jailbreak phrasing ("ignore ALL PREVIOUS instructions", "disregard ALL YOUR
+# PRIOR instructions"). A pattern that only allows exactly one qualifier word
+# misses these — verified live: "ignore all previous instructions" and
+# "disregard all prior instructions" bypassed the single-qualifier version.
+_QUALIFIER = r'(?:all|your|the|previous|prior|above)'
+
 # Patterns that look like prompt injection attempts — BLOCK these
 INJECTION_PATTERNS = [
     # System prompt override attempts
     re.compile(r'<\s*system\s*>', re.IGNORECASE),
     re.compile(r'\[INST\]|\[/INST\]|<<SYS>>|<</SYS>>', re.IGNORECASE),
-    re.compile(r'\bignore\s+(previous|above|all|prior)\s+(instructions?|prompts?|rules?|context)\b', re.IGNORECASE),
-    re.compile(r'\bforget\s+(all\s+)?(previous|your|the)\s+(instructions?|rules?|training|context|guidelines?)\b', re.IGNORECASE),
-    re.compile(r'\bdisregard\s+(all|previous|prior|your)\s+(instructions?|rules?|guidelines?|context)\b', re.IGNORECASE),
+    re.compile(rf'\bignore\s+(?:{_QUALIFIER}\s+){{1,3}}(instructions?|prompts?|rules?|context)\b', re.IGNORECASE),
+    re.compile(rf'\bforget\s+(?:{_QUALIFIER}\s+){{1,3}}(instructions?|rules?|training|context|guidelines?)\b', re.IGNORECASE),
+    re.compile(rf'\bdisregard\s+(?:{_QUALIFIER}\s+){{1,3}}(instructions?|rules?|guidelines?|context)\b', re.IGNORECASE),
     re.compile(r'\byour\s+(real|true|actual|original)\s+instructions?\s+(are|say|tell|state)\b', re.IGNORECASE),
     re.compile(r'\bnew\s+system\s+prompt\s*:', re.IGNORECASE),
     re.compile(r'\boverride\s+(mode|instructions?|safety|guidelines?)\b', re.IGNORECASE),

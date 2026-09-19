@@ -1375,6 +1375,25 @@ class DevOpsAgent:
         """The mutation+verification pairs recorded this turn (rule 4)."""
         return list(self._mutation_pairs)
 
+    def _reset_turn_tool_state(self) -> None:
+        """Clear the per-turn tool trackers.
+
+        Called at the top of every tool-execution entry point — the 3 chat
+        paths and ``approval_service._execute_tool``. gthread reuses worker
+        threads and all of these are greenlet-local, so a stale
+        ``_verify_count`` (cap ``MAX_VERIFICATIONS_PER_TURN``) or
+        ``_iac_fallback_emitted`` from a previous turn on the same thread would
+        otherwise silently suppress verification / the IaC fallback.
+        """
+        self._last_tools_used = []
+        self._tool_call_log = []
+        self._repeat_guard = {}
+        self._created_resources = []
+        self._turn_guard_notes = []
+        self._verify_count = 0
+        self._iac_fallback_emitted = False
+        self._mutation_pairs = []
+
     @property
     def last_tool_calls(self) -> List[Dict[str, Any]]:
         """Structured record of every tool call in the most recent turn.
@@ -1550,14 +1569,7 @@ class DevOpsAgent:
 
         # Clear any pending downloads from previous messages
         self.pending_download = None
-        self._last_tools_used = []
-        self._tool_call_log = []
-        self._repeat_guard = {}
-        self._created_resources = []
-        self._turn_guard_notes = []
-        self._verify_count = 0
-        self._iac_fallback_emitted = False
-        self._mutation_pairs = []
+        self._reset_turn_tool_state()
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1645,20 +1657,10 @@ class DevOpsAgent:
             # Add the new user message
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking. gthread reuses worker threads and
+            # all of this is greenlet-local, so a stale value would leak.
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
-
-            # Reset per-request tool tracking
-            self._last_tools_used = []
-            self._tool_call_log = []
-            self._created_resources = []
-            self._turn_guard_notes = []
-            self._verify_count = 0
-            self._iac_fallback_emitted = False
-            self._mutation_pairs = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1746,21 +1748,10 @@ class DevOpsAgent:
 
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking (threading.local-backed, so a pooled
+            # worker thread would otherwise carry the prior turn's state).
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
-
-            # Reset per-request tool tracking (threading.local-backed, so a
-            # pooled worker thread would otherwise carry the prior turn's list).
-            self._last_tools_used = []
-            self._tool_call_log = []
-            self._created_resources = []
-            self._turn_guard_notes = []
-            self._verify_count = 0
-            self._iac_fallback_emitted = False
-            self._mutation_pairs = []
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
@@ -2243,7 +2234,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             result = {'success': False, 'error': 'High-risk operation requires approval'}
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2502,7 +2493,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             # Approver/admin self-approve; regular users get queued for review
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2648,8 +2639,11 @@ class DevOpsAgent:
                     self.conversation.add_tool_result(tool_use_id, json.dumps(result))
                     continue
 
-                # Check if approval workflow applies (high-risk + non-approver user)
-                if validation.requires_confirmation:
+                # Check if approval workflow applies (high-risk + non-approver user).
+                # Sandbox mode must never file a real ApprovalRequest or notify a real
+                # approver — a simulated turn falls through to the sandbox-mock branch
+                # below, exactly like every other tool call in sandbox mode.
+                if validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                     user_id = getattr(self, '_current_user_id', None)
                     if user_id:
                         try:

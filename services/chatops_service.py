@@ -15,6 +15,23 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
+_UNLINKED_ACCOUNT_MESSAGE = (
+    "This command needs to know which DevOps Agent account you are, and this "
+    "chat identity is not linked to one yet. Slack/Teams user ids are not "
+    "application user ids, so there is nothing safe to look up. Run the command "
+    "from the web UI, or link your chat account from Settings."
+)
+
+
+class _UnresolvedAppUser(Exception):
+    """Raised when a per-user command cannot determine the app `User.id`.
+
+    Deliberately not a fallback to the chat platform id: per-user state in the
+    incident engine is keyed on `User.id`, so guessing would either read an
+    empty namespace or, worse, somebody else's.
+    """
+
+
 class ChatPlatform(Enum):
     """Supported chat platforms."""
     SLACK = "slack"
@@ -192,8 +209,18 @@ class ChatOpsService:
         return command, args
 
     def process_message(self, text: str, user_id: str = None, channel_id: str = None,
-                        platform: ChatPlatform = ChatPlatform.SLACK) -> ChatResponse:
-        """Process an incoming message and return response."""
+                        platform: ChatPlatform = ChatPlatform.SLACK,
+                        app_user_id: int = None) -> ChatResponse:
+        """Process an incoming message and return response.
+
+        `user_id` is the *chat platform* identity (a Slack/Teams id such as
+        "U01ABC123"). `app_user_id` is this application's `User.id`. They are
+        NOT interchangeable: the incident engine and monitoring service key all
+        per-user state on `User.id`, so passing a platform id through would read
+        another user's namespace or none at all. Commands that need per-user
+        data resolve it through `_require_app_user()` and refuse politely when
+        the caller could not supply one.
+        """
 
         command_name, args = self.parse_command(text)
 
@@ -216,13 +243,29 @@ class ChatOpsService:
             )
 
         try:
-            response = command.handler(args, user_id=user_id, channel_id=channel_id, platform=platform)
+            response = command.handler(args, user_id=user_id, channel_id=channel_id,
+                                       platform=platform, app_user_id=app_user_id)
             return response
+        except _UnresolvedAppUser:
+            return ChatResponse(text=_UNLINKED_ACCOUNT_MESSAGE)
         except Exception as e:
             logger.error(f"Command error: {e}")
             return ChatResponse(
                 text=f"Error executing command: {str(e)}"
             )
+
+    @staticmethod
+    def _require_app_user(kwargs: dict) -> int:
+        """Return the calling app user's id, or refuse.
+
+        Raises `_UnresolvedAppUser` when the request carried no application
+        identity. Every caller of a per-user engine method must go through
+        this rather than falling back to the chat platform id.
+        """
+        app_user_id = kwargs.get('app_user_id')
+        if isinstance(app_user_id, int):
+            return app_user_id
+        raise _UnresolvedAppUser()
 
     # Command Handlers
 
@@ -254,11 +297,12 @@ class ChatOpsService:
         from services.incident_response import get_incident_engine
         from services.proactive_monitoring import get_monitoring_service
 
+        app_user_id = self._require_app_user(kwargs)
         engine = get_incident_engine()
         monitoring = get_monitoring_service()
 
-        stats = engine.get_stats()
-        mon_status = monitoring.get_status()
+        stats = engine.get_stats(app_user_id)
+        mon_status = monitoring.get_status(app_user_id)
 
         active_incidents = stats.get('active', 0)
         critical = stats.get('by_severity', {}).get('critical', 0)
@@ -282,8 +326,8 @@ class ChatOpsService:
 
 📡 *Monitoring*
 • Status: {'Running' if mon_status.get('running') else 'Stopped'}
-• Active Rules: {mon_status.get('active_rules', 0)}
-• Active Alerts: {mon_status.get('alerts_count', 0)}
+• Active Rules: {mon_status.get('rules_enabled', 0)}
+• Active Alerts: {mon_status.get('alerts_active', 0)}
 """
         return ChatResponse(text=text)
 
@@ -291,6 +335,7 @@ class ChatOpsService:
         """List incidents."""
         from services.incident_response import get_incident_engine, IncidentStatus, IncidentSeverity
 
+        app_user_id = self._require_app_user(kwargs)
         engine = get_incident_engine()
 
         status_filter = None
@@ -305,7 +350,7 @@ class ChatOpsService:
                 except ValueError:
                     pass
 
-        incidents = engine.list_incidents(status=status_filter, limit=limit)
+        incidents = engine.list_incidents(app_user_id, status=status_filter, limit=limit)
 
         if not incidents:
             return ChatResponse(text="No incidents found.")
@@ -332,8 +377,9 @@ class ChatOpsService:
 
         from services.incident_response import get_incident_engine
 
+        app_user_id = self._require_app_user(kwargs)
         engine = get_incident_engine()
-        incident = engine.get_incident(args[0])
+        incident = engine.get_incident(app_user_id, args[0])
 
         if not incident:
             return ChatResponse(text=f"Incident `{args[0]}` not found.")
@@ -363,7 +409,8 @@ class ChatOpsService:
         from services.incident_response import get_incident_engine
 
         engine = get_incident_engine()
-        result = engine.acknowledge_incident(args[0], user=user_id or "chatops")
+        app_user_id = self._require_app_user(kwargs)
+        result = engine.acknowledge_incident(app_user_id, args[0], user_id or "chatops")
 
         if result.get('success'):
             return ChatResponse(text=f"✅ Incident `{args[0]}` acknowledged.")
@@ -380,7 +427,7 @@ class ChatOpsService:
         resolution = " ".join(args[1:]) if len(args) > 1 else f"Resolved via ChatOps by {user_id or 'user'}"
 
         engine = get_incident_engine()
-        result = engine.resolve_incident(incident_id, resolution)
+        result = engine.resolve_incident(self._require_app_user(kwargs), incident_id, resolution)
 
         if result.get('success'):
             return ChatResponse(text=f"✅ Incident `{incident_id}` resolved.")
@@ -391,7 +438,7 @@ class ChatOpsService:
         from services.proactive_monitoring import get_monitoring_service
 
         service = get_monitoring_service()
-        alerts = service.get_alerts(status='firing')
+        alerts = service.get_active_alerts(self._require_app_user(kwargs))
 
         if not alerts:
             return ChatResponse(text="✅ No active alerts.")
@@ -399,10 +446,12 @@ class ChatOpsService:
         severity_filter = args[0].lower() if args else None
 
         lines = ["*Active Alerts:*\n"]
+        # get_active_alerts returns dicts (Alert.to_dict()), not Alert objects.
         for alert in alerts[:10]:
-            if severity_filter and alert.severity != severity_filter:
+            severity = str(alert.get('severity', '')).lower()
+            if severity_filter and severity != severity_filter:
                 continue
-            lines.append(f"• [{alert.severity.upper()}] {alert.name}\n  {alert.message[:100]}")
+            lines.append(f"• [{severity.upper()}] {alert.get('name', 'unnamed')}\n  {str(alert.get('message', ''))[:100]}")
 
         return ChatResponse(text="\n".join(lines))
 
@@ -411,7 +460,7 @@ class ChatOpsService:
         from services.incident_response import get_incident_engine
 
         engine = get_incident_engine()
-        playbooks = engine.list_playbooks()
+        playbooks = engine.list_playbooks(self._require_app_user(kwargs))
 
         lines = ["*Available Playbooks:*\n"]
         for pb in playbooks:
@@ -430,11 +479,12 @@ class ChatOpsService:
         incident_id = args[0]
         engine = get_incident_engine()
 
-        incident = engine.get_incident(incident_id)
+        app_user_id = self._require_app_user(kwargs)
+        incident = engine.get_incident(app_user_id, incident_id)
         if not incident:
             return ChatResponse(text=f"Incident `{incident_id}` not found.")
 
-        result = engine.execute_playbook(incident, skip_approval=False)
+        result = engine.execute_playbook(app_user_id, incident, skip_approval=False)
 
         if result.get('success'):
             return ChatResponse(text=f"✅ Playbook execution started for incident `{incident_id}`.")
@@ -449,10 +499,11 @@ class ChatOpsService:
         from services.root_cause_analyzer import get_root_cause_analyzer
 
         incident_id = args[0]
+        app_user_id = self._require_app_user(kwargs)
         engine = get_incident_engine()
         analyzer = get_root_cause_analyzer()
 
-        incident = engine.get_incident(incident_id)
+        incident = engine.get_incident(app_user_id, incident_id)
         if not incident:
             return ChatResponse(text=f"Incident `{incident_id}` not found.")
 
@@ -469,7 +520,7 @@ class ChatOpsService:
             'actions_taken': incident.actions_taken
         }
 
-        result = analyzer.analyze_incident(incident_data)
+        result = analyzer.analyze_incident(app_user_id, incident_data)
 
         if result.root_causes:
             rc = result.root_causes[0]
@@ -493,28 +544,41 @@ class ChatOpsService:
         return ChatResponse(text=f"Analysis completed but no root causes identified. See full report: /analysis/{result.id}")
 
     def _cmd_metrics(self, args: list, **kwargs) -> ChatResponse:
-        """Get metrics summary."""
-        service_filter = args[0] if args else None
+        """Get metrics summary from the user's own configured monitoring rules."""
+        from services.proactive_monitoring import get_monitoring_service
 
-        # In a real implementation, this would fetch from Prometheus/CloudWatch
-        text = """*Metrics Summary*
+        app_user_id = self._require_app_user(kwargs)
+        service_filter = args[0].lower() if args else None
 
-📊 *Infrastructure*
-• CPU Utilization: 45% (avg)
-• Memory Usage: 62% (avg)
-• Disk I/O: Normal
+        monitoring = get_monitoring_service()
+        rules = monitoring.get_rules(app_user_id)
 
-🌐 *Application*
-• Request Rate: 1.2k/min
-• Error Rate: 0.05%
-• P95 Latency: 120ms
+        if service_filter:
+            rules = [
+                r for r in rules
+                if service_filter in r['name'].lower()
+                or service_filter in str(r.get('labels', {}).get('service', '')).lower()
+            ]
 
-🗄️ *Database*
-• Connection Pool: 45/100
-• Query Time (avg): 15ms
-• Replication Lag: 0ms
-"""
-        return ChatResponse(text=text)
+        if not rules:
+            return ChatResponse(
+                text="No monitoring rules are configured, so there are no real metrics "
+                     "to show. Set one up in Settings › Monitoring to see live values here."
+            )
+
+        state_emoji = {'firing': '\U0001F534', 'pending': '\U0001F7E1', 'ok': '\U0001F7E2'}
+        lines = ["*Metrics Summary*\n"]
+        for rule in sorted(rules, key=lambda r: r['name']):
+            emoji = state_emoji.get(rule.get('state'), '⚪')
+            value = rule.get('last_value')
+            value_text = str(value) if value is not None else "no data yet"
+            checked = rule.get('last_check') or "never"
+            lines.append(
+                f"{emoji} *{rule['name']}* ({rule['source']}): {value_text} "
+                f"(threshold {rule['condition']} {rule['threshold']}) — last checked {checked}"
+            )
+
+        return ChatResponse(text="\n".join(lines))
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
         """List recent deployments."""
@@ -540,22 +604,22 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_oncall(self, args: list, **kwargs) -> ChatResponse:
-        """Show on-call information."""
-        # In a real implementation, this would integrate with PagerDuty/OpsGenie
+        """Show on-call information.
 
-        text = """*On-Call Schedule*
-
-🔴 *Primary:* @devops-team
-🟡 *Secondary:* @sre-team
-
-*Escalation:*
-1. Primary (0-15 min)
-2. Secondary (15-30 min)
-3. Engineering Lead (30+ min)
-
-_To update on-call schedule, visit PagerDuty._
-"""
-        return ChatResponse(text=text)
+        There is no per-user PagerDuty/OpsGenie credential store (unlike the
+        per-user AWS/Azure/GCP model) for this command to read, and no fixed
+        schedule is true for every account — a hardcoded "@devops-team is
+        primary" response would be the same fabricated-data-as-real-status bug
+        already fixed elsewhere in this app (see CLAUDE.md's "Non-negotiable"
+        section), just for on-call data instead of cloud state. Fail closed
+        with an honest answer instead of guessing.
+        """
+        return ChatResponse(
+            text="On-call schedule lookup isn't connected to a live PagerDuty/OpsGenie "
+                 "on-call yet, so there is nothing real to report here. Ask the agent "
+                 "directly (it can call `pagerduty_list_oncalls` / `opsgenie_get_oncall` "
+                 "with your API key) or check your provider's dashboard."
+        )
 
     def format_slack_blocks(self, response: ChatResponse) -> list:
         """Format response as Slack blocks."""
