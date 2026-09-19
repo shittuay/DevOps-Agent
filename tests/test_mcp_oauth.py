@@ -510,3 +510,122 @@ class TestOAuthFlowEndToEnd:
         })
         assert authz.status_code == 302
         assert authz.headers['Location'].startswith('https://claude.ai/api/mcp/auth_callback')
+
+
+# ── Regression: DCR clients with no redirect_uris must never bypass the
+# redirect_uri allowlist (2026-09-18 scheduled audit finding) ───────────────
+
+class TestEmptyRedirectUrisBypass:
+    """`client_record.get('redirect_uris') or None` used to collapse an empty
+    (or missing) redirect_uris list to None, and the allowlist check at
+    /oauth/authorize was gated on `if allowed_redirect_uris`, so a client
+    registered with `redirect_uris: []` — trivially reachable via the
+    unauthenticated POST /mcp/oauth/register — bypassed the allowlist
+    entirely and could redirect any victim's authorization code to an
+    arbitrary attacker-controlled origin (auth-code interception / account
+    takeover). Fixed by (a) rejecting registration with no redirect_uris and
+    (b) always enforcing membership at /oauth/authorize, treating an empty
+    allowlist as "deny every redirect_uri", never "skip the check"."""
+
+    def test_registration_with_empty_redirect_uris_rejected(self, client):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'no-redirects-client',
+            'redirect_uris': [],
+        })
+        assert reg.status_code == 400
+        assert reg.get_json()['error'] == 'invalid_client_metadata'
+
+    def test_registration_with_missing_redirect_uris_rejected(self, client):
+        reg = client.post('/mcp/oauth/register', json={'client_name': 'no-redirects-client'})
+        assert reg.status_code == 400
+        assert reg.get_json()['error'] == 'invalid_client_metadata'
+
+    def test_authorize_requires_redirect_uri(self, client):
+        reg = client.post('/mcp/oauth/register', json={
+            'client_name': 'legit-client',
+            'redirect_uris': ['https://real-app.example.com/cb'],
+        })
+        client_id = reg.get_json()['client_id']
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': client_id,
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'invalid_request'
+
+    def test_client_with_empty_registered_redirect_uris_denies_every_redirect(self, client):
+        """Even a client row that already has an empty redirect_uris list in
+        the DB (e.g. one registered before this fix) must never be treated as
+        unrestricted — /oauth/authorize must deny ANY redirect_uri for it."""
+        from routes.mcp import _store_client_db
+
+        _store_client_db('legacy-empty-client', 'legacy client', [])
+        resp = client.get('/mcp/oauth/authorize', query_string={
+            'response_type': 'code',
+            'client_id': 'legacy-empty-client',
+            'redirect_uri': 'https://attacker.example.com/cb',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        })
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'invalid_request'
+
+
+# ── Regression: /oauth/authorize must enforce the same account lockout as
+# /login (2026-09-18 scheduled audit finding) ────────────────────────────────
+
+class TestOAuthAuthorizeAccountLockout:
+    """The password check in oauth_authorize() used _run_timing_safe_password_check
+    (correctly avoiding the timing side-channel) but never consulted
+    User.is_locked() / record_failed_login(), so a known email could be
+    brute-forced through this endpoint with no per-account limit at all,
+    independent of how many failed attempts /login itself would have already
+    locked out. Fixed by wiring in the same is_locked/record_failed_login
+    calls /login uses."""
+
+    def _authorize_attempt(self, client, email, password):
+        params = {
+            'response_type': 'code',
+            'client_id': 'claude-connector',
+            'redirect_uri': 'https://claude.ai/api/mcp/auth_callback',
+            'state': 's',
+            'code_challenge': 'x' * 43,
+            'code_challenge_method': 'S256',
+        }
+        return client.post('/mcp/oauth/authorize', query_string=params, data={
+            **params, 'email': email, 'password': password,
+        })
+
+    def test_five_failed_attempts_locks_account(self, client, test_user):
+        for _ in range(5):
+            resp = self._authorize_attempt(client, 'test@example.com', 'wrong-password')
+            assert resp.status_code == 200  # re-renders the form with an error
+
+        from models import db
+        db.session.refresh(test_user)
+        assert test_user.is_locked()
+
+    def test_locked_account_rejects_even_the_correct_password(self, client, test_user):
+        for _ in range(5):
+            self._authorize_attempt(client, 'test@example.com', 'wrong-password')
+
+        resp = self._authorize_attempt(client, 'test@example.com', 'TestPassword123!')
+        assert resp.status_code == 200
+        assert b'locked' in resp.data.lower()
+
+    def test_successful_login_resets_failed_attempt_counter(self, client, test_user):
+        self._authorize_attempt(client, 'test@example.com', 'wrong-password')
+        self._authorize_attempt(client, 'test@example.com', 'wrong-password')
+
+        from models import db
+        db.session.refresh(test_user)
+        assert test_user.failed_login_attempts == 2
+
+        ok = self._authorize_attempt(client, 'test@example.com', 'TestPassword123!')
+        assert ok.status_code == 302
+
+        db.session.refresh(test_user)
+        assert test_user.failed_login_attempts == 0
+        assert test_user.locked_until is None
