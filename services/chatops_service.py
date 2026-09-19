@@ -326,8 +326,8 @@ class ChatOpsService:
 
 📡 *Monitoring*
 • Status: {'Running' if mon_status.get('running') else 'Stopped'}
-• Active Rules: {mon_status.get('active_rules', 0)}
-• Active Alerts: {mon_status.get('alerts_count', 0)}
+• Active Rules: {mon_status.get('rules_enabled', 0)}
+• Active Alerts: {mon_status.get('alerts_active', 0)}
 """
         return ChatResponse(text=text)
 
@@ -544,28 +544,41 @@ class ChatOpsService:
         return ChatResponse(text=f"Analysis completed but no root causes identified. See full report: /analysis/{result.id}")
 
     def _cmd_metrics(self, args: list, **kwargs) -> ChatResponse:
-        """Get metrics summary."""
-        service_filter = args[0] if args else None
+        """Get metrics summary from the user's own configured monitoring rules."""
+        from services.proactive_monitoring import get_monitoring_service
 
-        # In a real implementation, this would fetch from Prometheus/CloudWatch
-        text = """*Metrics Summary*
+        app_user_id = self._require_app_user(kwargs)
+        service_filter = args[0].lower() if args else None
 
-📊 *Infrastructure*
-• CPU Utilization: 45% (avg)
-• Memory Usage: 62% (avg)
-• Disk I/O: Normal
+        monitoring = get_monitoring_service()
+        rules = monitoring.get_rules(app_user_id)
 
-🌐 *Application*
-• Request Rate: 1.2k/min
-• Error Rate: 0.05%
-• P95 Latency: 120ms
+        if service_filter:
+            rules = [
+                r for r in rules
+                if service_filter in r['name'].lower()
+                or service_filter in str(r.get('labels', {}).get('service', '')).lower()
+            ]
 
-🗄️ *Database*
-• Connection Pool: 45/100
-• Query Time (avg): 15ms
-• Replication Lag: 0ms
-"""
-        return ChatResponse(text=text)
+        if not rules:
+            return ChatResponse(
+                text="No monitoring rules are configured, so there are no real metrics "
+                     "to show. Set one up in Settings › Monitoring to see live values here."
+            )
+
+        state_emoji = {'firing': '\U0001F534', 'pending': '\U0001F7E1', 'ok': '\U0001F7E2'}
+        lines = ["*Metrics Summary*\n"]
+        for rule in sorted(rules, key=lambda r: r['name']):
+            emoji = state_emoji.get(rule.get('state'), '⚪')
+            value = rule.get('last_value')
+            value_text = str(value) if value is not None else "no data yet"
+            checked = rule.get('last_check') or "never"
+            lines.append(
+                f"{emoji} *{rule['name']}* ({rule['source']}): {value_text} "
+                f"(threshold {rule['condition']} {rule['threshold']}) — last checked {checked}"
+            )
+
+        return ChatResponse(text="\n".join(lines))
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
         """List recent deployments."""
@@ -591,22 +604,22 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_oncall(self, args: list, **kwargs) -> ChatResponse:
-        """Show on-call information."""
-        # In a real implementation, this would integrate with PagerDuty/OpsGenie
+        """Show on-call information.
 
-        text = """*On-Call Schedule*
-
-🔴 *Primary:* @devops-team
-🟡 *Secondary:* @sre-team
-
-*Escalation:*
-1. Primary (0-15 min)
-2. Secondary (15-30 min)
-3. Engineering Lead (30+ min)
-
-_To update on-call schedule, visit PagerDuty._
-"""
-        return ChatResponse(text=text)
+        There is no per-user PagerDuty/OpsGenie credential store (unlike the
+        per-user AWS/Azure/GCP model) for this command to read, and no fixed
+        schedule is true for every account — a hardcoded "@devops-team is
+        primary" response would be the same fabricated-data-as-real-status bug
+        already fixed elsewhere in this app (see CLAUDE.md's "Non-negotiable"
+        section), just for on-call data instead of cloud state. Fail closed
+        with an honest answer instead of guessing.
+        """
+        return ChatResponse(
+            text="On-call schedule lookup isn't connected to a live PagerDuty/OpsGenie "
+                 "on-call yet, so there is nothing real to report here. Ask the agent "
+                 "directly (it can call `pagerduty_list_oncalls` / `opsgenie_get_oncall` "
+                 "with your API key) or check your provider's dashboard."
+        )
 
     def format_slack_blocks(self, response: ChatResponse) -> list:
         """Format response as Slack blocks."""
