@@ -2915,3 +2915,44 @@ running total from each resource's `created_at`, which only reflects resources s
 one that was synced and later removed drops out of the historical total rather than showing a dip.
 This is an honest limitation of not maintaining a historical resource-count table, not a
 fabrication, and is called out in the method's docstring.
+
+## Scheduled audit: `create_cloudformation_stack` unclassified; Execution Integrity's own audit trail has three unwired bypass paths (2026-09-07)
+
+Routine audit of the ~3200-line Execution Integrity feature (Phases 1-5, merged
+2026-09-05/06, never audited before this pass). `python3 scripts/check_security_invariants.py`
+was clean; all six new greenlet-local fields, `tool_cache.py`'s per-user keying, and the
+delete-verification fail-closed logic all checked out correct. Two real findings:
+
+**Fixed — `create_cloudformation_stack` had no risk classification.** Same shape as the
+`create_route53_record`/alerting-tool gaps found by earlier audits: `create_` isn't a
+monitored auto-detect prefix, and its `delete_cloudformation_stack`/`update_cloudformation_stack`
+siblings were already classified (high/medium) but the create path was missed. It accepts a
+caller-supplied `template_body` plus `capabilities` including `CAPABILITY_NAMED_IAM` — the
+same IAM-provisioning risk class `create_iam_role`/`create_iam_policy` are gated for — and
+Phase 4's `_iac_fallback` now actively appends it to the model's offered tools on every failed
+create, so leaving it low-risk made it a systematic *unconfirmed* recovery path, not just a
+theoretical gap. Added to `medium_risk_tools` in `src/agent/safety.py` (see that file's own
+comment for the reasoning) with a regression test in `tests/test_new_tools.py`
+(`test_create_cloudformation_stack_is_medium_risk`). Also refreshed a stale comment in
+`core.py`'s `_greenlet_local_property` docstring that still described the pre-#141 gevent
+worker config instead of the current `gthread`/3-workers/8-threads setup.
+
+**Flagged, not fixed — three tool-execution paths bypass the entire Execution Integrity
+stack.** `services/approval_service.py`'s `_execute_tool()` (the approve-and-run path for a
+previously-deferred high-risk call — by definition the highest-risk tool calls in the system),
+`routes/api_gateway.py`'s `api_execute_tool()` (`/v1/execute` developer API), and
+`routes/mcp.py`'s `_handle_tools_call()` (MCP connector) all call the tool handler directly
+(`agent.tools[name](**args)` / `all_tools[name]['handler'](**params)` / `tool['handler'](**args)`)
+instead of going through `DevOpsAgent._invoke_tool` → `_verify_and_annotate` →
+`_audit_infrastructure_change`. All three already had `_set_cloud_user_context` wired in from
+an earlier fix, but none received the Phase 2-5 verify/audit/cache wiring when it shipped.
+Concrete impact: an approved `terminate_ec2_instance` can report `success: True` while the
+instance is still `shutting-down`, with no read-back, no `_verification`, and no
+`change_details.audit_trail` row — the exact guarantee Phase 5 exists to provide for
+destructive actions — and the approving user's `READ_CACHE` entries are never invalidated, so
+a stale pre-approval read can still be served for up to 60s afterward. This is the same
+"duplicated logic not ported to sibling call sites" shape as the guardrails pipeline gap
+documented above (8 hand-copied call sites) — not fixed in this pass because routing three
+separate execution surfaces through the verify/audit/cache pipeline touches the approval flow,
+the developer REST API, and the MCP connector at once, and deserves its own reviewed PR rather
+than a drive-by edit during a read-mostly audit.
