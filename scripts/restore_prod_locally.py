@@ -3,6 +3,7 @@
 Handles multi-line string literals, dollar-quoted strings, emoji/Unicode,
 and psql meta-commands that break naive semicolon splitting.
 """
+import os
 import sys
 import io
 import psycopg2
@@ -104,7 +105,16 @@ def main():
     lines = [l for l in raw.splitlines() if not l.strip().startswith('\\')]
     sql = '\n'.join(lines)
 
-    conn = psycopg2.connect("postgresql://devops:devops_local@localhost:5432/devops_agent")
+    # Read from the environment rather than hardcoding credentials. The
+    # fallback matches docker-compose.yml's local development database.
+    conn = psycopg2.connect(os.environ.get(
+        "LOCAL_DATABASE_URL",
+        "postgresql://%s:%s@localhost:5432/%s" % (
+            os.environ.get("DEV_DB_USER", "devops"),
+            os.environ.get("DEV_DB_PASSWORD", "devops_local"),
+            os.environ.get("DEV_DB_NAME", "devops_agent"),
+        ),
+    ))
     conn.autocommit = True
     cur = conn.cursor()
 

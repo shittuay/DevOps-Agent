@@ -134,7 +134,7 @@ class CacheService:
                 return cached.get('value')
             return None
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         """
         Set a value in cache.
 
@@ -142,56 +142,41 @@ class CacheService:
             key: Cache key
             value: Value to cache
             ttl: Time-to-live in seconds (default: 300)
-
-        Returns:
-            True if successful
         """
         full_key = self._make_key(key)
         ttl = ttl or self.default_ttl
 
         if self.redis_client:
             try:
-                serialized = self._serialize(value)
-                self.redis_client.setex(full_key, ttl, serialized)
-                return True
+                self.redis_client.setex(full_key, ttl, self._serialize(value))
+                return
             except redis.RedisError as e:
                 logger.error(f"Redis set error: {e}")
-                # Fallback to memory
-                self.memory_cache[full_key] = {
-                    'value': value,
-                    'expires': self._now() + ttl
-                }
-                return True
-        else:
-            self.memory_cache[full_key] = {
-                'value': value,
-                'expires': self._now() + ttl
-            }
-            return True
+                # Fall through to the in-memory cache
 
-    def delete(self, key: str) -> bool:
+        self.memory_cache[full_key] = {
+            'value': value,
+            'expires': self._now() + ttl
+        }
+
+    def delete(self, key: str) -> None:
         """
         Delete a value from cache.
 
         Args:
             key: Cache key
-
-        Returns:
-            True if deleted
         """
         full_key = self._make_key(key)
 
         if self.redis_client:
             try:
                 self.redis_client.delete(full_key)
-                return True
             except redis.RedisError as e:
                 logger.error(f"Redis delete error: {e}")
 
-        # Also delete from memory cache
-        if full_key in self.memory_cache:
-            del self.memory_cache[full_key]
-        return True
+        # Always drop the in-memory copy too. A value written here while Redis
+        # was down would otherwise outlive its own delete.
+        self.memory_cache.pop(full_key, None)
 
     def delete_pattern(self, pattern: str) -> int:
         """
@@ -272,18 +257,13 @@ class CacheService:
             self.set(key, value, ttl)
         return value
 
-    def clear(self) -> bool:
+    def clear(self) -> None:
         """Clear all cached data (use with caution)."""
-        if self.redis_client:
-            try:
-                # Only delete keys with our prefix
-                self.delete_pattern("*")
-                return True
-            except redis.RedisError as e:
-                logger.error(f"Redis clear error: {e}")
-
+        # delete_pattern() covers both Redis and the in-memory fallback, and
+        # handles RedisError itself - so there was never anything for a
+        # try/except here to catch.
+        self.delete_pattern("*")
         self.memory_cache.clear()
-        return True
 
     def _now(self) -> int:
         """Get current timestamp."""
@@ -315,7 +295,7 @@ class CacheService:
                 key_parts.extend(str(arg) for arg in args)
                 key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
                 cache_key = ":".join(key_parts)
-                cache_key = hashlib.md5(cache_key.encode()).hexdigest()
+                cache_key = hashlib.md5(cache_key.encode(), usedforsecurity=False).hexdigest()
 
                 # Try to get from cache
                 cached_value = self.get(cache_key)
@@ -334,7 +314,7 @@ class CacheService:
                 hashlib.md5(":".join([key_prefix or func.__name__] +
                     [str(a) for a in args] +
                     [f"{k}={v}" for k, v in sorted(kwargs.items())]
-                ).encode()).hexdigest()
+                ).encode(), usedforsecurity=False).hexdigest()
             )
 
             return wrapper
@@ -369,13 +349,13 @@ class CacheService:
 
     def cache_api_response(self, endpoint: str, params: dict, response: Any, ttl: int = 60):
         """Cache API response."""
-        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()
+        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode(), usedforsecurity=False).hexdigest()
         key = f"api:{endpoint}:{params_hash}"
         return self.set(key, response, ttl)
 
     def get_api_response(self, endpoint: str, params: dict) -> Optional[Any]:
         """Get cached API response."""
-        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()
+        params_hash = hashlib.md5(json.dumps(params, sort_keys=True).encode(), usedforsecurity=False).hexdigest()
         key = f"api:{endpoint}:{params_hash}"
         return self.get(key)
 

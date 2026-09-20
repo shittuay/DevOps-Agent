@@ -449,6 +449,26 @@
 
             <div class="feature-card">
                 <div class="feature-header">
+                    <div class="feature-icon">&#9989;</div>
+                    <h2 class="feature-title">Verified results, not claims</h2>
+                </div>
+                <p class="feature-description">
+                    When the agent says it launched an instance or terminated a database, it has
+                    read that back from your cloud provider &mdash; not just trusted the write call's
+                    own response. A tool result is a claim; only a live read is proof.
+                </p>
+                <ul class="feature-list">
+                    <li><strong>Read-back verification</strong>: after a create, update, or delete, the platform polls the resource's own describe/list API and attaches the real state to the result before the agent reports anything</li>
+                    <li><strong>Deletes need two confirmations</strong>: a terminate is only reported done after two consecutive reads agree the resource is gone or shutting down &mdash; otherwise the agent re-issues it and re-checks</li>
+                    <li><strong>Eventual consistency handled</strong>: a resource created seconds ago is never called "missing" &mdash; the agent says "verifying" and retries, rather than guessing</li>
+                    <li><strong>No fabricated IDs</strong>: every resource ID, ARN, IP, and state shown to you is a verbatim substring of a real tool response, enforced by automated checks</li>
+                    <li><strong>Full audit trail on every destructive action</strong>: the request, the response, both verification reads, and the final confirmed state are recorded &mdash; and your console evidence always overrides ours if they disagree</li>
+                    <li><strong>Never a dead end</strong>: if a create fails, the platform generates a ready-to-run CloudFormation template from the same intent instead of sending you to the console</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-header">
                     <div class="feature-icon">&#128100;</div>
                     <h2 class="feature-title">Account security</h2>
                 </div>

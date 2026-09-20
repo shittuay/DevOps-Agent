@@ -534,17 +534,20 @@ Cost Optimization:
 def _greenlet_local_property(name, default=None, default_factory=None):
     """Per-request attribute stored in ``self._local`` instead of directly on the instance.
 
-    A single ``DevOpsAgent`` is shared across every concurrent request in a gunicorn
-    gevent worker (production runs ``--workers 1 --worker-connections 1000``), and
-    gevent monkey-patches ``threading.local`` to be greenlet-local — the same
-    mechanism already relied on for per-user AWS/Azure/GCP credential isolation.
-    Storing per-request state (conversation history, user id, sandbox flag, tool
-    overrides) as a plain instance attribute let one request's data leak into or
-    get clobbered by another request that happened to run on the same worker while
-    the first was waiting on a Claude/Kimi API call (a long, I/O-yielding wait —
-    exactly when gevent switches greenlets). Routing it through ``self._local``
-    keeps each concurrent request isolated without touching any call site: every
-    existing ``self.attr`` read/write still works unchanged.
+    A single ``DevOpsAgent`` is shared across every concurrent request. Production
+    runs gunicorn with ``--worker-class gthread --workers 3 --threads 8`` (since PR
+    #141, 2026-08-15) — real OS-thread concurrency, up to 8 requests interleaving in
+    one process's memory at once — and ``threading.local()`` isolates those threads
+    exactly as it isolated gevent-patched greenlets under the older sync-worker
+    config this docstring used to describe. It's also the same mechanism already
+    relied on for per-user AWS/Azure/GCP credential isolation. Storing per-request
+    state (conversation history, user id, sandbox flag, tool overrides) as a plain
+    instance attribute let one request's data leak into or get clobbered by another
+    request that happened to run on the same worker while the first was waiting on
+    a Claude/Kimi API call (a long, I/O-yielding wait — exactly when a thread yields
+    the GIL). Routing it through ``self._local`` keeps each concurrent request
+    isolated without touching any call site: every existing ``self.attr``
+    read/write still works unchanged.
 
     ``default_factory`` (not ``default``) must be used for mutable defaults (e.g.
     ``list``) — a shared ``default`` object would itself become a cross-greenlet
@@ -1395,6 +1398,25 @@ class DevOpsAgent:
         """The mutation+verification pairs recorded this turn (rule 4)."""
         return list(self._mutation_pairs)
 
+    def _reset_turn_tool_state(self) -> None:
+        """Clear the per-turn tool trackers.
+
+        Called at the top of every tool-execution entry point — the 3 chat
+        paths and ``approval_service._execute_tool``. gthread reuses worker
+        threads and all of these are greenlet-local, so a stale
+        ``_verify_count`` (cap ``MAX_VERIFICATIONS_PER_TURN``) or
+        ``_iac_fallback_emitted`` from a previous turn on the same thread would
+        otherwise silently suppress verification / the IaC fallback.
+        """
+        self._last_tools_used = []
+        self._tool_call_log = []
+        self._repeat_guard = {}
+        self._created_resources = []
+        self._turn_guard_notes = []
+        self._verify_count = 0
+        self._iac_fallback_emitted = False
+        self._mutation_pairs = []
+
     @property
     def last_tool_calls(self) -> List[Dict[str, Any]]:
         """Structured record of every tool call in the most recent turn.
@@ -1570,14 +1592,7 @@ class DevOpsAgent:
 
         # Clear any pending downloads from previous messages
         self.pending_download = None
-        self._last_tools_used = []
-        self._tool_call_log = []
-        self._repeat_guard = {}
-        self._created_resources = []
-        self._turn_guard_notes = []
-        self._verify_count = 0
-        self._iac_fallback_emitted = False
-        self._mutation_pairs = []
+        self._reset_turn_tool_state()
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1665,20 +1680,10 @@ class DevOpsAgent:
             # Add the new user message
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking. gthread reuses worker threads and
+            # all of this is greenlet-local, so a stale value would leak.
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
-
-            # Reset per-request tool tracking
-            self._last_tools_used = []
-            self._tool_call_log = []
-            self._created_resources = []
-            self._turn_guard_notes = []
-            self._verify_count = 0
-            self._iac_fallback_emitted = False
-            self._mutation_pairs = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1766,21 +1771,10 @@ class DevOpsAgent:
 
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking (threading.local-backed, so a pooled
+            # worker thread would otherwise carry the prior turn's state).
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
-
-            # Reset per-request tool tracking (threading.local-backed, so a
-            # pooled worker thread would otherwise carry the prior turn's list).
-            self._last_tools_used = []
-            self._tool_call_log = []
-            self._created_resources = []
-            self._turn_guard_notes = []
-            self._verify_count = 0
-            self._iac_fallback_emitted = False
-            self._mutation_pairs = []
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
@@ -2263,7 +2257,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             result = {'success': False, 'error': 'High-risk operation requires approval'}
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2522,7 +2516,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             # Approver/admin self-approve; regular users get queued for review
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2668,8 +2662,11 @@ class DevOpsAgent:
                     self.conversation.add_tool_result(tool_use_id, json.dumps(result))
                     continue
 
-                # Check if approval workflow applies (high-risk + non-approver user)
-                if validation.requires_confirmation:
+                # Check if approval workflow applies (high-risk + non-approver user).
+                # Sandbox mode must never file a real ApprovalRequest or notify a real
+                # approver — a simulated turn falls through to the sandbox-mock branch
+                # below, exactly like every other tool call in sandbox mode.
+                if validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                     user_id = getattr(self, '_current_user_id', None)
                     if user_id:
                         try:

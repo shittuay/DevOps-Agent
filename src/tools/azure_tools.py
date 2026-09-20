@@ -34,7 +34,7 @@ def _get_current_user_id() -> Optional[int]:
     return None
 
 
-def _get_azure_client(service_type: str, credential=None, user_id: Optional[int] = None):
+def _get_azure_client(service_type: str, user_id: Optional[int] = None):
     """
     Get Azure client for specified service using per-user credentials ONLY.
 
@@ -43,8 +43,15 @@ def _get_azure_client(service_type: str, credential=None, user_id: Optional[int]
 
     Args:
         service_type: Type of Azure service (compute, storage, network, etc.)
-        credential: Azure credential object (optional, will use user credentials if user_id provided)
-        user_id: Optional user ID to get per-user credentials
+        user_id: Optional user ID to get per-user credentials. Falls back to the
+            Flask request context when omitted.
+
+    Note:
+        This used to accept a `credential` argument, but it was overwritten by
+        the per-user lookup below before ever being read - so a caller-supplied
+        credential was silently ignored. It is removed rather than honoured,
+        because accepting an injected credential would defeat the "per-user
+        credentials ONLY" guarantee above. No caller passed it.
 
     Returns:
         Azure client instance

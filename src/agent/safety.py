@@ -261,12 +261,34 @@ class SafetyValidator:
             # with no further AWS auth, the same live-access-credential disclosure class as
             # get_secret_value/create_ec2_keypair.
             'generate_s3_presigned_url',
+            # Returns the raw Azure Storage account access key (k.value) — a full
+            # data-plane credential over every blob/file/queue/table in the account —
+            # same disclosure class as get_secret_value/create_ec2_keypair. Its
+            # mutating sibling regenerate_storage_key is already medium-risk, but the
+            # read-out-the-credential path had no gate.
+            'list_storage_account_keys',
+            # Returns the entire Terraform state file, which routinely stores
+            # sensitive resource attributes (DB passwords, TLS keys, API tokens) in
+            # plaintext — same disclosure class as get_secret_value. Its
+            # terraform_state_push/_move/_rm siblings are already classified; the
+            # read-out-the-secrets path was not.
+            'terraform_state_pull',
             'delete_cloud_run_service',
             'delete_gke_cluster',
             'delete_firewall_rule',
             'delete_bigquery_dataset',
             'delete_cloud_function',
             'delete_disk_snapshot',
+            # Same disclosure class as get_secret_value/create_ec2_keypair/
+            # generate_s3_presigned_url: an Azure storage account key is a live bearer
+            # credential granting full read/write/delete over every blob/queue/table/file
+            # in the account until manually regenerated, and both of these return the raw
+            # key value(s) directly in the tool result (chat/tool-trace/LLM-provider path).
+            # list_storage_account_keys had no risk classification at all (defaulted to
+            # low risk, no confirmation); regenerate_storage_key was only medium-risk even
+            # though it discloses the new key value the same way create_ec2_keypair does.
+            'list_storage_account_keys',
+            'regenerate_storage_key',
             # Docker destructive
             'docker_manage_container',  # includes remove action
             'docker_remove_image',
@@ -362,12 +384,25 @@ class SafetyValidator:
             'create_iam_role',
             'create_iam_policy',
             'attach_iam_role_policy',
+            # 'create_' isn't a monitored auto-detect prefix, and this tool accepts a
+            # caller-supplied template_body plus capabilities including CAPABILITY_NAMED_IAM
+            # (can create arbitrary IAM roles/policies) — the same operation create_iam_role/
+            # create_iam_policy are gated for. Its delete_/update_ siblings were already
+            # classified; the create path that actually provisions was missed. The Execution
+            # Integrity IaC fallback (services/iac_fallback.py) now also actively appends this
+            # tool to the model's offered set on any failed create, making it a systematic
+            # unconfirmed recovery path if left low-risk.
+            'create_cloudformation_stack',
             'update_auto_scaling_group',
             'update_ecs_service',
             'update_cloudformation_stack',
             'revoke_security_group_ingress',
             'register_targets',
             'deregister_targets',
+            # Same "page a live queue/topic with caller-controlled content" shape as
+            # publish_sns_message/publish_pubsub_message (both already medium-risk):
+            # SQS queues routinely trigger downstream Lambda/consumers.
+            'send_sqs_message',
             # 'create_' prefix isn't a monitored auto-detect prefix (only delete_/terminate_/
             # destroy_/remove_/drop_/purge_ are), but this tool defaults action='UPSERT', which
             # silently overwrites any existing live DNS record with the same name/type —
@@ -385,7 +420,6 @@ class SafetyValidator:
             'create_nsg_rule',
             'create_sql_firewall_rule',
             'restart_container_instance',
-            'regenerate_storage_key',
             'restart_cloud_sql_instance',
             'create_firewall_rule',
             'create_eventbridge_rule',
@@ -405,6 +439,7 @@ class SafetyValidator:
             'git_push_tag',
             'git_stash_apply',  # merges stashed changes into the working tree, can conflict/overwrite
             'git_stash_drop',
+            'git_stash_save',  # reverts the working tree to HEAD, discarding uncommitted changes from view
             'git_revert_commit',
             'git_rebase_branch',
             # Git flag-injection-guarded read tools (defense-in-depth: pattern/commit/file
@@ -428,6 +463,13 @@ class SafetyValidator:
             'github_invite_collaborator',
             'github_close_issue',
             'github_create_release',
+            # 'create_' prefix isn't a monitored auto-detect prefix, and this tool's
+            # `private` param defaults to False — same silently-permissive-default shape
+            # as create_route53_record's action='UPSERT' above, but here it means a new
+            # repo (potentially containing proprietary code or early secrets) is public
+            # on GitHub by default with zero confirmation unless the caller explicitly
+            # passes private=True.
+            'github_create_repo',
             # CI/CD medium risk
             'disable_jenkins_job',
             'enable_jenkins_job',
@@ -594,6 +636,11 @@ class SafetyValidator:
             # update/acknowledge/close/escalate siblings.
             'pagerduty_create_incident',
             'opsgenie_create_alert',
+            # Same provider_verb_noun gap: posts caller-controlled content onto a live
+            # incident/alert, visible to every responder on it — every other write in
+            # this module (create/update/acknowledge/close/escalate) is already medium.
+            'pagerduty_add_note',
+            'opsgenie_add_note',
             # Same "pages/redirects to an external endpoint with no confirmation" risk class
             # as the alerting tools above: publish_sns_message can page arbitrary email/SMS/
             # HTTP subscribers with caller-controlled content; subscribe_sns_topic can point

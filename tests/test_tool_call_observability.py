@@ -214,3 +214,71 @@ def test_last_tools_used_still_dedups_and_counts_only_runs(kimi_env):
     agent._record_tool_call('list_iam_roles', {'success': False}, outcome='not_offered')
     assert agent.last_tools_used == ['list_ec2_instances']
     assert len(agent.last_tool_calls) == 3
+
+
+# --------------------------------------------------------------------------
+# Sandbox mode must never file a real ApprovalRequest for a high-risk tool.
+#
+# `validation.requires_confirmation` was checked before `self._sandbox_mode`
+# at every tool-execution site (Kimi non-streaming, Kimi streaming, Claude).
+# A plain 'user'-role account in Sandbox Mode asking to delete/terminate a
+# resource therefore filed a *real* ApprovalRequest, emailed a *real*
+# approver/admin with no sandbox marker anywhere on the request, and — if
+# approved — ran the tool for real via approval_service._execute_tool. This
+# broke Sandbox Mode's core guarantee (CLAUDE.md: "Simulated tool results...
+# not a substitute for a missing account") for every confirmation-gated tool.
+# --------------------------------------------------------------------------
+
+class TestSandboxNeverFilesRealApproval:
+    def _sandbox_agent(self):
+        agent = _make_agent()
+        agent.register_tool(
+            'delete_ec2_instance', 'Terminate an EC2 instance', {},
+            lambda **kw: {'success': True, 'real_delete_happened': True},
+        )
+        agent._sandbox_mode = True
+        agent._current_user_id = 1
+        return agent
+
+    def _regular_user(self):
+        return SimpleNamespace(id=1, role='user')
+
+    def test_kimi_non_streaming_mocks_instead_of_filing_approval(self, kimi_env, app):
+        agent = self._sandbox_agent()
+        agent._tools_override = [
+            td for td in agent.tool_definitions
+            if td['name'] in ('delete_ec2_instance', 'search_tools')
+        ]
+
+        with patch('models.User.query') as user_query, \
+             patch('services.approval_service.create_request') as create_request:
+            user_query.get.return_value = self._regular_user()
+            _run_kimi(agent, _tool_then_text('delete_ec2_instance', {'instance_id': 'i-abc'}))
+
+        create_request.assert_not_called()
+        entry = [c for c in agent.last_tool_calls if c['tool'] == 'delete_ec2_instance'][0]
+        assert entry['status'] == 'ok'
+
+    def test_kimi_streaming_mocks_instead_of_filing_approval(self, kimi_env, app):
+        agent = self._sandbox_agent()
+        agent._tools_override = [
+            td for td in agent.tool_definitions
+            if td['name'] in ('delete_ec2_instance', 'search_tools')
+        ]
+        from src.agent.conversation import ConversationManager
+        agent.conversation = ConversationManager()
+        agent.conversation.add_user_message('delete it')
+
+        client = MagicMock()
+        client.chat.completions.create.side_effect = _tool_then_text('delete_ec2_instance', {'instance_id': 'i-abc'})
+
+        with patch('models.User.query') as user_query, \
+             patch('services.approval_service.create_request') as create_request, \
+             patch('openai.OpenAI', return_value=client):
+            user_query.get.return_value = self._regular_user()
+            chunks = list(agent._call_kimi_api_streaming())
+
+        create_request.assert_not_called()
+        assert not any(
+            isinstance(c, str) and c.startswith('\x00APPROVAL_REQUIRED\x00') for c in chunks
+        )

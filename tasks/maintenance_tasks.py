@@ -269,9 +269,9 @@ def backup_database(self, backup_type: str = 'full'):
         s3_bucket = os.environ.get('BACKUP_S3_BUCKET', '')
         if s3_bucket:
             try:
-                import boto3
+                from services.backup_upload import upload_backup_to_s3
                 s3_key = f"database-backups/{os.path.basename(backup_file)}"
-                boto3.client('s3').upload_file(backup_file, s3_bucket, s3_key)
+                upload_backup_to_s3(backup_file, s3_bucket, s3_key)
                 logger.info(f"Backup uploaded to s3://{s3_bucket}/{s3_key}")
             except Exception as s3_err:
                 logger.warning(f"S3 upload failed (non-fatal): {s3_err}")

@@ -1,0 +1,251 @@
+/* Shared styles for the password-reset flow.
+ *
+ * Extracted from templates/forgot_password.html and reset_password.html,
+ * which carried 250 byte-identical lines each. Loaded after theme.css and
+ * before each page's own <style> block, so the cascade order that existed
+ * when this CSS was inline is preserved exactly.
+ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Outfit', -apple-system, sans-serif;
+    background: var(--bg-primary);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-x: hidden;
+    position: relative;
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        linear-gradient(var(--border-subtle) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+    background-size: 50px 50px;
+    opacity: 0.3;
+    pointer-events: none;
+    animation: gridMove 20s linear infinite;
+}
+
+@keyframes gridMove {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(50px, 50px); }
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0%, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+    pointer-events: none;
+}
+
+.container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 460px;
+    padding: 20px;
+    animation: fadeInUp 0.8s ease-out;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(40px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 20px;
+    padding: 48px 40px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.brand-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 40px;
+}
+
+.brand-icon {
+    width: 48px;
+    height: 48px;
+    background: var(--gradient-primary);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: 24px;
+    box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+}
+
+.brand-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-electric));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -1px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    font-weight: 800;
+    letter-spacing: -1px;
+}
+
+.header p {
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.form-group {
+    margin-bottom: 24px;
+}
+
+label {
+    display: block;
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: 10px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+input {
+    width: 100%;
+    padding: 16px 18px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-subtle);
+    border-radius: 12px;
+    font-size: 16px;
+    color: var(--text-primary);
+    transition: all 0.3s ease;
+    font-family: 'Outfit', sans-serif;
+}
+
+input::placeholder {
+    color: var(--text-tertiary);
+}
+
+input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    background: var(--bg-elevated);
+    box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.1),
+                0 8px 24px rgba(255, 107, 53, 0.2);
+}
+
+.btn-primary {
+    width: 100%;
+    padding: 18px;
+    background: var(--gradient-primary);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-top: 12px;
+    box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+    font-family: 'Outfit', sans-serif;
+}
+
+.btn-primary:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(255, 107, 53, 0.6);
+}
+
+.btn-primary:active {
+    transform: translateY(-1px);
+}
+
+.alert {
+    padding: 16px 20px;
+    border-radius: 12px;
+    margin-bottom: 28px;
+    font-size: 15px;
+    font-weight: 500;
+    animation: slideDown 0.3s ease;
+    border: 1px solid;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.alert-error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.alert-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.back-link {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 15px;
+    color: var(--text-secondary);
+}
+
+.back-link a {
+    color: var(--accent-primary);
+    text-decoration: none;
+    font-weight: 700;
+    transition: color 0.2s ease;
+}
+
+.back-link a:hover {
+    color: var(--accent-secondary);
+    text-decoration: underline;
+}
+
