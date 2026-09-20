@@ -4489,10 +4489,19 @@ def sync_status(task_id):
 @app.route('/api/dashboard/recommendations/<int:rec_id>/apply', methods=['POST'])
 @login_required
 def apply_recommendation(rec_id):
-    """Apply a cost optimization recommendation."""
+    """Apply a cost optimization recommendation.
+
+    This endpoint does not yet call any AWS/Azure/GCP API to carry out the
+    recommended action (stop the instance, resize it, add a lifecycle
+    policy, etc.) — it must never report success it didn't perform (see
+    CLAUDE.md's "every feature runs against a real cloud account" rule, and
+    the identical fix in routes/scaling.py's api_apply_recommendation). A
+    user trusting a false "applied — saving $X/mo" toast would stop looking
+    for other ways to address the cost/reliability issue that was never
+    actually fixed, while the resource keeps running exactly as before.
+    """
     try:
-        from models import CostOptimization, InfrastructureResource
-        from datetime import datetime
+        from models import CostOptimization
 
         # Get recommendation
         recommendation = CostOptimization.query.get_or_404(rec_id)
@@ -4501,17 +4510,20 @@ def apply_recommendation(rec_id):
         if recommendation.user_id != current_user.id:
             return jsonify({'error': 'Unauthorized'}), 403
 
-        # For now, just mark as applied
-        # In production, actually execute the action (stop instance, etc.)
-        recommendation.status = 'applied'
-        recommendation.applied_at = datetime.utcnow()
-        db.session.commit()
+        logger.info(
+            f"Cost optimization apply requested by {current_user.email} for "
+            f"recommendation {rec_id} ({recommendation.recommendation_type}), but no "
+            f"execution path exists yet — refusing to report false success"
+        )
 
         return jsonify({
-            'success': True,
-            'message': f'Optimization applied successfully',
-            'savings': recommendation.potential_monthly_savings
-        })
+            'success': False,
+            'error': 'Applying this recommendation is not yet implemented — no cloud API '
+                     'call is made. Use the equivalent AWS/Azure/GCP tool in chat to make '
+                     'this change yourself, then dismiss this recommendation.',
+            'recommendation_id': rec_id,
+            'recommendation_type': recommendation.recommendation_type,
+        }), 501
     except HTTPException:
         raise  # let get_or_404's 404 (and other HTTP errors) pass through
     except Exception as e:

@@ -177,21 +177,36 @@ Deployment model). If a new feature's data
 doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
 same bug until traced.
 
-**Still recurring — three more instances found by the 2026-09-15 scheduled audit, all flagged,
-none fixed yet:** `services/performance_optimizer.py`'s `_generate_sample_recommendations()`
-seeds the literal `i-0abc123def456` fake instance id (the same id from the 2026-08-12 drift
-incident above) for every user with no cloud account, rendered at `/optimization/`;
-`services/ai_infrastructure.py`'s `get_recommendations()` returns a hardcoded list ignoring
-`user_id`, and its `apply_recommendation()` reports `success: True` without calling any cloud
-API — the identical fake-Apply shape the Predictive Scaling fix above closed, just in a
-different service; `services/chatops_service.py`'s `_cmd_metrics`/`_cmd_oncall` deliver a
-hardcoded metrics block and on-call roster into Slack as if live. See CLAUDE_RUNBOOK.md's
-2026-09-15 entry for exact line numbers. This is now five known instances of the same bug
-class (Drift, Predictive Scaling, Analytics, Performance Optimizer, AI Infrastructure/ChatOps)
-found independently across five separate audits — the recurrence itself, not just any one
-instance, is the signal that this needs a structural fix (e.g. a shared "no live account →
-fail closed" helper every new recommendation/analytics feature is required to call) rather than
-another one-off patch next time it's found again.
+**Three more instances found by the 2026-09-15 scheduled audit.**
+`services/chatops_service.py`'s `_cmd_metrics`/`_cmd_oncall` delivered a hardcoded metrics block
+and on-call roster into Slack as if live — **fixed by the 2026-09-13 scheduled audit** (see
+CLAUDE_RUNBOOK.md's 2026-09-13 entry; it predates the 2026-09-15 audit that re-flagged it, so
+that entry was already stale when written). `services/performance_optimizer.py`'s
+`_generate_sample_recommendations()` seeded the literal `i-0abc123def456` fake instance id (the
+same id from the 2026-08-12 drift incident above) plus four other hardcoded resources
+(`prod-db`, `default/api-service`, `vol-0xyz789`, `data-archive`) for every user with no cloud
+account, rendered at `/optimization/` and `/optimization/recommendations` — **fixed by the
+2026-09-20 scheduled audit**: `_get_user_recommendations()` now returns an empty dict until a
+real caller feeds it live resource data via the existing (previously unused)
+`analyze_resource()` entry point, same fail-closed shape as `predictive_scaling.py`'s fix. The
+same audit found the identical fake-Apply shape one call site over: `app.py`'s
+`/api/dashboard/recommendations/<id>/apply` (backing the "Apply" button on `dashboard_live.html`,
+operating on the real, CloudWatch-derived `CostOptimization` rows from
+`services/infrastructure_sync.py`) set `status='applied'` and returned a success toast
+("Optimization applied — saving $X/mo") without calling any cloud API to stop/resize/reconfigure
+anything — fixed the same way `routes/scaling.py`'s `api_apply_recommendation` was: an honest
+501 `not_implemented` response, never a fabricated `applied` status. **Not yet fixed:**
+`services/ai_infrastructure.py`'s `get_recommendations()` still returns a hardcoded list
+ignoring `user_id`, and its `apply_recommendation()` still reports `success: True` without
+calling any cloud API — same fake-Apply shape, not touched by this pass. See CLAUDE_RUNBOOK.md's
+2026-09-15 and 2026-09-20 entries for exact line numbers. This is now seven known instances of
+the same bug class (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the
+dashboard cost-recommendation Apply endpoint, and still-open AI Infrastructure) found
+independently across six separate audits — the recurrence itself, not just any one instance, is
+the signal that this needs a structural fix (e.g. a shared "no live account → fail closed"
+helper every new recommendation/analytics feature is required to call, and a shared "apply"
+helper that refuses to report success without an actual tool call) rather than another one-off
+patch next time it's found again.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
