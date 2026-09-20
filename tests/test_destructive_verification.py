@@ -187,10 +187,17 @@ class TestDestructiveAuditTrail:
                                            {'instance_id': EC2_ID, 'action': 'stop'},
                                            {'success': True})
         row = InfrastructureChange.query.filter_by(user_id=test_user.id).first()
-        # stop/start/reboot aren't destructive/resize/sg-modify/create, so no
-        # audit row is expected here — this pins that the terminate fix above
-        # doesn't overreach into the other manage_ec2_instance actions.
-        assert row is None
+        # stop/start/reboot ARE recorded, but as action_type='update', never
+        # 'delete' — this pins that the terminate branch above doesn't overreach
+        # into the other manage_ec2_instance actions. (This assertion was
+        # originally `row is None`, which encoded an earlier, narrower fix that
+        # only handled terminate; the shipped version deliberately audits the
+        # non-destructive actions too, so the invariant worth pinning is the
+        # action_type, not the absence of a row.)
+        assert row is not None
+        assert row.action_type == 'update'
+        assert row.resource_type == 'ec2'
+        assert row.change_details.get('action') == 'stop'
 
     def test_tool_request_is_redacted(self, app, test_user, db_session):
         from models import InfrastructureChange
