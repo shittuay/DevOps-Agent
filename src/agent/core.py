@@ -202,8 +202,12 @@ _SECRET_KEY_MARKERS = ('password', 'secret', 'token', 'credential', 'private_key
 
 
 def _redact_dict(d: Any) -> Any:
-    """Shallow copy with secret-ish values masked — for the rule-10 audit trail,
-    which is persisted and read back by humans."""
+    """Deep copy with secret-ish values masked — for the rule-10 audit trail,
+    which is persisted and read back by humans. Recurses into lists too — a
+    dict nested inside a list-valued param (e.g. a list of tag/config objects)
+    would otherwise pass through unredacted."""
+    if isinstance(d, list):
+        return [_redact_dict(v) for v in d]
     if not isinstance(d, dict):
         return d
     out = {}
@@ -211,7 +215,7 @@ def _redact_dict(d: Any) -> Any:
         kl = str(k).lower()
         if any(m in kl for m in _SECRET_KEY_MARKERS):
             out[k] = '***redacted***'
-        elif isinstance(v, dict):
+        elif isinstance(v, (dict, list)):
             out[k] = _redact_dict(v)
         else:
             out[k] = v
@@ -720,13 +724,24 @@ class DevOpsAgent:
         that later turns cross-check before reporting a resource as missing
         (see EXECUTION INTEGRITY in STABLE_SYSTEM_PROMPT).
         """
-        # Check if this is a destructive or high-impact operation
-        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES)
+        # Check if this is a destructive or high-impact operation.
+        # `manage_ec2_instance` is action-aware (see safety.py / mutation_verifier.py's
+        # _EC2_STATE_TARGET) and never starts with a destructive prefix, so a
+        # terminate through it was previously invisible here entirely — no
+        # audit_trail, no verification_disagreement alert, and no working
+        # record_state_override recovery path for a terminated instance.
+        _manage_action = (
+            str(tool_input.get('action', '')).lower()
+            if tool_name == 'manage_ec2_instance' else None
+        )
+        is_manage_terminate = _manage_action == 'terminate'
+        is_manage_update = _manage_action in ('start', 'stop', 'reboot')
+        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES) or is_manage_terminate
         is_resize = 'resize_ec2_instance' in tool_name
         is_sg_modify = 'modify_security_group' in tool_name
         is_create = _is_creating_tool(tool_name)
 
-        if not (is_destructive or is_resize or is_sg_modify or is_create):
+        if not (is_destructive or is_resize or is_sg_modify or is_create or is_manage_update):
             return
         if not result.get('success'):
             return
@@ -758,11 +773,17 @@ class DevOpsAgent:
             # Determine action_type and resource_type
             if is_destructive:
                 action_type = 'delete'
-                slug = tool_name
-                for prefix in self._DESTRUCTIVE_PREFIXES:
-                    slug = slug.replace(prefix, '', 1)
-                # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
-                resource_type = slug.split('_')[0]
+                if is_manage_terminate:
+                    resource_type = 'ec2'
+                else:
+                    slug = tool_name
+                    for prefix in self._DESTRUCTIVE_PREFIXES:
+                        slug = slug.replace(prefix, '', 1)
+                    # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
+                    resource_type = slug.split('_')[0]
+            elif is_manage_update:
+                action_type = 'update'
+                resource_type = 'ec2'
             elif is_resize:
                 action_type = 'resize'
                 resource_type = 'ec2'
@@ -798,6 +819,8 @@ class DevOpsAgent:
                 change_details['new_instance_type'] = tool_input.get('new_instance_type')
             elif is_sg_modify:
                 change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
+            elif is_manage_terminate or is_manage_update:
+                change_details['action'] = _manage_action
 
             # Rule 10: destructive actions get a full audit trail in change_details.
             if is_destructive:

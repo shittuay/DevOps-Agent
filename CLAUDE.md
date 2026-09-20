@@ -1007,6 +1007,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   always-available `record_state_override(resource_id, corrected_state,
   evidence)` tool lets the model flag a row when the user's console evidence
   wins (rule 9).
+  **`_audit_infrastructure_change`'s `is_destructive` check is a tool-name
+  prefix match and does not by itself cover action-aware tools.**
+  `manage_ec2_instance` never starts with a destructive prefix, so a
+  terminate through it produced no audit row / disagreement alert /
+  `record_state_override` target at all until the 2026-09-09 scheduled audit
+  added an explicit `action`-aware branch (`is_manage_terminate` folded into
+  `is_destructive`, `is_manage_update` for `start`/`stop`/`reboot` as a new
+  `update` row) — see CLAUDE_RUNBOOK.md. A future action-aware tool
+  (`manage_vm`, `manage_compute_instance`) needs the same explicit branch;
+  it will not be picked up by the prefix check.
 
 Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
 subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for

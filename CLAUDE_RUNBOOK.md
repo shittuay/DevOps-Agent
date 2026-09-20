@@ -2960,3 +2960,70 @@ documented above (8 hand-copied call sites) — not fixed in this pass because r
 separate execution surfaces through the verify/audit/cache pipeline touches the approval flow,
 the developer REST API, and the MCP connector at once, and deserves its own reviewed PR rather
 than a drive-by edit during a read-mostly audit.
+
+## Scheduled audit: `manage_ec2_instance` terminations bypassed the Phase 5 audit trail entirely; `send_sqs_message` unclassified (2026-09-09)
+
+**`manage_ec2_instance(action='terminate')` produced zero `InfrastructureChange`
+audit row.** `_audit_infrastructure_change`'s `is_destructive` check
+(`src/agent/core.py`) was `tool_name.startswith(self._DESTRUCTIVE_PREFIXES)` —
+literal prefix match only. `manage_ec2_instance` is the action-aware tool
+CLAUDE.md documents as escalating to **CRITICAL** risk on a production
+terminate, and `services/mutation_verifier.py`'s `_DELETE_SPECS` already
+verifies it as a delete when `action=='terminate'` (Phase 2b) — but the
+Phase 5 audit-trail function never got the same action-aware treatment, so it
+returned early before writing anything. Net effect: terminating an instance
+through the platform's primary EC2 management tool got no
+`change_details.audit_trail`, no `verification_disagreement` alert even if
+reads flipped present→gone→present, the terminated instance was never purged
+from the synced `InfrastructureResource` inventory, and `record_state_override`
+had no row to flag if a user disputed the outcome — the exact rule 9/10
+recovery path Phase 5 (2026-09-06) was built to provide, silently inert for
+this one tool. Root cause: the new Phase 5 code was gated on the
+pre-existing, tool-name-only `is_destructive`, and nobody re-checked it
+against the action-aware tools `manage_ec2_instance`/`manage_vm`/
+`manage_compute_instance` that `safety.py` and `mutation_verifier.py` already
+special-case elsewhere.
+
+**Fixed** by computing `_manage_action`/`is_manage_terminate`/
+`is_manage_update` from `tool_input['action']` when `tool_name ==
+'manage_ec2_instance'`, folding `is_manage_terminate` into `is_destructive`
+(with its own `resource_type = 'ec2'` branch, since the generic prefix-strip
+slug logic doesn't apply to this tool name), and adding a sibling `update`
+branch for `start`/`stop`/`reboot` so those get an audit row too (matching
+`mutation_verifier.py`'s own `_EC2_STATE_TARGET` mapping). `action='start'`
+still gets no audit row — same low-risk/no-confirmation treatment it already
+has in `safety.py`.
+
+**Also fixed, same pass:**
+- `_redact_dict` (`src/agent/core.py`) only recursed into nested dicts, not
+  dicts nested inside list-valued params — a secret-shaped field inside a
+  list would have passed into the persisted rule-10 `audit_trail` unredacted.
+  Not triggered by any current destructive-tool field, but the audit trail is
+  read by humans, so hardened while this function was already being touched.
+- `send_sqs_message` (`src/tools/aws_tools.py`) was missing from
+  `medium_risk_tools` — same shape as `publish_sns_message`/
+  `publish_pubsub_message` (arbitrary caller-controlled message content to a
+  live external sink with no confirmation; `send_` isn't an auto-detected
+  prefix), just never caught by the sweeps that added those two. Added to
+  `medium_risk_tools` in `src/agent/safety.py`.
+
+**Not fixed this pass, flagged for a dedicated change:** `services/chatops_service.py`'s
+`_cmd_metrics`/`_cmd_oncall` (the `/metrics` and `/oncall` ChatOps slash
+commands) return fully hardcoded literal values as if they were live
+Prometheus/CloudWatch metrics and a live PagerDuty/OpsGenie on-call schedule,
+with no `[Sandbox]` label — the same "canned output indistinguishable from a
+real query" bug class as the Drift/Predictive Scaling/Analytics incidents
+above, in a file not previously flagged. `services/analytics_service.py`'s
+`random.uniform`/`random.choices`-based cost forecast and utilization/incident
+data (flagged 2026-09-02, still unfixed) is also still live and unconditional.
+Both need their consumer surfaces wired to this app's existing real
+integrations (`monitoring_tools.py`, `alerting_tools.py`, `cost_explorer.py`)
+rather than a drive-by fix during an audit pass.
+
+**Tests:** existing `tests/test_execution_integrity.py`,
+`tests/test_destructive_verification.py`, `tests/test_mutation_verifier.py`,
+`tests/test_security_invariants.py` all green (81 cases) against the changed
+code. Full suite: 953 passed / 11 failed, all 11 pre-existing environment gaps
+unrelated to this change (missing `pyotp`/`googleapiclient` in this sandbox,
+one flaky Stripe-config warning) — none touch `src/agent/core.py` or
+`src/agent/safety.py`.
