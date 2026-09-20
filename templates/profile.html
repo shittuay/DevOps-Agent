@@ -585,6 +585,7 @@
 
             <!-- Edit Form -->
             <form method="POST" action="/profile">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <!-- Personal Information -->
                 <div class="section">
                     <h2 class="section-title">Personal Information</h2>

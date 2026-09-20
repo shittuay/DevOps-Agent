@@ -211,7 +211,7 @@
                 const res = await fetch('/resend-verification', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json',
-                               'X-CSRFToken': document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '' }
+                               'X-CSRFToken': '{{ csrf_token() }}' }
                 });
                 const data = await res.json();
 

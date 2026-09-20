@@ -969,7 +969,7 @@
         {% if playbook %}
         function loadPlaybookData() {
             // Load conditions
-            const triggerConditions = {{ playbook.trigger_conditions|tojson|safe }};
+            const triggerConditions = {{ playbook.trigger_conditions|tojson }};
             for (const [field, cond] of Object.entries(triggerConditions)) {
                 addCondition();
                 const index = conditions.length - 1;
@@ -989,7 +989,7 @@
             }
 
             // Load actions
-            const playbookActions = {{ playbook.actions|tojson|safe if playbook.actions else '[]' }};
+            const playbookActions = {{ playbook.actions|tojson if playbook.actions else '[]' }};
             playbookActions.forEach(action => {
                 const type = action.action_type || action.type || 'custom';
                 addAction(type.toLowerCase());
