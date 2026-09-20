@@ -2958,3 +2958,60 @@ documented above (8 hand-copied call sites) — not fixed in this pass because r
 separate execution surfaces through the verify/audit/cache pipeline touches the approval flow,
 the developer REST API, and the MCP connector at once, and deserves its own reviewed PR rather
 than a drive-by edit during a read-mostly audit.
+
+## Scheduled audit (2026-09-20): `services/performance_optimizer.py` fabricated every optimization recommendation; dashboard cost "Apply" reported fake success — both fixed
+
+Routine code review. `python3 scripts/check_security_invariants.py` was clean. Two findings,
+both the same "fail closed, never fabricate/fake-succeed" bug class documented throughout this
+file and CLAUDE.md's standing rule — fixed the same way the Predictive Scaling and Analytics
+fixes were.
+
+**Fixed — `services/performance_optimizer.py` fabricated every recommendation shown at
+`/optimization/` and `/optimization/recommendations`.** `_get_user_recommendations()` called
+`_generate_sample_recommendations()` on first access for *any* user, unconditionally seeding
+five hardcoded fake resources with invented dollar savings: `i-0abc123def456` (the same fake
+EC2 id from the 2026-08-12 Drift incident and flagged again by the 2026-09-15 audit —
+apparently never actually fixed despite being flagged twice), `prod-db`, `default/api-service`,
+`vol-0xyz789`, `data-archive`. Every free/starter/pro/business user saw the byte-identical five
+recommendations with byte-identical "Reduce monthly EC2 costs by approximately $150" style
+claims regardless of what (if anything) was in their account — same shape as the Drift
+`sg-12345` incident. Confirmed via grep that `analyze_resource()` (the method that takes real
+`resource_data` and would produce a genuine recommendation) has zero callers anywhere in the
+codebase — this feature was 100% fabricated end-to-end with no live wiring at all, not even a
+partial one. Fixed by deleting `_generate_sample_recommendations()` and making
+`_get_user_recommendations()` return an empty dict until a real caller wires up
+`analyze_resource()` with live data — the identical fail-closed shape
+`services/predictive_scaling.py`'s `generate_all_predictions()` already uses (empty until
+`register_resource()`/`add_metric()` get real data; see that file's docstring, added in the
+2026-09-02 fix). `templates/optimization/dashboard.html` already has a proper "No pending
+recommendations" empty state, so no template change was needed. No test depended on the
+fabricated data (`grep` found only unrelated reuses of the literal `i-0abc123def456...` as a
+placeholder id in other services' test fixtures, e.g. `test_execution_integrity.py`,
+`test_mutation_verifier.py` — none of them import `performance_optimizer`).
+
+**Fixed — `app.py`'s `/api/dashboard/recommendations/<id>/apply` reported a fake "applied"
+success with no cloud API call.** Unlike the recommendation-generation bug above, the
+`CostOptimization` rows this endpoint operates on *are* real (`services/infrastructure_sync.py`'s
+`generate_cost_recommendations()` already sources them from live CloudWatch data via
+`services/cost_explorer.get_instance_utilization()`, per an earlier fix). The bug was narrower
+but the same class as the Predictive Scaling "Apply" bug the 2026-09-02 audit fixed: the route's
+own comment read `# For now, just mark as applied / # In production, actually execute the
+action (stop instance, etc.)`, and it did exactly that — `recommendation.status = 'applied'`,
+commit, return `success: True`. `templates/dashboard_live.html`'s `window._applyRec()` then
+shows the user a `"Optimization applied - saving $X/mo"` success toast. Nothing ever called AWS
+to stop, resize, or reconfigure anything — an idle EC2 instance flagged as `idle_resource` kept
+running, still billing, while the user believed it had been handled and had no reason to check
+again. Fixed to match `routes/scaling.py`'s `api_apply_recommendation` (fixed 2026-09-02):
+returns `{success: false, error: "Applying this recommendation is not yet implemented — no
+cloud API call is made...", ...}` with HTTP 501, and logs the refusal instead of silently
+lying. No test covered this endpoint (`grep` for `apply_recommendation`/
+`dashboard/recommendations` under `tests/` found nothing), so there was no regression risk in
+tightening it.
+
+**Still open, not touched by this pass:** `services/ai_infrastructure.py`'s
+`get_recommendations()`/`apply_recommendation()` — the sixth and seventh known instances of
+this same bug class per CLAUDE.md's running tally, flagged since 2026-09-15 and still
+unfixed. Recommend a dedicated pass that also considers the structural fix CLAUDE.md now calls
+for: a shared "no live account → fail closed" helper for recommendation generation, and a
+shared "apply" helper that refuses to report success without an actual tool call, so this stops
+recurring one service at a time.
