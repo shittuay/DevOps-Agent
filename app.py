@@ -98,7 +98,8 @@ from src.tools import (
     monitoring_tools,
     ansible_tools,
     alerting_tools,
-    devops_operations_tools
+    devops_operations_tools,
+    verification_tools
 )
 
 # Import database models
@@ -1142,6 +1143,7 @@ def initialize_agent():
 
         # Register tools
         agent.register_tools_from_module(command_tools)
+        agent.register_tools_from_module(verification_tools)  # http_check / tcp_check — always available
         if config_manager.aws_enabled:
             agent.register_tools_from_module(aws_tools)
         # Always enable GCP and Azure tools

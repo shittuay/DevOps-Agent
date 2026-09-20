@@ -17,6 +17,7 @@ from . import monitoring_tools
 from . import pentest_tools
 from . import ansible_tools
 from . import alerting_tools
+from . import verification_tools
 
 __all__ = [
     'command_tools',
@@ -35,4 +36,5 @@ __all__ = [
     'pentest_tools',
     'ansible_tools',
     'alerting_tools',
+    'verification_tools',
 ]

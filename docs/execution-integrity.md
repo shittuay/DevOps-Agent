@@ -286,6 +286,43 @@ Low-risk (`record_` prefix — no confirmation).
 
 Tests: `tests/test_destructive_verification.py`.
 
+## Phase 6 — shipped (service-reachability honesty)
+
+Branch `feat/service-verification-tools`. Origin: a production run
+("launch a t3.micro, install nginx, verify port 80 reachable") where the agent
+had no HTTP-probe tool in context, ran `git clone http://<ip>/`, read the
+resulting HTTP **404** as success, and reported "nginx is running and serving …
+you'll see the custom page" — a rule-1 violation for the service-serving case.
+
+### Tools — `src/tools/verification_tools.py`
+
+- **`http_check(url, method, expected_status, timeout, headers)`** — one HTTP
+  request; `{reachable, status_code, matched_expected, response_time_ms,
+  final_url, server, body_snippet, message}`. `reachable` (got a response) and
+  `matched_expected` (status == expected) are separate signals.
+- **`tcp_check(host, port, timeout)`** — one TCP connect; distinguishes
+  *timeout* (filtered by firewall/SG) from *refused* (nothing listening).
+- Both read-only, SSRF-guarded via `assert_safe_url` / `safe_request` /
+  `assert_safe_host` (new helper in `network_safety.py`, factored for the raw
+  socket path). Registered unconditionally, in `ALWAYS_TOOL_NAMES`, and in
+  `tool_cache._READ_DENY` (a probe must run live every call). `run_smoke_test`
+  re-homed to the `verification` selection category via a `classify_tool` name
+  override.
+
+### Prompt (`STABLE_SYSTEM_PROMPT`, `=== EXECUTION INTEGRITY ===`)
+
+Four bullets: **SERVICE REACHABILITY** (use the probe tools, never infer HTTP
+reachability from another tool's error text), **A RESPONSE IS NOT SUCCESS** (a
+non-2xx/3xx or `matched_expected: false` = port open but app misconfigured/not
+ready — report exactly that), **NAME YOUR BLIND SPOTS** (no SSM / console /
+shell → the probe is your only evidence, don't narrate on-instance state you
+haven't read), **PROVISION THEN CONFIGURE IN ONE SHOT** (bake config into
+`user_data` on the first create call; don't launch bare, hit an IAM wall, and
+terminate+relaunch).
+
+Tests: `tests/test_verification_tools.py`. `create_ec2_instance`'s description
+also gained a one-line `user_data`-first nudge.
+
 ## Not covered
 
 - **Terraform** generation (CloudFormation only for now).
