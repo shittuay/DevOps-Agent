@@ -25,13 +25,13 @@
                 This identity was returned by your provider. <strong>No user was created and SSO was not enabled</strong> — this was a dry run.
             </p>
             <table style="width:100%;border-collapse:collapse;font-size:14px;">
-                <tr><td style="padding:8px 0;color:var(--text-secondary);width:160px;">Email</td><td>{{ identity.email }}</td></tr>
-                <tr><td style="padding:8px 0;color:var(--text-secondary);">Name</td><td>{{ identity.name or '—' }}</td></tr>
-                <tr><td style="padding:8px 0;color:var(--text-secondary);">Subject (IdP ID)</td><td><code>{{ identity.subject }}</code></td></tr>
-                <tr><td style="padding:8px 0;color:var(--text-secondary);">Email verified</td><td>{{ 'Yes' if identity.email_verified else 'No' }}</td></tr>
-                <tr><td style="padding:8px 0;color:var(--text-secondary);">Provider</td><td>{{ identity.provider }}</td></tr>
-                <tr><td style="padding:8px 0;color:var(--text-secondary);">Groups</td><td>{{ identity.groups | join(', ') if identity.groups else '—' }}</td></tr>
-                <tr><td style="padding:8px 0;color:var(--text-secondary);">Would be assigned role</td><td><strong>{{ mapped_role }}</strong></td></tr>
+                <tr><th scope="row" style="padding:8px 0;color:var(--text-secondary);text-align:left;font-weight:400;width:160px;">Email</th><td>{{ identity.email }}</td></tr>
+                <tr><th scope="row" style="padding:8px 0;color:var(--text-secondary);text-align:left;font-weight:400;">Name</th><td>{{ identity.name or '—' }}</td></tr>
+                <tr><th scope="row" style="padding:8px 0;color:var(--text-secondary);text-align:left;font-weight:400;">Subject (IdP ID)</th><td><code>{{ identity.subject }}</code></td></tr>
+                <tr><th scope="row" style="padding:8px 0;color:var(--text-secondary);text-align:left;font-weight:400;">Email verified</th><td>{{ 'Yes' if identity.email_verified else 'No' }}</td></tr>
+                <tr><th scope="row" style="padding:8px 0;color:var(--text-secondary);text-align:left;font-weight:400;">Provider</th><td>{{ identity.provider }}</td></tr>
+                <tr><th scope="row" style="padding:8px 0;color:var(--text-secondary);text-align:left;font-weight:400;">Groups</th><td>{{ identity.groups | join(', ') if identity.groups else '—' }}</td></tr>
+                <tr><th scope="row" style="padding:8px 0;color:var(--text-secondary);text-align:left;font-weight:400;">Would be assigned role</th><td><strong>{{ mapped_role }}</strong></td></tr>
             </table>
             {% if not identity.email_verified %}
             <p style="margin-top:14px;color:#f59e0b;font-size:14px;">

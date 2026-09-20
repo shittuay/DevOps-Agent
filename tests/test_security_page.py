@@ -12,3 +12,10 @@ def test_security_page_links_auditable_policies(client):
     assert '/static/iam/devops-agent-management.json' in html
     assert 'never need your access keys' in html
     assert 'sandbox' in html.lower()
+
+
+def test_security_page_states_the_verification_story(client):
+    html = client.get('/security').data.decode()
+    assert 'Verified results, not claims' in html
+    assert 'Read-back verification' in html
+    assert 'two consecutive reads' in html

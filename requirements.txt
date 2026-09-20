@@ -125,7 +125,7 @@ Jinja2==3.1.6
 MarkupSafe==3.0.2
 itsdangerous==2.2.0
 blinker==1.9.0
-GitPython==3.1.58  # security floor: GHSA-539m-9xh6-q6rr, GHSA-3f7w-8rr8-f37f (Dependabot #42-#43), supersedes #33-#41
+GitPython==3.1.62  # security floor: GHSA-284h-m62q-gf8w (critical), GHSA-7833-fr7j-v32q, GHSA-8mcc-hrx5-hvxc, GHSA-3wxw-xv34-2frg, GHSA-5xxx-qhh7-9287; all fixed in 3.1.59, pinned to latest 3.1.x; supersedes GHSA-539m-9xh6-q6rr, GHSA-3f7w-8rr8-f37f
 
 # CI/CD & DevOps Tools
 PyGithub==2.5.0

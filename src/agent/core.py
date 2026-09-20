@@ -202,8 +202,12 @@ _SECRET_KEY_MARKERS = ('password', 'secret', 'token', 'credential', 'private_key
 
 
 def _redact_dict(d: Any) -> Any:
-    """Shallow copy with secret-ish values masked — for the rule-10 audit trail,
-    which is persisted and read back by humans."""
+    """Deep copy with secret-ish values masked — for the rule-10 audit trail,
+    which is persisted and read back by humans. Recurses into lists too — a
+    dict nested inside a list-valued param (e.g. a list of tag/config objects)
+    would otherwise pass through unredacted."""
+    if isinstance(d, list):
+        return [_redact_dict(v) for v in d]
     if not isinstance(d, dict):
         return d
     out = {}
@@ -211,7 +215,7 @@ def _redact_dict(d: Any) -> Any:
         kl = str(k).lower()
         if any(m in kl for m in _SECRET_KEY_MARKERS):
             out[k] = '***redacted***'
-        elif isinstance(v, dict):
+        elif isinstance(v, (dict, list)):
             out[k] = _redact_dict(v)
         else:
             out[k] = v
@@ -530,17 +534,20 @@ Cost Optimization:
 def _greenlet_local_property(name, default=None, default_factory=None):
     """Per-request attribute stored in ``self._local`` instead of directly on the instance.
 
-    A single ``DevOpsAgent`` is shared across every concurrent request in a gunicorn
-    gevent worker (production runs ``--workers 1 --worker-connections 1000``), and
-    gevent monkey-patches ``threading.local`` to be greenlet-local — the same
-    mechanism already relied on for per-user AWS/Azure/GCP credential isolation.
-    Storing per-request state (conversation history, user id, sandbox flag, tool
-    overrides) as a plain instance attribute let one request's data leak into or
-    get clobbered by another request that happened to run on the same worker while
-    the first was waiting on a Claude/Kimi API call (a long, I/O-yielding wait —
-    exactly when gevent switches greenlets). Routing it through ``self._local``
-    keeps each concurrent request isolated without touching any call site: every
-    existing ``self.attr`` read/write still works unchanged.
+    A single ``DevOpsAgent`` is shared across every concurrent request. Production
+    runs gunicorn with ``--worker-class gthread --workers 3 --threads 8`` (since PR
+    #141, 2026-08-15) — real OS-thread concurrency, up to 8 requests interleaving in
+    one process's memory at once — and ``threading.local()`` isolates those threads
+    exactly as it isolated gevent-patched greenlets under the older sync-worker
+    config this docstring used to describe. It's also the same mechanism already
+    relied on for per-user AWS/Azure/GCP credential isolation. Storing per-request
+    state (conversation history, user id, sandbox flag, tool overrides) as a plain
+    instance attribute let one request's data leak into or get clobbered by another
+    request that happened to run on the same worker while the first was waiting on
+    a Claude/Kimi API call (a long, I/O-yielding wait — exactly when a thread yields
+    the GIL). Routing it through ``self._local`` keeps each concurrent request
+    isolated without touching any call site: every existing ``self.attr``
+    read/write still works unchanged.
 
     ``default_factory`` (not ``default``) must be used for mutable defaults (e.g.
     ``list``) — a shared ``default`` object would itself become a cross-greenlet
@@ -718,20 +725,23 @@ class DevOpsAgent:
         (see EXECUTION INTEGRITY in STABLE_SYSTEM_PROMPT).
         """
         # Check if this is a destructive or high-impact operation.
-        # manage_ec2_instance is action-aware (start/stop/reboot/terminate all
-        # share one tool name), so a bare prefix test on the name misses its
-        # terminate path entirely — mirror the predicate mutation_verifier.py's
-        # _DELETE_SPECS['manage_ec2_instance'] already uses for the same tool.
-        is_manage_terminate = (
-            tool_name == 'manage_ec2_instance'
-            and str(tool_input.get('action', '')).lower() == 'terminate'
+        # `manage_ec2_instance` is action-aware (see safety.py / mutation_verifier.py's
+        # _EC2_STATE_TARGET) and never starts with a destructive prefix, so a
+        # terminate through it was previously invisible here entirely — no
+        # audit_trail, no verification_disagreement alert, and no working
+        # record_state_override recovery path for a terminated instance.
+        _manage_action = (
+            str(tool_input.get('action', '')).lower()
+            if tool_name == 'manage_ec2_instance' else None
         )
+        is_manage_terminate = _manage_action == 'terminate'
+        is_manage_update = _manage_action in ('start', 'stop', 'reboot')
         is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES) or is_manage_terminate
         is_resize = 'resize_ec2_instance' in tool_name
         is_sg_modify = 'modify_security_group' in tool_name
         is_create = _is_creating_tool(tool_name)
 
-        if not (is_destructive or is_resize or is_sg_modify or is_create):
+        if not (is_destructive or is_resize or is_sg_modify or is_create or is_manage_update):
             return
         if not result.get('success'):
             return
@@ -771,6 +781,9 @@ class DevOpsAgent:
                         slug = slug.replace(prefix, '', 1)
                     # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
                     resource_type = slug.split('_')[0]
+            elif is_manage_update:
+                action_type = 'update'
+                resource_type = 'ec2'
             elif is_resize:
                 action_type = 'resize'
                 resource_type = 'ec2'
@@ -806,6 +819,8 @@ class DevOpsAgent:
                 change_details['new_instance_type'] = tool_input.get('new_instance_type')
             elif is_sg_modify:
                 change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
+            elif is_manage_terminate or is_manage_update:
+                change_details['action'] = _manage_action
 
             # Rule 10: destructive actions get a full audit trail in change_details.
             if is_destructive:
@@ -1383,6 +1398,25 @@ class DevOpsAgent:
         """The mutation+verification pairs recorded this turn (rule 4)."""
         return list(self._mutation_pairs)
 
+    def _reset_turn_tool_state(self) -> None:
+        """Clear the per-turn tool trackers.
+
+        Called at the top of every tool-execution entry point — the 3 chat
+        paths and ``approval_service._execute_tool``. gthread reuses worker
+        threads and all of these are greenlet-local, so a stale
+        ``_verify_count`` (cap ``MAX_VERIFICATIONS_PER_TURN``) or
+        ``_iac_fallback_emitted`` from a previous turn on the same thread would
+        otherwise silently suppress verification / the IaC fallback.
+        """
+        self._last_tools_used = []
+        self._tool_call_log = []
+        self._repeat_guard = {}
+        self._created_resources = []
+        self._turn_guard_notes = []
+        self._verify_count = 0
+        self._iac_fallback_emitted = False
+        self._mutation_pairs = []
+
     @property
     def last_tool_calls(self) -> List[Dict[str, Any]]:
         """Structured record of every tool call in the most recent turn.
@@ -1558,14 +1592,7 @@ class DevOpsAgent:
 
         # Clear any pending downloads from previous messages
         self.pending_download = None
-        self._last_tools_used = []
-        self._tool_call_log = []
-        self._repeat_guard = {}
-        self._created_resources = []
-        self._turn_guard_notes = []
-        self._verify_count = 0
-        self._iac_fallback_emitted = False
-        self._mutation_pairs = []
+        self._reset_turn_tool_state()
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1653,20 +1680,10 @@ class DevOpsAgent:
             # Add the new user message
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking. gthread reuses worker threads and
+            # all of this is greenlet-local, so a stale value would leak.
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
-
-            # Reset per-request tool tracking
-            self._last_tools_used = []
-            self._tool_call_log = []
-            self._created_resources = []
-            self._turn_guard_notes = []
-            self._verify_count = 0
-            self._iac_fallback_emitted = False
-            self._mutation_pairs = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1754,21 +1771,10 @@ class DevOpsAgent:
 
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking (threading.local-backed, so a pooled
+            # worker thread would otherwise carry the prior turn's state).
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
-
-            # Reset per-request tool tracking (threading.local-backed, so a
-            # pooled worker thread would otherwise carry the prior turn's list).
-            self._last_tools_used = []
-            self._tool_call_log = []
-            self._created_resources = []
-            self._turn_guard_notes = []
-            self._verify_count = 0
-            self._iac_fallback_emitted = False
-            self._mutation_pairs = []
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
@@ -2251,7 +2257,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             result = {'success': False, 'error': 'High-risk operation requires approval'}
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2510,7 +2516,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             # Approver/admin self-approve; regular users get queued for review
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2656,8 +2662,11 @@ class DevOpsAgent:
                     self.conversation.add_tool_result(tool_use_id, json.dumps(result))
                     continue
 
-                # Check if approval workflow applies (high-risk + non-approver user)
-                if validation.requires_confirmation:
+                # Check if approval workflow applies (high-risk + non-approver user).
+                # Sandbox mode must never file a real ApprovalRequest or notify a real
+                # approver — a simulated turn falls through to the sandbox-mock branch
+                # below, exactly like every other tool call in sandbox mode.
+                if validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                     user_id = getattr(self, '_current_user_id', None)
                     if user_id:
                         try:
