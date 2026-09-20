@@ -12,6 +12,7 @@ from typing import Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class ScalingPrediction:
     reasoning: str
     potential_savings: float  # Monthly $ if scaling down
     risk_if_ignored: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utcnow)
 
 
 @dataclass
@@ -115,7 +116,7 @@ class PredictiveScalingService:
     def add_metric(self, user_id: int, resource_id: str, value: float, timestamp: datetime = None):
         """Add a metric data point."""
         self.metrics[user_id][resource_id].append(MetricDataPoint(
-            timestamp=timestamp or datetime.utcnow(),
+            timestamp=timestamp or utcnow(),
             value=value,
             resource_id=resource_id
         ))
@@ -238,7 +239,7 @@ class PredictiveScalingService:
             confidence = ConfidenceLevel.LOW
 
         # Find next predicted peak time
-        now = datetime.utcnow()
+        now = utcnow()
         if pattern.peak_hours:
             next_peak_hour = min((h for h in pattern.peak_hours if h > now.hour), default=pattern.peak_hours[0])
             if next_peak_hour <= now.hour:

@@ -5,6 +5,7 @@ page, so a closed tab (or a dispatch that never happened at all) stranded the ro
 at 'running' permanently. Listing executions now reconciles stale ones.
 """
 from datetime import datetime, timedelta
+from src.utils.timeutils import utcnow
 
 
 def _execution(app, user_id, *, status, age_minutes, with_reply):
@@ -19,7 +20,7 @@ def _execution(app, user_id, *, status, age_minutes, with_reply):
         db.session.add(tpl)
         db.session.flush()
 
-        started = datetime.utcnow() - timedelta(minutes=age_minutes)
+        started = utcnow() - timedelta(minutes=age_minutes)
         conv_id = f'conv{tpl.id}'
         db.session.add(Conversation(id=conv_id, user_id=user_id, title='Workflow'))
         if with_reply:

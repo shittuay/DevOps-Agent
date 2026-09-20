@@ -12,6 +12,7 @@ be registered explicitly via register_resource()/add_metric().
 from services.predictive_scaling import (
     PredictiveScalingService, ResourceCategory, ScalingDirection,
 )
+from src.utils.timeutils import utcnow
 
 
 class TestNoFabricatedData:
@@ -54,7 +55,7 @@ class TestRealDataStillProducesPredictions:
             current_capacity=2, max_capacity=8,
         )
         from datetime import datetime, timedelta
-        now = datetime.utcnow()
+        now = utcnow()
         for i in range(200):
             service.add_metric(7, 'i-real123', 90.0, now - timedelta(hours=200 - i))
 
@@ -71,7 +72,7 @@ class TestRealDataStillProducesPredictions:
             current_capacity=1, max_capacity=4,
         )
         from datetime import datetime, timedelta
-        now = datetime.utcnow()
+        now = utcnow()
         for i in range(200):
             service.add_metric(1, 'r1', 90.0, now - timedelta(hours=200 - i))
 

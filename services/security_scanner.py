@@ -5,6 +5,7 @@ from typing import List, Dict
 from models import db, SecurityFinding, InfrastructureResource
 import os as _os
 from services.notification_service import notify_security as _notify_security
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def scan_aws_security(user_id: int) -> Dict:
 
         if existing:
             # Update existing finding
-            existing.last_detected = datetime.utcnow()
+            existing.last_detected = utcnow()
             existing.status = 'open'  # Reopen if it was resolved
         else:
             # Create new finding

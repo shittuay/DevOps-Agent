@@ -7,6 +7,7 @@ Background tasks for system maintenance and cleanup.
 import logging
 from celery import shared_task
 from datetime import datetime, timedelta
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def cleanup_expired_sessions(self):
         with app.app_context():
             # Clean up expired email verification tokens
             expired_count = User.query.filter(
-                User.email_verification_expires < datetime.utcnow(),
+                User.email_verification_expires < utcnow(),
                 User.email_verified == False
             ).update({
                 'email_verification_token': None,
@@ -59,7 +60,7 @@ def reset_monthly_credits(self):
             # Get all active subscriptions
             active_subs = UserSubscription.query.filter(
                 UserSubscription.is_active == True,
-                UserSubscription.end_date > datetime.utcnow()
+                UserSubscription.end_date > utcnow()
             ).all()
 
             reset_count = 0
@@ -95,7 +96,7 @@ def cleanup_old_conversations(self, days_old: int = 90):
         from models import Conversation, ChatMessage
 
         with app.app_context():
-            cutoff = datetime.utcnow() - timedelta(days=days_old)
+            cutoff = utcnow() - timedelta(days=days_old)
 
             # Get old conversations
             old_convos = Conversation.query.filter(
@@ -171,17 +172,17 @@ def generate_usage_report(self, period: str = 'daily'):
 
         with app.app_context():
             if period == 'daily':
-                start_date = datetime.utcnow() - timedelta(days=1)
+                start_date = utcnow() - timedelta(days=1)
             elif period == 'weekly':
-                start_date = datetime.utcnow() - timedelta(weeks=1)
+                start_date = utcnow() - timedelta(weeks=1)
             else:
-                start_date = datetime.utcnow() - timedelta(days=30)
+                start_date = utcnow() - timedelta(days=30)
 
             # Gather statistics
             stats = {
                 'period': period,
                 'start_date': start_date.isoformat(),
-                'end_date': datetime.utcnow().isoformat(),
+                'end_date': utcnow().isoformat(),
                 'new_users': User.query.filter(User.created_at >= start_date).count(),
                 'active_users': db.session.query(func.count(func.distinct(Conversation.user_id))).filter(
                     Conversation.created_at >= start_date
@@ -228,7 +229,7 @@ def backup_database(self, backup_type: str = 'full'):
 
         backup_dir = os.environ.get('BACKUP_DIR', '/backups')
         os.makedirs(backup_dir, exist_ok=True)
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        timestamp = utcnow().strftime('%Y%m%d_%H%M%S')
         db_url = os.environ.get('DATABASE_URL', '')
         backup_file = None
         s3_key = None
@@ -278,7 +279,7 @@ def backup_database(self, backup_type: str = 'full'):
 
         # Enforce retention policy
         retention_days = int(os.environ.get('BACKUP_RETENTION_DAYS', '30'))
-        cutoff = datetime.utcnow().timestamp() - retention_days * 86400
+        cutoff = utcnow().timestamp() - retention_days * 86400
         deleted = 0
         for fname in os.listdir(backup_dir):
             if fname.endswith('.gz') and fname.startswith('devops_agent_'):
@@ -313,7 +314,7 @@ def check_system_health(self):
         from services.cache_service import cache
 
         health = {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'status': 'healthy',
             'checks': {}
         }

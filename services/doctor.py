@@ -10,6 +10,7 @@ import sys
 import logging
 from datetime import datetime
 from typing import Dict, Any, List
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ def run_diagnostics(app=None, db=None, agent=None) -> Dict[str, Any]:
         Dict with check results grouped by category
     """
     results = {
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': utcnow().isoformat(),
         'overall': 'healthy',
         'checks': []
     }

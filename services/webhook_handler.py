@@ -11,6 +11,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ def parse_github_webhook(payload: Dict[str, Any], event_type: str) -> Dict[str, 
         'event': event_type,
         'action': action,
         'repo': repo,
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': utcnow().isoformat(),
         'suggested_actions': [],
     }
 
@@ -143,7 +144,7 @@ def parse_pagerduty_webhook(payload: Dict[str, Any]) -> Dict[str, Any]:
         'urgency': incident.get('urgency', 'low'),
         'status': incident.get('status', 'triggered'),
         'summary': f"PagerDuty: {incident.get('title', 'Unknown incident')} ({incident.get('urgency', 'low')})",
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': utcnow().isoformat(),
         'suggested_actions': [
             {
                 'type': 'acknowledge',
@@ -161,7 +162,7 @@ def parse_generic_webhook(payload: Dict[str, Any]) -> Dict[str, Any]:
         'event': payload.get('event', 'unknown'),
         'summary': payload.get('message', payload.get('text', str(payload)[:200])),
         'data': payload,
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': utcnow().isoformat(),
         'suggested_actions': [],
     }
 

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import request, jsonify, g
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class APIKeyService:
         # Calculate expiration
         expires_at = None
         if expires_days:
-            expires_at = datetime.utcnow() + timedelta(days=expires_days)
+            expires_at = utcnow() + timedelta(days=expires_days)
 
         # Create model
         api_key = APIKey(
@@ -145,7 +146,7 @@ class APIKeyService:
             return False, None, "API key is revoked"
 
         # Check expiration
-        if api_key.expires_at and api_key.expires_at < datetime.utcnow():
+        if api_key.expires_at and api_key.expires_at < utcnow():
             return False, None, "API key has expired"
 
         # Check IP whitelist
@@ -158,7 +159,7 @@ class APIKeyService:
             return False, None, f"Missing required scope: {required_scope}"
 
         # Check rate limit
-        today = datetime.utcnow().date()
+        today = utcnow().date()
         if api_key.last_request_date != today:
             api_key.requests_today = 0
             api_key.last_request_date = today
@@ -167,7 +168,7 @@ class APIKeyService:
             return False, None, "Rate limit exceeded"
 
         # Update usage stats
-        api_key.last_used_at = datetime.utcnow()
+        api_key.last_used_at = utcnow()
         api_key.last_used_ip = ip_address
         api_key.total_requests += 1
         api_key.requests_today += 1
@@ -193,7 +194,7 @@ class APIKeyService:
             return False
 
         api_key.is_active = False
-        api_key.revoked_at = datetime.utcnow()
+        api_key.revoked_at = utcnow()
         db.session.commit()
 
         logger.info(f"Revoked API key {key_id} for user {user_id}")

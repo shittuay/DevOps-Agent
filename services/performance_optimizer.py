@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Optional
 from dataclasses import dataclass, field
 import uuid
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class Recommendation:
     auto_fixable: bool = False
     risk_level: str = "low"
     status: Status = Status.PENDING
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utcnow)
     implemented_at: Optional[datetime] = None
     metadata: dict = field(default_factory=dict)
 
@@ -116,7 +117,7 @@ class AnalysisResult:
     metrics: dict
     recommendations: list[Recommendation]
     health_score: float
-    analyzed_at: datetime = field(default_factory=datetime.utcnow)
+    analyzed_at: datetime = field(default_factory=utcnow)
 
     def to_dict(self) -> dict:
         return {
@@ -621,7 +622,7 @@ class PerformanceOptimizer:
         rec.status = status
 
         if status == Status.IMPLEMENTED:
-            rec.implemented_at = datetime.utcnow()
+            rec.implemented_at = utcnow()
 
         return True
 

@@ -10,6 +10,7 @@ Covers:
 import json
 import pytest
 from datetime import datetime, timedelta
+from src.utils.timeutils import utcnow
 
 
 SAMPLE_QUESTIONS = [
@@ -47,7 +48,7 @@ def _seed_quiz_session(client, questions=None, module_id=None):
     with client.session_transaction() as sess:
         user_id = sess.get('_user_id')
     record = UserPendingQuiz.query.filter_by(user_id=user_id, module_id=mid).first()
-    expires = datetime.utcnow() + timedelta(hours=24)
+    expires = utcnow() + timedelta(hours=24)
     if record:
         record.questions = qs
         record.expires_at = expires

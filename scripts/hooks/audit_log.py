@@ -7,7 +7,7 @@ This hook runs after tool executions to log actions for compliance/audit.
 import sys
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Audit log file location
@@ -31,7 +31,7 @@ def log_action(tool_name: str, action: str, result: str = None):
     """
     ensure_log_dir()
 
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
     log_entry = {
         'timestamp': timestamp,

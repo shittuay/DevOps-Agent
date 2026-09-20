@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from models import db, InfrastructureResource, CostOptimization
+from src.utils.timeutils import utcnow
 
 
 def _get_user_boto_client(user_id: int, service: str, region: str = None):
@@ -17,8 +18,8 @@ def get_actual_costs(user_id: int, days: int = 30) -> Dict:
     """
     ce = _get_user_boto_client(user_id, 'ce', region='us-east-1')
 
-    end_date = datetime.utcnow().strftime('%Y-%m-%d')
-    start_date = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%d')
+    end_date = utcnow().strftime('%Y-%m-%d')
+    start_date = (utcnow() - timedelta(days=days)).strftime('%Y-%m-%d')
 
     # Total cost by service
     service_costs = ce.get_cost_and_usage(
@@ -74,8 +75,8 @@ def get_cost_forecast(user_id: int, forecast_days: int = 30) -> Dict:
     """Get AWS cost forecast for the next N days."""
     ce = _get_user_boto_client(user_id, 'ce', region='us-east-1')
 
-    start_date = datetime.utcnow().strftime('%Y-%m-%d')
-    end_date = (datetime.utcnow() + timedelta(days=forecast_days)).strftime('%Y-%m-%d')
+    start_date = utcnow().strftime('%Y-%m-%d')
+    end_date = (utcnow() + timedelta(days=forecast_days)).strftime('%Y-%m-%d')
 
     try:
         forecast = ce.get_cost_forecast(
@@ -97,8 +98,8 @@ def get_resource_cost(user_id: int, resource_id: str, days: int = 30) -> Optiona
     """Get actual cost for a specific resource from Cost Explorer."""
     ce = _get_user_boto_client(user_id, 'ce', region='us-east-1')
 
-    end_date = datetime.utcnow().strftime('%Y-%m-%d')
-    start_date = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%d')
+    end_date = utcnow().strftime('%Y-%m-%d')
+    start_date = (utcnow() - timedelta(days=days)).strftime('%Y-%m-%d')
 
     try:
         result = ce.get_cost_and_usage(
@@ -130,7 +131,7 @@ def get_instance_utilization(user_id: int, instance_id: str, days: int = 14) -> 
     """
     cw = _get_user_boto_client(user_id, 'cloudwatch')
 
-    end_time = datetime.utcnow()
+    end_time = utcnow()
     start_time = end_time - timedelta(days=days)
 
     # CPU utilization
@@ -210,7 +211,7 @@ def get_rds_utilization(user_id: int, db_identifier: str, days: int = 14) -> Dic
     """Get real RDS utilization from CloudWatch."""
     cw = _get_user_boto_client(user_id, 'cloudwatch')
 
-    end_time = datetime.utcnow()
+    end_time = utcnow()
     start_time = end_time - timedelta(days=days)
 
     cpu_stats = cw.get_metric_statistics(

@@ -7,6 +7,7 @@ from functools import wraps
 import time
 from services.credit_service import CreditService
 from services.chat_service import ensure_non_empty_response
+from src.utils.timeutils import utcnow
 
 api_gateway_bp = Blueprint('api_gateway', __name__, url_prefix='/api-gateway')
 
@@ -312,8 +313,8 @@ def api_get_costs():
         days = 30
 
     service = AnalyticsService(request.api_key.user_id)
-    start_date = datetime.utcnow() - timedelta(days=days)
-    end_date = datetime.utcnow()
+    start_date = utcnow() - timedelta(days=days)
+    end_date = utcnow()
 
     data = service.get_cost_analytics(start_date, end_date)
     return jsonify(data)
@@ -362,7 +363,7 @@ def api_create_incident():
         description=data.get('description'),
         severity=data.get('severity', 'medium'),
         status='open',
-        created_at=datetime.utcnow()
+        created_at=utcnow()
     )
 
     db.session.add(incident)

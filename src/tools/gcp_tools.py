@@ -3,6 +3,7 @@ import os
 import threading
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
+from src.utils.timeutils import utcnow
 
 logger = get_logger(__name__)
 
@@ -506,7 +507,7 @@ def get_gcp_metrics(
         project_name = f"projects/{proj_id}"
 
         # Set time interval
-        now = datetime.utcnow()
+        now = utcnow()
         interval = monitoring_v3.TimeInterval(
             {
                 "end_time": {"seconds": int(now.timestamp())},

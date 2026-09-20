@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from models import db, InfrastructureResource, CostOptimization
 from botocore.exceptions import ClientError, NoCredentialsError
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -327,7 +328,7 @@ def sync_aws_ec2_instances(user_id: int) -> int:
                     'vpc_id': instance.get('VpcId'),
                     'subnet_id': instance.get('SubnetId'),
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
 
                 count += 1
 
@@ -384,7 +385,7 @@ def sync_aws_rds_instances(user_id: int) -> int:
                 'multi_az': db_instance.get('MultiAZ', False),
                 'endpoint': db_instance.get('Endpoint', {}).get('Address'),
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -420,7 +421,7 @@ def sync_aws_s3_buckets(user_id: int) -> int:
                 bucket_size_bytes = 0
                 try:
                     from datetime import datetime, timedelta
-                    end_time = datetime.utcnow()
+                    end_time = utcnow()
                     start_time = end_time - timedelta(days=1)
 
                     metrics = cloudwatch.get_metric_statistics(
@@ -466,7 +467,7 @@ def sync_aws_s3_buckets(user_id: int) -> int:
                     'size_bytes': bucket_size_bytes,
                     'size_gb': round(bucket_size_bytes / (1024**3), 2)
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
 
                 count += 1
 
@@ -549,7 +550,7 @@ def sync_aws_lambda_functions(user_id: int) -> int:
                 'last_modified': function.get('LastModified'),
                 'code_size': function.get('CodeSize'),
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -608,7 +609,7 @@ def sync_aws_dynamodb_tables(user_id: int) -> int:
                     'billing_mode': billing_mode,
                     'creation_date': table.get('CreationDateTime').isoformat() if table.get('CreationDateTime') else None,
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
 
                 count += 1
 
@@ -672,7 +673,7 @@ def sync_aws_load_balancers(user_id: int) -> int:
                 'vpc_id': lb.get('VpcId'),
                 'created_time': lb.get('CreatedTime').isoformat() if lb.get('CreatedTime') else None,
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -733,7 +734,7 @@ def sync_aws_ecs_services(user_id: int) -> int:
                                 'desired_count': service.get('desiredCount', 0),
                                 'launch_type': service.get('launchType', 'UNKNOWN'),
                             }
-                            resource.last_synced = datetime.utcnow()
+                            resource.last_synced = utcnow()
 
                             count += 1
 
@@ -795,7 +796,7 @@ def sync_aws_api_gateways(user_id: int) -> int:
                 'created_date': api.get('createdDate').isoformat() if api.get('createdDate') else None,
                 'endpoint_configuration': api.get('endpointConfiguration', {}).get('types', []),
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -853,7 +854,7 @@ def sync_aws_sns_topics(user_id: int) -> int:
                 'subscriptions': attributes.get('SubscriptionsConfirmed', 0),
                 'display_name': attributes.get('DisplayName', ''),
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -908,7 +909,7 @@ def sync_aws_cloudwatch_alarms(user_id: int) -> int:
                     'state': alarm.get('StateValue', ''),
                     'alarm_actions': alarm.get('AlarmActions', []),
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
                 count += 1
 
         _remove_stale_resources(user_id, 'cloudwatch_alarm', seen_ids)
@@ -963,7 +964,7 @@ def sync_aws_sqs_queues(user_id: int) -> int:
                     'messages_available': attributes.get('ApproximateNumberOfMessages', 0),
                     'retention_period': attributes.get('MessageRetentionPeriod', 0),
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
 
                 count += 1
 
@@ -1022,7 +1023,7 @@ def sync_aws_elasticache_clusters(user_id: int) -> int:
                 'node_type': node_type,
                 'num_nodes': num_nodes,
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -1076,7 +1077,7 @@ def sync_aws_cloudfront_distributions(user_id: int) -> int:
                     'enabled': dist.get('Enabled', False),
                     'price_class': dist.get('PriceClass'),
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
 
                 count += 1
 
@@ -1150,7 +1151,7 @@ def sync_aws_ebs_volumes(user_id: int) -> int:
                 'encrypted': volume.get('Encrypted', False),
                 'attached_to': attachments[0].get('InstanceId') if attachments else None,
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -1205,7 +1206,7 @@ def sync_aws_elastic_ips(user_id: int) -> int:
                 'instance_id': eip.get('InstanceId'),
                 'network_interface_id': eip.get('NetworkInterfaceId'),
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
 
             count += 1
 
@@ -1273,7 +1274,7 @@ def generate_cost_recommendations(user_id: int):
 
         # Check for stopped instances that have been stopped for a long time
         if resource.resource_type == 'ec2' and resource.status == 'stopped':
-            days_stopped = (datetime.utcnow() - resource.last_synced).days
+            days_stopped = (utcnow() - resource.last_synced).days
             if days_stopped > 30:
                 stopped_savings = 5.00  # EBS storage savings
                 if create_or_update_recommendation(
@@ -1611,7 +1612,7 @@ def sync_azure_vms(user_id: int) -> int:
                 'os_type': vm.storage_profile.os_disk.os_type if vm.storage_profile and vm.storage_profile.os_disk else 'unknown',
                 'resource_group': vm.id.split('/')[4] if vm.id and len(vm.id.split('/')) > 4 else 'unknown',
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
             count += 1
 
         db.session.commit()
@@ -1663,7 +1664,7 @@ def sync_azure_sql(user_id: int) -> int:
                     'sku': db_instance.sku.name if db_instance.sku else 'unknown',
                     'edition': db_instance.edition if hasattr(db_instance, 'edition') else 'unknown',
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
                 count += 1
 
         db.session.commit()
@@ -1785,7 +1786,7 @@ def sync_gcp_compute_instances(user_id: int) -> int:
                     'instance_type': machine_type,
                     'network_interfaces': len(instance.network_interfaces) if instance.network_interfaces else 0,
                 }
-                resource.last_synced = datetime.utcnow()
+                resource.last_synced = utcnow()
                 count += 1
 
         db.session.commit()
@@ -1843,7 +1844,7 @@ def sync_gcp_storage_buckets(user_id: int) -> int:
                 'storage_class': bucket.storage_class,
                 'location_type': bucket.location_type if hasattr(bucket, 'location_type') else 'unknown',
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
             count += 1
 
         db.session.commit()
@@ -1911,7 +1912,7 @@ def sync_gcp_sql_instances(user_id: int) -> int:
                 'tier': tier,
                 'instance_type': tier,
             }
-            resource.last_synced = datetime.utcnow()
+            resource.last_synced = utcnow()
             count += 1
 
         db.session.commit()

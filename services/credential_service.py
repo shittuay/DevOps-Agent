@@ -10,6 +10,7 @@ from datetime import datetime
 
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
+from src.utils.timeutils import utcnow
 
 
 def get_user_aws_credentials(user_id: int) -> Optional[Dict[str, str]]:
@@ -402,7 +403,7 @@ def save_user_aws_credentials(
         cred.set_credentials(stored)
         cred.default_region = region
         cred.verification_status = 'valid'
-        cred.last_verified = datetime.utcnow()
+        cred.last_verified = utcnow()
         cred.is_active = True
 
         db.session.commit()
@@ -480,7 +481,7 @@ def save_user_azure_credentials(
         })
         cred.default_region = location
         cred.verification_status = 'valid'
-        cred.last_verified = datetime.utcnow()
+        cred.last_verified = utcnow()
         cred.is_active = True
 
         db.session.commit()
@@ -568,7 +569,7 @@ def save_user_gcp_credentials(
         cred.default_region = region
         cred.default_zone = zone
         cred.verification_status = 'valid'
-        cred.last_verified = datetime.utcnow()
+        cred.last_verified = utcnow()
         cred.is_active = True
 
         db.session.commit()

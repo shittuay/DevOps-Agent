@@ -19,6 +19,7 @@ from datetime import datetime
 import pyotp
 import qrcode
 from qrcode.image.pure import PyPNGImage
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -259,7 +260,7 @@ class TwoFactorMixin:
 
         if two_factor_service.verify_totp(self.two_factor_secret, code):
             self.two_factor_enabled = True
-            self.two_factor_verified_at = datetime.utcnow()
+            self.two_factor_verified_at = utcnow()
             self.two_factor_attempts = 0
             return True
 
@@ -312,7 +313,7 @@ class TwoFactorMixin:
     def is_two_factor_locked(self) -> bool:
         """Check if 2FA verification is locked due to too many attempts."""
         if self.two_factor_locked_until:
-            if datetime.utcnow() < self.two_factor_locked_until:
+            if utcnow() < self.two_factor_locked_until:
                 return True
             # Lockout expired, reset
             self.two_factor_locked_until = None
@@ -325,7 +326,7 @@ class TwoFactorMixin:
 
         if self.two_factor_attempts >= MAX_VERIFICATION_ATTEMPTS:
             from datetime import timedelta
-            self.two_factor_locked_until = datetime.utcnow() + timedelta(
+            self.two_factor_locked_until = utcnow() + timedelta(
                 minutes=LOCKOUT_DURATION_MINUTES
             )
             logger.warning(f"2FA locked for user {self.id} due to too many attempts")

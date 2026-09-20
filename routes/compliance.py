@@ -5,6 +5,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
 import json
+from src.utils.timeutils import utcnow
 
 compliance_bp = Blueprint('compliance', __name__, url_prefix='/compliance')
 
@@ -558,8 +559,8 @@ def api_export_audit_log():
     format_type = request.args.get('format', 'csv')
     days = int(request.args.get('days', 30))
 
-    start_date = datetime.utcnow() - timedelta(days=days)
-    end_date = datetime.utcnow()
+    start_date = utcnow() - timedelta(days=days)
+    end_date = utcnow()
 
     content = service.export_audit_log(start_date, end_date, format_type)
 

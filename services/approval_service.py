@@ -9,6 +9,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Optional
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def create_request(tool_name: str, tool_input: dict, risk_level: str,
     """Create a pending ApprovalRequest and notify approvers."""
     from models import ApprovalRequest, db
 
-    now = datetime.utcnow()
+    now = utcnow()
     req = ApprovalRequest(
         requester_id=requester_id,
         conversation_id=conversation_id,
@@ -145,7 +146,7 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
     if req.status != 'pending':
         return {'success': False, 'error': f'Request is already {req.status}'}
 
-    now = datetime.utcnow()
+    now = utcnow()
     req.status = 'approved'
     req.approver_id = approver_id
     req.decided_at = now
@@ -160,7 +161,7 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
 
     req.status = 'executed'
     req.execution_result = result
-    req.executed_at = datetime.utcnow()
+    req.executed_at = utcnow()
     db.session.commit()
 
     if req.conversation_id:
@@ -235,7 +236,7 @@ def reject(approval_id: int, approver_id: int, note: Optional[str] = None) -> di
 
     req.status = 'rejected'
     req.approver_id = approver_id
-    req.decided_at = datetime.utcnow()
+    req.decided_at = utcnow()
     req.approver_note = note
     db.session.commit()
 
@@ -282,7 +283,7 @@ def get_pending_for_approver(approver_id: int) -> list:
     from models import ApprovalRequest, User
 
     _expire_stale()
-    now = datetime.utcnow()
+    now = utcnow()
     reqs = (
         ApprovalRequest.query
         .filter(ApprovalRequest.status == 'pending', ApprovalRequest.expires_at > now)
@@ -364,7 +365,7 @@ def _expire_stale():
     """Mark stale pending requests as expired (lazy, no background job needed)."""
     from models import ApprovalRequest, db
 
-    now = datetime.utcnow()
+    now = utcnow()
     ApprovalRequest.query.filter(
         ApprovalRequest.status == 'pending',
         ApprovalRequest.expires_at <= now,

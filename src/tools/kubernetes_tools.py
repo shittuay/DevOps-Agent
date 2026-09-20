@@ -3,6 +3,7 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
+from src.utils.timeutils import utcnow
 
 
 logger = get_logger(__name__)
@@ -372,7 +373,7 @@ def restart_deployment(
 
         # Update deployment with restart annotation
         from datetime import datetime
-        now = datetime.utcnow().isoformat()
+        now = utcnow().isoformat()
 
         body = {
             'spec': {

@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class DriftItem:
     actual_value: Any
     property_path: str  # e.g., "SecurityGroups[0].IpPermissions"
     description: str
-    detected_at: datetime = field(default_factory=datetime.utcnow)
+    detected_at: datetime = field(default_factory=utcnow)
     remediation_suggestion: str = ""
 
 
@@ -93,7 +94,7 @@ class BaselineResource:
     resource_name: str
     expected_config: dict
     tags: dict = field(default_factory=dict)
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=utcnow)
 
 
 class DriftDetectionService:
@@ -255,7 +256,7 @@ class DriftDetectionService:
         import uuid
 
         report_id = str(uuid.uuid4())[:8]
-        scan_start = datetime.utcnow()
+        scan_start = utcnow()
         drift_items = []
         user_baselines = self.get_baselines(user_id)
 
@@ -298,7 +299,7 @@ class DriftDetectionService:
         security_drifts = self._apply_security_rules(drift_items)
         drift_items.extend(security_drifts)
 
-        scan_end = datetime.utcnow()
+        scan_end = utcnow()
 
         # Build report
         report = DriftReport(

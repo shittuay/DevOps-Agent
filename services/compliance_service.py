@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from enum import Enum
 import json
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +285,7 @@ class ComplianceService:
         # Create report using actual model fields
         report = ComplianceReport(
             user_id=user_id,
-            name=f'{framework_name.upper()} Assessment - {datetime.utcnow().strftime("%Y-%m-%d")}',
+            name=f'{framework_name.upper()} Assessment - {utcnow().strftime("%Y-%m-%d")}',
             report_type='assessment',
             framework=framework_name,
             summary={
@@ -297,12 +298,12 @@ class ComplianceService:
             overall_score=int(compliance_score),
             controls_passed=compliant_count,
             controls_failed=non_compliant_count,
-            generated_at=datetime.utcnow()
+            generated_at=utcnow()
         )
 
         # Update framework score
         framework.compliance_score = int(compliance_score)
-        framework.last_assessment_at = datetime.utcnow()
+        framework.last_assessment_at = utcnow()
 
         db.session.add(report)
         db.session.commit()
@@ -497,7 +498,7 @@ class ComplianceService:
 
         recent_logs = self.get_audit_logs(user_id=user_id, limit=1000)
         logs_30d = len([l for l in recent_logs
-                       if l.created_at > datetime.utcnow() - timedelta(days=30)])
+                       if l.created_at > utcnow() - timedelta(days=30)])
 
         return {
             'overall_compliance_score': round(overall_score, 1),
@@ -506,7 +507,7 @@ class ComplianceService:
             'critical_violations': 0,
             'audit_events_30d': logs_30d,
             'policies_active': active_policies,
-            'generated_at': datetime.utcnow().isoformat()
+            'generated_at': utcnow().isoformat()
         }
 
     # Default Policies

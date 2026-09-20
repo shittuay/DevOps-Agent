@@ -7,6 +7,7 @@ Background tasks for sending emails.
 import logging
 from celery import shared_task
 from datetime import datetime, timedelta
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,11 @@ def send_renewal_reminders(self):
 
         with app.app_context():
             # Find subscriptions expiring in 7 days
-            reminder_date = datetime.utcnow() + timedelta(days=7)
+            reminder_date = utcnow() + timedelta(days=7)
 
             expiring_subs = UserSubscription.query.filter(
                 UserSubscription.end_date <= reminder_date,
-                UserSubscription.end_date > datetime.utcnow(),
+                UserSubscription.end_date > utcnow(),
                 UserSubscription.is_active == True
             ).all()
 

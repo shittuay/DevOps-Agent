@@ -14,6 +14,7 @@ from extensions import limiter
 from models import db, UserCurriculumProgress, UserQuizAttempt, UserPendingQuiz
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
 from services.secrets_manager import get_moonshot_api_key
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,7 @@ def api_update_progress():
     if data.get('notes') is not None:
         record.notes = data['notes']
     if record.completed and not record.completed_at:
-        record.completed_at = datetime.utcnow()
+        record.completed_at = utcnow()
     elif not record.completed:
         record.completed_at = None
 
@@ -302,7 +303,7 @@ def _save_pending_quiz(user_id, module_id, questions):
     record = UserPendingQuiz.query.filter_by(
         user_id=user_id, module_id=module_id
     ).first()
-    expires = datetime.utcnow() + timedelta(hours=24)
+    expires = utcnow() + timedelta(hours=24)
     if record:
         record.questions = questions
         record.expires_at = expires
@@ -487,7 +488,7 @@ def api_quiz_submit():
             )
             db.session.add(progress)
         progress.completed = True
-        progress.completed_at = datetime.utcnow()
+        progress.completed_at = utcnow()
         db.session.commit()
 
     return jsonify({

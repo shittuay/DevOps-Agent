@@ -2,6 +2,7 @@
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
+from src.utils.timeutils import utcnow
 
 # Cached tiktoken encoder (loaded lazily, once). Falls back to a char heuristic
 # if tiktoken is unavailable. We only need an *over-estimate* for budgeting, so a
@@ -41,7 +42,7 @@ class Message:
 
     role: str  # 'user' or 'assistant'
     content: List[Dict[str, Any]]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utcnow)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert message to dictionary format for Claude API."""
@@ -70,7 +71,7 @@ class ConversationManager:
         self.max_history = max_history
         self.token_budget = token_budget
         self.recency_keep = recency_keep
-        self.session_start = datetime.utcnow()
+        self.session_start = utcnow()
 
     def add_user_message(self, content: str) -> None:
         """
@@ -135,7 +136,7 @@ class ConversationManager:
     def clear_history(self) -> None:
         """Clear conversation history."""
         self.messages = []
-        self.session_start = datetime.utcnow()
+        self.session_start = utcnow()
 
     def _trim_history(self) -> None:
         """
@@ -252,7 +253,7 @@ class ConversationManager:
         """
         user_messages = sum(1 for msg in self.messages if msg.role == 'user')
         assistant_messages = sum(1 for msg in self.messages if msg.role == 'assistant')
-        duration = (datetime.utcnow() - self.session_start).total_seconds()
+        duration = (utcnow() - self.session_start).total_seconds()
 
         return {
             'total_messages': len(self.messages),

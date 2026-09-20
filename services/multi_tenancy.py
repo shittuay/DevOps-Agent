@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 import secrets
 import re
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ class MultiTenancyService:
             organization_id=org.id,
             user_id=owner_id,
             role='owner',
-            accepted_at=datetime.utcnow()
+            accepted_at=utcnow()
         )
         db.session.add(owner_member)
         db.session.commit()
@@ -216,8 +217,8 @@ class MultiTenancyService:
             user_id=user_id,
             role=role,
             invited_by=invited_by,
-            invited_at=datetime.utcnow() if invited_by else None,
-            accepted_at=datetime.utcnow(),
+            invited_at=utcnow() if invited_by else None,
+            accepted_at=utcnow(),
             is_active=True
         )
         db.session.add(member)
@@ -262,7 +263,7 @@ class MultiTenancyService:
             user_id=None,  # Will be set when invitation is accepted
             role=role,
             invited_by=invited_by,
-            invited_at=datetime.utcnow(),
+            invited_at=utcnow(),
             invitation_token=token,
             is_active=False  # Not active until accepted
         )
@@ -293,7 +294,7 @@ class MultiTenancyService:
             return existing
 
         invitation.user_id = user_id
-        invitation.accepted_at = datetime.utcnow()
+        invitation.accepted_at = utcnow()
         invitation.is_active = True
         invitation.invitation_token = None
         db.session.commit()

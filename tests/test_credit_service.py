@@ -1,4 +1,5 @@
 import pytest
+from src.utils.timeutils import utcnow
 
 
 @pytest.fixture
@@ -14,8 +15,8 @@ def user_with_sub(test_user, db_session):
         user_id=test_user.id,
         tier_id=tier.id,
         credits_remaining=10,
-        current_period_start=datetime.utcnow(),
-        current_period_end=datetime.utcnow(),
+        current_period_start=utcnow(),
+        current_period_end=utcnow(),
     )
     db.session.add(sub)
     db.session.commit()

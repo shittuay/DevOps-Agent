@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class WebhookEvent:
     url: Optional[str]
     status: Optional[str]  # success, failure, pending, etc.
     metadata: dict = field(default_factory=dict)
-    received_at: datetime = field(default_factory=datetime.utcnow)
+    received_at: datetime = field(default_factory=utcnow)
 
 
 class WebhookIntegrationService:

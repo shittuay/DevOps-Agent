@@ -14,6 +14,7 @@ from models import (
 )
 from src.utils import get_logger
 from services.credit_service import CreditService
+from src.utils.timeutils import utcnow
 
 try:
     import stripe
@@ -89,7 +90,7 @@ def _ensure_subscription(
     if not free_tier:
         return None
 
-    now = datetime.utcnow()
+    now = utcnow()
     credits = initial_credits if initial_credits is not None else free_tier.monthly_credits
     subscription = UserSubscription(
         user_id=user_id,
@@ -520,7 +521,7 @@ def get_usage_stats():
         from sqlalchemy import func
         from datetime import timedelta
 
-        month_start = subscription.current_period_start or (datetime.utcnow() - timedelta(days=30))
+        month_start = subscription.current_period_start or (utcnow() - timedelta(days=30))
 
         tool_usage = db.session.query(
             UsageLog.tool_name,
@@ -655,9 +656,9 @@ def handle_checkout_completed(session):
                 subscription.payment_failed_at = None
                 subscription.credits_remaining = tier.monthly_credits
                 subscription.credits_used_this_month = 0
-                subscription.current_period_start = datetime.utcnow()
-                subscription.current_period_end = datetime.utcnow() + relativedelta(months=1)
-                subscription.last_reset_date = datetime.utcnow()
+                subscription.current_period_start = utcnow()
+                subscription.current_period_end = utcnow() + relativedelta(months=1)
+                subscription.last_reset_date = utcnow()
             else:
                 subscription = UserSubscription(
                     user_id=user.id,
@@ -667,9 +668,9 @@ def handle_checkout_completed(session):
                     stripe_customer_id=stripe_customer_id,
                     payment_status='active',
                     payment_gateway='stripe',
-                    current_period_start=datetime.utcnow(),
-                    current_period_end=datetime.utcnow() + relativedelta(months=1),
-                    last_reset_date=datetime.utcnow(),
+                    current_period_start=utcnow(),
+                    current_period_end=utcnow() + relativedelta(months=1),
+                    last_reset_date=utcnow(),
                 )
                 db.session.add(subscription)
 
@@ -714,7 +715,7 @@ def handle_checkout_completed(session):
                 price_paid=amount_paid,
                 stripe_payment_intent_id=session.get('payment_intent'),
                 payment_status='completed',
-                completed_at=datetime.utcnow()
+                completed_at=utcnow()
             )
             db.session.add(purchase)
 
@@ -802,9 +803,9 @@ def handle_invoice_payment_succeeded(invoice):
         tier_credits = user_subscription.tier.monthly_credits if user_subscription.tier else 0
         user_subscription.credits_remaining = tier_credits
         user_subscription.credits_used_this_month = 0
-        user_subscription.last_reset_date = datetime.utcnow()
-        user_subscription.current_period_start = datetime.utcnow()
-        user_subscription.current_period_end = datetime.utcnow() + relativedelta(months=1)
+        user_subscription.last_reset_date = utcnow()
+        user_subscription.current_period_start = utcnow()
+        user_subscription.current_period_end = utcnow() + relativedelta(months=1)
 
         db.session.commit()
         logger.info(f"Recurring payment processed for user {user_subscription.user_id}")
@@ -855,11 +856,11 @@ def handle_invoice_payment_failed(invoice):
 
         user_subscription.payment_status = 'past_due'
         if not user_subscription.payment_failed_at:
-            user_subscription.payment_failed_at = datetime.utcnow()
+            user_subscription.payment_failed_at = utcnow()
 
         # If past_due for > 3 days, downgrade to free tier
         if user_subscription.payment_failed_at:
-            days_overdue = (datetime.utcnow() - user_subscription.payment_failed_at).days
+            days_overdue = (utcnow() - user_subscription.payment_failed_at).days
             if days_overdue > 3:
                 free_tier = SubscriptionTier.query.filter_by(name='free').first()
                 if free_tier:

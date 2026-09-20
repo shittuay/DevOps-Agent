@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 from functools import wraps
 import time
 import uuid
+from src.utils.timeutils import utcnow
 
 
 class StructuredFormatter(logging.Formatter):
@@ -25,7 +26,7 @@ class StructuredFormatter(logging.Formatter):
             JSON-formatted log string
         """
         log_data = {
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': utcnow().isoformat() + 'Z',
             'level': record.levelname,
             'logger': record.name,
             'message': record.getMessage(),

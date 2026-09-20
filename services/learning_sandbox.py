@@ -7,6 +7,7 @@ import random
 import string
 from datetime import datetime, timedelta
 from typing import Dict, Any
+from src.utils.timeutils import utcnow
 
 
 def _rand_id(prefix: str = '', length: int = 17) -> str:
@@ -22,7 +23,7 @@ def _rand_public_ip() -> str:
 
 
 def _recent_time(minutes_ago: int = 30) -> str:
-    return (datetime.utcnow() - timedelta(minutes=random.randint(1, minutes_ago))).isoformat() + 'Z'
+    return (utcnow() - timedelta(minutes=random.randint(1, minutes_ago))).isoformat() + 'Z'
 
 
 def _rand_arn(service: str, resource: str) -> str:

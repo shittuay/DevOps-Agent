@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import threading
 import time
 from ..utils import get_logger
+from src.utils.timeutils import utcnow
 
 
 logger = get_logger(__name__)
@@ -1505,7 +1506,7 @@ def get_cloudwatch_logs(
         logs = _get_boto_client('logs', region)
 
         # Calculate time range
-        end_time = datetime.utcnow()
+        end_time = utcnow()
         start_time = end_time - timedelta(hours=hours)
         start_ms = int(start_time.timestamp() * 1000)
         end_ms = int(end_time.timestamp() * 1000)
@@ -9303,7 +9304,7 @@ def list_xray_traces(region: Optional[str] = None, hours: int = 1) -> Dict[str, 
         xray = _get_boto_client('xray', region)
 
         # Calculate time range
-        end_time = datetime.utcnow()
+        end_time = utcnow()
         start_time = end_time - timedelta(hours=hours)
 
         response = xray.get_trace_summaries(
@@ -12714,7 +12715,7 @@ def get_aws_resource_inventory(
         inventory = {
             'success': True,
             'region': _get_effective_region(region),
-            'scan_time': datetime.utcnow().isoformat(),
+            'scan_time': utcnow().isoformat(),
             'services': {}
         }
 

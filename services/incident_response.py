@@ -22,6 +22,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 import threading
 import queue
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +95,8 @@ class ResponsePlaybook:
     escalation_policy: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     is_builtin: bool = False
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utcnow)
+    updated_at: datetime = field(default_factory=utcnow)
 
 
 @dataclass
@@ -110,7 +111,7 @@ class Incident:
     user_id: Optional[int] = None
     source_id: Optional[str] = None
     playbook_id: Optional[str] = None
-    triggered_at: datetime = field(default_factory=datetime.utcnow)
+    triggered_at: datetime = field(default_factory=utcnow)
     acknowledged_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
     assigned_to: Optional[str] = None
@@ -429,7 +430,7 @@ class IncidentResponseEngine:
                     user_id=user_id,
                     source_id=d.get('source_id'),
                     playbook_id=d.get('playbook_id'),
-                    triggered_at=row.triggered_at or datetime.utcnow(),
+                    triggered_at=row.triggered_at or utcnow(),
                     acknowledged_at=row.acknowledged_at,
                     resolved_at=row.resolved_at,
                     assigned_to=d.get('assigned_to'),
@@ -487,7 +488,7 @@ class IncidentResponseEngine:
             return None
         with self._app.app_context():
             from models import db, IncidentCorrelationGroup
-            now = datetime.utcnow()
+            now = utcnow()
             cutoff = now - timedelta(minutes=20)
             open_groups = IncidentCorrelationGroup.query.filter_by(
                 user_id=user_id, status='open'
@@ -660,7 +661,7 @@ class IncidentResponseEngine:
         if not pb:
             return None
         pb.enabled = not pb.enabled
-        pb.updated_at = datetime.utcnow()
+        pb.updated_at = utcnow()
         self._save_playbook_to_db(user_id, pb)
         return pb.enabled
 
@@ -717,7 +718,7 @@ class IncidentResponseEngine:
             metadata=metadata or {}
         )
         incident.timeline.append({
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'event': 'incident_created',
             'details': f'Incident created from {source}'
         })
@@ -771,7 +772,7 @@ class IncidentResponseEngine:
         if playbook:
             incident.playbook_id = playbook.id
             incident.timeline.append({
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': utcnow().isoformat(),
                 'event': 'playbook_matched',
                 'details': f'Matched playbook: {playbook.name}'
             })
@@ -797,7 +798,7 @@ class IncidentResponseEngine:
 
         incident.status = IncidentStatus.REMEDIATING
         incident.timeline.append({
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'event': 'playbook_execution_started',
             'details': f'Executing playbook: {playbook.name}'
         })
@@ -807,7 +808,7 @@ class IncidentResponseEngine:
             if action.requires_approval and not skip_approval:
                 incident.status = IncidentStatus.AWAITING_APPROVAL
                 incident.timeline.append({
-                    'timestamp': datetime.utcnow().isoformat(),
+                    'timestamp': utcnow().isoformat(),
                     'event': 'awaiting_approval',
                     'details': f'Action requires approval: {action.name}'
                 })
@@ -824,11 +825,11 @@ class IncidentResponseEngine:
                 'action': action.name,
                 'type': action.action_type.value,
                 'result': result,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': utcnow().isoformat()
             })
             if not result.get('success', False):
                 incident.timeline.append({
-                    'timestamp': datetime.utcnow().isoformat(),
+                    'timestamp': utcnow().isoformat(),
                     'event': 'action_failed',
                     'details': f'Action failed: {action.name} - {result.get("error", "Unknown error")}'
                 })
@@ -837,9 +838,9 @@ class IncidentResponseEngine:
         all_success = all(r.get('success', False) or r.get('status') == 'awaiting_approval' for r in results)
         if all_success and incident.status != IncidentStatus.AWAITING_APPROVAL:
             incident.status = IncidentStatus.RESOLVED
-            incident.resolved_at = datetime.utcnow()
+            incident.resolved_at = utcnow()
             incident.timeline.append({
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': utcnow().isoformat(),
                 'event': 'incident_resolved',
                 'details': 'All remediation actions completed successfully'
             })
@@ -866,7 +867,7 @@ class IncidentResponseEngine:
             result = handler(incident, action)
             result['action'] = action.name
             incident.timeline.append({
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': utcnow().isoformat(),
                 'event': 'action_executed',
                 'details': f'Executed: {action.name}',
                 'result': 'success' if result.get('success') else 'failed'
@@ -895,10 +896,10 @@ class IncidentResponseEngine:
         if not incident:
             return {'success': False, 'error': 'Incident not found'}
         incident.status = IncidentStatus.ACKNOWLEDGED
-        incident.acknowledged_at = datetime.utcnow()
+        incident.acknowledged_at = utcnow()
         incident.assigned_to = user
         incident.timeline.append({
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'event': 'incident_acknowledged',
             'details': f'Acknowledged by {user}'
         })
@@ -921,9 +922,9 @@ class IncidentResponseEngine:
         if not incident:
             return {'success': False, 'error': 'Incident not found'}
         incident.status = IncidentStatus.RESOLVED
-        incident.resolved_at = datetime.utcnow()
+        incident.resolved_at = utcnow()
         incident.timeline.append({
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'event': 'incident_resolved',
             'details': resolution or 'Incident resolved'
         })

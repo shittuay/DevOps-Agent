@@ -8,6 +8,7 @@ Connects the AI chat to real backend services:
 """
 import threading
 from typing import Dict, Any, Optional, List
+from src.utils.timeutils import utcnow
 
 _user_context = threading.local()
 
@@ -157,7 +158,7 @@ def create_change_request(
             change.status = 'approved'
             change.approver_id = uid
             change.approval_comment = 'Auto-approved: low risk'
-            change.approved_at = datetime.utcnow()
+            change.approved_at = utcnow()
 
         db.session.add(change)
         db.session.commit()

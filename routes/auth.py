@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 from extensions import limiter, security_logger
 from models import db, SubscriptionTier, User, UserSubscription
+from src.utils.timeutils import utcnow
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -79,7 +80,7 @@ def _dispatch_password_reset_email(user_id: int) -> None:
                     return
                 raw_token = secrets.token_urlsafe(32)
                 user.password_reset_token = hashlib.sha256(raw_token.encode()).hexdigest()
-                user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+                user.password_reset_expires = utcnow() + timedelta(hours=1)
                 db.session.commit()
 
                 from services.email_service import email_service
@@ -182,7 +183,7 @@ def login():
         if password_matches:
             if user.has_mfa_enabled():
                 session['2fa_pending_user'] = user.id
-                session['2fa_pending_time'] = datetime.utcnow().isoformat()
+                session['2fa_pending_time'] = utcnow().isoformat()
                 _next = request.args.get('next', '')
                 session['2fa_next'] = _next if _is_safe_redirect(_next) else ''
                 session['2fa_method'] = user.mfa_method or 'totp'
@@ -304,7 +305,7 @@ def signup():
                 last_login_ip=ip_address,
                 email_verified=False,
                 email_verification_token=hashed_verification_token,
-                email_verification_sent_at=datetime.utcnow(),
+                email_verification_sent_at=utcnow(),
                 role='user',
             )
             user.set_password(password)
@@ -321,9 +322,9 @@ def signup():
                     user_id=user.id,
                     tier_id=free_tier.id,
                     credits_remaining=free_tier.monthly_credits,
-                    current_period_start=datetime.utcnow(),
-                    current_period_end=datetime.utcnow() + relativedelta(months=1),
-                    last_reset_date=datetime.utcnow(),
+                    current_period_start=utcnow(),
+                    current_period_end=utcnow() + relativedelta(months=1),
+                    last_reset_date=utcnow(),
                 )
                 db.session.add(sub)
             else:
@@ -425,7 +426,7 @@ def reset_password():
     hashed_token = hashlib.sha256(token.encode()).hexdigest()
     user = User.query.filter_by(id=user_id, password_reset_token=hashed_token).first()
 
-    if not user or not user.password_reset_expires or user.password_reset_expires < datetime.utcnow():
+    if not user or not user.password_reset_expires or user.password_reset_expires < utcnow():
         return render_template('reset_password.html', error='This reset link is invalid or has expired. Please request a new one.', token_valid=False)
 
     if request.method == 'POST':
@@ -473,7 +474,7 @@ def verify_email():
     if not user:
         return render_template('login.html', error='Invalid or expired verification link.')
 
-    if user.email_verification_sent_at and (datetime.utcnow() - user.email_verification_sent_at).total_seconds() > 86400:
+    if user.email_verification_sent_at and (utcnow() - user.email_verification_sent_at).total_seconds() > 86400:
         return render_template('login.html', error='Verification link has expired. Please request a new one.')
 
     user.email_verified = True
@@ -509,7 +510,7 @@ def resend_verification():
     hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
 
     user.email_verification_token = hashed_token
-    user.email_verification_sent_at = datetime.utcnow()
+    user.email_verification_sent_at = utcnow()
     db.session.commit()
 
     def _resend_email(app, user_id, user_email, token):
@@ -549,7 +550,7 @@ def verify_2fa():
         return redirect(url_for('.login'))
 
     pending_dt = datetime.fromisoformat(pending_time)
-    if datetime.utcnow() - pending_dt > timedelta(minutes=5):
+    if utcnow() - pending_dt > timedelta(minutes=5):
         session.pop('2fa_pending_user', None)
         session.pop('2fa_pending_time', None)
         session.pop('2fa_next', None)
@@ -574,12 +575,12 @@ def verify_2fa():
             return render_template('verify_2fa.html', mfa_method=mfa_method,
                                    error='Please enter a verification code.')
 
-        if user.two_factor_locked_until and datetime.utcnow() < user.two_factor_locked_until:
-            remaining = int((user.two_factor_locked_until - datetime.utcnow()).total_seconds() / 60) + 1
+        if user.two_factor_locked_until and utcnow() < user.two_factor_locked_until:
+            remaining = int((user.two_factor_locked_until - utcnow()).total_seconds() / 60) + 1
             return render_template('verify_2fa.html', mfa_method=mfa_method,
                                    error=f'Too many failed attempts. Try again in {remaining} minutes.')
 
-        if user.two_factor_locked_until and datetime.utcnow() >= user.two_factor_locked_until:
+        if user.two_factor_locked_until and utcnow() >= user.two_factor_locked_until:
             user.two_factor_locked_until = None
             user.two_factor_attempts = 0
 
@@ -622,7 +623,7 @@ def verify_2fa():
         else:
             user.two_factor_attempts = (user.two_factor_attempts or 0) + 1
             if user.two_factor_attempts >= 5:
-                user.two_factor_locked_until = datetime.utcnow() + timedelta(minutes=15)
+                user.two_factor_locked_until = utcnow() + timedelta(minutes=15)
                 security_logger.warning(f"MFA locked for {user.email} from {ip_address}")
             db.session.commit()
 
@@ -653,7 +654,7 @@ def request_mfa_reset():
     from datetime import timedelta
     token = _secrets.token_urlsafe(32)
     user.mfa_reset_token = hashlib.sha256(token.encode()).hexdigest()
-    user.mfa_reset_expires = datetime.utcnow() + timedelta(minutes=30)
+    user.mfa_reset_expires = utcnow() + timedelta(minutes=30)
     db.session.commit()
 
     from services.email_service import email_service
@@ -677,7 +678,7 @@ def reset_mfa():
     if not user or user.mfa_reset_token != hashed_token:
         return render_template('login.html', error='Invalid or expired reset link.')
 
-    if datetime.utcnow() > user.mfa_reset_expires:
+    if utcnow() > user.mfa_reset_expires:
         user.mfa_reset_token = None
         user.mfa_reset_expires = None
         db.session.commit()
@@ -747,7 +748,7 @@ def api_2fa_verify_setup():
     if two_factor_service.verify_totp(current_user.two_factor_secret, code):
         current_user.two_factor_enabled = True
         current_user.mfa_method = 'totp'
-        current_user.two_factor_verified_at = datetime.utcnow()
+        current_user.two_factor_verified_at = utcnow()
         current_user.two_factor_attempts = 0
         current_user.email_verified = True  # TOTP setup proves account ownership
 
@@ -888,7 +889,7 @@ def api_mfa_verify_method():
     current_user.clear_mfa_otp()
     current_user.mfa_method = method
     current_user.two_factor_enabled = True
-    current_user.two_factor_verified_at = datetime.utcnow()
+    current_user.two_factor_verified_at = utcnow()
     current_user.two_factor_attempts = 0
     current_user.email_verified = True  # MFA setup proves account ownership
 

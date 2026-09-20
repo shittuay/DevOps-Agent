@@ -3,6 +3,7 @@ import re
 import threading
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
+from src.utils.timeutils import utcnow
 
 logger = get_logger(__name__)
 
@@ -405,7 +406,7 @@ def get_azure_metrics(
 
         # Default to last hour if not specified
         if not timespan:
-            end_time = datetime.utcnow()
+            end_time = utcnow()
             start_time = end_time - timedelta(hours=1)
 
         metrics_data = []

@@ -7,6 +7,7 @@ Background tasks for long-running cloud operations.
 import logging
 from celery_app import celery
 from celery import shared_task
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ def sync_all_user_resources(self):
 
                 if last_resource and last_resource.last_synced:
                     next_sync = last_resource.last_synced + timedelta(minutes=interval)
-                    if datetime.utcnow() < next_sync:
+                    if utcnow() < next_sync:
                         skipped += 1
                         continue
 

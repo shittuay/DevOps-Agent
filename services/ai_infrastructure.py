@@ -12,6 +12,7 @@ from enum import Enum
 import re
 import json
 import secrets
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -416,7 +417,7 @@ class AIInfrastructureService:
 
         request.status = 'approved'
         request.approved_by = user_id
-        request.approved_at = datetime.utcnow()
+        request.approved_at = utcnow()
         db.session.commit()
         return True
 
@@ -433,21 +434,21 @@ class AIInfrastructureService:
         execution_log = []
         for resource in spec.get('resources', []):
             execution_log.append({
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': utcnow().isoformat(),
                 'action': 'creating',
                 'resource': resource['type'],
                 'resource_id': resource['id']
             })
 
         execution_log.append({
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'action': 'completed',
             'message': 'All resources provisioned successfully'
         })
 
         request.execution_log = execution_log
         request.status = 'completed'
-        request.completed_at = datetime.utcnow()
+        request.completed_at = utcnow()
         db.session.commit()
 
         return True

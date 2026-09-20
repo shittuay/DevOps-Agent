@@ -49,6 +49,7 @@ from flask import (Blueprint, Response, has_request_context, jsonify, redirect,
                    render_template_string, request, stream_with_context)
 
 from extensions import limiter
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -136,11 +137,11 @@ def _store_token_db(token: str, user_id: int, kind: str = 'access',
                 user_id=user_id,
                 token_kind=kind,
                 client_id=client_id,
-                expires_at=datetime.utcnow() + timedelta(seconds=ttl),
+                expires_at=utcnow() + timedelta(seconds=ttl),
             )
             db.session.add(row)
             # Prune tokens that expired more than a day ago (keep the table tidy)
-            cutoff = datetime.utcnow() - timedelta(days=1)
+            cutoff = utcnow() - timedelta(days=1)
             MCPOAuthToken.query.filter(MCPOAuthToken.expires_at < cutoff).delete()
             db.session.commit()
     except Exception as e:
@@ -322,11 +323,11 @@ def _store_code_db(code: str, user_id: int, redirect_uri: str, code_challenge: s
                 user_id=user_id,
                 redirect_uri=redirect_uri,
                 code_challenge=code_challenge or '',
-                expires_at=datetime.utcnow() + timedelta(seconds=_CODE_TTL),
+                expires_at=utcnow() + timedelta(seconds=_CODE_TTL),
             )
             db.session.add(row)
             # Prune already-expired codes to keep the table tidy
-            MCPOAuthCode.query.filter(MCPOAuthCode.expires_at < datetime.utcnow()).delete()
+            MCPOAuthCode.query.filter(MCPOAuthCode.expires_at < utcnow()).delete()
             db.session.commit()
     except Exception as e:
         logger.warning(f"MCP: failed to persist auth code to DB (memory-only fallback): {e}")
@@ -354,7 +355,7 @@ def _consume_code_db(code: str) -> Optional[Dict[str, Any]]:
                     'user_id':        row.user_id,
                     'redirect_uri':   row.redirect_uri,
                     # expires_at is a naive datetime holding a UTC value (from
-                    # datetime.utcnow()). Calling .timestamp() directly on it
+                    # utcnow()). Calling .timestamp() directly on it
                     # would make Python interpret it as *local* server time,
                     # silently shifting the expiry by the server's UTC offset —
                     # tag it UTC explicitly before converting to epoch.

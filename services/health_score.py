@@ -20,6 +20,7 @@ Grade thresholds:
 
 from datetime import datetime, timedelta
 from typing import Dict, Any
+from src.utils.timeutils import utcnow
 
 
 def calculate_health_score(user_id: int) -> Dict[str, Any]:
@@ -83,7 +84,7 @@ def calculate_health_score(user_id: int) -> Dict[str, Any]:
         })
 
     # ── Recent incidents (past 7 days) ───────────────────────────────────────
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = utcnow() - timedelta(days=7)
     recent_incidents = IncidentModel.query.filter(
         IncidentModel.user_id == user_id,
         IncidentModel.triggered_at >= week_ago,
@@ -145,7 +146,7 @@ def calculate_health_score(user_id: int) -> Dict[str, Any]:
         'score': score,
         'color': color,
         'breakdown': breakdown,
-        'last_updated': datetime.utcnow().isoformat(),
+        'last_updated': utcnow().isoformat(),
     }
 
 

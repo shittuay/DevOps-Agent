@@ -16,6 +16,7 @@ import logging
 import secrets
 from datetime import datetime
 from typing import List, Tuple
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ def verify_domain(domain_row) -> Tuple[bool, str]:
         v = value.strip().strip('"')
         if v == expected or v == token:
             domain_row.verified = True
-            domain_row.verified_at = datetime.utcnow()
+            domain_row.verified_at = utcnow()
             db.session.commit()
             logger.info("Verified SSO domain %s for org %s",
                         domain_row.domain, domain_row.organization_id)

@@ -7,6 +7,7 @@ Provides user management endpoints.
 from flask import jsonify, request, g
 from api.v1 import api_v1_bp
 from services.api_key_service import require_api_key
+from src.utils.timeutils import utcnow
 
 
 @api_v1_bp.route('/users/me', methods=['GET'])
@@ -155,7 +156,7 @@ def get_user_usage():
     user_id = g.api_user.id
 
     # Get usage for last 30 days
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_days_ago = utcnow() - timedelta(days=30)
 
     usage_stats = UsageLog.query.filter(
         UsageLog.user_id == user_id,

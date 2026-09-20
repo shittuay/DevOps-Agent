@@ -32,6 +32,7 @@ from urllib.parse import urlencode
 import lxml.etree as ET
 
 from services.sso_service import Identity, SSOError
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ def build_authn_request(config: Dict, acs_url: str, sp_entity_id: str,
         raise SSOError("SAML provider is missing the IdP SSO URL")
 
     request_id = '_' + secrets.token_hex(16)
-    issue_instant = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    issue_instant = utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
     xml = (
         '<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" '
         'xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" '
@@ -189,7 +190,7 @@ def _validate_conditions(assertion, sp_entity_id: str, acs_url: str,
     if issuer and idp_entity_id and issuer.strip() != idp_entity_id.strip():
         raise SSOError("SAML assertion issuer does not match the configured IdP")
 
-    now = datetime.utcnow()
+    now = utcnow()
     conditions = assertion.find('saml:Conditions', NS)
     if conditions is not None:
         nb = _parse_dt(conditions.get('NotBefore'))
