@@ -418,6 +418,17 @@ class TestSafetyClassifications:
         # git_stash_drop were already medium, this one wasn't.
         assert self._classify('git_stash_save') == 'medium'
 
+    # --- create_cloudformation_stack (2026-09-07 scheduled audit: 'create_' isn't
+    # a monitored auto-detect prefix, and the tool accepts a caller-supplied
+    # template_body plus capabilities including CAPABILITY_NAMED_IAM — same
+    # IAM-provisioning risk class as create_iam_role/create_iam_policy. Its
+    # delete_/update_ siblings were already classified; the create path was missed,
+    # and the Execution Integrity IaC fallback now actively offers this tool to the
+    # model on any failed create, making it a systematic unconfirmed recovery path
+    # if left low-risk) ---
+    def test_create_cloudformation_stack_is_medium_risk(self):
+        assert self._classify('create_cloudformation_stack') == 'medium'
+
     # --- medium-risk: GitHub (create_ prefix isn't a monitored auto-detect
     # prefix, and this tool's `private` param defaults to False, so a new repo
     # is public on GitHub by default with zero confirmation) ---

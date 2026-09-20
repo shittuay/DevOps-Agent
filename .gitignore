@@ -109,4 +109,14 @@ vault/.obsidian/cache/
 # SonarQube local analysis
 .sonar-token
 .scannerwork/
+# Scanner working directory. Named .sonar/ by newer scanner versions, which is
+# why .scannerwork/ alone stopped covering it.
+.sonar/
 coverage.xml
+
+# Local scratch/probe artefacts. Untracked either way, but listing them keeps
+# `git status` readable and pairs with the sonar.exclusions entry that stops
+# them being analysed as first-party source.
+scratch_*.py
+probe_out.txt
+real_history.json

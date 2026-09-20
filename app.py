@@ -171,7 +171,7 @@ if _sentry_dsn:
         print("Warning: SENTRY_DSN set but sentry-sdk not installed. Run: pip install sentry-sdk[flask]")
 
 # Initialize security features
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from flask_limiter.errors import RateLimitExceeded
 from flask_talisman import Talisman
 
@@ -183,7 +183,56 @@ from extensions import limiter, security_logger
 csrf = CSRFProtect(app)
 app.config['WTF_CSRF_ENABLED'] = True
 app.config['WTF_CSRF_TIME_LIMIT'] = None  # No time limit for CSRF tokens
-app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Exempt JSON API routes; CSRF enforced on form endpoints via @csrf.protect
+app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Automatic check off; _enforce_csrf_on_form_submissions() below does it
+
+# Flask-WTF's automatic check is disabled above because the JSON surfaces of
+# this app (/api/*, the MCP transport, the developer REST gateway, and the
+# HMAC-signed inbound webhook receiver) send no CSRF token. The promised
+# replacement — per-endpoint `@csrf.protect` — was never written. Four auth
+# routes do check by hand via routes/auth.py's `_check_csrf()` (/login,
+# /signup, /forgot-password, /reset-password), and those four are the ONLY
+# form endpoints that were ever validated. Every other form-encoded POST —
+# /profile, the organization create/invite/settings forms, compliance policy
+# and evidence, API key and webhook creation — rendered no token and checked
+# none.
+#
+# What needs protecting is narrower than "every POST". A cross-origin page
+# cannot send `Content-Type: application/json` without a CORS preflight it has
+# no way to satisfy, so the JSON endpoints are not the exposed surface.
+# Form-encoded and multipart submissions ARE "simple requests" that any page
+# can make with the victim's cookies attached, so those are enforced here.
+#
+# The four hand-written `_check_csrf()` calls are left in place: this hook
+# preempts them, but their inline error message is the only feedback those
+# pages can give, since none of the four auth templates render flashes.
+#
+# This mirrors Flask-WTF's own `csrf_protect` hook (flask_wtf/csrf.py) so that
+# `csrf.exempt(...)` keeps working; it reads that extension's private exemption
+# sets, which is why requirements.txt pins flask-wtf exactly. Revisit if that
+# pin moves.
+_CSRF_FORM_MIMETYPES = frozenset({
+    'application/x-www-form-urlencoded',
+    'multipart/form-data',
+})
+
+
+@app.before_request
+def _enforce_csrf_on_form_submissions():
+    """Validate the CSRF token on cookie-authenticated form submissions."""
+    if not app.config.get('WTF_CSRF_ENABLED', True):
+        return
+    if request.method not in app.config['WTF_CSRF_METHODS']:
+        return
+    if (request.mimetype or '').lower() not in _CSRF_FORM_MIMETYPES:
+        return
+    if not request.endpoint:
+        return
+    if app.blueprints.get(request.blueprint) in csrf._exempt_blueprints:
+        return
+    view = app.view_functions.get(request.endpoint)
+    if view is not None and f'{view.__module__}.{view.__name__}' in csrf._exempt_views:
+        return
+    csrf.protect()
 
 # Bind limiter to this app instance
 limiter.init_app(app)
@@ -545,6 +594,31 @@ def _template_exists(name):
     from flask import current_app
     import os
     return os.path.exists(os.path.join(current_app.template_folder, name))
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    """Turn a rejected form submission into a re-try, not a bare 400 page.
+
+    _enforce_csrf_on_form_submissions() only ever fires on form-encoded posts,
+    so the caller is a browser rendering one of our own pages: send them back to
+    it with a flash rather than Flask-WTF's default error document. The wording
+    stays generic because a failure here is far more often a stale session than
+    an actual forged request.
+
+    The referrer is validated before it is used as the redirect target: on a
+    genuinely forged request it points at the attacker's page, and bouncing the
+    victim straight back to it would make this handler an open redirect.
+    """
+    from routes.auth import _is_safe_redirect
+
+    security_logger.warning(
+        f"CSRF rejected: {request.method} {request.path} from {request.remote_addr} ({e.description})"
+    )
+    flash('Your session expired. Please refresh the page and try again.', 'error')
+    referrer = request.referrer
+    target = referrer if referrer and _is_safe_redirect(referrer) else url_for('index')
+    return redirect(target), 303
 
 
 @app.errorhandler(405)
