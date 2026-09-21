@@ -254,7 +254,10 @@ def api_test_webhook():
         'compare': 'https://example.com/compare'
     }
 
-    event = service.process_webhook(source, 'push', test_data)
+    # This route is @login_required, so unlike the provider webhooks above we
+    # do know whose incident namespace a test event belongs in.
+    event = service.process_webhook(source, 'push', test_data,
+                                    app_user_id=current_user.id)
 
     if event:
         return jsonify({

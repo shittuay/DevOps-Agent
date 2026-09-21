@@ -40,6 +40,7 @@
     <div class="modal-content">
         <h3>Invite Member</h3>
         <form action="{{ url_for('organizations.invite_member', org_id=organization.id) }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label>Email Address:</label>
                 <input type="email" name="email" class="form-control" required placeholder="user@example.com">

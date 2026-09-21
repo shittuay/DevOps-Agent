@@ -1,0 +1,72 @@
+# Local SonarQube server for static analysis of this repo.
+#
+#   docker compose -f docker-compose.sonar.yml up -d
+#   ./scripts/sonar-scan.sh
+#
+# Kept separate from docker-compose.yml so the analysis stack can be started and
+# torn down without touching the app stack (and so their Postgres services do
+# not collide). See docs/sonarqube.md.
+
+services:
+  sonar-db:
+    image: postgres:16-alpine
+    container_name: sonarqube-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_db_data:/var/lib/postgresql/data
+    # Deliberately no host port: this database is only ever reached by the
+    # sonarqube service over the compose network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  sonarqube:
+    image: sonarqube:26.9.0.129388-community
+    container_name: sonarqube
+    restart: unless-stopped
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_logs:/opt/sonarqube/logs
+      - sonarqube_extensions:/opt/sonarqube/extensions
+    # SonarQube's embedded Elasticsearch needs a high file-descriptor limit and
+    # vm.max_map_count >= 262144 in the Docker VM. Docker Desktop on WSL2 already
+    # sets max_map_count; scripts/sonar-scan.sh verifies it and fails loudly.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # Run on demand via the "scan" profile so `up -d` never starts it:
+  #   docker compose -f docker-compose.sonar.yml --profile scan run --rm sonar-scanner
+  # scripts/sonar-scan.sh wraps this.
+  sonar-scanner:
+    image: sonarsource/sonar-scanner-cli:11
+    profiles: ["scan"]
+    depends_on:
+      - sonarqube
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    volumes:
+      - .:/usr/src
+
+volumes:
+  sonar_db_data:
+  sonarqube_data:
+  sonarqube_logs:
+  sonarqube_extensions:

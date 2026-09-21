@@ -98,7 +98,8 @@ from src.tools import (
     monitoring_tools,
     ansible_tools,
     alerting_tools,
-    devops_operations_tools
+    devops_operations_tools,
+    verification_tools
 )
 
 # Import database models
@@ -128,6 +129,26 @@ CHAT_KEEPALIVE_INTERVAL_SECONDS = 15
 # in the background and persists itself (see _finalize_turn).
 CHAT_MAX_TURN_SECONDS = int(os.environ.get('CHAT_MAX_TURN_SECONDS', '840'))
 
+# At or below this many credits, chat responses carry a `low_credit_warning`
+# so the UI can warn the user before they spend their next credit (Execution
+# Integrity rule 5). The existing one-time email fires only at exactly 5.
+LOW_CREDIT_THRESHOLD = 5
+
+
+def _low_credit_warning(credits_remaining):
+    """A `low_credit_warning` payload when the balance is running low, else None."""
+    if credits_remaining is None or credits_remaining > LOW_CREDIT_THRESHOLD:
+        return None
+    if credits_remaining <= 0:
+        return None  # the exhausted path has its own upgrade pitch
+    return {
+        'credits_remaining': credits_remaining,
+        'message': (
+            f"You have {credits_remaining} credit{'s' if credits_remaining != 1 else ''} "
+            f"left. Each message costs 1 — top up to keep going."
+        ),
+    }
+
 # Trust proxy headers (Cloudflare → nginx → Flask).
 # Without this, Talisman sees HTTP and redirects Stripe webhooks, losing the body + signature.
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -151,7 +172,7 @@ if _sentry_dsn:
         print("Warning: SENTRY_DSN set but sentry-sdk not installed. Run: pip install sentry-sdk[flask]")
 
 # Initialize security features
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from flask_limiter.errors import RateLimitExceeded
 from flask_talisman import Talisman
 
@@ -163,7 +184,56 @@ from extensions import limiter, security_logger
 csrf = CSRFProtect(app)
 app.config['WTF_CSRF_ENABLED'] = True
 app.config['WTF_CSRF_TIME_LIMIT'] = None  # No time limit for CSRF tokens
-app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Exempt JSON API routes; CSRF enforced on form endpoints via @csrf.protect
+app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Automatic check off; _enforce_csrf_on_form_submissions() below does it
+
+# Flask-WTF's automatic check is disabled above because the JSON surfaces of
+# this app (/api/*, the MCP transport, the developer REST gateway, and the
+# HMAC-signed inbound webhook receiver) send no CSRF token. The promised
+# replacement — per-endpoint `@csrf.protect` — was never written. Four auth
+# routes do check by hand via routes/auth.py's `_check_csrf()` (/login,
+# /signup, /forgot-password, /reset-password), and those four are the ONLY
+# form endpoints that were ever validated. Every other form-encoded POST —
+# /profile, the organization create/invite/settings forms, compliance policy
+# and evidence, API key and webhook creation — rendered no token and checked
+# none.
+#
+# What needs protecting is narrower than "every POST". A cross-origin page
+# cannot send `Content-Type: application/json` without a CORS preflight it has
+# no way to satisfy, so the JSON endpoints are not the exposed surface.
+# Form-encoded and multipart submissions ARE "simple requests" that any page
+# can make with the victim's cookies attached, so those are enforced here.
+#
+# The four hand-written `_check_csrf()` calls are left in place: this hook
+# preempts them, but their inline error message is the only feedback those
+# pages can give, since none of the four auth templates render flashes.
+#
+# This mirrors Flask-WTF's own `csrf_protect` hook (flask_wtf/csrf.py) so that
+# `csrf.exempt(...)` keeps working; it reads that extension's private exemption
+# sets, which is why requirements.txt pins flask-wtf exactly. Revisit if that
+# pin moves.
+_CSRF_FORM_MIMETYPES = frozenset({
+    'application/x-www-form-urlencoded',
+    'multipart/form-data',
+})
+
+
+@app.before_request
+def _enforce_csrf_on_form_submissions():
+    """Validate the CSRF token on cookie-authenticated form submissions."""
+    if not app.config.get('WTF_CSRF_ENABLED', True):
+        return
+    if request.method not in app.config['WTF_CSRF_METHODS']:
+        return
+    if (request.mimetype or '').lower() not in _CSRF_FORM_MIMETYPES:
+        return
+    if not request.endpoint:
+        return
+    if app.blueprints.get(request.blueprint) in csrf._exempt_blueprints:
+        return
+    view = app.view_functions.get(request.endpoint)
+    if view is not None and f'{view.__module__}.{view.__name__}' in csrf._exempt_views:
+        return
+    csrf.protect()
 
 # Bind limiter to this app instance
 limiter.init_app(app)
@@ -220,7 +290,22 @@ app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 
 # Database configuration
 # PostgreSQL for both local dev and production
-database_url = os.environ.get('DATABASE_URL', 'postgresql://devops:devops_local@localhost:5432/devops_agent')
+database_url = os.environ.get('DATABASE_URL')
+if not database_url:
+    # The local-dev fallback below carries a well-known password (it matches
+    # docker-compose.yml's dev database). Falling back to it in production would
+    # either fail obscurely or, worse, connect to some unintended local database,
+    # so refuse instead of guessing.
+    if os.environ.get('FLASK_ENV') == 'production' or os.environ.get('USE_AWS_SECRETS') == 'true':
+        raise RuntimeError(
+            "DATABASE_URL is not set. It is required in production - refusing to "
+            "fall back to the local development database."
+        )
+    database_url = (
+        f"postgresql://{os.environ.get('DEV_DB_USER', 'devops')}"
+        f":{os.environ.get('DEV_DB_PASSWORD', 'devops_local')}"
+        f"@{os.environ.get('DEV_DB_HOST', 'localhost')}:5432/devops_agent"
+    )
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
@@ -498,15 +583,43 @@ def handle_rate_limit(e):
     limit = getattr(e, 'description', str(e))
     if request.path.startswith('/api/') or request.path.startswith('/chat'):
         return jsonify({'error': f'Rate limit exceeded. {limit}'}), 429
-    return render_template('429.html', limit=limit) if _template_exists('429.html') else (
-        f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
-    )
+    # Both branches must carry the status explicitly: render_template() alone
+    # returns a bare string, which Flask serves as 200 - so adding a 429.html
+    # would have quietly turned every rate-limited response into a success.
+    if _template_exists('429.html'):
+        return render_template('429.html', limit=limit), 429
+    return f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
 
 
 def _template_exists(name):
     from flask import current_app
     import os
     return os.path.exists(os.path.join(current_app.template_folder, name))
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    """Turn a rejected form submission into a re-try, not a bare 400 page.
+
+    _enforce_csrf_on_form_submissions() only ever fires on form-encoded posts,
+    so the caller is a browser rendering one of our own pages: send them back to
+    it with a flash rather than Flask-WTF's default error document. The wording
+    stays generic because a failure here is far more often a stale session than
+    an actual forged request.
+
+    The referrer is validated before it is used as the redirect target: on a
+    genuinely forged request it points at the attacker's page, and bouncing the
+    victim straight back to it would make this handler an open redirect.
+    """
+    from routes.auth import _is_safe_redirect
+
+    security_logger.warning(
+        f"CSRF rejected: {request.method} {request.path} from {request.remote_addr} ({e.description})"
+    )
+    flash('Your session expired. Please refresh the page and try again.', 'error')
+    referrer = request.referrer
+    target = referrer if referrer and _is_safe_redirect(referrer) else url_for('index')
+    return redirect(target), 303
 
 
 @app.errorhandler(405)
@@ -1030,6 +1143,7 @@ def initialize_agent():
 
         # Register tools
         agent.register_tools_from_module(command_tools)
+        agent.register_tools_from_module(verification_tools)  # http_check / tcp_check — always available
         if config_manager.aws_enabled:
             agent.register_tools_from_module(aws_tools)
         # Always enable GCP and Azure tools
@@ -2753,6 +2867,70 @@ def admin_add_credits():
     })
 
 
+def _record_tool_usage(*, user_id, conversation_id, ai_model, primary_row,
+                        primary_tool, tool_calls, tools_used, turn_success):
+    """Emit the per-tool ``UsageLog`` rows for a finished chat turn.
+
+    Shared by ``/api/chat`` and ``/api/chat/stream``. Each row carries the
+    tool's OWN outcome — ``usage_logs.success`` on a per-tool row used to be the
+    turn-completion flag, which is what produced the false "unwanted RDS
+    instance" alarm (CLAUDE_RUNBOOK.md, 2026-09-02). A tool the model guessed
+    that progressive selection never sent is written as ``tool_not_offered`` so
+    a recurrence of that day's misrouting is visible from one DB query.
+
+    ``primary_row`` is the already-created turn row; its ``success`` /
+    ``error_message`` are corrected in place if the primary tool actually
+    failed. Returns the list of extra rows to add to the session.
+
+    Falls back to one turn-flagged row per distinct executed tool when the
+    structured ``tool_calls`` log is unavailable (e.g. the Groq no-tools
+    fallback path).
+    """
+    rows = []
+    seen = {primary_tool} if primary_tool else set()
+
+    if tool_calls:
+        outcome = {}  # tool -> (success, error, status); any failure wins
+        for tc in tool_calls:
+            name = tc.get('tool')
+            if not name:
+                continue
+            ok = bool(tc.get('success'))
+            if name not in outcome or (outcome[name][0] and not ok):
+                outcome[name] = (ok, tc.get('error') or None, tc.get('status'))
+
+        if primary_tool in outcome and not outcome[primary_tool][0] and primary_row.success:
+            primary_row.success = False
+            primary_row.error_message = primary_row.error_message or outcome[primary_tool][1]
+
+        for name, (ok, err, status) in outcome.items():
+            if name in seen:
+                continue
+            seen.add(name)
+            rows.append(UsageLog(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                action_type='tool_not_offered' if status == 'not_offered' else 'tool_use',
+                tool_name=name,
+                credits_used=0,
+                success=ok,
+                error_message=None if ok else err,
+                ai_model=ai_model,
+            ))
+    else:
+        for name in tools_used[1:]:
+            rows.append(UsageLog(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                action_type='tool_use',
+                tool_name=name,
+                credits_used=0,
+                success=turn_success,
+                ai_model=ai_model,
+            ))
+    return rows
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 @limiter.limit(_chat_rate_limit, key_func=lambda: str(current_user.id))
@@ -3119,16 +3297,13 @@ def api_chat():
                 ai_model=_model.model
             )
             db.session.add(usage_log)
-            for _extra_tool in _tools_used[1:]:
-                db.session.add(UsageLog(
-                    user_id=_user_id,
-                    conversation_id=conversation_id,
-                    action_type='tool_use',
-                    tool_name=_extra_tool,
-                    credits_used=0,
-                    success=success,
-                    ai_model=_model.model
-                ))
+            for _row in _record_tool_usage(
+                user_id=_user_id, conversation_id=conversation_id, ai_model=_model.model,
+                primary_row=usage_log, primary_tool=_primary_tool,
+                tool_calls=_agent_result.get('tool_calls') or [],
+                tools_used=_tools_used, turn_success=success,
+            ):
+                db.session.add(_row)
 
             # Track first-ever tool use for conversion funnel
             if _tools_used and success:
@@ -3208,10 +3383,11 @@ def api_chat():
 
                 logger.info(f"Download ready for user {_user_id}: {download_storage[download_token]['filename']}")
 
+            _bal = CreditService.balance(_user_id)
             response_data = {
                 'response': response,
                 'timestamp': datetime.now().isoformat(),
-                'credits_remaining': CreditService.balance(_user_id),
+                'credits_remaining': _bal,
                 'credits_used_this_month': _subscription.credits_used_this_month if _subscription else 0,
                 'conversation_title': _conversation.title if _conversation else None,
                 'model_info': {
@@ -3221,6 +3397,9 @@ def api_chat():
                     'supports_tools': _model.supports_tools,
                 }
             }
+            _lcw = _low_credit_warning(_bal)
+            if _lcw:
+                response_data['low_credit_warning'] = _lcw
 
             # Add download URL if available
             if download_url:
@@ -3286,6 +3465,12 @@ def api_chat():
                 _agent_result['tools_used'] = list(agent.last_tools_used or [])
             except Exception:
                 _agent_result['tools_used'] = []
+            try:
+                # Per-call record (name + real per-tool outcome), including tools
+                # the model guessed that were never offered — see core._record_tool_call.
+                _agent_result['tool_calls'] = list(getattr(agent, 'last_tool_calls', []) or [])
+            except Exception:
+                _agent_result['tool_calls'] = []
             try:
                 _agent_result['pending_download'] = agent.pending_download
                 agent.pending_download = None
@@ -3904,16 +4089,16 @@ def api_chat_stream():
                         ai_model=actual_mc.model
                     )
                     db.session.add(usage_log)
-                    for _st in _stream_tools[1:]:
-                        db.session.add(UsageLog(
-                            user_id=uid,
-                            conversation_id=cid,
-                            action_type='tool_use',
-                            tool_name=_st,
-                            credits_used=0,
-                            success=True,
-                            ai_model=actual_mc.model
-                        ))
+
+                    # The Kimi streaming tier writes no tool_trace, so these
+                    # per-tool rows are the only per-tool signal it produces.
+                    for _row in _record_tool_usage(
+                        user_id=uid, conversation_id=cid, ai_model=actual_mc.model,
+                        primary_row=usage_log, primary_tool=_stream_primary,
+                        tool_calls=list(getattr(agent, 'last_tool_calls', []) or []),
+                        tools_used=_stream_tools, turn_success=True,
+                    ):
+                        db.session.add(_row)
 
                     # Update conversation: title (first message) + clear streaming flag
                     c = Conversation.query.filter_by(id=cid, user_id=uid).first()
@@ -3941,7 +4126,11 @@ def api_chat_stream():
                         except Exception:
                             pass
 
-                yield f"data: {_json.dumps({'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}})}\n\n"
+                _done_evt = {'type': 'done', 'credits_remaining': remaining, 'model_info': {'provider': actual_mc.provider, 'model': actual_mc.model, 'display_name': actual_mc.display_name, 'supports_tools': actual_mc.supports_tools}}
+                _lcw = _low_credit_warning(remaining)
+                if _lcw:
+                    _done_evt['low_credit_warning'] = _lcw
+                yield f"data: {_json.dumps(_done_evt)}\n\n"
 
             except (BrokenPipeError, GeneratorExit, ConnectionResetError):
                 # Client disconnected mid-stream — silently clean up, do not try to yield
@@ -4302,10 +4491,19 @@ def sync_status(task_id):
 @app.route('/api/dashboard/recommendations/<int:rec_id>/apply', methods=['POST'])
 @login_required
 def apply_recommendation(rec_id):
-    """Apply a cost optimization recommendation."""
+    """Apply a cost optimization recommendation.
+
+    This endpoint does not yet call any AWS/Azure/GCP API to carry out the
+    recommended action (stop the instance, resize it, add a lifecycle
+    policy, etc.) — it must never report success it didn't perform (see
+    CLAUDE.md's "every feature runs against a real cloud account" rule, and
+    the identical fix in routes/scaling.py's api_apply_recommendation). A
+    user trusting a false "applied — saving $X/mo" toast would stop looking
+    for other ways to address the cost/reliability issue that was never
+    actually fixed, while the resource keeps running exactly as before.
+    """
     try:
-        from models import CostOptimization, InfrastructureResource
-        from datetime import datetime
+        from models import CostOptimization
 
         # Get recommendation
         recommendation = CostOptimization.query.get_or_404(rec_id)
@@ -4314,17 +4512,20 @@ def apply_recommendation(rec_id):
         if recommendation.user_id != current_user.id:
             return jsonify({'error': 'Unauthorized'}), 403
 
-        # For now, just mark as applied
-        # In production, actually execute the action (stop instance, etc.)
-        recommendation.status = 'applied'
-        recommendation.applied_at = datetime.utcnow()
-        db.session.commit()
+        logger.info(
+            f"Cost optimization apply requested by {current_user.email} for "
+            f"recommendation {rec_id} ({recommendation.recommendation_type}), but no "
+            f"execution path exists yet — refusing to report false success"
+        )
 
         return jsonify({
-            'success': True,
-            'message': f'Optimization applied successfully',
-            'savings': recommendation.potential_monthly_savings
-        })
+            'success': False,
+            'error': 'Applying this recommendation is not yet implemented — no cloud API '
+                     'call is made. Use the equivalent AWS/Azure/GCP tool in chat to make '
+                     'this change yourself, then dismiss this recommendation.',
+            'recommendation_id': rec_id,
+            'recommendation_type': recommendation.recommendation_type,
+        }), 501
     except HTTPException:
         raise  # let get_or_404's 404 (and other HTTP errors) pass through
     except Exception as e:
@@ -6313,4 +6514,9 @@ if __name__ == '__main__':
         print(f"  Warning: Scheduler failed to start: {e}")
 
     debug_mode = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False, threaded=True)
+    # Loopback by default so `python app.py` does not expose the development
+    # server to the whole network. Containers need to bind all interfaces to be
+    # reachable through a published port, so docker-compose.yml sets
+    # FLASK_RUN_HOST=0.0.0.0 explicitly. Production serves via gunicorn, not here.
+    run_host = os.environ.get('FLASK_RUN_HOST', '127.0.0.1')
+    app.run(host=run_host, port=port, debug=debug_mode, use_reloader=False, threaded=True)

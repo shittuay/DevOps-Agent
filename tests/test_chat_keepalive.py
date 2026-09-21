@@ -193,6 +193,10 @@ def _thread_local_agent(process_message_isolated):
             return getattr(self._local, 'tools', [])
 
         @property
+        def last_tool_calls(self):
+            return getattr(self._local, 'tool_calls', [])
+
+        @property
         def pending_download(self):
             return getattr(self._local, 'download', None)
 
@@ -286,6 +290,44 @@ def test_tools_used_are_attributed_to_the_usage_log(app, chatting_client, test_u
         f"tool attribution lost — usage logs recorded {tool_names}"
     )
     assert any(log.action_type == 'tool_use' for log in logs)
+
+
+def test_per_tool_success_and_not_offered_rows_reach_the_usage_log(app, chatting_client, test_user):
+    """usage_logs must now carry each tool's OWN outcome (not the turn flag),
+    and a 'tool_not_offered' row for a tool the model guessed that selection
+    never sent — the DB-queryable signal for the 2026-09-02 misrouting bug."""
+    from models import UsageLog
+
+    def _process(self, **kwargs):
+        self._local.tools = ['find_ami', 'create_ec2_instance']
+        self._local.tool_calls = [
+            {'tool': 'list_iam_roles', 'status': 'not_offered', 'success': False,
+             'error': 'tool not offered this turn'},
+            {'tool': 'find_ami', 'status': 'ok', 'success': True, 'error': None},
+            {'tool': 'create_ec2_instance', 'status': 'error', 'success': False,
+             'error': 'InvalidAMIID.NotFound'},
+        ]
+        return "Tried to launch an instance."
+
+    agent = _thread_local_agent(_process)
+
+    with patch('app.agent', agent), \
+         patch('src.agent.guardrails.screen_message', return_value=_ok_guardrail_result()):
+        resp = chatting_client.post('/api/chat', json={'message': 'create an ubuntu ec2 instance'})
+        assert resp.status_code == 200
+
+    logs = {(l.action_type, l.tool_name): l for l in UsageLog.query.filter_by(user_id=test_user.id).all()}
+
+    assert ('tool_not_offered', 'list_iam_roles') in logs
+    assert logs[('tool_not_offered', 'list_iam_roles')].success is False
+
+    # create_ec2_instance ran but failed — its row reflects the tool, not the turn
+    ce2 = logs.get(('tool_use', 'create_ec2_instance'))
+    assert ce2 is not None and ce2.success is False
+    assert 'InvalidAMIID' in (ce2.error_message or '')
+
+    # find_ami succeeded
+    assert logs[('tool_use', 'find_ami')].success is True
 
 
 def test_pending_download_from_the_worker_thread_reaches_the_client(app, chatting_client):

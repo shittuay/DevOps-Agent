@@ -10,6 +10,7 @@
         <div class="card-header"><h3>General Settings</h3></div>
         <div class="card-body">
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label>Organization Name:</label>
                     <input type="text" name="name" class="form-control" value="{{ organization.name }}" required>

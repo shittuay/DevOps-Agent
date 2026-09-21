@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css" integrity="sha384-t1nt8BQoYMLFN5p42tRAtuAAFQaCQODekUVeKKZrEnEyp4H2R0RHFz0KWpmj7i8g" crossorigin="anonymous">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
 
     <style>
@@ -2787,6 +2787,7 @@
                             _swarmTipShown = false;
                         }
                         if (data.credits_remaining !== undefined) updateCreditsDisplay(data.credits_remaining);
+                        maybeWarnLowCredit(data.low_credit_warning);
                         // Gate the lockout on the explicit trial_ended flag, not a raw
                         // credits_remaining === 0 check — a generic error response could
                         // in principle report 0 for reasons unrelated to the real balance
@@ -2953,6 +2954,7 @@
                                 if (evt.credits_remaining !== undefined) {
                                     updateCreditsDisplay(evt.credits_remaining);
                                 }
+                                maybeWarnLowCredit(evt.low_credit_warning);
                                 // Update workflow execution status if this chat was started by a workflow
                                 markWorkflowExecution(evt.error ? 'failed' : 'completed');
                                 if (evt.trial_ended) {
@@ -3530,6 +3532,16 @@
             if (countSpan) {
                 countSpan.textContent = credits;
             }
+        }
+
+        // Show the low-credit warning at most once per distinct balance, so a
+        // user sitting at 3 credits isn't toasted on every message.
+        let _lastLowCreditWarned = null;
+        function maybeWarnLowCredit(w) {
+            if (!w || w.credits_remaining == null) return;
+            if (_lastLowCreditWarned === w.credits_remaining) return;
+            _lastLowCreditWarned = w.credits_remaining;
+            if (typeof showToast === 'function') showToast(w.message, 'info');
         }
 
         // Contact Widget Functions

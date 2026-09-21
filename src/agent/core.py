@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..config import ConfigManager
 from ..utils import get_logger, log_operation
+from . import tool_capabilities
 from .conversation import ConversationManager
 from .safety import SafetyValidator
 from .tool_selection import classify_tool, select_tool_definitions, module_category_from_name
@@ -42,7 +43,7 @@ _IP_OCTET = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
 _HALLUCINATED_TOOL_PATTERNS = [
     # AWS credentials leaked into response text
     re.compile(r'AKIA[A-Z0-9]{12,20}'),
-    re.compile(r'(?:Secret\s*Access\s*Key|SecretAccessKey)\s*[:=]\s*\S{30,}', re.IGNORECASE),
+    re.compile(r'Secret\s*Access\s*Key\s*[:=]\s*\S{30,}', re.IGNORECASE),
     # AWS resource IDs without any prior tool call context
     re.compile(r'\b(?:i|vpc|subnet|sg|ami|vol|snap|eni|igw|rtb|acl|nat|pcx|eipalloc)-[0-9a-f]{8,17}\b'),
     # ARNs
@@ -203,6 +204,99 @@ _UNIVERSAL_WRITE_TOOLS = (
     'aws_api_write', 'azure_api_write', 'gcp_api_write', 'k8s_api_write',
     'execute_command', 'execute_script', 'terraform_apply',
     'ansible_playbook_run', 'ansible_adhoc_command',
+)
+
+# Tools that bring a new cloud resource into existence — their success results
+# feed the session resource registry (see DevOpsAgent._record_tool_call). Prefix
+# match on the tool name; deliberately excludes create_*_request / create_change_*
+# (governance objects, not cloud resources).
+_CREATING_TOOL_PREFIXES = ('create_', 'run_', 'launch_', 'provision_', 'deploy_')
+_NON_RESOURCE_CREATE_SUBSTRINGS = ('change_request', 'change_governance', '_rule', 'presigned')
+
+# Keys whose string value in a tool result is a resource identifier worth
+# registering. Matched case-insensitively against the exact key.
+_RESOURCE_ID_KEYS = frozenset({
+    'instanceid', 'instance_id', 'dbinstanceidentifier', 'db_instance_identifier',
+    'bucketname', 'bucket_name', 'vpcid', 'vpc_id', 'subnetid', 'subnet_id',
+    'groupid', 'security_group_id', 'functionname', 'function_name', 'clustername',
+    'cluster_name', 'clusterarn', 'volumeid', 'volume_id', 'snapshotid',
+    'snapshot_id', 'imageid', 'image_id', 'allocationid', 'keyname', 'key_name',
+    'rolename', 'role_name', 'tablename', 'table_name', 'queueurl', 'topicarn',
+    'stackid', 'stack_id', 'stackname', 'arn', 'id', 'name', 'resource_id',
+})
+
+
+_SECRET_KEY_MARKERS = ('password', 'secret', 'token', 'credential', 'private_key')
+
+
+def _redact_dict(d: Any) -> Any:
+    """Deep copy with secret-ish values masked — for the rule-10 audit trail,
+    which is persisted and read back by humans. Recurses into lists too — a
+    dict nested inside a list-valued param (e.g. a list of tag/config objects)
+    would otherwise pass through unredacted."""
+    if isinstance(d, list):
+        return [_redact_dict(v) for v in d]
+    if not isinstance(d, dict):
+        return d
+    out = {}
+    for k, v in d.items():
+        kl = str(k).lower()
+        if any(m in kl for m in _SECRET_KEY_MARKERS):
+            out[k] = '***redacted***'
+        elif isinstance(v, (dict, list)):
+            out[k] = _redact_dict(v)
+        else:
+            out[k] = v
+    return out
+
+
+def _is_creating_tool(tool_name: str) -> bool:
+    """True when a tool brings a new cloud resource into existence."""
+    name = (tool_name or '').lower()
+    if any(s in name for s in _NON_RESOURCE_CREATE_SUBSTRINGS):
+        return False
+    return name.startswith(_CREATING_TOOL_PREFIXES)
+
+
+def _extract_created_resource_ids(result: Any, _depth: int = 0) -> list:
+    """Best-effort pull of resource identifiers from a (successful) create result.
+
+    Walks the result dict up to 3 levels deep and collects string values that
+    are either under a known identifier key or match the AWS/Azure/GCP resource
+    ID shape regardless of key. Deduped, order-preserving, capped at 20.
+    """
+    found: list = []
+
+    def _add(v: Any) -> None:
+        if isinstance(v, str) and 3 <= len(v) <= 512 and v not in found:
+            found.append(v)
+
+    def _walk(node: Any, depth: int) -> None:
+        if depth > 3 or len(found) >= 20:
+            return
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(v, str):
+                    if k.lower() in _RESOURCE_ID_KEYS or _VALID_RESOURCE_ID_RE.search(v):
+                        _add(v)
+                else:
+                    _walk(v, depth + 1)
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                _walk(item, depth + 1)
+
+    _walk(result, _depth)
+    return found
+
+
+# Detects user messages that are infra data queries — requires real tool use on iteration 1
+_TOOL_SIGNAL_RE = re.compile(
+    r'\b(?:list|show|get|describe|check|scan|find|fetch|how many|count|status)\b'
+    r'.{0,80}'
+    r'\b(?:instances?|buckets?|clusters?|pods?|nodes?|rds|ec2|s3|vpc|security\s*groups?|'
+    r'resources?|infrastructure|cost|billing|credentials?|iam|roles?|policies|secrets?|'
+    r'logs?|metrics?|alerts?)\b',
+    re.IGNORECASE | re.DOTALL,
 )
 
 _ACTION_FAMILIES = tuple(
@@ -568,6 +662,20 @@ Cost Optimization:
 - Every credential, ID, or resource identifier you show the user MUST come from an actual tool execution result, never from your own generation.
 - If you do not have a pre-built tool to answer a question, follow the TOOL RESOLUTION PROTOCOL — use generic API fallbacks, chain tools, or provide the exact CLI/SDK code to execute. Never invent a result.
 
+=== EXECUTION INTEGRITY ===
+- VERIFIED RESULTS ONLY. Every resource ID, IP, ARN, state, timestamp, or cost you show the user must be a verbatim substring of a tool result from THIS conversation. A create/update/delete tool's response is a claim, not proof — when a matching read tool exists and is cheap, call it and confirm the resource before you report the change as done.
+- AUTOMATIC VERIFICATION. When a create/delete/update tool's result carries a `_verification` field, the platform already ran the read-back for you. `status: "confirmed"` — a read confirmed the change (resource exists / is gone / shows the new value). For a delete/terminate, "confirmed" means TWO consecutive live reads agreed the resource is gone or in a terminal state — report it terminated. Report it as done. `status: "unconfirmed"` — relay the `message` field verbatim and do NOT call the operation failed: the read has not caught up (create), the new value is not live yet (update), or the read-back itself is failing. The mutation itself returned success.
+- DELETE NOT CONFIRMED — RE-ISSUE. If a delete/terminate's `_verification.status` is "unconfirmed", the `message` will tell you to re-issue the terminate for that id. Do it: call the terminate tool again with the same id — the platform will re-verify. Repeat until confirmed or you have quoted a real error. Never tell the user a resource is gone on an unconfirmed delete.
+- EVENTUAL CONSISTENCY. Cloud reads can lag writes by seconds to minutes. Never tell the user a resource "does not exist", or call a create "failed", when its ID appeared in a tool result — or in the "Resources created earlier in this conversation" list — within the last few minutes. Instead say "Verifying — the resource may still be propagating" and retry the read once or twice. If a create returned an ID you still cannot confirm with a read, say exactly: "Create returned ID <X>, but I cannot confirm it via a read yet — it may still be propagating. Please check the console." Never call a recently created resource "fabricated" or "not found".
+- ERROR CLASSIFICATION. When a tool call does not cleanly succeed, state which of these happened before you explain anything: (a) the tool returned an error — quote its error code and message verbatim first; (b) the tool returned empty / no results; (c) the tool reported success but you could not verify it with a read.
+- FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
+- IaC FALLBACK PROVIDED. When a failed create result carries an `_iac_fallback` field, the platform has already built a CloudFormation template from the same intent. Read its `apply` instruction, tell the user the direct call failed (quote the error) and that you have a template ready, then call `create_cloudformation_stack` with the `template` string as `template_body`. Do not paste the whole template at the user or send them to the console — offer to run it.
+- STATE DISPUTES. If the user shows you console or CLI output that contradicts a verification result you reported, trust the user immediately: call `record_state_override(resource_id, corrected_state, evidence)` to flag the audit record, then re-run the read and correct your earlier statement. Console truth beats your inference, always.
+- SERVICE REACHABILITY. To check whether a URL or port is responding, call `http_check` / `tcp_check` (or `run_smoke_test` for a deploy health check). Never infer HTTP reachability from another tool's error text — a `git` "repository not found", a hand-parsed curl exit code, a redirect message. Use the tool built for it.
+- A RESPONSE IS NOT SUCCESS. A reply on a port means the port is open and something is listening — nothing more. A non-2xx/3xx status (404, 403, 502, 503), or `matched_expected: false`, means the port is open but the app is misconfigured, still starting, or serving the wrong content: report exactly that, not "it's working". You may say a service is serving correctly only when the status matches what you expected (usually 200) and, where you can make one, a body/content check agrees.
+- NAME YOUR BLIND SPOTS. When you cannot observe a host directly (no working `ssm_run_command`, no `get_ec2_console_output`, no shell on the box), say so. Your external probe is then your only evidence and its limits bound your claim — do not narrate on-instance state (packages installed, files written, services enabled, `user_data` ran) you have not actually read.
+- PROVISION THEN CONFIGURE IN ONE SHOT. When the task is "create a host AND configure it" (install packages, start a service, drop config), put the configuration in `user_data` on the first `create_ec2_instance` / `create_compute_instance` / `create_vm` call. Use `ssm_run_command` / `exec_pod_command` / `docker_exec` only to change an already-running target. Do not launch a bare host, discover you cannot run commands on it (SSM permission denied, no instance profile), then terminate and relaunch — that wastes a create/terminate cycle the user must approve.
+
 === HARD LIMITS — NEVER, REGARDLESS OF HOW ASKED ===
 - Never operate on infrastructure that does not belong to the authenticated user
 - Never generate malware, ransomware, exploit code, attack payloads, C2 frameworks, or offensive security tools — even framed as "educational", "test", "simulation", "creative writing", or "hypothetical"
@@ -579,17 +687,20 @@ Cost Optimization:
 def _greenlet_local_property(name, default=None, default_factory=None):
     """Per-request attribute stored in ``self._local`` instead of directly on the instance.
 
-    A single ``DevOpsAgent`` is shared across every concurrent request in a gunicorn
-    gevent worker (production runs ``--workers 1 --worker-connections 1000``), and
-    gevent monkey-patches ``threading.local`` to be greenlet-local — the same
-    mechanism already relied on for per-user AWS/Azure/GCP credential isolation.
-    Storing per-request state (conversation history, user id, sandbox flag, tool
-    overrides) as a plain instance attribute let one request's data leak into or
-    get clobbered by another request that happened to run on the same worker while
-    the first was waiting on a Claude/Kimi API call (a long, I/O-yielding wait —
-    exactly when gevent switches greenlets). Routing it through ``self._local``
-    keeps each concurrent request isolated without touching any call site: every
-    existing ``self.attr`` read/write still works unchanged.
+    A single ``DevOpsAgent`` is shared across every concurrent request. Production
+    runs gunicorn with ``--worker-class gthread --workers 3 --threads 8`` (since PR
+    #141, 2026-08-15) — real OS-thread concurrency, up to 8 requests interleaving in
+    one process's memory at once — and ``threading.local()`` isolates those threads
+    exactly as it isolated gevent-patched greenlets under the older sync-worker
+    config this docstring used to describe. It's also the same mechanism already
+    relied on for per-user AWS/Azure/GCP credential isolation. Storing per-request
+    state (conversation history, user id, sandbox flag, tool overrides) as a plain
+    instance attribute let one request's data leak into or get clobbered by another
+    request that happened to run on the same worker while the first was waiting on
+    a Claude/Kimi API call (a long, I/O-yielding wait — exactly when a thread yields
+    the GIL). Routing it through ``self._local`` keeps each concurrent request
+    isolated without touching any call site: every existing ``self.attr``
+    read/write still works unchanged.
 
     ``default_factory`` (not ``default``) must be used for mutable defaults (e.g.
     ``list``) — a shared ``default`` object would itself become a cross-greenlet
@@ -622,10 +733,30 @@ class DevOpsAgent:
     _current_conversation_id = _greenlet_local_property('_current_conversation_id')
     _pending_approval = _greenlet_local_property('_pending_approval')
     _last_tools_used = _greenlet_local_property('_last_tools_used', default_factory=list)
+    # Structured per-call record for the most recent turn: one dict per tool the
+    # model requested, whether or not it ran. See _record_tool_call.
+    _tool_call_log = _greenlet_local_property('_tool_call_log', default_factory=list)
     _tool_event_callback = _greenlet_local_property('_tool_event_callback')
     # Per-turn count of consecutive identical failing tool calls, keyed by
     # (tool_name, canonical args). See _repeat_guard_blocked.
     _repeat_guard = _greenlet_local_property('_repeat_guard', default_factory=dict)
+    # Session resource registry: resources a creating tool reported this turn,
+    # as {tool, ids, ts}. Persisted to InfrastructureChange and surfaced to the
+    # model next turn so it never reports a just-created resource as missing.
+    # See _record_tool_call and _build_system_prompt_parts (EXECUTION INTEGRITY).
+    _created_resources = _greenlet_local_property('_created_resources', default_factory=list)
+    # Per-turn plain-language notes about guard interventions (repeat-guard fired,
+    # a not-offered tool was guessed) — appended to the user-facing response so a
+    # misrouting is visible to the user, not just the model. See _finalize_* paths.
+    _turn_guard_notes = _greenlet_local_property('_turn_guard_notes', default_factory=list)
+    # Per-turn count of read-back mutation verifications run (each can sleep up to
+    # ~15s) — capped at MAX_VERIFICATIONS_PER_TURN. See _verify_and_annotate.
+    _verify_count = _greenlet_local_property('_verify_count', default=0)
+    # Per-turn flag: an _iac_fallback CloudFormation template has been emitted.
+    _iac_fallback_emitted = _greenlet_local_property('_iac_fallback_emitted', default=False)
+    # Per-turn mutation+verification pairs (rule 4): one entry per verified
+    # mutating call, {mutation, args, mutation_success, verification_*}.
+    _mutation_pairs = _greenlet_local_property('_mutation_pairs', default_factory=list)
 
     def __init__(self, config: ConfigManager):
         """
@@ -657,6 +788,10 @@ class DevOpsAgent:
         self.tool_definitions: List[Dict[str, Any]] = []
         # Category tag per tool name (for progressive tool loading).
         self.tool_categories: Dict[str, str] = {}
+        # Declared capability block per tool name (governance refactor, Phase 1).
+        # safety.py resolves risk from this before its legacy name-sets; see
+        # src/agent/tool_capabilities.py and config/tool_capabilities.yaml.
+        self.tool_capabilities: Dict[str, Dict[str, Any]] = {}
         # Filtered tool list for the in-flight request (progressive loading).
         self._tools_override: Optional[List[Dict[str, Any]]] = None
         # Token budget for per-request conversation history compaction.
@@ -686,11 +821,44 @@ class DevOpsAgent:
         )
         self.tool_categories['search_tools'] = 'meta'
 
+        # Always-available: record that the user's own console/CLI evidence
+        # overrides a platform verification result (Execution Integrity rules
+        # 9 + 10). Flags the matching InfrastructureChange audit trail.
+        self.register_tool(
+            name='record_state_override',
+            description=(
+                "Call this when the user shows console or CLI output that contradicts "
+                "a `_verification` result you reported (e.g. you said an instance was "
+                "terminated but the user's console shows it running). It flags the "
+                "audit record and the user's evidence becomes the record of truth. "
+                "Then correct your earlier statement."
+            ),
+            input_schema={
+                'type': 'object',
+                'properties': {
+                    'resource_id': {'type': 'string', 'description': 'The resource the user has evidence about.'},
+                    'corrected_state': {'type': 'string', 'description': "The true state per the user, e.g. 'still running', 'already deleted'."},
+                    'evidence': {'type': 'string', 'description': 'What the user showed (a short quote of the console/CLI output).'},
+                },
+                'required': ['resource_id', 'corrected_state'],
+            },
+            handler=self._record_state_override_handler,
+        )
+        self.tool_categories['record_state_override'] = 'meta'
+
         # Store pending file downloads (e.g., keypairs) - per request (see _greenlet_local_property)
         self.pending_download: Optional[Dict[str, Any]] = None
 
         # Track tools used in the most recent process_message_isolated call
         self._last_tools_used: List[str] = []
+        # Structured per-call record for the most recent turn (see _record_tool_call).
+        self._tool_call_log: List[Dict[str, Any]] = []
+        # Session resource registry + guard notes for the most recent turn.
+        self._created_resources: List[Dict[str, Any]] = []
+        self._turn_guard_notes: List[str] = []
+        self._verify_count: int = 0
+        self._iac_fallback_emitted: bool = False
+        self._mutation_pairs: list = []
 
         # Optional callback for streaming tool events to the UI - per request
         # (see _greenlet_local_property). Signature: callback(event_type, tool_name, data)
@@ -704,18 +872,33 @@ class DevOpsAgent:
 
     _DESTRUCTIVE_PREFIXES = ('delete_', 'terminate_', 'destroy_', 'remove_', 'drop_', 'purge_')
 
-    def _audit_chat_deletion(self, tool_name: str, tool_input: dict, result: dict) -> None:
+    def _audit_infrastructure_change(self, tool_name: str, tool_input: dict, result: dict) -> None:
         """
-        Auto-create an executed InfrastructureChange record when a delete/terminate/resize
-        tool is called directly from chat (not via the change request UI).
-        This ensures every destructive or significant infrastructure action has an audit trail.
+        Auto-create an executed InfrastructureChange record when a create /
+        delete / terminate / resize tool is called directly from chat (not via
+        the change request UI). Gives every significant infrastructure action an
+        audit trail, and — for creates — feeds the session resource registry
+        that later turns cross-check before reporting a resource as missing
+        (see EXECUTION INTEGRITY in STABLE_SYSTEM_PROMPT).
         """
-        # Check if this is a destructive or high-impact operation
-        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES)
+        # Check if this is a destructive or high-impact operation.
+        # `manage_ec2_instance` is action-aware (see safety.py / mutation_verifier.py's
+        # _EC2_STATE_TARGET) and never starts with a destructive prefix, so a
+        # terminate through it was previously invisible here entirely — no
+        # audit_trail, no verification_disagreement alert, and no working
+        # record_state_override recovery path for a terminated instance.
+        _manage_action = (
+            str(tool_input.get('action', '')).lower()
+            if tool_name == 'manage_ec2_instance' else None
+        )
+        is_manage_terminate = _manage_action == 'terminate'
+        is_manage_update = _manage_action in ('start', 'stop', 'reboot')
+        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES) or is_manage_terminate
         is_resize = 'resize_ec2_instance' in tool_name
         is_sg_modify = 'modify_security_group' in tool_name
+        is_create = _is_creating_tool(tool_name)
 
-        if not (is_destructive or is_resize or is_sg_modify):
+        if not (is_destructive or is_resize or is_sg_modify or is_create or is_manage_update):
             return
         if not result.get('success'):
             return
@@ -738,22 +921,40 @@ class DevOpsAgent:
                 tool_input.get('name') or
                 (tool_input.get('instance_ids') or [''])[0]  # terminate_ec2_instances uses a list
             )
+            # A create rarely gets its id as input — pull it from the result.
+            if not resource_id and is_create:
+                _ids = _extract_created_resource_ids(result)
+                resource_id = _ids[0] if _ids else None
             resource_name = tool_input.get('resource_name') or resource_id
 
             # Determine action_type and resource_type
             if is_destructive:
                 action_type = 'delete'
-                slug = tool_name
-                for prefix in self._DESTRUCTIVE_PREFIXES:
-                    slug = slug.replace(prefix, '', 1)
-                # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
-                resource_type = slug.split('_')[0]
+                if is_manage_terminate:
+                    resource_type = 'ec2'
+                else:
+                    slug = tool_name
+                    for prefix in self._DESTRUCTIVE_PREFIXES:
+                        slug = slug.replace(prefix, '', 1)
+                    # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
+                    resource_type = slug.split('_')[0]
+            elif is_manage_update:
+                action_type = 'update'
+                resource_type = 'ec2'
             elif is_resize:
                 action_type = 'resize'
                 resource_type = 'ec2'
             elif is_sg_modify:
                 action_type = 'modify_security_group'
                 resource_type = 'security_group'
+            elif is_create:
+                action_type = 'create'
+                slug = tool_name
+                for prefix in _CREATING_TOOL_PREFIXES:
+                    if slug.startswith(prefix):
+                        slug = slug[len(prefix):]
+                        break
+                resource_type = slug.split('_')[0] or 'resource'
             else:
                 return
 
@@ -764,14 +965,53 @@ class DevOpsAgent:
                     break
 
             # Build change_details with action-specific info
-            change_details = {'risk_level': 'high' if is_destructive else 'medium', 'source': 'chat', 'tool': tool_name}
+            _risk = 'low' if is_create else ('high' if is_destructive else 'medium')
+            change_details = {'risk_level': _risk, 'source': 'chat', 'tool': tool_name}
+            _conv_id = getattr(self, '_current_conversation_id', None)
+            if _conv_id:
+                change_details['conversation_id'] = _conv_id
             if tool_input.get('region'):
                 change_details['region'] = tool_input['region']
             if is_resize:
                 change_details['new_instance_type'] = tool_input.get('new_instance_type')
             elif is_sg_modify:
                 change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
+            elif is_manage_terminate or is_manage_update:
+                change_details['action'] = _manage_action
 
+            # Rule 10: destructive actions get a full audit trail in change_details.
+            if is_destructive:
+                _v = result.get('_verification') if isinstance(result, dict) else None
+                _reads = (_v or {}).get('reads') or []
+                if _v and _v.get('status') == 'confirmed':
+                    _final = 'gone'
+                elif 'present' in _reads:
+                    _final = 'still_present'
+                else:
+                    _final = 'unverified'
+                _disagree = any(
+                    _reads[i] == 'gone' and _reads[i + 1] != 'gone'
+                    for i in range(len(_reads) - 1)
+                )
+                change_details['audit_trail'] = {
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'user_confirmation': 'Confirmed by user in chat',
+                    'tool_request': _redact_dict(tool_input),
+                    'tool_response': _redact_dict({
+                        k: v for k, v in result.items() if k != '_verification'
+                    }) if isinstance(result, dict) else result,
+                    'verification': _v,
+                    'final_confirmed_state': _final,
+                    'user_override_flag': False,
+                }
+                if _disagree:
+                    change_details['audit_alert'] = 'verification_disagreement'
+                    self.logger.warning(
+                        "destructive-audit-alert: %s / %s — reads disagree: %s",
+                        tool_name, resource_id, _reads,
+                    )
+
+            _verb = 'created' if is_create else 'Executed'
             change = InfrastructureChange(
                 user_id=user_id,
                 action_type=action_type,
@@ -780,7 +1020,7 @@ class DevOpsAgent:
                 resource_name=resource_name,
                 cloud_provider=cloud_provider,
                 title=f'[Chat] {tool_name.replace("_", " ").title()}',
-                description='Executed directly via chat confirmation',
+                description=f'{_verb} directly via chat confirmation',
                 change_details=change_details,
                 status='executed',
                 approver_id=user_id,
@@ -791,8 +1031,9 @@ class DevOpsAgent:
             )
             db.session.add(change)
 
-            # Also purge from the sync list
-            if resource_id:
+            # Also purge from the sync list (delete only — a create doesn't
+            # remove anything from the user's synced inventory).
+            if resource_id and is_destructive:
                 InfrastructureResource.query.filter_by(
                     user_id=user_id,
                     resource_type=resource_type,
@@ -800,16 +1041,67 @@ class DevOpsAgent:
                 ).delete()
 
             db.session.commit()
-            self.logger.info(f"Audit log created for chat deletion: {tool_name} / {resource_id}")
+            self.logger.info(f"Audit log created for chat {action_type}: {tool_name} / {resource_id}")
         except Exception as e:
             self.logger.warning(f"Failed to create audit log for {tool_name}: {e}")
+
+    def _record_state_override_handler(self, resource_id: str, corrected_state: str,
+                                       evidence: str = '') -> Dict[str, Any]:
+        """Rule 9/10: the user's console evidence overrides a verification result.
+
+        Flags this user's most recent InfrastructureChange for ``resource_id`` in
+        the current conversation — ``change_details.audit_trail.user_override_flag``
+        — and raises a ``destructive-audit-alert``.
+        """
+        user_id = getattr(self, '_current_user_id', None)
+        if not user_id or not resource_id:
+            return {'success': False, 'error': 'no user context or resource_id'}
+        try:
+            from models import db, InfrastructureChange
+            from sqlalchemy.orm.attributes import flag_modified
+
+            conv_id = getattr(self, '_current_conversation_id', None)
+            row = (
+                InfrastructureChange.query
+                .filter_by(user_id=user_id, resource_id=resource_id)
+                .order_by(InfrastructureChange.created_at.desc())
+                .first()
+            )
+            if row is None:
+                return {'success': False,
+                        'error': f'no change record for {resource_id} to flag'}
+            details = dict(row.change_details or {})
+            trail = dict(details.get('audit_trail') or {})
+            trail['user_override_flag'] = True
+            trail['user_corrected_state'] = corrected_state
+            if evidence:
+                trail['user_evidence'] = evidence[:500]
+            if conv_id:
+                trail['override_conversation_id'] = conv_id
+            details['audit_trail'] = trail
+            details['audit_alert'] = 'user_override'
+            row.change_details = details
+            flag_modified(row, 'change_details')
+            db.session.commit()
+            self.logger.warning(
+                "destructive-audit-alert: user override on %s -> %s (change %s)",
+                resource_id, corrected_state, row.id,
+            )
+            return {'success': True, 'recorded': {
+                'change_id': row.id, 'resource_id': resource_id,
+                'corrected_state': corrected_state,
+            }}
+        except Exception as e:
+            self.logger.warning(f"record_state_override failed for {resource_id}: {e}")
+            return {'success': False, 'error': str(e)}
 
     def register_tool(
         self,
         name: str,
         description: str,
         input_schema: Dict[str, Any],
-        handler: Callable
+        handler: Callable,
+        capability: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Register a tool that Claude can use.
@@ -819,6 +1111,10 @@ class DevOpsAgent:
             description: Tool description
             input_schema: JSON schema for tool input
             handler: Function to execute when tool is called
+            capability: Optional declared capability block
+                ({permission, mutating, reversible, produces, pentest}) —
+                the primary risk source for safety.py. See
+                src/agent/tool_capabilities.py.
         """
         # Store tool definition for Claude API
         self.tool_definitions.append({
@@ -829,6 +1125,10 @@ class DevOpsAgent:
 
         # Store handler function
         self.tools[name] = handler
+
+        if capability:
+            self.tool_capabilities[name] = capability
+            tool_capabilities.register_declared(name, capability)
 
         self.logger.info(f"Registered tool: {name}")
 
@@ -847,7 +1147,8 @@ class DevOpsAgent:
                     name=tool['name'],
                     description=tool['description'],
                     input_schema=tool['input_schema'],
-                    handler=tool['handler']
+                    handler=tool['handler'],
+                    capability=tool.get('capability'),
                 )
                 self.tool_categories[tool['name']] = classify_tool(tool['name'], module_category)
 
@@ -871,6 +1172,11 @@ class DevOpsAgent:
         return self._repeat_guard.get(key, 0) >= self.MAX_IDENTICAL_TOOL_FAILURES
 
     def _repeat_guard_result(self, tool_name: str) -> Dict[str, Any]:
+        self._note_guard(
+            f"`{tool_name}` was called repeatedly with the same arguments and "
+            f"blocked after {self.MAX_IDENTICAL_TOOL_FAILURES} identical failures "
+            f"— the agent kept retrying a call that could not succeed."
+        )
         return {
             'success': False,
             'error': (
@@ -880,6 +1186,51 @@ class DevOpsAgent:
             ),
             'repeat_guard': True,
         }
+
+    def _note_guard(self, note: str) -> None:
+        """Record a plain-language note about a guard intervention this turn.
+
+        Surfaced to the user by _append_guard_notes so a misrouting / retry
+        storm is visible to them, not only to the model. Deduplicated.
+        """
+        notes = self._turn_guard_notes
+        if note not in notes:
+            notes.append(note)
+
+    def _append_guard_notes(self, response_text: str) -> str:
+        """Append this turn's guard notes to the response (never replace it)."""
+        return (response_text or "") + self._guard_notes_suffix()
+
+    def _guard_notes_suffix(self) -> str:
+        """The '---' guard-note block for this turn, or '' if there are none.
+
+        Two sources: guard interventions recorded live via _note_guard (repeat
+        guard), and a post-hoc scan of _tool_call_log for a tool the model
+        guessed repeatedly that was never offered (>=3 times — a single
+        not-offered guess is normal search_tools recovery and is not surfaced).
+        Safe to call twice (dedup); call it once per turn from the finaliser.
+        """
+        from collections import Counter
+        not_offered = Counter(
+            c['tool'] for c in self._tool_call_log if c.get('status') == 'not_offered'
+        )
+        for tool, n in not_offered.items():
+            if n >= 3:
+                self._note_guard(
+                    f"`{tool}` was requested {n} times but is not a tool the agent "
+                    f"was given for this request — it kept guessing the wrong tool name."
+                )
+
+        notes = self._turn_guard_notes
+        if not notes:
+            return ""
+        body = "\n".join(f"- {n}" for n in notes)
+        return (
+            "\n\n---\n"
+            "**Tool-selection note:** the agent hit a guard while working on this "
+            "request:\n" + body + "\n\nThis has been logged. If the result above "
+            "looks wrong, retry — starting a new conversation gives the cleanest retry."
+        )
 
     def _repeat_guard_record(self, tool_name: str, tool_input: Dict[str, Any], result: Any) -> None:
         """Count a failure for this exact call; clear the count on success."""
@@ -972,8 +1323,26 @@ class DevOpsAgent:
         return any(td['name'] == tool_name for td in override)
 
     def _not_offered_result(self, tool_name: str) -> Dict[str, Any]:
-        """Error result for a tool the model was not offered this turn."""
-        if tool_name in self.tools:
+        """Error result for a tool the model was not offered this turn.
+
+        Also emits a structured ``tool-not-offered`` warning. A model emitting a
+        tool name it was never given is *the* signal that progressive tool
+        loading (or an unsatisfiable request) is pushing it to guess — the
+        failure mode behind the 2026-09-02 "misrouting" incident. Grep the log
+        for ``tool-not-offered``; the per-call record (see ``_record_tool_call``)
+        carries the same event through to a queryable ``usage_logs`` row.
+        """
+        known = tool_name in self.tools
+        override = getattr(self, '_tools_override', None)
+        offered_count = len(override) if override is not None else len(self.tool_definitions)
+        self.logger.warning(
+            "tool-not-offered: model requested %r (%s); not in the %d tool(s) sent "
+            "this turn — returning search_tools redirect",
+            tool_name,
+            "known but withheld by selection" if known else "no such tool exists",
+            offered_count,
+        )
+        if known:
             return {
                 'success': False,
                 'error': (
@@ -989,6 +1358,243 @@ class DevOpsAgent:
                 f'search_tools with a description of the capability you need.'
             ),
         }
+
+    def _record_tool_call(self, tool_name: str, result: Any, *, outcome: str) -> None:
+        """Record one model-requested tool call for post-turn accounting.
+
+        Called once per tool call at every executor site (Kimi non-streaming,
+        Kimi streaming, Claude). Before this existed each site appended to
+        ``_last_tools_used`` differently — the Kimi paths only after a handler
+        returned, the Claude path unconditionally (sandbox and not-offered
+        included) — so a guessed tool on the Kimi non-streaming tier left no
+        trace in ``usage_logs`` at all (see CLAUDE_RUNBOOK.md's 2026-09-02
+        entry: the unexplained ``create_ec2_keypair`` with no ``tool_use`` row).
+
+        ``outcome`` is one of:
+          - ``'ran'``          a real or sandbox handler was invoked and returned
+          - ``'raised'``       a handler was invoked and threw
+          - ``'not_offered'``  a withheld / unknown tool; no handler invoked
+
+        ``_last_tools_used`` (and its dedup ``last_tools_used`` property, which
+        drives primary-tool attribution in app.py) counts only ``'ran'`` calls,
+        exactly as the Kimi paths did before. ``_tool_call_log`` records every
+        call with its real per-tool outcome.
+        """
+        if outcome == 'ran':
+            self._last_tools_used.append(tool_name)
+
+        if outcome == 'not_offered':
+            status, ok, err = 'not_offered', False, 'tool not offered this turn'
+        elif outcome == 'raised':
+            status, ok = 'error', False
+            err = result.get('error') if isinstance(result, dict) else 'tool raised'
+        else:
+            ok = bool(result.get('success', True)) if isinstance(result, dict) else True
+            status = 'ok' if ok else 'error'
+            err = None if ok else (result.get('error') if isinstance(result, dict) else None)
+
+        self._tool_call_log.append({
+            'tool': tool_name,
+            'status': status,
+            'success': ok,
+            'error': err[:250] if isinstance(err, str) else None,
+        })
+
+        # Session resource registry: a creating tool that succeeded this turn.
+        if outcome == 'ran' and ok and _is_creating_tool(tool_name):
+            ids = _extract_created_resource_ids(result)
+            if ids:
+                self._created_resources.append({
+                    'tool': tool_name,
+                    'ids': ids,
+                    'ts': datetime.utcnow().isoformat(),
+                })
+
+    def _invoke_tool(self, tool_name: str, tool_input: dict) -> Any:
+        """Call a tool handler, with a 60s per-user cache for read-only tools.
+
+        Execution Integrity rule 5 (docs/execution-integrity.md): a reasoning
+        model re-calls ``get_*`` / ``list_*`` / ``describe_*`` repeatedly in one
+        turn and across a conversation; the cloud state does not change second to
+        second. Successful reads are cached by ``(user_id, tool, args)`` for
+        ``TTL_SECONDS``; any *mutating* call drops that user's whole read cache
+        (a stale read that contradicts a just-applied change is worse than a slow
+        one — see the Phase 2 verifier). Kill-switch: ``tool_cache.enabled``.
+        """
+        handler = self.tools[tool_name]
+        if not self.config.get('tool_cache.enabled', True):
+            return handler(**tool_input)
+        try:
+            from services.tool_cache import READ_CACHE, is_read_tool
+        except Exception:
+            return handler(**tool_input)
+
+        uid = getattr(self, '_current_user_id', None)
+        if is_read_tool(tool_name):
+            key = self._repeat_key(tool_name, tool_input)
+            cached = READ_CACHE.get(uid, key)
+            if cached is not None:
+                self.logger.debug("tool-cache hit: %s", tool_name)
+                return cached
+            result = handler(**tool_input)
+            READ_CACHE.put(uid, key, result)
+            return result
+
+        # A mutation — run it, then drop this user's cached reads.
+        result = handler(**tool_input)
+        READ_CACHE.invalidate_user(uid)
+        return result
+
+    def _iac_fallback(self, tool_name: str, tool_input: dict, result: dict) -> dict:
+        """On a failed create, attach a runnable CloudFormation template.
+
+        Execution Integrity rule 4 — never dead-end. Adds ``_iac_fallback`` to
+        the failed result and makes ``create_cloudformation_stack`` callable so
+        the model's next move is "deploy this", not "use the console". Gated by
+        ``iac_fallback.enabled``; any failure leaves the result untouched.
+        """
+        try:
+            if getattr(self, '_iac_fallback_emitted', False):
+                return result  # one per turn is enough
+            if not self.config.get('iac_fallback.enabled', True):
+                return result
+            from services.iac_fallback import generate_cloudformation, is_supported
+            if not is_supported(tool_name):
+                return result
+            fallback = generate_cloudformation(tool_name, tool_input or {})
+            if not fallback:
+                return result
+
+            # Make the apply tool reachable this turn even if progressive
+            # loading didn't offer it.
+            override = getattr(self, '_tools_override', None)
+            if override is not None and not any(
+                td['name'] == 'create_cloudformation_stack' for td in override
+            ):
+                for td in self.tool_definitions:
+                    if td['name'] == 'create_cloudformation_stack':
+                        override.append(td)
+                        break
+
+            self._iac_fallback_emitted = True
+            self.logger.info("iac-fallback: emitted CloudFormation for failed %s", tool_name)
+            return {**result, '_iac_fallback': fallback}
+        except Exception as e:
+            self.logger.warning(f"iac fallback skipped for {tool_name}: {e}")
+            return result
+
+    def _verify_and_annotate(self, tool_name: str, tool_input: dict, result: Any) -> Any:
+        """Read-back-verify a successful create/delete/update tool and annotate it.
+
+        Execution Integrity rule 2 (docs/execution-integrity.md): the mutating
+        call's own response is a claim; this calls the resource's dedicated read
+        tool a few times with a short backoff and adds a ``_verification`` key
+        the model reads on its next iteration. ``status: 'unconfirmed'`` is not
+        "failed" — the read hasn't caught up (create), the resource is
+        mid-shutdown (delete), the new value isn't live yet (update), or the
+        read-back itself is failing.
+
+        On a *failed* create it instead attaches an ``_iac_fallback`` — a
+        ready-to-run CloudFormation template built from the same intent
+        (Execution Integrity rule 4: never dead-end) — and makes
+        ``create_cloudformation_stack`` callable.
+
+        Best-effort: disabled in sandbox, gated by ``mutation_verify.enabled``,
+        capped at ``MAX_VERIFICATIONS_PER_TURN``, and any exception leaves the
+        result untouched.
+        """
+        if not isinstance(result, dict):
+            return result
+        if getattr(self, '_sandbox_mode', False):
+            return result
+        if result.get('success') is not True:
+            return self._iac_fallback(tool_name, tool_input, result)
+        if not self.config.get('mutation_verify.enabled', True):
+            return result
+        try:
+            from services.mutation_verifier import (
+                verify_mutation, will_verify, MAX_VERIFICATIONS_PER_TURN,
+            )
+            if not will_verify(tool_name, tool_input or {}):
+                return result
+            if self._verify_count >= MAX_VERIFICATIONS_PER_TURN:
+                return result
+            self._verify_count += 1
+
+            def _call_read(name, **kwargs):
+                fn = self.tools.get(name)
+                return fn(**kwargs) if fn else {'success': False, 'error': f'{name} unavailable'}
+
+            annotation = verify_mutation(
+                tool_name, tool_input or {}, result, call_tool=_call_read,
+            )
+        except Exception as e:
+            self.logger.warning(f"mutation verify skipped for {tool_name}: {e}")
+            return result
+
+        if not annotation:
+            return result
+        rid = annotation.get('resource_id')
+
+        # Rule 4: record the mutation+verification as one paired unit.
+        self._mutation_pairs.append({
+            'mutation': tool_name,
+            'args': self._repeat_key(tool_name, tool_input or {}),
+            'mutation_success': bool(result.get('success')),
+            'verification_via': annotation.get('via'),
+            'verification_status': annotation['status'],
+            'verification_reads': annotation.get('reads'),
+            'verification_after_seconds': annotation.get('after_seconds'),
+            'final_status': annotation['status'],
+        })
+        self.logger.info(
+            "mutation-pair: %s (%s) -> verify %s via %s in %ss%s",
+            tool_name, annotation.get('action'), annotation['status'],
+            annotation.get('via'), annotation.get('after_seconds'),
+            f" reads={annotation['reads']}" if annotation.get('reads') else "",
+        )
+
+        if annotation.get('action') == 'create':
+            for entry in self._created_resources:
+                if rid in entry.get('ids', []):
+                    entry['verified'] = annotation['status'] == 'confirmed'
+        return {**result, '_verification': annotation}
+
+    @property
+    def last_mutation_pairs(self) -> List[Dict[str, Any]]:
+        """The mutation+verification pairs recorded this turn (rule 4)."""
+        return list(self._mutation_pairs)
+
+    def _reset_turn_tool_state(self) -> None:
+        """Clear the per-turn tool trackers.
+
+        Called at the top of every tool-execution entry point — the 3 chat
+        paths and ``approval_service._execute_tool``. gthread reuses worker
+        threads and all of these are greenlet-local, so a stale
+        ``_verify_count`` (cap ``MAX_VERIFICATIONS_PER_TURN``) or
+        ``_iac_fallback_emitted`` from a previous turn on the same thread would
+        otherwise silently suppress verification / the IaC fallback.
+        """
+        self._last_tools_used = []
+        self._tool_call_log = []
+        self._repeat_guard = {}
+        self._created_resources = []
+        self._turn_guard_notes = []
+        self._verify_count = 0
+        self._iac_fallback_emitted = False
+        self._mutation_pairs = []
+
+    @property
+    def last_tool_calls(self) -> List[Dict[str, Any]]:
+        """Structured record of every tool call in the most recent turn.
+
+        One entry per call (not deduplicated): ``{tool, status, success, error}``
+        where ``status`` is ``ok`` / ``error`` / ``not_offered``. Unlike
+        ``last_tools_used`` this includes calls that failed or were never
+        offered, so callers can log a real per-tool success flag instead of the
+        turn-level one (see app.py's usage-log write sites).
+        """
+        return list(self._tool_call_log)
 
     def _search_tools_handler(self, query: str, limit: int = 25) -> Dict[str, Any]:
         """
@@ -1153,6 +1759,7 @@ class DevOpsAgent:
 
         # Clear any pending downloads from previous messages
         self.pending_download = None
+        self._reset_turn_tool_state()
 
         # Add user message to conversation
         self.conversation.add_user_message(user_message)
@@ -1240,14 +1847,10 @@ class DevOpsAgent:
             # Add the new user message
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking. gthread reuses worker threads and
+            # all of this is greenlet-local, so a stale value would leak.
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
-
-            # Reset per-request tool tracking
-            self._last_tools_used = []
 
             # Route to appropriate provider
             if provider == 'kimi':
@@ -1258,7 +1861,7 @@ class DevOpsAgent:
             # Capture pending download before restoring state
             result_pending_download = self.pending_download
 
-            return response_text
+            return self._append_guard_notes(response_text)
 
         finally:
             # Clear cloud user context
@@ -1335,15 +1938,17 @@ class DevOpsAgent:
 
             self.conversation.add_user_message(user_message)
 
-            # Progressive tool loading: narrow the tool set to what's relevant.
-            # Fresh per turn: gthread reuses worker threads, so a stale
-            # count from a previous request would block a legitimate call.
-            self._repeat_guard = {}
+            # Reset per-turn tool tracking (threading.local-backed, so a pooled
+            # worker thread would otherwise carry the prior turn's state).
+            self._reset_turn_tool_state()
             self._maybe_select_tools(user_message, max_tools)
 
             # Route to Kimi streaming if requested
             if provider == 'kimi':
                 yield from self._call_kimi_api_streaming(user_preferences_context, model_override=model_override, trial_context=trial_context, swarm_max_agents=swarm_max_agents)
+                _gsuffix = self._guard_notes_suffix()
+                if _gsuffix:
+                    yield _gsuffix
                 return
 
             # Streaming loop for Claude (handles tool calls)
@@ -1393,6 +1998,9 @@ class DevOpsAgent:
                     self.conversation.add_assistant_message(response.content)
 
                     if response.stop_reason == 'end_turn':
+                        _gsuffix = self._guard_notes_suffix()
+                        if _gsuffix:
+                            yield _gsuffix
                         return
                     elif response.stop_reason == 'tool_use':
                         yield "\n\n_[Executing tool...]_\n\n"
@@ -1434,8 +2042,65 @@ class DevOpsAgent:
         trial_context: Optional[str] = None,
     ) -> tuple[str, str]:
         """Return (stable_core, volatile_tail) for the cached Claude path."""
-        tail = build_volatile_tail(user_preferences_context, trial_context)
+        tail = build_volatile_tail(
+            user_preferences_context, trial_context,
+            session_context=self._session_resource_context(),
+        )
         return STABLE_SYSTEM_PROMPT, tail
+
+    def _session_resource_context(self) -> str:
+        """Resources created earlier in this conversation, for the prompt tail.
+
+        Sourced from InfrastructureChange rows (action_type='create', written by
+        _audit_infrastructure_change) whose change_details carry this
+        conversation id, within the last 30 minutes. Empty string when there is
+        no conversation id or nothing recent — the tail is then byte-identical
+        to before this feature. Best-effort: any failure returns ''.
+        """
+        conv_id = getattr(self, '_current_conversation_id', None)
+        user_id = getattr(self, '_current_user_id', None)
+        if not conv_id or not user_id:
+            return ''
+        try:
+            from datetime import datetime, timedelta
+            from models import InfrastructureChange
+
+            cutoff = datetime.utcnow() - timedelta(minutes=30)
+            rows = (
+                InfrastructureChange.query
+                .filter(
+                    InfrastructureChange.user_id == user_id,  # user isolation — never bypass
+                    InfrastructureChange.action_type == 'create',
+                    InfrastructureChange.status == 'executed',
+                    InfrastructureChange.created_at >= cutoff,
+                )
+                .order_by(InfrastructureChange.created_at.desc())
+                .limit(25)
+                .all()
+            )
+            lines = []
+            for r in rows:
+                details = r.change_details or {}
+                if details.get('conversation_id') != conv_id:
+                    continue
+                ident = r.resource_id or r.resource_name
+                if not ident:
+                    continue
+                age_min = max(0, int((datetime.utcnow() - r.created_at).total_seconds() // 60))
+                age = 'just now' if age_min == 0 else f'{age_min} min ago'
+                lines.append(f"- {ident} ({details.get('tool', r.action_type)}, {age})")
+                if len(lines) >= 12:
+                    break
+            if not lines:
+                return ''
+            return (
+                "Resources created earlier in this conversation "
+                "(verify with a read before telling the user any of these is missing):\n"
+                + "\n".join(lines)
+            )
+        except Exception as e:
+            self.logger.debug(f"session resource context skipped: {e}")
+            return ''
 
     def _build_system_prompt(self, user_preferences_context: Optional[str] = None, trial_context: Optional[str] = None) -> str:
         """Joined system prompt (legacy callers: Kimi paths + cache-disabled path)."""
@@ -1763,7 +2428,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}", 'risk_level': validation.risk_level}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             result = {'success': False, 'error': 'High-risk operation requires approval'}
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -1792,29 +2457,37 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
+                                    self._record_tool_call(tool_name, result, outcome='ran')
                                 elif self._is_tool_offered(tool_name):
                                     try:
-                                        result = self.tools[tool_name](**tool_input)
-                                        self._last_tools_used.append(tool_name)
-                                        self._audit_chat_deletion(tool_name, tool_input, result)
+                                        result = self._invoke_tool(tool_name, tool_input)
+                                        self._record_tool_call(tool_name, result, outcome='ran')
+                                        result = self._verify_and_annotate(tool_name, tool_input, result)
+                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                     except Exception as e:
                                         self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                        self._record_tool_call(tool_name, result, outcome='raised')
                                 else:
                                     result = self._not_offered_result(tool_name)
+                                    self._record_tool_call(tool_name, result, outcome='not_offered')
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
+                            self._record_tool_call(tool_name, result, outcome='ran')
                         elif self._is_tool_offered(tool_name):
                             try:
-                                result = self.tools[tool_name](**tool_input)
-                                self._last_tools_used.append(tool_name)
-                                self._audit_chat_deletion(tool_name, tool_input, result)
+                                result = self._invoke_tool(tool_name, tool_input)
+                                self._record_tool_call(tool_name, result, outcome='ran')
+                                result = self._verify_and_annotate(tool_name, tool_input, result)
+                                self._audit_infrastructure_change(tool_name, tool_input, result)
                             except Exception as e:
                                 self.logger.error(f"Tool {tool_name} failed: {str(e)}", exc_info=True)
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                self._record_tool_call(tool_name, result, outcome='raised')
                         else:
                             result = self._not_offered_result(tool_name)
+                            self._record_tool_call(tool_name, result, outcome='not_offered')
 
                         self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
@@ -2029,7 +2702,7 @@ class DevOpsAgent:
                             result = self._repeat_guard_result(tool_name)
                         elif not validation.is_safe:
                             result = {'success': False, 'error': f"Tool execution blocked: {validation.reason}"}
-                        elif validation.requires_confirmation:
+                        elif validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                             # Approver/admin self-approve; regular users get queued for review
                             _uid = getattr(self, '_current_user_id', None)
                             _is_approver = False
@@ -2069,15 +2742,19 @@ class DevOpsAgent:
                                 if getattr(self, '_sandbox_mode', False):
                                     from services.learning_sandbox import generate_mock_result
                                     result = generate_mock_result(tool_name, tool_input)
+                                    self._record_tool_call(tool_name, result, outcome='ran')
                                 elif self._is_tool_offered(tool_name):
                                     try:
-                                        result = self.tools[tool_name](**tool_input)
-                                        self._last_tools_used.append(tool_name)
-                                        self._audit_chat_deletion(tool_name, tool_input, result)
+                                        result = self._invoke_tool(tool_name, tool_input)
+                                        self._record_tool_call(tool_name, result, outcome='ran')
+                                        result = self._verify_and_annotate(tool_name, tool_input, result)
+                                        self._audit_infrastructure_change(tool_name, tool_input, result)
                                     except Exception as e:
                                         result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                        self._record_tool_call(tool_name, result, outcome='raised')
                                 else:
                                     result = self._not_offered_result(tool_name)
+                                    self._record_tool_call(tool_name, result, outcome='not_offered')
                             elif not _approval_done:
                                 result = {'success': False, 'error': 'High-risk operation requires approval'}
                             else:
@@ -2085,15 +2762,19 @@ class DevOpsAgent:
                         elif getattr(self, '_sandbox_mode', False):
                             from services.learning_sandbox import generate_mock_result
                             result = generate_mock_result(tool_name, tool_input)
+                            self._record_tool_call(tool_name, result, outcome='ran')
                         elif self._is_tool_offered(tool_name):
                             try:
-                                result = self.tools[tool_name](**tool_input)
-                                self._last_tools_used.append(tool_name)
-                                self._audit_chat_deletion(tool_name, tool_input, result)
+                                result = self._invoke_tool(tool_name, tool_input)
+                                self._record_tool_call(tool_name, result, outcome='ran')
+                                result = self._verify_and_annotate(tool_name, tool_input, result)
+                                self._audit_infrastructure_change(tool_name, tool_input, result)
                             except Exception as e:
                                 result = {'success': False, 'error': f"Tool execution failed: {str(e)}"}
+                                self._record_tool_call(tool_name, result, outcome='raised')
                         else:
                             result = self._not_offered_result(tool_name)
+                            self._record_tool_call(tool_name, result, outcome='not_offered')
 
                         self._repeat_guard_record(tool_name, tool_input, result)
                         result_str = json.dumps(result, indent=2, default=_json_default)
@@ -2180,8 +2861,11 @@ class DevOpsAgent:
                     self.conversation.add_tool_result(tool_use_id, json.dumps(result))
                     continue
 
-                # Check if approval workflow applies (high-risk + non-approver user)
-                if validation.requires_confirmation:
+                # Check if approval workflow applies (high-risk + non-approver user).
+                # Sandbox mode must never file a real ApprovalRequest or notify a real
+                # approver — a simulated turn falls through to the sandbox-mock branch
+                # below, exactly like every other tool call in sandbox mode.
+                if validation.requires_confirmation and not getattr(self, '_sandbox_mode', False):
                     user_id = getattr(self, '_current_user_id', None)
                     if user_id:
                         try:
@@ -2228,14 +2912,18 @@ class DevOpsAgent:
                     if getattr(self, '_sandbox_mode', False):
                         from services.learning_sandbox import generate_mock_result
                         result = generate_mock_result(tool_name, tool_input)
+                        self._record_tool_call(tool_name, result, outcome='ran')
                     elif self._is_tool_offered(tool_name):
-                        result = self.tools[tool_name](**tool_input)
-                        self._audit_chat_deletion(tool_name, tool_input, result)
+                        result = self._invoke_tool(tool_name, tool_input)
+                        self._record_tool_call(tool_name, result, outcome='ran')
+                        result = self._verify_and_annotate(tool_name, tool_input, result)
+                        self._audit_infrastructure_change(tool_name, tool_input, result)
                     else:
                         result = self._not_offered_result(tool_name)
+                        self._record_tool_call(tool_name, result, outcome='not_offered')
 
-                    self.logger.info(f"Tool {tool_name} executed successfully")
-                    self._last_tools_used.append(tool_name)
+                    if isinstance(result, dict) and result.get('success', True):
+                        self.logger.info(f"Tool {tool_name} executed successfully")
 
                     if self._tool_event_callback:
                         try:
@@ -2256,6 +2944,7 @@ class DevOpsAgent:
                         'success': False,
                         'error': f"Tool execution failed: {str(e)}"
                     }
+                    self._record_tool_call(tool_name, result, outcome='raised')
 
                 # Add tool result to conversation (exclude download_file from Claude's view)
                 self._repeat_guard_record(tool_name, tool_input, result)

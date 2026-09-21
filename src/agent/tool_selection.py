@@ -158,6 +158,10 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     'monitoring': ('prometheus', 'datadog', 'grafana', 'dashboard'),
     'alerting': ('pagerduty', 'opsgenie', 'on-call', 'oncall', 'alert', 'incident'),
     'pentest': ('nmap', 'nikto', 'sqlmap', 'zap', 'pentest', 'vulnerability', 'security scan'),
+    'verification': ('reachable', 'responding', 'serving', 'web server', 'website',
+                     'port 80', 'port 443', 'smoke test', 'health check', 'healthcheck',
+                     'health endpoint', 'is it up', 'is it live', 'is it serving',
+                     'verify the deployment', 'confirm it works'),
 }
 
 
@@ -179,6 +183,8 @@ def classify_tool(name: str, module_category: str) -> str:
     so a single-service query selects a tight subset instead of all ~351 AWS
     tools. Non-AWS tools fall back to their module category.
     """
+    if name in _VERIFICATION_TOOL_NAMES:
+        return 'verification'
     if module_category == 'aws':
         name_l = (name or '').lower()
         for token, category in AWS_SERVICE_TOKENS:
@@ -188,9 +194,19 @@ def classify_tool(name: str, module_category: str) -> str:
     return module_category
 
 
-# search_tools is the one hatch that must be callable on every turn
-# unconditionally — it's the universal recovery path when nothing else fits.
-ALWAYS_TOOL_NAMES = frozenset({SEARCH_TOOL_NAME})
+# Tools whose home module doesn't match their job: run_smoke_test lives in
+# cicd_tools but is a generic HTTP health check, needed on any "is it serving"
+# task, not just pipeline work.
+_VERIFICATION_TOOL_NAMES = frozenset({'run_smoke_test', 'http_check', 'tcp_check'})
+
+
+# Meta-tools callable on every turn unconditionally: search_tools is the
+# universal tool-recovery path; record_state_override lets the model honour a
+# user's console evidence against a stale verification result on any turn (the
+# dispute can be about something verified turns ago); http_check / tcp_check are
+# cheap read-only SSRF-guarded probes the model needs to verify anything it just
+# built ("is nginx serving on port 80") regardless of what the turn is about.
+ALWAYS_TOOL_NAMES = frozenset({SEARCH_TOOL_NAME, 'record_state_override', 'http_check', 'tcp_check'})
 
 # The provider-generic API tools the system prompt tells the model to fall
 # back on ("NEVER say 'I don't have a tool'"), keyed by the provider they

@@ -100,7 +100,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: htmlcov/
+          path: |
+            htmlcov/
+            coverage.xml
           retention-days: 7
 
   security:
@@ -202,6 +204,116 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
         continue-on-error: true
+
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    needs: [test]
+    # Deliberately NOT in status-check's needs: a SonarCloud outage or an
+    # unconfigured token must never block a deploy. Promote it by adding
+    # `sonarcloud` to status-check's `needs` and its result check.
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Check whether SonarCloud is configured
+        id: guard
+        env:
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          # The token alone is not enough: sonar.organization has no default and
+          # the scanner 403s without it. Checking only the token let a repo with
+          # a token but no variables fail the job instead of skipping it.
+          missing=""
+          [ -n "$SONAR_TOKEN" ] || missing="$missing SONAR_TOKEN(secret)"
+          [ -n "$SONAR_ORGANIZATION" ] || missing="$missing SONAR_ORGANIZATION(variable)"
+          if [ -n "$missing" ]; then
+            echo "SonarCloud is not configured - skipping analysis."
+            echo "Missing:$missing"
+            echo "See docs/sonarqube.md for one-time setup."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          args="-Dsonar.organization=$SONAR_ORGANIZATION"
+          # projectKey already has a value in sonar-project.properties; only
+          # override it when the variable is set. Passing it unconditionally
+          # sent an empty -Dsonar.projectKey= that clobbered that value.
+          if [ -n "$SONAR_PROJECT_KEY" ]; then
+            args="$args -Dsonar.projectKey=$SONAR_PROJECT_KEY"
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
+      # The scanner's failure mode here is genuinely misleading: it reports
+      #   "HTTP 403 ... Please check the property sonar.token or the
+      #    environment variable SONAR_TOKEN"
+      # for a missing organization as well as for a bad credential, and the
+      # endpoint it fails on (api.sonarcloud.io/analysis/jres) answers 200
+      # unauthenticated - so a 403 there means a token was sent and rejected.
+      # This step isolates the credential from the configuration before the
+      # scan runs. It prints only an HTTP status, never the token.
+      - name: Verify the SonarCloud token
+        if: steps.guard.outputs.configured == 'true'
+        run: |
+          url="https://sonarcloud.io/api/authentication/validate"
+          code=$(curl -sS -o /tmp/sonar_validate.json -w '%{http_code}' -u "$SONAR_TOKEN:" "$url" || echo "000")
+
+          if [ "$code" = "200" ] && grep -q '"valid":true' /tmp/sonar_validate.json; then
+            echo "SONAR_TOKEN authenticates against SonarCloud."
+            exit 0
+          fi
+
+          if [ "$code" = "200" ]; then
+            # The endpoint answers 200 and puts the verdict in the body, so a
+            # 200 here means SonarCloud looked the token up and rejected it,
+            # not that the request failed. Reporting only the status code made
+            # this read as a contradiction.
+            echo "SonarCloud rejected the token: validate answered 200 with"
+            echo '{"valid":false}. The token is not recognised by SonarCloud.'
+          else
+            echo "Could not reach SonarCloud to validate the token (HTTP $code)."
+          fi
+
+          echo
+          echo "This is the credential, not the organization or project key."
+          echo "Check, in order:"
+          echo "  1. The secret is named exactly SONAR_TOKEN. GitHub cannot"
+          echo "     rename a secret, so a token stored under any other name"
+          echo "     is never read and fails exactly like an invalid one."
+          echo "  2. It is a SonarCloud token, not a SonarQube Server one -"
+          echo "     different products, tokens are not interchangeable."
+          echo "  3. It has not been revoked or expired: regenerate at"
+          echo "     https://sonarcloud.io -> My Account -> Security."
+          echo "See docs/sonarqube.md."
+          exit 1
+
+      - name: Checkout code
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/checkout@v4
+        with:
+          # Full history so SonarCloud can attribute new code to commits, which
+          # is what the Clean as You Code quality gate is measured against.
+          fetch-depth: 0
+
+      - name: Download coverage from the test job
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: SonarCloud scan
+        if: steps.guard.outputs.configured == 'true'
+        # Pinned to a SHA, not a tag: GHSA-5xq9-5g24-4g6f was an argument
+        # injection in this action itself (affects >=4.0.0, <6.0.0), and a
+        # mutable tag is re-pointable by whoever controls the repository.
+        # v8.2.1 - `args` and `projectBaseDir` are unchanged from v5, verified
+        # against the v8.2.1 action.yml before bumping.
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: ${{ steps.guard.outputs.args }}
 
   status-check:
     name: All Checks Passed

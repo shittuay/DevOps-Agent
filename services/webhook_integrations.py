@@ -472,8 +472,17 @@ class WebhookIntegrationService:
 
         return None
 
-    def process_webhook(self, source: str, event_type: str, data: dict) -> Optional[WebhookEvent]:
-        """Process webhook from any supported source."""
+    def process_webhook(self, source: str, event_type: str, data: dict,
+                        app_user_id: Optional[int] = None) -> Optional[WebhookEvent]:
+        """Process webhook from any supported source.
+
+        `app_user_id` is this application's `User.id`, used to route any
+        resulting incident into the right per-user namespace. Provider
+        webhooks (GitHub/GitLab/Bitbucket) authenticate by shared-secret
+        signature and carry no application identity, so it is optional; when
+        absent, failure events are logged but no incident is created, because
+        there is no correct namespace to create one in.
+        """
         event = None
 
         if source == 'github':
@@ -496,13 +505,24 @@ class WebhookIntegrationService:
 
             # Check for failures that should trigger incidents
             if event.status in ['failure', 'failed', 'error', 'cancelled']:
-                self._handle_failure_event(event)
+                self._handle_failure_event(event, app_user_id)
 
         return event
 
-    def _handle_failure_event(self, event: WebhookEvent):
+    def _handle_failure_event(self, event: WebhookEvent, app_user_id: Optional[int] = None):
         """Handle failure events by potentially creating incidents."""
         from services.incident_response import get_incident_engine
+
+        if app_user_id is None:
+            # process_alert keys incidents by User.id. Without one there is no
+            # correct namespace to write to, and guessing would put another
+            # user's incident list in front of this event.
+            logger.warning(
+                "Failure event %s/%s not converted to an incident: webhook "
+                "carried no application user id",
+                event.source.value, event.event_type.value,
+            )
+            return
 
         engine = get_incident_engine()
 
@@ -516,7 +536,7 @@ class WebhookIntegrationService:
             'metadata': event.metadata
         }
 
-        engine.process_alert(alert_data)
+        engine.process_alert(app_user_id, alert_data)
         logger.info(f"Created incident for failed {event.source.value} event: {event.title}")
 
     def get_events(self, source: Optional[str] = None, event_type: Optional[str] = None,

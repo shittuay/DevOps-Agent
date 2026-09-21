@@ -22,7 +22,9 @@ SECRET_PATTERNS: List[Tuple[str, re.Pattern, int]] = [
     ('AWS Secret Key', re.compile(r'(?:aws_secret_access_key|secret.?key)\s*[=:]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', re.IGNORECASE), 1),
 
     # Generic API Key patterns
-    ('API Key', re.compile(r'(?:api[_-]?key|apikey)\s*[=:]\s*["\']?([A-Za-z0-9_\-]{20,})["\']?', re.IGNORECASE), 1),
+    # 'api[_-]?key' already matches 'apikey' via the optional separator, so a
+    # separate '|apikey' alternative never fires.
+    ('API Key', re.compile(r'(?:api[_-]?key)\s*[=:]\s*["\']?([A-Za-z0-9_\-]{20,})["\']?', re.IGNORECASE), 1),
 
     # Anthropic API Key
     ('Anthropic Key', re.compile(r'\b(sk-ant-[A-Za-z0-9_\-]{20,})\b'), 1),
