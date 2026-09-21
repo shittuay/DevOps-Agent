@@ -44,6 +44,13 @@ ALLOWED_5XX = {
     # Stripe price IDs aren't configured in the test env, so a real checkout
     # attempt fails; validation (bad pack size, disabled Stripe) still 4xx/503.
     'billing.create_credits_checkout_session': {500},
+    # Deliberate fail-closed response: no cloud API call is ever made here
+    # (see CLAUDE.md's "every feature runs against a real cloud account" rule),
+    # so every call returns 501 regardless of the dummy rec_id, unlike its
+    # sibling Apply endpoints (routes/scaling.py, app.py's dashboard apply)
+    # which happen to 403/404 first in this test environment before reaching
+    # their own identical 501.
+    'ai_infrastructure.api_apply_recommendation': {501},
 }
 
 
