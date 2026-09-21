@@ -48,6 +48,18 @@ Move route clusters into `routes/` blueprints group by group (chat APIs, dashboa
 ### [ ] 5. Tool reliability — smoke-test the 745-tool surface
 (1) Registration integrity test: valid schemas, handler signatures match, every `delete_*`/`terminate_*` classified high-risk. (2) Live smoke test of ~30 most-used read-only tools against the real AWS account. (3) Error-path test: handlers return `{'success': False}` instead of raising.
 
+### [ ] 6. Classify the five caller-supplied-URL tools as medium risk
+
+**What:** Add `get_prometheus_targets`, `get_prometheus_alerts`, `get_grafana_datasources`, `get_sonar_projects`, and `nexus_list_repositories` to `medium_risk_tools` in `src/agent/safety.py`.
+
+**Why:** All five take a caller-supplied `prometheus_url` / `grafana_url` / `base_url` and are absent from every risk list, so `safety.py` classifies them LOW risk — no confirmation, immediate execution. `assert_safe_url()` deliberately permits RFC1918 (these tools exist to reach self-hosted internal infra), so any authenticated user can make the production EC2 instance issue HTTP requests to arbitrary private addresses inside the VPC. This is live today via `routes/mcp.py`'s `_handle_tools_call`, which dispatches handlers directly with no sandbox and no confirmation for low-risk tools.
+
+**Context:** Found by the 2026-09-02 CEO plan review while threat-modelling an anonymous MCP trial endpoint. The `get_` prefix is not in `safety.py`'s auto-detection list, which is the same `<provider>_<verb>_<noun>` blind spot CLAUDE.md already documents for `git_delete_branch` and `pagerduty_update_incident`. Fix is five names added to the `medium_risk_tools` set; the confirmation gate then routes non-approver callers through `services/approval_service.create_request` exactly as it does for the existing medium-risk git tools. Note this makes five read-only tools require confirmation, which is the intended trade.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** None
+
 ### [x] 0. Root directory cleanup — DONE 2026-06-10
 115 → 59 root entries. Junk scripts/screenshots deleted, contacts.csv untracked + purged from git history on both remotes, blog drafts moved to docs/blog/, stale remote branches deleted.
 

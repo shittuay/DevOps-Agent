@@ -132,12 +132,11 @@ def upload_to_s3(backup_path: Path) -> bool:
         return False
 
     try:
-        import boto3
+        from services.backup_upload import upload_backup_to_s3
 
-        s3 = boto3.client('s3')
         s3_key = f"{S3_PREFIX}{backup_path.name}"
 
-        s3.upload_file(str(backup_path), S3_BUCKET, s3_key)
+        upload_backup_to_s3(backup_path, S3_BUCKET, s3_key)
         print(f"Uploaded to S3: s3://{S3_BUCKET}/{s3_key}")
         return True
 

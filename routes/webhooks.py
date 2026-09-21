@@ -56,7 +56,7 @@ def receive_github():
         return jsonify({'error': 'Missing X-GitHub-Event header'}), 400
 
     # Validate signature if secret is configured
-    secret = service.secrets.get('github')
+    secret = service.get_secret('github')
     if secret:
         if not signature:
             return jsonify({'error': 'Missing signature'}), 401
@@ -103,7 +103,7 @@ def receive_gitlab():
         return jsonify({'error': 'Missing X-Gitlab-Event header'}), 400
 
     # Validate token if secret is configured
-    secret = service.secrets.get('gitlab')
+    secret = service.get_secret('gitlab')
     if secret:
         if not service.validate_gitlab_token(token, secret):
             logger.warning("Invalid GitLab webhook token")
@@ -254,7 +254,10 @@ def api_test_webhook():
         'compare': 'https://example.com/compare'
     }
 
-    event = service.process_webhook(source, 'push', test_data)
+    # This route is @login_required, so unlike the provider webhooks above we
+    # do know whose incident namespace a test event belongs in.
+    event = service.process_webhook(source, 'push', test_data,
+                                    app_user_id=current_user.id)
 
     if event:
         return jsonify({

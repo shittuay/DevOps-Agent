@@ -129,10 +129,13 @@ class APIGatewayService:
         logger.info(f"Created API key: {name} for user {user_id}")
         return api_key, plain_key
 
-    def get_api_key(self, key_id: int) -> Optional[Any]:
-        """Get API key by ID."""
+    def get_api_key(self, key_id: int, user_id: Optional[int] = None) -> Optional[Any]:
+        """Get API key by ID. When user_id is given, only that owner's key is returned."""
         APIKey = self._get_api_key_model()
-        return APIKey.query.get(key_id)
+        query = APIKey.query.filter_by(id=key_id)
+        if user_id is not None:
+            query = query.filter_by(user_id=user_id)
+        return query.first()
 
     def get_api_key_by_key(self, key: str) -> Optional[Any]:
         """Get API key by the actual key value."""
@@ -159,8 +162,8 @@ class APIGatewayService:
 
         When user_id is given, only the owner may rotate the key.
         """
-        old_key = self.get_api_key(key_id)
-        if not old_key or (user_id is not None and old_key.user_id != user_id):
+        old_key = self.get_api_key(key_id, user_id=user_id)
+        if not old_key:
             return None
 
         # Create new key with same settings

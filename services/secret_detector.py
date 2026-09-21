@@ -22,7 +22,9 @@ SECRET_PATTERNS: List[Tuple[str, re.Pattern, int]] = [
     ('AWS Secret Key', re.compile(r'(?:aws_secret_access_key|secret.?key)\s*[=:]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', re.IGNORECASE), 1),
 
     # Generic API Key patterns
-    ('API Key', re.compile(r'(?:api[_-]?key|apikey)\s*[=:]\s*["\']?([A-Za-z0-9_\-]{20,})["\']?', re.IGNORECASE), 1),
+    # 'api[_-]?key' already matches 'apikey' via the optional separator, so a
+    # separate '|apikey' alternative never fires.
+    ('API Key', re.compile(r'(?:api[_-]?key)\s*[=:]\s*["\']?([A-Za-z0-9_\-]{20,})["\']?', re.IGNORECASE), 1),
 
     # Anthropic API Key
     ('Anthropic Key', re.compile(r'\b(sk-ant-[A-Za-z0-9_\-]{20,})\b'), 1),
@@ -131,3 +133,56 @@ def redact_secrets(text: str) -> str:
 def contains_secrets(text: str) -> bool:
     """Quick check if text contains any secrets."""
     return len(scan_for_secrets(text)) > 0
+
+
+class StreamingRedactor:
+    """Buffers streamed text so a secret split across small SSE chunks still gets redacted.
+
+    `redact_secrets()` only sees whatever text is in the string it's given, but
+    Anthropic's raw `content_block_delta` events are often just a handful of
+    characters — most of SECRET_PATTERNS's 20+ char tokens land split across
+    two or more chunks and match nothing when redacted one chunk at a time,
+    even though the assembled response is redacted correctly before being
+    saved to the DB. That gap let a secret the model echoed into its response
+    text (e.g. from a `get_secret_value`/`create_ec2_keypair` tool result)
+    reach the browser over the wire unredacted on the Claude streaming path.
+
+    `feed()` holds back a trailing window of unredacted text on every call —
+    long enough to contain any single pattern match — and only returns the
+    portion that's safe to emit (no pending match can still extend into it).
+    Call `flush()` once at the end of the stream to redact and return
+    whatever text remains buffered.
+    """
+
+    # Longer than any SECRET_PATTERNS match is expected to realistically span
+    # within one streamed chunk boundary. Not a hard guarantee against an
+    # arbitrarily long secret spread across many tiny chunks (several patterns
+    # use an unbounded `{20,}` capture), but closes the gap for every
+    # real-world key/token format in SECRET_PATTERNS.
+    TAIL_WINDOW = 120
+
+    def __init__(self):
+        self._buffer = ''
+
+    def feed(self, chunk: str) -> str:
+        """Add a streamed chunk; return the portion now safe to emit (already redacted)."""
+        if not chunk:
+            return ''
+        self._buffer += chunk
+        if len(self._buffer) <= self.TAIL_WINDOW:
+            return ''
+
+        cutoff = len(self._buffer) - self.TAIL_WINDOW
+        findings = scan_for_secrets(self._buffer)
+        # Never cut through the middle of a match still forming in the tail window.
+        spanning_starts = [f['start'] for f in findings if f['start'] < cutoff < f['end']]
+        if spanning_starts:
+            cutoff = min(spanning_starts)
+
+        to_emit, self._buffer = self._buffer[:cutoff], self._buffer[cutoff:]
+        return redact_secrets(to_emit) if to_emit else ''
+
+    def flush(self) -> str:
+        """Redact and return any text still buffered at end of stream."""
+        remaining, self._buffer = self._buffer, ''
+        return redact_secrets(remaining) if remaining else ''

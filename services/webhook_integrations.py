@@ -67,13 +67,30 @@ class WebhookIntegrationService:
     """
 
     def __init__(self):
-        self.events: list[WebhookEvent] = []
         self.event_callbacks: list[Callable[[WebhookEvent], None]] = []
-        self.secrets: dict[str, str] = {}  # source -> secret for signature validation
 
     def set_secret(self, source: str, secret: str):
-        """Set webhook secret for signature validation."""
-        self.secrets[source] = secret
+        """Persist a webhook secret to the DB, shared across all worker processes.
+
+        Previously stored in a per-process dict — see WebhookSecret's docstring
+        in models.py for why that silently disabled signature validation on
+        every worker but the one that handled the configure request.
+        """
+        from models import db, WebhookSecret
+
+        row = WebhookSecret.query.filter_by(source=source).first()
+        if row is None:
+            row = WebhookSecret(source=source)
+            db.session.add(row)
+        row.set_secret(secret)
+        db.session.commit()
+
+    def get_secret(self, source: str) -> Optional[str]:
+        """Look up a persisted webhook secret for `source`, or None if unset."""
+        from models import WebhookSecret
+
+        row = WebhookSecret.query.filter_by(source=source).first()
+        return row.get_secret() if row else None
 
     def add_event_callback(self, callback: Callable[[WebhookEvent], None]):
         """Add callback for processed events."""
@@ -472,8 +489,17 @@ class WebhookIntegrationService:
 
         return None
 
-    def process_webhook(self, source: str, event_type: str, data: dict) -> Optional[WebhookEvent]:
-        """Process webhook from any supported source."""
+    def process_webhook(self, source: str, event_type: str, data: dict,
+                        app_user_id: Optional[int] = None) -> Optional[WebhookEvent]:
+        """Process webhook from any supported source.
+
+        `app_user_id` is this application's `User.id`, used to route any
+        resulting incident into the right per-user namespace. Provider
+        webhooks (GitHub/GitLab/Bitbucket) authenticate by shared-secret
+        signature and carry no application identity, so it is optional; when
+        absent, failure events are logged but no incident is created, because
+        there is no correct namespace to create one in.
+        """
         event = None
 
         if source == 'github':
@@ -484,7 +510,7 @@ class WebhookIntegrationService:
             event = self.process_bitbucket_webhook(event_type, data)
 
         if event:
-            self.events.append(event)
+            self._persist_event(event)
             logger.info(f"Processed webhook event: {event.source.value}/{event.event_type.value} - {event.title}")
 
             # Notify callbacks
@@ -496,13 +522,24 @@ class WebhookIntegrationService:
 
             # Check for failures that should trigger incidents
             if event.status in ['failure', 'failed', 'error', 'cancelled']:
-                self._handle_failure_event(event)
+                self._handle_failure_event(event, app_user_id)
 
         return event
 
-    def _handle_failure_event(self, event: WebhookEvent):
+    def _handle_failure_event(self, event: WebhookEvent, app_user_id: Optional[int] = None):
         """Handle failure events by potentially creating incidents."""
         from services.incident_response import get_incident_engine
+
+        if app_user_id is None:
+            # process_alert keys incidents by User.id. Without one there is no
+            # correct namespace to write to, and guessing would put another
+            # user's incident list in front of this event.
+            logger.warning(
+                "Failure event %s/%s not converted to an incident: webhook "
+                "carried no application user id",
+                event.source.value, event.event_type.value,
+            )
+            return
 
         engine = get_incident_engine()
 
@@ -516,36 +553,79 @@ class WebhookIntegrationService:
             'metadata': event.metadata
         }
 
-        engine.process_alert(alert_data)
+        engine.process_alert(app_user_id, alert_data)
         logger.info(f"Created incident for failed {event.source.value} event: {event.title}")
+
+    def _persist_event(self, event: WebhookEvent):
+        """Write a processed event to the DB so every worker/deploy sees it."""
+        from models import db, WebhookEventRecord
+
+        db.session.add(WebhookEventRecord(
+            id=event.id,
+            source=event.source.value,
+            event_type=event.event_type.value,
+            repository=event.repository,
+            branch=event.branch,
+            commit_sha=event.commit_sha,
+            actor=event.actor,
+            title=event.title,
+            description=event.description,
+            url=event.url,
+            status=event.status,
+            event_metadata=event.metadata,
+            received_at=event.received_at,
+        ))
+        db.session.commit()
+
+    @staticmethod
+    def _record_to_event(record) -> WebhookEvent:
+        return WebhookEvent(
+            id=record.id,
+            source=WebhookSource(record.source),
+            event_type=EventType(record.event_type),
+            repository=record.repository,
+            branch=record.branch,
+            commit_sha=record.commit_sha,
+            actor=record.actor,
+            title=record.title,
+            description=record.description,
+            url=record.url,
+            status=record.status,
+            metadata=record.event_metadata or {},
+            received_at=record.received_at,
+        )
 
     def get_events(self, source: Optional[str] = None, event_type: Optional[str] = None,
                    limit: int = 50) -> list[WebhookEvent]:
         """Get recent webhook events with optional filtering."""
-        events = self.events
+        from models import WebhookEventRecord
 
+        query = WebhookEventRecord.query
         if source:
-            events = [e for e in events if e.source.value == source]
-
+            query = query.filter_by(source=source)
         if event_type:
-            events = [e for e in events if e.event_type.value == event_type]
+            query = query.filter_by(event_type=event_type)
 
-        return sorted(events, key=lambda e: e.received_at, reverse=True)[:limit]
+        records = query.order_by(WebhookEventRecord.received_at.desc()).limit(limit).all()
+        return [self._record_to_event(r) for r in records]
 
     def get_stats(self) -> dict:
         """Get webhook statistics."""
         from collections import Counter
+        from models import WebhookEventRecord
 
-        source_counts = Counter(e.source.value for e in self.events)
-        type_counts = Counter(e.event_type.value for e in self.events)
-        status_counts = Counter(e.status for e in self.events if e.status)
+        records = WebhookEventRecord.query.all()
+
+        source_counts = Counter(r.source for r in records)
+        type_counts = Counter(r.event_type for r in records)
+        status_counts = Counter(r.status for r in records if r.status)
 
         return {
-            'total_events': len(self.events),
+            'total_events': len(records),
             'by_source': dict(source_counts),
             'by_type': dict(type_counts),
             'by_status': dict(status_counts),
-            'failure_count': sum(1 for e in self.events if e.status in ['failure', 'failed', 'error'])
+            'failure_count': sum(1 for r in records if r.status in ['failure', 'failed', 'error'])
         }
 
 

@@ -79,10 +79,16 @@ def test_oncall_fails_closed_without_any_integration_configured(monkeypatch):
     service = get_chatops_service()
     response = service._cmd_oncall([])
 
-    assert 'not configured' in response.text.lower() or 'no on-call integration' in response.text.lower()
-    # Must never fall back to the old hardcoded roster.
+    # The invariant is "says it has nothing real, names no one", not any exact
+    # wording — #197 reworded this message after this test was written, and an
+    # exact-prose assertion would fail on a correct implementation.
+    text = response.text.lower()
+    assert any(p in text for p in ('not configured', 'no on-call integration',
+                                   "isn't connected", 'not connected')), response.text
+    # Must never fall back to the old hardcoded roster, under any wording.
     assert '@devops-team' not in response.text
     assert '@sre-team' not in response.text
+    assert 'primary:' not in text
 
 
 def test_metrics_command_never_returns_hardcoded_placeholder_numbers(app, test_user):

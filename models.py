@@ -3232,6 +3232,79 @@ class DriftReportModel(db.Model):
         return f'<DriftReportModel {self.id} drifts={self.summary.get("total_drifts")}>'
 
 
+class WebhookSecret(db.Model):
+    """Persisted per-source webhook signature secret (GitHub HMAC key / GitLab token).
+
+    Previously `WebhookIntegrationService.secrets` was a plain per-process dict.
+    Production runs multiple gunicorn worker processes, so `POST
+    /webhooks/api/configure` only updated the one worker that handled that
+    request — every other worker's `receive_github`/`receive_gitlab` handler
+    then evaluated `if secret:` as falsy and skipped signature validation
+    entirely, silently accepting unauthenticated forged webhook payloads
+    whenever a request landed on one of the unconfigured workers. Storing the
+    secret in the DB (encrypted, same Fernet scheme as `UserCloudCredential`)
+    makes it visible to every worker and survives restarts, closing the gap —
+    see CLAUDE_RUNBOOK.md.
+    """
+    __tablename__ = 'webhook_secrets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    source = db.Column(db.String(20), unique=True, nullable=False, index=True)  # github, gitlab
+    secret_encrypted = db.Column(db.Text, nullable=False)
+    updated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def set_secret(self, secret: str):
+        """Encrypt and store the secret."""
+        from cryptography.fernet import Fernet
+
+        key = UserCloudCredential._get_encryption_key()
+        fernet = Fernet(key)
+        self.secret_encrypted = fernet.encrypt(secret.encode()).decode()
+
+    def get_secret(self):
+        """Decrypt and return the secret."""
+        from cryptography.fernet import Fernet
+
+        if not self.secret_encrypted:
+            return None
+
+        key = UserCloudCredential._get_encryption_key()
+        fernet = Fernet(key)
+        return fernet.decrypt(self.secret_encrypted.encode()).decode()
+
+    def __repr__(self):
+        return f'<WebhookSecret source={self.source}>'
+
+
+class WebhookEventRecord(db.Model):
+    """Persisted CI/CD webhook event (GitHub/GitLab/Bitbucket).
+
+    Same multi-worker rationale as DriftBaselineModel/DriftReportModel above:
+    `WebhookIntegrationService.events` was a plain per-process list, so the
+    admin dashboard (`/webhooks/`) and `api_list_events`/`api_stats` only ever
+    saw whichever fraction of events happened to land on the worker serving
+    that particular read, and the whole history vanished on every deploy.
+    """
+    __tablename__ = 'webhook_event_records'
+
+    id = db.Column(db.String(20), primary_key=True)
+    source = db.Column(db.String(20), nullable=False, index=True)
+    event_type = db.Column(db.String(50), nullable=False, index=True)
+    repository = db.Column(db.String(255))
+    branch = db.Column(db.String(255))
+    commit_sha = db.Column(db.String(100))
+    actor = db.Column(db.String(255))
+    title = db.Column(db.String(500))
+    description = db.Column(db.Text)
+    url = db.Column(db.String(1000))
+    status = db.Column(db.String(50), index=True)
+    event_metadata = db.Column(db.JSON, default=dict)
+    received_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f'<WebhookEventRecord {self.source}/{self.event_type} {self.id}>'
+
 class ChatOpsIdentity(db.Model):
     """Maps an external chat platform identity (Slack/Teams user id) to an app user.
 

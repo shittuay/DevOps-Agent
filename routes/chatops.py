@@ -347,6 +347,8 @@ def api_test_command():
         return jsonify({'success': False, 'error': 'Command required'}), 400
 
     service = get_chatops_service()
+    # This route is @login_required, so the app identity is known here even
+    # though the Slack/Teams webhooks above only carry a platform id.
     response = service.process_message(
         data.get('command'),
         user_id=data.get('user_id', 'test-user'),
