@@ -111,7 +111,7 @@ AWS_COMMON_CATEGORY = 'aws.common'
 # Message keyword -> category. Categories must match what ``classify_tool``
 # produces. Generous overlap is intentional: over-including a category is safe,
 # hiding a needed tool is not. Seeded from the proven signals in
-# ``core._compute_swarm_agents`` and ``core._TOOL_SIGNAL_RE``.
+# ``core._compute_swarm_agents`` (and the since-removed ``core._TOOL_SIGNAL_RE``).
 CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     'aws.ec2': ('ec2', 'instance', 'ami', 'keypair', 'key pair', 'ebs', 'volume',
                 'snapshot', 'autoscaling', 'auto scaling', 'launch template', 'spot'),

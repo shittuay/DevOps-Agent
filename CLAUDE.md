@@ -986,6 +986,64 @@ execution paths** (Kimi non-streaming, Kimi streaming, Claude); adding a new exe
 means wiring both `_repeat_guard_blocked` and `_repeat_guard_record` into it, and
 `tests/test_tool_selection_engaged.py` asserts the count of each is exactly 3.
 
+### Fabricated action claims (`core.py`)
+
+**"Did any tool run this turn?" is the wrong question to ask about a claim that
+infrastructure changed.** `_hallucination_severity()` asks exactly that and returns `''`
+the instant `tools_called_this_turn` is true; the call sites widen it further with
+`tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)`,
+which stays true for the rest of a conversation once any real `vpc-`/`i-` id lands in
+assistant history. On 2026-09-04 that let a single `get_aws_resource_inventory` call
+disarm detection while Kimi reported a fully-detailed EC2 launch — instance id, VPC,
+subnet, volume, public IP — with `create_ec2_instance` never called and nothing created.
+The IDs were style-matched to real recon (`devops-keypair` real, private IP inside the
+real us-east-1b CIDR, VPC/subnet ids invented), which is what made it convincing. See
+CLAUDE_RUNBOOK.md's 2026-09-04 entry.
+
+`_fabricated_action_claim(user_message, response_text, executed_tools, sandbox_mode)`
+asks the per-claim question instead: **the response asserts a mutation completed — did a
+tool that can actually perform that mutation run this turn?** `_ACTION_FAMILIES` holds
+four families (create / destroy / power / modify), each a `(request verbs, completion
+assertion, substantiating tool markers)` triple. The **request gate is what keeps read
+flows quiet** — "describe my instance" answered with "launched on 2026-05-15" is
+narration, not a claim — and the **completion assertion is past-tense only**, so "I could
+not create it" and "before I launch it I need…" don't fire.
+
+**Completion phrases are matched only when un-negated** (`_claim_asserted`). "No new
+instance **has been created** yet" is an honest denial, and the agent produces exactly
+that sentence when it declines to act — replacing it would destroy a correct answer that
+was asking the user a question (caught 2026-09-05, before this guard shipped). The
+lookback stops at a clause break (`.!?;:|` or newline), so a negation cannot launder a
+real claim from an earlier sentence: "No errors occurred. The instance was created."
+still fires. Un-negated matching fails **open** by design — "with no downtime, the
+instance was created" is read as a denial and passes — because a false "nothing was
+created" after a real mutation is the more damaging error.
+
+- It runs **before** the severity check on both Kimi response paths and is deliberately
+  **not** disarmed by unrelated tool calls or by history. On a hit the response is
+  replaced with `_FABRICATED_ACTION_REPLACEMENT`, which says plainly that nothing changed.
+- Executed tools come from `self._last_tools_used[executed_from:]`, with `executed_from`
+  marked at loop start — `process_message_streaming` never resets that list, so an
+  absolute read would pick up a previous turn's tools on a reused gthread worker.
+- **`_UNIVERSAL_WRITE_TOOLS` substantiates every family** (the four `*_api_write` escape
+  hatches, `execute_command`/`execute_script`, `terraform_apply`, the Ansible runners).
+  A false "nothing was created" after a real mutation invites a duplicate resource, which
+  is the more dangerous direction — when adding a tool that can perform arbitrary writes,
+  add it here. A name that drifts out of the catalog silently stops substantiating
+  anything; `tests/test_fabricated_action_claim.py` pins every name against the live
+  registry (it already caught `ansible_run_playbook` vs the real `ansible_playbook_run`).
+- Adding a mutation verb the families don't cover, or a new response path, means updating
+  `_ACTION_FAMILIES` / wiring the guard; the test file asserts it appears on exactly 2
+  response paths.
+- **Known gap:** the Claude (professional/business) tool loop has no hallucination check
+  at all, this one included. Pre-existing, not a regression.
+
+`_should_require_tool_use()` / `_TOOL_SIGNAL_RE` were **deleted** — they were defined and
+never called from anywhere in the repo, so a guard that looked present in review enforced
+nothing, and the regex only matched read verbs (`list|show|get|describe|…`), exempting the
+create/delete requests where a fabricated success does the most damage. A test asserts the
+helper does not come back without a call site.
+
 ### Config keys
 - `context.token_budget` (default `120000`) — history compaction budget.
 - `tool_selection.enabled` (default `true`) — kill-switch for progressive loading.
