@@ -44,6 +44,10 @@ BACKUP_RETENTION_DAYS=30
 # AWS S3 Configuration (optional)
 BACKUP_S3_BUCKET=my-backup-bucket
 BACKUP_S3_PREFIX=database-backups/
+# Account that must own the bucket (optional; defaults to the uploading
+# credentials' own account). Uploads are rejected with 403 if the bucket is
+# owned by anyone else - see services/backup_upload.py.
+BACKUP_S3_BUCKET_OWNER=123456789012
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_DEFAULT_REGION=us-east-1

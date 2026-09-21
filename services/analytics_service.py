@@ -1,20 +1,13 @@
 """
 Advanced Analytics Service for DevOps Agent.
 
-Provides charts, trends, cost breakdowns, and usage analytics — backed by
-real per-user data only (synced cloud resources, real incidents, real
-infrastructure-change audit rows, real tool-usage logs). Uses database
-persistence for dashboards and widgets.
-
-Every method that reports a metric fails closed with a clear
-`data_available: False` / `message` when the user has no connected cloud
-account and nothing has ever been synced, rather than inventing numbers.
-See CLAUDE.md's "every feature runs against a real cloud account" rule and
-CLAUDE_RUNBOOK.md's analytics-fabrication entry — this file used to seed a
-90-day fake cost/incident/deployment/API-call history plus hardcoded
-per-service and per-team dollar figures via `_ensure_sample_data()`, and
-`get_resource_utilization()` returned a fresh `random.uniform(40, 75)`
-"utilization_avg" on every call.
+Provides charts, trends, cost forecasting, and usage analytics — all sourced from
+the user's real connected cloud account (AWS Cost Explorer / CloudWatch via
+services/cost_explorer.py) and this app's own per-user tables
+(InfrastructureResource, IncidentModel, UsageLog). No metric here may be
+fabricated: a user with no cloud account connected and no synced resources sees
+zeros/empty series, never invented numbers. See CLAUDE.md's "every feature runs
+against a real cloud account" rule.
 """
 
 import logging
@@ -24,19 +17,14 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
-
-class AnalyticsDataError(Exception):
-    """Raised internally when a metric cannot be computed because the user
-    has no connected cloud account and nothing has ever been synced.
-
-    Mirrors `drift_detection.DriftScanError`: "there is nothing real to show
-    yet" and "here is your real data" are different conclusions, and
-    reporting the first as the second (by falling back to sample data) is
-    exactly the bug this service was fixed for. Every public method that
-    would otherwise compute real-but-derived data catches this itself and
-    returns an explicit no-data shape — callers/routes never need to know
-    about this exception.
-    """
+# Tool names that represent an actual deployment/pipeline action taken by the
+# user. Used to derive real "deployment" activity from UsageLog rather than
+# inventing one — this app has no dedicated Deployment model.
+_DEPLOYMENT_TOOL_NAMES = {
+    'trigger_jenkins_job', 'trigger_github_workflow', 'trigger_gitlab_pipeline',
+    'rerun_failed_github_jobs', 'deploy_cloud_run_service', 'docker_compose_up',
+    'terraform_apply',
+}
 
 
 class MetricType(Enum):
@@ -67,6 +55,16 @@ class AggregationType(Enum):
     MIN = 'min'
     MAX = 'max'
     COUNT = 'count'
+
+
+_RANGE_DAYS = {
+    TimeRange.HOUR: 1,
+    TimeRange.DAY: 1,
+    TimeRange.WEEK: 7,
+    TimeRange.MONTH: 30,
+    TimeRange.QUARTER: 90,
+    TimeRange.YEAR: 365,
+}
 
 
 class DataPoint:
@@ -140,13 +138,10 @@ class TimeSeries:
 
 
 class CostForecast:
-    """Cost forecasting model — pure linear regression over real historical
-    data points. Deliberately has no randomness of its own; the caller
-    (`AnalyticsService.forecast_costs`) never invokes `generate_forecast()`
-    today because this app does not collect the day-by-day cost history a
-    real forecast needs (only the latest synced snapshot). Kept as the
-    reusable algorithm for whenever a real cost-history source exists.
-    """
+    """Cost forecasting model — simple linear regression over REAL historical
+    daily costs. No random noise: the previous implementation added
+    ``random.uniform()`` variance on top of already-fabricated history, which
+    made every projection fiction twice over."""
 
     def __init__(self, historical_data: List[DataPoint]):
         self.historical = historical_data
@@ -154,9 +149,7 @@ class CostForecast:
         self.confidence = 0.0
 
     def generate_forecast(self, days_ahead: int = 30):
-        """Generate cost forecast using simple linear regression over
-        `self.historical` — the caller is responsible for ensuring that
-        data is real."""
+        """Generate cost forecast using simple linear regression over real history."""
         if len(self.historical) < 7:
             return
 
@@ -199,17 +192,18 @@ class CostForecast:
             'historical': [p.to_dict() for p in self.historical],
             'forecast': [p.to_dict() for p in self.forecast],
             'confidence': round(self.confidence * 100, 1),
-            'monthly_projection': round(self.get_monthly_projection(), 2)
+            'monthly_projection': round(self.get_monthly_projection(), 2),
+            'source': 'linear_regression',
         }
 
 
 class AnalyticsService:
     """Service for advanced analytics with database persistence.
 
-    Every metric is either a real SQL aggregation over this user's own rows
-    (`InfrastructureResource`, `IncidentModel`, `InfrastructureChange`,
-    `UsageLog`) or is explicitly reported as unavailable. Nothing here
-    fabricates a value.
+    Every read method below is scoped to ``self.user_id`` and sources data from
+    the user's real cloud account or this app's own per-user tables — never
+    hardcoded or randomly-generated values. A user with no cloud account
+    connected and nothing synced yet sees empty/zeroed results, not fiction.
     """
 
     def __init__(self, user_id: Optional[int] = None):
@@ -230,180 +224,251 @@ class AnalyticsService:
         from models import AnalyticsWidget
         return AnalyticsWidget
 
-    # ------------------------------------------------------------------
-    # Real-data gating
-    # ------------------------------------------------------------------
+    def _resource_query(self):
+        """Real, non-terminated infrastructure resources synced for this user."""
+        from models import InfrastructureResource
+        excluded_statuses = ['terminated', 'deleted', 'deleting', 'shutting-down']
+        query = InfrastructureResource.query
+        if self.user_id is not None:
+            query = query.filter_by(user_id=self.user_id)
+        return query.filter(~InfrastructureResource.status.in_(excluded_statuses))
 
-    def _has_data_source(self) -> bool:
-        """True once this user has a live, verified cloud credential, or has
-        any real row that could only exist because of one — synced
-        infrastructure, a real incident, or a real audited change — real
-        signals only. Never assumed true."""
-        if not self.user_id:
-            return False
+    # ---- Cost ------------------------------------------------------------
+
+    def _real_cost_breakdown(self, days: int) -> Dict:
+        """By-service cost breakdown: AWS Cost Explorer first, real synced
+        resource costs as fallback. Never fabricated — matches the pattern
+        already used by app.py's /api/dashboard/costs."""
+        if self.user_id is None:
+            return {'by_service': {}, 'total': 0.0, 'daily_trend': [], 'source': 'no_user'}
+
         try:
-            from services.credential_service import get_user_configured_providers
-            if any(get_user_configured_providers(self.user_id).values()):
-                return True
-        except Exception:
-            logger.exception("analytics: failed to check configured providers for user %s", self.user_id)
-
-        from models import InfrastructureResource, IncidentModel, InfrastructureChange
-        if InfrastructureResource.query.filter_by(user_id=self.user_id).first() is not None:
-            return True
-        if IncidentModel.query.filter_by(user_id=self.user_id).first() is not None:
-            return True
-        if InfrastructureChange.query.filter_by(user_id=self.user_id).first() is not None:
-            return True
-        return False
-
-    def _require_data_source(self) -> None:
-        if not self._has_data_source():
-            raise AnalyticsDataError(
-                'No cloud account connected. Connect an AWS, Azure, or GCP '
-                'account in Settings to see real analytics data.'
+            from services.cost_explorer import get_actual_costs
+            costs = get_actual_costs(self.user_id, days=days)
+            by_service = {s['service']: s['cost'] for s in costs.get('services', [])}
+            return {
+                'by_service': by_service,
+                'total': costs.get('total_cost', 0.0),
+                'daily_trend': costs.get('daily_trend', []),
+                'source': 'cost_explorer',
+            }
+        except Exception as e:
+            logger.info(
+                "Cost Explorer unavailable for user %s, falling back to synced resource costs: %s",
+                self.user_id, e,
             )
 
-    @staticmethod
-    def _real_trend(timestamps: List[Optional[datetime]], days: int) -> str:
-        """Trend direction from real event timestamps only (incidents,
-        infrastructure changes) — splits the window in half and compares
-        counts. 'stable' is the honest default when there isn't enough
-        signal to say more, matching `TimeSeries.get_trend()`'s own
-        fallback above."""
-        timestamps = [t for t in timestamps if t]
-        if not timestamps or days < 2:
-            return 'stable'
-        now = datetime.utcnow()
-        mid = now - timedelta(days=days / 2)
-        start = now - timedelta(days=days)
-        recent = sum(1 for t in timestamps if t >= mid)
-        older = sum(1 for t in timestamps if start <= t < mid)
-        if older == 0:
-            return 'up' if recent > 0 else 'stable'
-        change = (recent - older) / older
-        if change > 0.1:
-            return 'up'
-        if change < -0.1:
-            return 'down'
-        return 'stable'
+        from models import InfrastructureResource
+        db = self._get_db()
+        rows = db.session.query(
+            InfrastructureResource.resource_type,
+            db.func.sum(InfrastructureResource.monthly_cost)
+        ).filter_by(user_id=self.user_id).group_by(InfrastructureResource.resource_type).all()
+        by_service = {(r[0] or 'other'): round(float(r[1] or 0), 2) for r in rows}
+        return {
+            'by_service': by_service,
+            'total': round(sum(by_service.values()), 2),
+            'daily_trend': [],
+            'source': 'database',
+        }
 
-    @staticmethod
-    def _range_cutoff(time_range: TimeRange, now: datetime) -> datetime:
-        if time_range == TimeRange.HOUR:
-            return now - timedelta(hours=1)
-        elif time_range == TimeRange.DAY:
-            return now - timedelta(days=1)
-        elif time_range == TimeRange.WEEK:
-            return now - timedelta(weeks=1)
-        elif time_range == TimeRange.MONTH:
-            return now - timedelta(days=30)
-        elif time_range == TimeRange.QUARTER:
-            return now - timedelta(days=90)
-        return now - timedelta(days=365)
+    def get_cost_breakdown(self) -> Dict:
+        """Get cost breakdown by service. ``by_team`` has no real backing data
+        in this schema (no per-team cost attribution exists), so it is left
+        empty rather than invented."""
+        breakdown = self._real_cost_breakdown(days=30)
+        return {
+            'by_service': breakdown['by_service'],
+            'by_team': {},
+            'total': breakdown['total'],
+            'source': breakdown['source'],
+        }
 
-    @staticmethod
-    def _bucket_daily(name: str, metric_type: MetricType, unit: str,
-                       timestamps: List[Optional[datetime]]) -> TimeSeries:
-        """Build a real daily-count TimeSeries from real event timestamps."""
-        series = TimeSeries(name, metric_type)
-        series.unit = unit
-        counts: Dict[Any, int] = {}
-        for t in timestamps:
-            if not t:
-                continue
-            key = t.date()
-            counts[key] = counts.get(key, 0) + 1
-        for day in sorted(counts):
-            series.add_point(datetime.combine(day, datetime.min.time()), counts[day])
-        return series
+    def get_cost_forecast(self, days_ahead: int = 30) -> CostForecast:
+        """Get cost forecast built from real historical daily costs."""
+        breakdown = self._real_cost_breakdown(days=max(days_ahead, 30))
+        historical = [
+            DataPoint(datetime.strptime(d['date'], '%Y-%m-%d'), d['cost'])
+            for d in breakdown.get('daily_trend', [])
+        ]
+        forecast = CostForecast(historical)
+        forecast.generate_forecast(days_ahead)
+        return forecast
 
-    # ------------------------------------------------------------------
-    # Time series (real sources only; 'daily_cost' has none — see
-    # forecast_costs()'s docstring)
-    # ------------------------------------------------------------------
+    def get_cost_analytics(self, start_date: datetime, end_date: datetime) -> Dict:
+        """Get cost analytics for a date range."""
+        days = max(1, (end_date - start_date).days)
+        breakdown = self._real_cost_breakdown(days=days)
+        trend_data = [
+            {'timestamp': d['date'], 'value': d['cost'], 'label': d['date']}
+            for d in breakdown.get('daily_trend', [])
+        ]
+        return {
+            'by_service': breakdown['by_service'],
+            'by_team': {},
+            'by_resource': breakdown['by_service'],  # alias for resource view
+            'total': breakdown['total'],
+            'trend': trend_data,
+            'period_days': days,
+            'source': breakdown['source'],
+        }
+
+    def forecast_costs(self, days: int = 30) -> Dict:
+        """Get cost forecast. Returns to_dict() of CostForecast."""
+        return self.get_cost_forecast(days_ahead=days).to_dict()
+
+    # ---- Time series / trends ---------------------------------------------
 
     def get_time_series(self, name: str, time_range: TimeRange = TimeRange.MONTH) -> Optional[TimeSeries]:
-        """Real time series only, built from this user's own timestamped
-        rows. Returns None when there's no real source for `name`, or when
-        the user has no connected/previously-synced cloud account — never a
-        sample series."""
-        if not self._has_data_source():
+        """Get a real time series for one of the known metric names, bucketed
+        daily over the requested range. Returns None for an unknown name."""
+        days = _RANGE_DAYS.get(time_range, 30)
+        builders = {
+            'daily_cost': self._series_daily_cost,
+            'resource_count': self._series_resource_count,
+            'incidents': self._series_incidents,
+            'deployments': self._series_deployments,
+            'api_calls': self._series_api_calls,
+        }
+        builder = builders.get(name)
+        if builder is None:
             return None
+        return builder(days)
 
-        now = datetime.utcnow()
-        cutoff = self._range_cutoff(time_range, now)
+    def _series_daily_cost(self, days: int) -> TimeSeries:
+        series = TimeSeries('daily_cost', MetricType.COST)
+        series.unit = 'USD'
+        breakdown = self._real_cost_breakdown(days=days)
+        for d in breakdown.get('daily_trend', []):
+            series.add_point(datetime.strptime(d['date'], '%Y-%m-%d'), d['cost'])
+        return series
 
-        if name == 'daily_cost':
-            # No historical cost data is ever collected — InfrastructureResource
-            # stores only the latest synced snapshot per resource (overwritten
-            # in place by services/infrastructure_sync.py on every sync), not a
-            # day-by-day history. Reporting a fabricated trend here was the
-            # original bug; report "no series" instead until real cost history
-            # is tracked.
-            return None
-
-        if name == 'resource_count':
-            from models import InfrastructureResource
-            earlier_count = (
-                InfrastructureResource.query
-                .filter(
-                    InfrastructureResource.user_id == self.user_id,
-                    InfrastructureResource.created_at < cutoff,
-                )
-                .count()
-            )
-            rows = (
-                InfrastructureResource.query
-                .filter(
-                    InfrastructureResource.user_id == self.user_id,
-                    InfrastructureResource.created_at >= cutoff,
-                )
-                .order_by(InfrastructureResource.created_at)
-                .all()
-            )
-            series = TimeSeries(name, MetricType.RESOURCES)
-            series.unit = 'count'
-            by_day: Dict[Any, int] = {}
-            for r in rows:
-                if not r.created_at:
-                    continue
-                key = r.created_at.date()
-                by_day[key] = by_day.get(key, 0) + 1
-            running_total = earlier_count
-            for day in sorted(by_day):
-                running_total += by_day[day]
-                series.add_point(datetime.combine(day, datetime.min.time()), running_total)
+    def _series_resource_count(self, days: int) -> TimeSeries:
+        """Cumulative count of currently-tracked resources by the date each was
+        first synced. This only reflects resources still on record (removed
+        ones drop out of the running total), which is an honest limitation of
+        not keeping a historical resource-count table — never randomly
+        generated."""
+        series = TimeSeries('resource_count', MetricType.RESOURCES)
+        series.unit = 'count'
+        if self.user_id is None:
             return series
 
-        if name == 'incidents':
-            from models import IncidentModel
-            rows = IncidentModel.query.filter(
-                IncidentModel.user_id == self.user_id,
-                IncidentModel.triggered_at >= cutoff,
-            ).all()
-            return self._bucket_daily(name, MetricType.INCIDENTS, 'count',
-                                       [r.triggered_at for r in rows])
+        from models import InfrastructureResource
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        resources = self._resource_query().order_by(InfrastructureResource.created_at).all()
+        if not resources:
+            return series
 
-        if name == 'deployments':
-            from models import InfrastructureChange
-            rows = InfrastructureChange.query.filter(
-                InfrastructureChange.user_id == self.user_id,
-                InfrastructureChange.created_at >= cutoff,
-            ).all()
-            return self._bucket_daily(name, MetricType.DEPLOYMENTS, 'count',
-                                       [r.created_at for r in rows])
+        baseline = sum(1 for r in resources if r.created_at and r.created_at < cutoff)
+        by_day: Dict[str, int] = {}
+        for r in resources:
+            if not r.created_at or r.created_at < cutoff:
+                continue
+            key = r.created_at.strftime('%Y-%m-%d')
+            by_day[key] = by_day.get(key, 0) + 1
 
-        if name == 'api_calls':
-            from models import UsageLog
-            rows = UsageLog.query.filter(
-                UsageLog.user_id == self.user_id,
-                UsageLog.created_at >= cutoff,
-            ).all()
-            return self._bucket_daily(name, MetricType.API_CALLS, 'calls',
-                                       [r.created_at for r in rows])
+        running_total = baseline
+        for key in sorted(by_day.keys()):
+            running_total += by_day[key]
+            series.add_point(datetime.strptime(key, '%Y-%m-%d'), running_total)
 
-        return None
+        if not series.data_points:
+            series.add_point(datetime.utcnow(), len(resources))
+        return series
+
+    def _series_incidents(self, days: int) -> TimeSeries:
+        series = TimeSeries('incidents', MetricType.INCIDENTS)
+        series.unit = 'count'
+        if self.user_id is None:
+            return series
+
+        from models import IncidentModel
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        incidents = IncidentModel.query.filter(
+            IncidentModel.user_id == self.user_id,
+            IncidentModel.triggered_at >= cutoff,
+        ).all()
+
+        by_day: Dict[str, int] = {}
+        for i in incidents:
+            if not i.triggered_at:
+                continue
+            key = i.triggered_at.strftime('%Y-%m-%d')
+            by_day[key] = by_day.get(key, 0) + 1
+
+        for key in sorted(by_day.keys()):
+            series.add_point(datetime.strptime(key, '%Y-%m-%d'), by_day[key])
+        return series
+
+    def _series_deployments(self, days: int) -> TimeSeries:
+        series = TimeSeries('deployments', MetricType.DEPLOYMENTS)
+        series.unit = 'count'
+        if self.user_id is None:
+            return series
+
+        from models import UsageLog
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        rows = UsageLog.query.filter(
+            UsageLog.user_id == self.user_id,
+            UsageLog.tool_name.in_(_DEPLOYMENT_TOOL_NAMES),
+            UsageLog.created_at >= cutoff,
+        ).all()
+
+        by_day: Dict[str, int] = {}
+        for r in rows:
+            key = r.created_at.strftime('%Y-%m-%d')
+            by_day[key] = by_day.get(key, 0) + 1
+
+        for key in sorted(by_day.keys()):
+            series.add_point(datetime.strptime(key, '%Y-%m-%d'), by_day[key])
+        return series
+
+    def _series_api_calls(self, days: int) -> TimeSeries:
+        series = TimeSeries('api_calls', MetricType.API_CALLS)
+        series.unit = 'calls'
+        if self.user_id is None:
+            return series
+
+        from models import UsageLog
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        rows = UsageLog.query.filter(
+            UsageLog.user_id == self.user_id,
+            UsageLog.tool_name.isnot(None),
+            UsageLog.created_at >= cutoff,
+        ).all()
+
+        by_day: Dict[str, int] = {}
+        for r in rows:
+            key = r.created_at.strftime('%Y-%m-%d')
+            by_day[key] = by_day.get(key, 0) + 1
+
+        for key in sorted(by_day.keys()):
+            series.add_point(datetime.strptime(key, '%Y-%m-%d'), by_day[key])
+        return series
+
+    def get_trend_analysis(self, metric: str) -> Dict:
+        """Analyze trends for a metric."""
+        series = self.get_time_series(metric, TimeRange.QUARTER)
+        if not series or len(series.data_points) < 7:
+            return {'error': 'Insufficient data'}
+
+        values = [p.value for p in series.data_points]
+
+        current_value = values[-1]
+        week_ago = values[-8] if len(values) > 7 else values[0]
+        month_ago = values[-31] if len(values) > 30 else values[0]
+
+        week_change = ((current_value - week_ago) / week_ago * 100) if week_ago != 0 else 0
+        month_change = ((current_value - month_ago) / month_ago * 100) if month_ago != 0 else 0
+
+        return {
+            'current': current_value,
+            'week_change': round(week_change, 1),
+            'month_change': round(month_change, 1),
+            'trend': series.get_trend(),
+            'summary': series.get_summary()
+        }
 
     def get_chart_data(self, metric: str, time_range: TimeRange, aggregation: AggregationType = AggregationType.SUM) -> Dict:
         """Get formatted chart data."""
@@ -444,338 +509,176 @@ class AnalyticsService:
             'summary': series.get_summary()
         }
 
-    def get_trend_analysis(self, metric: str) -> Dict:
-        """Analyze trends for a metric, from its real time series."""
-        series = self.get_time_series(metric, TimeRange.QUARTER)
-        if not series or len(series.data_points) < 7:
-            return {'error': 'Insufficient data'}
+    # ---- Dashboard summary --------------------------------------------
 
-        values = [p.value for p in series.data_points]
+    def get_dashboard_metrics(self, days: int = 30) -> Dict:
+        """Get key metrics for dashboard — all real, per-user."""
+        cost_series = self.get_time_series('daily_cost', TimeRange.MONTH)
+        resource_series = self.get_time_series('resource_count', TimeRange.MONTH)
+        incident_series = self.get_time_series('incidents', TimeRange.MONTH)
+        deploy_series = self.get_time_series('deployments', TimeRange.MONTH)
 
-        current_value = values[-1]
-        week_ago = values[-8] if len(values) > 7 else values[0]
-        month_ago = values[-31] if len(values) > 30 else values[0]
-
-        week_change = ((current_value - week_ago) / week_ago * 100) if week_ago != 0 else 0
-        month_change = ((current_value - month_ago) / month_ago * 100) if month_ago != 0 else 0
+        cost_total = self._real_cost_breakdown(days=days).get('total', 0)
 
         return {
-            'current': current_value,
-            'week_change': round(week_change, 1),
-            'month_change': round(month_change, 1),
-            'trend': series.get_trend(),
-            'summary': series.get_summary()
+            'cost': {
+                'current_month': cost_total,
+                'trend': cost_series.get_trend() if cost_series else 'stable',
+                'forecast': self.get_cost_forecast().get_monthly_projection()
+            },
+            'resources': {
+                'total': self._resource_query().count(),
+                'trend': resource_series.get_trend() if resource_series else 'stable'
+            },
+            'incidents': {
+                'this_month': sum(p.value for p in incident_series.data_points) if incident_series else 0,
+                'trend': incident_series.get_trend() if incident_series else 'stable'
+            },
+            'deployments': {
+                'this_month': sum(p.value for p in deploy_series.data_points) if deploy_series else 0,
+                'trend': deploy_series.get_trend() if deploy_series else 'stable'
+            }
         }
 
-    # ------------------------------------------------------------------
-    # Cost — real per-resource costs synced from live cloud APIs
-    # (services/infrastructure_sync.py). No per-team breakdown or daily
-    # history exists anywhere in this codebase (see docstrings below).
-    # ------------------------------------------------------------------
-
-    def get_cost_breakdown(self) -> Dict:
-        """Cost breakdown by service, aggregated from real synced
-        `InfrastructureResource` rows (`monthly_cost` is estimated per
-        resource from a live cloud API read — see
-        services/infrastructure_sync.py's `calculate_*_cost` helpers).
-
-        `by_team` is intentionally always empty/unavailable: no resource in
-        this codebase is ever associated with a `Team` row (the `Team`
-        model exists for org membership only), so a per-team cost split has
-        no real data to compute from. Previously this returned a hardcoded
-        `{'Development': 380.00, 'Production': 420.00, ...}` dict, byte
-        identical for every user.
-        """
-        try:
-            self._require_data_source()
-            from models import InfrastructureResource
-            from sqlalchemy import func
-            db = self._get_db()
-            rows = (
-                db.session.query(
-                    InfrastructureResource.resource_type,
-                    func.sum(InfrastructureResource.monthly_cost).label('total'),
-                )
-                .filter(InfrastructureResource.user_id == self.user_id)
-                .group_by(InfrastructureResource.resource_type)
-                .all()
-            )
-            by_service = {
-                (r.resource_type or 'other').upper(): round(r.total or 0.0, 2)
-                for r in rows
-            }
-            return {
-                'by_service': by_service,
-                'by_team': {},
-                'by_team_available': False,
-                'total': round(sum(by_service.values()), 2),
-                'data_available': True,
-            }
-        except AnalyticsDataError as e:
-            return {
-                'by_service': {},
-                'by_team': {},
-                'by_team_available': False,
-                'total': 0,
-                'data_available': False,
-                'message': str(e),
-            }
-
-    def get_cost_analytics(self, start_date: datetime, end_date: datetime) -> Dict:
-        """Get cost analytics for a date range. The date range is accepted
-        for API compatibility; it cannot select a historical slice because
-        no cost history is stored (see `forecast_costs()`), so this
-        currently reports the same real current-snapshot breakdown
-        regardless of range."""
-        breakdown = self.get_cost_breakdown()
-        days = max(1, (end_date - start_date).days)
-        return {
-            'by_service': breakdown['by_service'],
-            'by_team': breakdown['by_team'],
-            'by_team_available': breakdown['by_team_available'],
-            'by_resource': breakdown['by_service'],  # alias for resource view
-            'total': breakdown['total'],
-            'trend': [],
-            'trend_available': False,
-            'period_days': days,
-            'data_available': breakdown['data_available'],
-            'message': breakdown.get('message'),
-        }
-
-    def get_cost_forecast(self, days_ahead: int = 30) -> CostForecast:
-        """Kept for API compatibility. Always returns an empty
-        `CostForecast` — see `forecast_costs()`'s docstring for why a real
-        forecast isn't computed here."""
-        return CostForecast([])
-
-    def forecast_costs(self, days: int = 30) -> Dict:
-        """Cost forecast. NEVER fabricated with random noise.
-
-        Real forecasting needs day-by-day historical cost data, and nothing
-        in this codebase collects that yet — `InfrastructureResource`
-        stores only the latest synced snapshot per resource, overwritten in
-        place on every sync, not a time series. Previously this generated a
-        90-day fake history (`base_cost = 150` + `random.uniform(-20, 30)`
-        noise) and then added `random.uniform(-0.05, 0.05)` noise on top of
-        the linear-regression forecast itself. Until a real cost-history
-        source exists, this reports `status: 'insufficient_data'` rather
-        than inventing numbers a user could act on for a real budget
-        decision.
-        """
-        try:
-            self._require_data_source()
-        except AnalyticsDataError as e:
-            return {
-                'status': 'no_account',
-                'message': str(e),
-                'historical': [],
-                'forecast': [],
-                'confidence': 0,
-                'monthly_projection': None,
-                'data_available': False,
-            }
-        return {
-            'status': 'insufficient_data',
-            'message': (
-                'Cost forecasting needs day-by-day historical cost data. '
-                'This app currently only stores the latest synced snapshot '
-                'per resource, not a history, so there is not yet enough '
-                'data to forecast from.'
-            ),
-            'historical': [],
-            'forecast': [],
-            'confidence': 0,
-            'monthly_projection': None,
-            'data_available': True,
-        }
-
-    # ------------------------------------------------------------------
-    # Resources — real counts from synced InfrastructureResource rows.
-    # CPU/memory utilization has no real source wired in (would need a
-    # live CloudWatch/Prometheus metrics pull) so it is reported as
-    # unavailable rather than randomly generated.
-    # ------------------------------------------------------------------
+    # ---- Resources ------------------------------------------------------
 
     def get_resource_utilization(self) -> Dict:
-        """Resource counts by type are real. `utilization_avg` (CPU/memory)
-        is NOT available — this service has no live metrics source
-        (CloudWatch/Prometheus) wired in; previously this was
-        `random.uniform(40, 75)` regenerated on every single call.
-        """
-        try:
-            self._require_data_source()
-            from models import InfrastructureResource
-            resources = InfrastructureResource.query.filter_by(user_id=self.user_id).all()
-            by_type: Dict[str, int] = {}
-            for r in resources:
-                key = r.resource_type or 'other'
-                by_type[key] = by_type.get(key, 0) + 1
-            trend = self._real_trend([r.created_at for r in resources], 30)
-            return {
-                'total_resources': len(resources),
-                'by_type': by_type,
-                'utilization_avg': None,
-                'utilization_available': False,
-                'trend': trend,
-                'data_available': True,
-            }
-        except AnalyticsDataError as e:
-            return {
-                'total_resources': 0,
-                'by_type': {},
-                'utilization_avg': None,
-                'utilization_available': False,
-                'trend': 'stable',
-                'data_available': False,
-                'message': str(e),
-            }
+        """Get resource utilization summary from real synced resources and,
+        where possible, real CloudWatch metrics. ``utilization_avg`` is only
+        populated when live metrics could actually be read; otherwise it is
+        left at 0 rather than a plausible-looking invented figure."""
+        resources = list(self._resource_query())
+        total = len(resources)
+        by_type: Dict[str, int] = {}
+        for r in resources:
+            by_type[r.resource_type] = by_type.get(r.resource_type, 0) + 1
 
-    # ------------------------------------------------------------------
-    # Incidents / alerts — real, from IncidentModel (created by
-    # services/incident_response.py from real monitoring events).
-    # ------------------------------------------------------------------
+        utilization_avg = self._sample_ec2_cpu_average(resources)
+
+        return {
+            'total_resources': total,
+            'trend': self._series_resource_count(30).get_trend(),
+            'by_type': by_type,
+            'utilization_avg': utilization_avg,
+        }
+
+    def _sample_ec2_cpu_average(self, resources: List[Any], sample_size: int = 5) -> float:
+        """Average real CloudWatch CPU utilization across a bounded sample of
+        this user's running EC2 instances. Returns 0.0 (not a fabricated
+        figure) when there is nothing to sample or the account can't be read."""
+        if self.user_id is None:
+            return 0.0
+
+        ec2_instances = [
+            r for r in resources
+            if r.resource_type == 'ec2' and r.status == 'running'
+        ][:sample_size]
+        if not ec2_instances:
+            return 0.0
+
+        try:
+            from services.cost_explorer import get_instance_utilization
+        except Exception:
+            return 0.0
+
+        samples = []
+        for r in ec2_instances:
+            try:
+                util = get_instance_utilization(self.user_id, r.resource_id, days=1)
+                cpu_avg = util.get('cpu', {}).get('average')
+                if cpu_avg is not None:
+                    samples.append(cpu_avg)
+            except Exception:
+                continue
+
+        if not samples:
+            return 0.0
+        return round(sum(samples) / len(samples), 1)
+
+    # ---- Alerts / incidents ---------------------------------------------
 
     def get_alerts_summary(self, days: int = 7) -> Dict:
-        """Incident/alert counts and severity breakdown, real — aggregated
-        from this user's `IncidentModel` rows."""
-        try:
-            self._require_data_source()
-            from models import IncidentModel
-            cutoff = datetime.utcnow() - timedelta(days=days)
-            rows = IncidentModel.query.filter(
-                IncidentModel.user_id == self.user_id,
-                IncidentModel.triggered_at >= cutoff,
-            ).all()
-            total = len(rows)
-            by_sev = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
-            resolved = 0
-            for r in rows:
-                if r.severity in by_sev:
-                    by_sev[r.severity] += 1
-                if r.status == 'resolved':
-                    resolved += 1
-            trend = self._real_trend([r.triggered_at for r in rows], days)
-            return {
-                'total': total,
-                'critical': by_sev['critical'],
-                'high': by_sev['high'],
-                'medium': by_sev['medium'],
-                'low': by_sev['low'],
-                'resolved': resolved,
-                'open': total - resolved,
-                'trend': trend,
-                'data_available': True,
-            }
-        except AnalyticsDataError as e:
-            return {
-                'total': 0, 'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
-                'resolved': 0, 'open': 0, 'trend': 'stable',
-                'data_available': False, 'message': str(e),
-            }
+        """Get alerts summary for the given number of days — real IncidentModel rows."""
+        if self.user_id is None:
+            return {'total': 0, 'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
+                    'resolved': 0, 'open': 0, 'trend': 'stable'}
+
+        from models import IncidentModel
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        incidents = IncidentModel.query.filter(
+            IncidentModel.user_id == self.user_id,
+            IncidentModel.triggered_at >= cutoff,
+        ).all()
+
+        total = len(incidents)
+        critical = sum(1 for i in incidents if i.severity == 'critical')
+        high = sum(1 for i in incidents if i.severity == 'high')
+        medium = sum(1 for i in incidents if i.severity == 'medium')
+        low = sum(1 for i in incidents if i.severity == 'low')
+        resolved = sum(1 for i in incidents if i.status in ('resolved', 'closed'))
+        open_count = total - resolved
+
+        prior_cutoff = cutoff - timedelta(days=days)
+        prior_total = IncidentModel.query.filter(
+            IncidentModel.user_id == self.user_id,
+            IncidentModel.triggered_at >= prior_cutoff,
+            IncidentModel.triggered_at < cutoff,
+        ).count()
+        if prior_total == 0:
+            trend = 'up' if total > 0 else 'stable'
+        else:
+            change = (total - prior_total) / prior_total
+            trend = 'up' if change > 0.05 else 'down' if change < -0.05 else 'stable'
+
+        return {
+            'total': total,
+            'critical': critical,
+            'high': high,
+            'medium': medium,
+            'low': low,
+            'resolved': resolved,
+            'open': open_count,
+            'trend': trend,
+        }
 
     def get_incident_stats(self, days: int = 30) -> Dict:
         """Get incident statistics for the given number of days."""
         return self.get_alerts_summary(days=days)
 
-    # ------------------------------------------------------------------
-    # Deployments — real, from InfrastructureChange (written by
-    # src/agent/core.py's _audit_infrastructure_change() when a
-    # create/resize/security-group-modify tool succeeds from chat).
-    # ------------------------------------------------------------------
+    # ---- Deployments ------------------------------------------------------
 
     def get_deployment_stats(self, days: int = 30) -> Dict:
-        """Real count of audited infrastructure changes in the period.
+        """Get deployment statistics derived from real CI/CD tool calls
+        (UsageLog). There is no dedicated Deployment model in this app, so
+        this counts actual tool invocations rather than inventing figures.
+        ``avg_duration_minutes`` is omitted — call duration isn't tracked."""
+        if self.user_id is None:
+            return {'total': 0, 'successful': 0, 'failed': 0, 'success_rate': 0.0, 'trend': 'stable'}
 
-        `_audit_infrastructure_change()` only ever writes a row when the
-        underlying tool call *succeeds* (`if not result.get('success'):
-        return`), so there is no real failure signal to report here — every
-        row is by definition a successful, executed change, and average
-        duration isn't tracked at all. Previously this was a hardcoded
-        92%/8% success/fail split with `random.uniform(5, 20)` minutes as
-        "avg duration"; both are now reported as not tracked rather than
-        invented.
-        """
-        try:
-            self._require_data_source()
-            from models import InfrastructureChange
-            cutoff = datetime.utcnow() - timedelta(days=days)
-            rows = InfrastructureChange.query.filter(
-                InfrastructureChange.user_id == self.user_id,
-                InfrastructureChange.created_at >= cutoff,
-            ).all()
-            trend = self._real_trend([r.created_at for r in rows], days)
-            return {
-                'total': len(rows),
-                'successful': None,
-                'failed': None,
-                'success_rate': None,
-                'success_rate_available': False,
-                'avg_duration_minutes': None,
-                'duration_available': False,
-                'trend': trend,
-                'data_available': True,
-            }
-        except AnalyticsDataError as e:
-            return {
-                'total': 0, 'successful': None, 'failed': None,
-                'success_rate': None, 'success_rate_available': False,
-                'avg_duration_minutes': None, 'duration_available': False,
-                'trend': 'stable', 'data_available': False, 'message': str(e),
-            }
+        from models import UsageLog
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        rows = UsageLog.query.filter(
+            UsageLog.user_id == self.user_id,
+            UsageLog.tool_name.in_(_DEPLOYMENT_TOOL_NAMES),
+            UsageLog.created_at >= cutoff,
+        ).all()
 
-    # ------------------------------------------------------------------
-    # Dashboard summary — composes the real methods above.
-    # ------------------------------------------------------------------
+        total = len(rows)
+        successful = sum(1 for r in rows if r.success)
+        failed = total - successful
+        success_rate = round(successful / total * 100, 1) if total else 0.0
 
-    def get_dashboard_metrics(self, days: int = 30) -> Dict:
-        """Get key metrics for dashboard, real end to end."""
-        try:
-            self._require_data_source()
-        except AnalyticsDataError as e:
-            return {
-                'data_available': False,
-                'message': str(e),
-                'cost': {'current_month': 0, 'trend': 'stable', 'forecast': None, 'forecast_status': 'no_account'},
-                'resources': {'total': 0, 'trend': 'stable'},
-                'incidents': {'this_month': 0, 'trend': 'stable'},
-                'deployments': {'this_month': 0, 'trend': 'stable'},
-            }
-
-        cost_breakdown = self.get_cost_breakdown()
-        resource_util = self.get_resource_utilization()
-        alerts = self.get_alerts_summary(days=days)
-        deployments = self.get_deployment_stats(days=days)
-        forecast = self.forecast_costs(days=30)
+        deploy_series = self._series_deployments(days)
 
         return {
-            'data_available': True,
-            'cost': {
-                'current_month': cost_breakdown['total'],
-                # No historical cost series exists to compare against — see
-                # forecast_costs()'s docstring. 'stable' is the honest
-                # neutral default, same semantics as TimeSeries.get_trend().
-                'trend': 'stable',
-                'trend_available': False,
-                'forecast': forecast.get('monthly_projection'),
-                'forecast_status': forecast.get('status'),
-            },
-            'resources': {
-                'total': resource_util['total_resources'],
-                'trend': resource_util['trend'],
-            },
-            'incidents': {
-                'this_month': alerts['total'],
-                'trend': alerts['trend'],
-            },
-            'deployments': {
-                'this_month': deployments['total'],
-                'trend': deployments['trend'],
-            },
+            'total': total,
+            'successful': successful,
+            'failed': failed,
+            'success_rate': success_rate,
+            'trend': deploy_series.get_trend(),
         }
 
-    # ------------------------------------------------------------------
-    # Dashboard Management with Database Persistence
-    # ------------------------------------------------------------------
+    # ---- Dashboard Management with Database Persistence -------------------
 
     def create_dashboard(self, user_id: int, name: str, description: str = None) -> Any:
         """Create a custom dashboard."""

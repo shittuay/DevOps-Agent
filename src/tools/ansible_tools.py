@@ -25,10 +25,22 @@ def _reject_flag_like(value: Optional[str], param_name: str) -> None:
     executable with no shell involved, but those CLIs parse a leading '-' as an
     option regardless of the caller's intent that it be a literal path/host
     pattern — the same argv-ambiguity class `git_tools.py`'s `_reject_flag_like`
-    exists to close. `playbook_path`/`host_pattern` are always placed as the
-    first bare positional in their respective command lists; reject any value
-    starting with '-' before it reaches subprocess, defense-in-depth even
+    exists to close. Applied to every caller-supplied value that reaches an
+    argv list in this module — bare positionals (`playbook_path`,
+    `host_pattern`, `file_path`, `collection_name`, `role_name`, `module_name`,
+    …) and also values carried by an explicit flag (`-i <inventory>`,
+    `-r <requirements_file>`, `--output <output_file>`), since a dash-prefixed
+    VALUE is still consumed as the option's own argument. Reject anything
+    starting with '-' before it reaches subprocess: defense-in-depth even
     without a confirmed exploit chain for a given flag.
+
+    NOTE: `ansible-vault` accepts `--vault-password-file=<path>` and Ansible
+    executes that file when it is executable, reading the password from stdout.
+    That makes the vault trio (`encrypt`/`decrypt`/`view`) the highest-value
+    target here. That specific chain has NOT been reproduced — ansible was not
+    installed in the environment where this was found — so treat it as a
+    documented-semantics risk, not a verified exploit. The unguarded parameters
+    themselves were confirmed by reading every argv site in this file.
     """
     if value and value.startswith('-'):
         raise ValueError(f"Invalid {param_name}: must not start with '-' ({value!r})")
@@ -294,6 +306,7 @@ def ansible_inventory_list(
         Dictionary with inventory information
     """
     try:
+        _reject_flag_like(inventory, 'inventory')
         command = ['ansible-inventory', '-i', inventory]
 
         if host:
@@ -350,6 +363,7 @@ def ansible_playbook_syntax_check(
         Dictionary with syntax check result
     """
     try:
+        _reject_flag_like(playbook_path, 'playbook_path')
         command = ['ansible-playbook', '--syntax-check', playbook_path]
 
         if inventory:
@@ -395,14 +409,17 @@ def ansible_galaxy_install(
     """
     try:
         if collection_name:
+            _reject_flag_like(collection_name, 'collection_name')
             command = ['ansible-galaxy', 'collection', 'install', collection_name]
             if collections_path:
                 command.extend(['-p', collections_path])
         elif role_name:
+            _reject_flag_like(role_name, 'role_name')
             command = ['ansible-galaxy', 'role', 'install', role_name]
             if roles_path:
                 command.extend(['-p', roles_path])
         elif requirements_file:
+            _reject_flag_like(requirements_file, 'requirements_file')
             command = ['ansible-galaxy', 'install', '-r', requirements_file]
             if roles_path:
                 command.extend(['-p', roles_path])
@@ -484,6 +501,7 @@ def ansible_vault_encrypt(
         Dictionary with encryption result
     """
     try:
+        _reject_flag_like(file_path, 'file_path')
         command = ['ansible-vault', 'encrypt', file_path]
 
         if vault_password_file:
@@ -526,8 +544,11 @@ def ansible_vault_decrypt(
     """
     try:
         if output_file:
+            _reject_flag_like(file_path, 'file_path')
+            _reject_flag_like(output_file, 'output_file')
             command = ['ansible-vault', 'decrypt', file_path, '--output', output_file]
         else:
+            _reject_flag_like(file_path, 'file_path')
             command = ['ansible-vault', 'decrypt', file_path]
 
         if vault_password_file:
@@ -565,6 +586,7 @@ def ansible_vault_view(
         Dictionary with file contents
     """
     try:
+        _reject_flag_like(file_path, 'file_path')
         command = ['ansible-vault', 'view', file_path]
 
         if vault_password_file:
@@ -632,6 +654,8 @@ def ansible_doc(
         Dictionary with documentation
     """
     try:
+        _reject_flag_like(module_type, 'module_type')
+        _reject_flag_like(module_name, 'module_name')
         command = ['ansible-doc', '-t', module_type, module_name]
 
         result = _run_ansible_command(command, working_dir)
@@ -665,6 +689,7 @@ def ansible_ping(
         Dictionary with ping results
     """
     try:
+        _reject_flag_like(host_pattern, 'host_pattern')
         command = ['ansible', host_pattern, '-m', 'ping']
 
         if inventory:
@@ -708,6 +733,7 @@ def ansible_facts(
         else:
             module_args = None
 
+        _reject_flag_like(host_pattern, 'host_pattern')
         command = ['ansible', host_pattern, '-m', 'setup']
 
         if module_args:

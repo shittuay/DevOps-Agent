@@ -326,8 +326,8 @@ class ChatOpsService:
 
 📡 *Monitoring*
 • Status: {'Running' if mon_status.get('running') else 'Stopped'}
-• Active Rules: {mon_status.get('active_rules', 0)}
-• Active Alerts: {mon_status.get('alerts_count', 0)}
+• Active Rules: {mon_status.get('rules_enabled', 0)}
+• Active Alerts: {mon_status.get('alerts_active', 0)}
 """
         return ChatResponse(text=text)
 
@@ -544,55 +544,39 @@ class ChatOpsService:
         return ChatResponse(text=f"Analysis completed but no root causes identified. See full report: /analysis/{result.id}")
 
     def _cmd_metrics(self, args: list, **kwargs) -> ChatResponse:
-        """Get metrics summary from the configured monitoring integration.
+        """Get metrics summary from the user's own configured monitoring rules."""
+        from services.proactive_monitoring import get_monitoring_service
 
-        There is no per-user Prometheus/CloudWatch endpoint on record for
-        this command to query (those tools take an explicit, caller-supplied
-        `prometheus_url` — there is no single "the" instance to default to),
-        so this reports real Datadog monitor state when Datadog is configured
-        and fails closed otherwise, rather than inventing plausible-looking
-        infrastructure numbers.
-        """
-        import os
-        if not (os.environ.get('DATADOG_API_KEY') and os.environ.get('DATADOG_APP_KEY')):
-            return ChatResponse(text=(
-                "No monitoring integration is configured for `/metrics`. "
-                "Set `DATADOG_API_KEY`/`DATADOG_APP_KEY` to enable it, or query "
-                "Prometheus/CloudWatch directly from the chat agent."
-            ))
-
-        from src.tools.monitoring_tools import get_datadog_monitors
-
+        app_user_id = self._require_app_user(kwargs)
         service_filter = args[0].lower() if args else None
-        result = get_datadog_monitors()
-        if not result.get('success'):
-            return ChatResponse(text=f"❌ Could not reach Datadog: {result.get('error')}")
 
-        monitors = result.get('monitors', [])
+        monitoring = get_monitoring_service()
+        rules = monitoring.get_rules(app_user_id)
+
         if service_filter:
-            monitors = [
-                m for m in monitors
-                if service_filter in m.get('name', '').lower()
-                or any(service_filter in tag.lower() for tag in m.get('tags', []))
+            rules = [
+                r for r in rules
+                if service_filter in r['name'].lower()
+                or service_filter in str(r.get('labels', {}).get('service', '')).lower()
             ]
 
-        if not monitors:
-            return ChatResponse(text="No matching Datadog monitors found.")
+        if not rules:
+            return ChatResponse(
+                text="No monitoring rules are configured, so there are no real metrics "
+                     "to show. Set one up in Settings › Monitoring to see live values here."
+            )
 
-        state_emoji = {'Alert': '🔴', 'Warn': '🟡', 'No Data': '⚪', 'OK': '🟢'}
-        state_counts: dict = {}
-        for m in monitors:
-            state_counts[m.get('overall_state', 'Unknown')] = state_counts.get(m.get('overall_state', 'Unknown'), 0) + 1
-
-        lines = ["*Metrics Summary (Datadog)*\n"]
-        for state, count in sorted(state_counts.items(), key=lambda kv: kv[1], reverse=True):
-            lines.append(f"{state_emoji.get(state, '⚪')} {state}: {count}")
-
-        alerting = [m for m in monitors if m.get('overall_state') in ('Alert', 'Warn')][:5]
-        if alerting:
-            lines.append("\n*Alerting monitors:*")
-            for m in alerting:
-                lines.append(f"{state_emoji.get(m.get('overall_state'), '⚪')} {m.get('name', 'unnamed')}")
+        state_emoji = {'firing': '\U0001F534', 'pending': '\U0001F7E1', 'ok': '\U0001F7E2'}
+        lines = ["*Metrics Summary*\n"]
+        for rule in sorted(rules, key=lambda r: r['name']):
+            emoji = state_emoji.get(rule.get('state'), '⚪')
+            value = rule.get('last_value')
+            value_text = str(value) if value is not None else "no data yet"
+            checked = rule.get('last_check') or "never"
+            lines.append(
+                f"{emoji} *{rule['name']}* ({rule['source']}): {value_text} "
+                f"(threshold {rule['condition']} {rule['threshold']}) — last checked {checked}"
+            )
 
         return ChatResponse(text="\n".join(lines))
 
@@ -620,56 +604,22 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_oncall(self, args: list, **kwargs) -> ChatResponse:
-        """Show on-call information from the configured PagerDuty/OpsGenie integration."""
-        import os
+        """Show on-call information.
 
-        if os.environ.get('PAGERDUTY_API_KEY'):
-            from src.tools.alerting_tools import pagerduty_list_oncalls
-
-            result = pagerduty_list_oncalls()
-            if not result.get('success'):
-                return ChatResponse(text=f"❌ Could not reach PagerDuty: {result.get('error')}")
-
-            oncalls = result.get('oncalls', [])
-            if not oncalls:
-                return ChatResponse(text="No on-call schedules found in PagerDuty.")
-
-            lines = ["*On-Call Schedule (PagerDuty)*\n"]
-            for oc in oncalls[:10]:
-                who = oc.get('user') or oc.get('user_email') or 'unassigned'
-                lines.append(
-                    f"• {who} — {oc.get('schedule', 'unknown schedule')} "
-                    f"({oc.get('escalation_policy', 'unknown policy')}, level {oc.get('escalation_level', '?')})"
-                )
-            return ChatResponse(text="\n".join(lines))
-
-        if os.environ.get('OPSGENIE_API_KEY'):
-            from src.tools.alerting_tools import opsgenie_list_schedules, opsgenie_get_oncall
-
-            schedules_result = opsgenie_list_schedules()
-            if not schedules_result.get('success'):
-                return ChatResponse(text=f"❌ Could not reach OpsGenie: {schedules_result.get('error')}")
-
-            schedules = [s for s in schedules_result.get('schedules', []) if s.get('enabled')]
-            if not schedules:
-                return ChatResponse(text="No enabled OpsGenie schedules found.")
-
-            lines = ["*On-Call Schedule (OpsGenie)*\n"]
-            for sched in schedules[:5]:
-                oncall = opsgenie_get_oncall(sched['id'])
-                if not oncall.get('success'):
-                    lines.append(f"• {sched.get('name')}: could not load on-call ({oncall.get('error')})")
-                    continue
-                participants = oncall.get('oncall_participants', [])
-                who = ', '.join(p.get('name', 'unknown') for p in participants) or 'nobody scheduled'
-                lines.append(f"• {sched.get('name')}: {who}")
-
-            return ChatResponse(text="\n".join(lines))
-
-        return ChatResponse(text=(
-            "No on-call integration is configured. Set `PAGERDUTY_API_KEY` or "
-            "`OPSGENIE_API_KEY` to enable `/oncall`."
-        ))
+        There is no per-user PagerDuty/OpsGenie credential store (unlike the
+        per-user AWS/Azure/GCP model) for this command to read, and no fixed
+        schedule is true for every account — a hardcoded "@devops-team is
+        primary" response would be the same fabricated-data-as-real-status bug
+        already fixed elsewhere in this app (see CLAUDE.md's "Non-negotiable"
+        section), just for on-call data instead of cloud state. Fail closed
+        with an honest answer instead of guessing.
+        """
+        return ChatResponse(
+            text="On-call schedule lookup isn't connected to a live PagerDuty/OpsGenie "
+                 "on-call yet, so there is nothing real to report here. Ask the agent "
+                 "directly (it can call `pagerduty_list_oncalls` / `opsgenie_get_oncall` "
+                 "with your API key) or check your provider's dashboard."
+        )
 
     def format_slack_blocks(self, response: ChatResponse) -> list:
         """Format response as Slack blocks."""

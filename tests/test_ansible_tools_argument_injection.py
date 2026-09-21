@@ -60,3 +60,56 @@ def test_playbook_run_with_normal_path_reaches_subprocess(monkeypatch):
     result = ansible_playbook_run(playbook_path='site.yml', working_dir='/nonexistent')
     assert result['success'] is False
     assert 'must not start with' not in result.get('error', '')
+
+
+# ---------------------------------------------------------------------------
+# Coverage for the 12 argv sites the original guard missed.
+#
+# The first pass guarded only ansible_playbook_run/ansible_adhoc_command,
+# because _reject_flag_like's docstring asserted that playbook_path and
+# host_pattern "are always placed as the first bare positional in their
+# respective command lists". That is true of those two functions and false of
+# six others -- ansible_playbook_syntax_check builds
+# ['ansible-playbook', '--syntax-check', playbook_path] from the same
+# parameter name, and the vault trio puts file_path in exactly that position.
+#
+# This is the third time this module-level, opt-in guard has been applied
+# incompletely on its first pass (git_tools.py needed follow-ups on
+# 2026-08-04 and 2026-08-12). Until scripts/check_security_invariants.py
+# grows an argv check, these tests are the only thing pinning the coverage.
+# ---------------------------------------------------------------------------
+
+from src.tools.ansible_tools import (
+    ansible_playbook_syntax_check,
+    ansible_galaxy_install,
+    ansible_vault_encrypt,
+    ansible_vault_decrypt,
+    ansible_vault_view,
+    ansible_doc,
+    ansible_ping,
+    ansible_facts,
+    ansible_inventory_list,
+)
+
+FLAG = '--vault-password-file=/tmp/pwned.sh'
+
+
+@pytest.mark.parametrize('call', [
+    pytest.param(lambda: ansible_playbook_syntax_check(playbook_path=FLAG), id='syntax_check.playbook_path'),
+    pytest.param(lambda: ansible_galaxy_install(collection_name=FLAG), id='galaxy_install.collection_name'),
+    pytest.param(lambda: ansible_galaxy_install(role_name=FLAG), id='galaxy_install.role_name'),
+    pytest.param(lambda: ansible_galaxy_install(requirements_file=FLAG), id='galaxy_install.requirements_file'),
+    pytest.param(lambda: ansible_vault_encrypt(file_path=FLAG), id='vault_encrypt.file_path'),
+    pytest.param(lambda: ansible_vault_decrypt(file_path=FLAG), id='vault_decrypt.file_path'),
+    pytest.param(lambda: ansible_vault_decrypt(file_path='secrets.yml', output_file=FLAG), id='vault_decrypt.output_file'),
+    pytest.param(lambda: ansible_vault_view(file_path=FLAG), id='vault_view.file_path'),
+    pytest.param(lambda: ansible_doc(module_name=FLAG), id='doc.module_name'),
+    pytest.param(lambda: ansible_doc(module_name='ping', module_type=FLAG), id='doc.module_type'),
+    pytest.param(lambda: ansible_ping(host_pattern=FLAG), id='ping.host_pattern'),
+    pytest.param(lambda: ansible_facts(host_pattern=FLAG), id='facts.host_pattern'),
+    pytest.param(lambda: ansible_inventory_list(inventory=FLAG), id='inventory_list.inventory'),
+])
+def test_flag_like_value_is_rejected(call):
+    result = call()
+    assert result['success'] is False
+    assert 'must not start with' in result['error'], result

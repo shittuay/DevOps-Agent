@@ -98,7 +98,8 @@ from src.tools import (
     monitoring_tools,
     ansible_tools,
     alerting_tools,
-    devops_operations_tools
+    devops_operations_tools,
+    verification_tools
 )
 
 # Import database models
@@ -171,7 +172,7 @@ if _sentry_dsn:
         print("Warning: SENTRY_DSN set but sentry-sdk not installed. Run: pip install sentry-sdk[flask]")
 
 # Initialize security features
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from flask_limiter.errors import RateLimitExceeded
 from flask_talisman import Talisman
 
@@ -183,7 +184,56 @@ from extensions import limiter, security_logger
 csrf = CSRFProtect(app)
 app.config['WTF_CSRF_ENABLED'] = True
 app.config['WTF_CSRF_TIME_LIMIT'] = None  # No time limit for CSRF tokens
-app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Exempt JSON API routes; CSRF enforced on form endpoints via @csrf.protect
+app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Automatic check off; _enforce_csrf_on_form_submissions() below does it
+
+# Flask-WTF's automatic check is disabled above because the JSON surfaces of
+# this app (/api/*, the MCP transport, the developer REST gateway, and the
+# HMAC-signed inbound webhook receiver) send no CSRF token. The promised
+# replacement — per-endpoint `@csrf.protect` — was never written. Four auth
+# routes do check by hand via routes/auth.py's `_check_csrf()` (/login,
+# /signup, /forgot-password, /reset-password), and those four are the ONLY
+# form endpoints that were ever validated. Every other form-encoded POST —
+# /profile, the organization create/invite/settings forms, compliance policy
+# and evidence, API key and webhook creation — rendered no token and checked
+# none.
+#
+# What needs protecting is narrower than "every POST". A cross-origin page
+# cannot send `Content-Type: application/json` without a CORS preflight it has
+# no way to satisfy, so the JSON endpoints are not the exposed surface.
+# Form-encoded and multipart submissions ARE "simple requests" that any page
+# can make with the victim's cookies attached, so those are enforced here.
+#
+# The four hand-written `_check_csrf()` calls are left in place: this hook
+# preempts them, but their inline error message is the only feedback those
+# pages can give, since none of the four auth templates render flashes.
+#
+# This mirrors Flask-WTF's own `csrf_protect` hook (flask_wtf/csrf.py) so that
+# `csrf.exempt(...)` keeps working; it reads that extension's private exemption
+# sets, which is why requirements.txt pins flask-wtf exactly. Revisit if that
+# pin moves.
+_CSRF_FORM_MIMETYPES = frozenset({
+    'application/x-www-form-urlencoded',
+    'multipart/form-data',
+})
+
+
+@app.before_request
+def _enforce_csrf_on_form_submissions():
+    """Validate the CSRF token on cookie-authenticated form submissions."""
+    if not app.config.get('WTF_CSRF_ENABLED', True):
+        return
+    if request.method not in app.config['WTF_CSRF_METHODS']:
+        return
+    if (request.mimetype or '').lower() not in _CSRF_FORM_MIMETYPES:
+        return
+    if not request.endpoint:
+        return
+    if app.blueprints.get(request.blueprint) in csrf._exempt_blueprints:
+        return
+    view = app.view_functions.get(request.endpoint)
+    if view is not None and f'{view.__module__}.{view.__name__}' in csrf._exempt_views:
+        return
+    csrf.protect()
 
 # Bind limiter to this app instance
 limiter.init_app(app)
@@ -545,6 +595,31 @@ def _template_exists(name):
     from flask import current_app
     import os
     return os.path.exists(os.path.join(current_app.template_folder, name))
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    """Turn a rejected form submission into a re-try, not a bare 400 page.
+
+    _enforce_csrf_on_form_submissions() only ever fires on form-encoded posts,
+    so the caller is a browser rendering one of our own pages: send them back to
+    it with a flash rather than Flask-WTF's default error document. The wording
+    stays generic because a failure here is far more often a stale session than
+    an actual forged request.
+
+    The referrer is validated before it is used as the redirect target: on a
+    genuinely forged request it points at the attacker's page, and bouncing the
+    victim straight back to it would make this handler an open redirect.
+    """
+    from routes.auth import _is_safe_redirect
+
+    security_logger.warning(
+        f"CSRF rejected: {request.method} {request.path} from {request.remote_addr} ({e.description})"
+    )
+    flash('Your session expired. Please refresh the page and try again.', 'error')
+    referrer = request.referrer
+    target = referrer if referrer and _is_safe_redirect(referrer) else url_for('index')
+    return redirect(target), 303
 
 
 @app.errorhandler(405)
@@ -1068,6 +1143,7 @@ def initialize_agent():
 
         # Register tools
         agent.register_tools_from_module(command_tools)
+        agent.register_tools_from_module(verification_tools)  # http_check / tcp_check — always available
         if config_manager.aws_enabled:
             agent.register_tools_from_module(aws_tools)
         # Always enable GCP and Azure tools
@@ -4430,10 +4506,19 @@ def sync_status(task_id):
 @app.route('/api/dashboard/recommendations/<int:rec_id>/apply', methods=['POST'])
 @login_required
 def apply_recommendation(rec_id):
-    """Apply a cost optimization recommendation."""
+    """Apply a cost optimization recommendation.
+
+    This endpoint does not yet call any AWS/Azure/GCP API to carry out the
+    recommended action (stop the instance, resize it, add a lifecycle
+    policy, etc.) — it must never report success it didn't perform (see
+    CLAUDE.md's "every feature runs against a real cloud account" rule, and
+    the identical fix in routes/scaling.py's api_apply_recommendation). A
+    user trusting a false "applied — saving $X/mo" toast would stop looking
+    for other ways to address the cost/reliability issue that was never
+    actually fixed, while the resource keeps running exactly as before.
+    """
     try:
-        from models import CostOptimization, InfrastructureResource
-        from datetime import datetime
+        from models import CostOptimization
 
         # Get recommendation
         recommendation = CostOptimization.query.get_or_404(rec_id)
@@ -4442,17 +4527,20 @@ def apply_recommendation(rec_id):
         if recommendation.user_id != current_user.id:
             return jsonify({'error': 'Unauthorized'}), 403
 
-        # For now, just mark as applied
-        # In production, actually execute the action (stop instance, etc.)
-        recommendation.status = 'applied'
-        recommendation.applied_at = datetime.utcnow()
-        db.session.commit()
+        logger.info(
+            f"Cost optimization apply requested by {current_user.email} for "
+            f"recommendation {rec_id} ({recommendation.recommendation_type}), but no "
+            f"execution path exists yet — refusing to report false success"
+        )
 
         return jsonify({
-            'success': True,
-            'message': f'Optimization applied successfully',
-            'savings': recommendation.potential_monthly_savings
-        })
+            'success': False,
+            'error': 'Applying this recommendation is not yet implemented — no cloud API '
+                     'call is made. Use the equivalent AWS/Azure/GCP tool in chat to make '
+                     'this change yourself, then dismiss this recommendation.',
+            'recommendation_id': rec_id,
+            'recommendation_type': recommendation.recommendation_type,
+        }), 501
     except HTTPException:
         raise  # let get_or_404's 404 (and other HTTP errors) pass through
     except Exception as e:

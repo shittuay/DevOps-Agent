@@ -40,6 +40,7 @@
             {% else %}
             <p class="text-muted">No evidence submitted for this control.</p>
             <form method="POST" action="{{ url_for('compliance.add_evidence', control_id=control.id or control.control_id) }}" class="evidence-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <textarea name="description" placeholder="Describe the evidence..." rows="3" class="form-control"></textarea>
                 <button type="submit" class="btn btn-primary mt-2">Submit Evidence</button>
             </form>

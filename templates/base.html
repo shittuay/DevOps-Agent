@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css" integrity="sha384-t1nt8BQoYMLFN5p42tRAtuAAFQaCQODekUVeKKZrEnEyp4H2R0RHFz0KWpmj7i8g" crossorigin="anonymous">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
 
     <style>
@@ -338,32 +338,6 @@
             background: rgba(255, 107, 53, 0.15);
             color: var(--accent-primary);
             border-color: rgba(255, 107, 53, 0.3);
-        }
-
-        .no-account-banner {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: rgba(245, 158, 11, 0.1);
-            border: 1px solid rgba(245, 158, 11, 0.3);
-            color: var(--text-primary);
-            border-radius: 10px;
-            padding: 12px 16px;
-            margin-bottom: 20px;
-            font-size: 13px;
-            flex-wrap: wrap;
-        }
-
-        .no-account-banner i {
-            color: #f59e0b;
-        }
-
-        .no-account-banner a {
-            margin-left: auto;
-            color: var(--accent-primary);
-            text-decoration: none;
-            font-weight: 600;
-            white-space: nowrap;
         }
 
         .metrics-grid {

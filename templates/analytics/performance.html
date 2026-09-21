@@ -12,11 +12,6 @@
         <a href="{{ url_for('analytics.performance_analytics') }}" class="nav-item active">Performance</a>
         <a href="{{ url_for('analytics.resource_analytics') }}" class="nav-item">Resources</a>
     </div>
-    <div id="noAccountBanner" class="no-account-banner" hidden>
-        <i class="fas fa-plug"></i>
-        <span id="noAccountMessage">Connect a cloud account to see real performance data.</span>
-        <a href="/settings#cloud">Connect account &rarr;</a>
-    </div>
     <div class="metrics-grid">
         <div class="metric-card">
             <div class="metric-icon"><i class="fas fa-tachometer-alt"></i></div>
@@ -55,15 +50,6 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch('/analytics/api/alerts/summary').then(r => r.json()),
         fetch('/analytics/api/performance/metrics?metric=cpu').then(r => r.json())
     ]).then(([util, alerts, metrics]) => {
-        const banner = document.getElementById('noAccountBanner');
-        if (util.data_available === false) {
-            document.getElementById('noAccountMessage').textContent =
-                util.message || 'Connect a cloud account to see real performance data.';
-            banner.hidden = false;
-        } else {
-            banner.hidden = true;
-        }
-
         document.getElementById('avgResponse').textContent = (util.utilization_avg || 0).toFixed(1) + '%';
         const uptime = alerts.total > 0 ? ((1 - (alerts.open || 0) / alerts.total) * 100).toFixed(1) : '100.0';
         document.getElementById('uptime').textContent = uptime + '%';

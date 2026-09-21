@@ -25,12 +25,6 @@
         <a href="{{ url_for('analytics.resource_analytics') }}" class="nav-item">Resources</a>
     </div>
 
-    <div id="noAccountBanner" class="no-account-banner" hidden>
-        <i class="fas fa-plug"></i>
-        <span id="noAccountMessage">Connect a cloud account to see real analytics data.</span>
-        <a href="/settings#cloud">Connect account &rarr;</a>
-    </div>
-
     <div class="metrics-grid">
         <div class="metric-card">
             <div class="metric-icon cost"><i class="fas fa-dollar-sign"></i></div>
@@ -179,31 +173,6 @@
 .nav-item.active {
     color: #667eea;
     border-bottom-color: #667eea;
-}
-
-.no-account-banner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: rgba(245, 158, 11, 0.1);
-    border: 1px solid rgba(245, 158, 11, 0.3);
-    color: var(--text-primary);
-    border-radius: 10px;
-    padding: 12px 16px;
-    margin-bottom: 20px;
-    font-size: 13px;
-}
-
-.no-account-banner i {
-    color: #f59e0b;
-}
-
-.no-account-banner a {
-    margin-left: auto;
-    color: #667eea;
-    text-decoration: none;
-    font-weight: 600;
-    white-space: nowrap;
 }
 
 .metrics-grid {
@@ -427,15 +396,6 @@ async function loadDashboardData() {
         const response = await fetch(`/analytics/api/dashboard?period=${period}`);
         const data = await response.json();
         updateMetrics(data);
-
-        const banner = document.getElementById('noAccountBanner');
-        if (data.data_available === false) {
-            document.getElementById('noAccountMessage').textContent =
-                data.message || 'Connect a cloud account to see real analytics data.';
-            banner.hidden = false;
-        } else {
-            banner.hidden = true;
-        }
     } catch (error) {
         console.error('Failed to load dashboard metrics:', error);
     }

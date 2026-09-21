@@ -12,11 +12,6 @@
         <a href="{{ url_for('analytics.performance_analytics') }}" class="nav-item">Performance</a>
         <a href="{{ url_for('analytics.resource_analytics') }}" class="nav-item">Resources</a>
     </div>
-    <div id="noAccountBanner" class="no-account-banner" hidden>
-        <i class="fas fa-plug"></i>
-        <span id="noAccountMessage">Connect a cloud account to see real cost data.</span>
-        <a href="/settings#cloud">Connect account &rarr;</a>
-    </div>
     <div class="metrics-grid">
         <div class="metric-card">
             <div class="metric-icon"><i class="fas fa-dollar-sign"></i></div>
@@ -57,15 +52,6 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('monthlySpend').textContent = '$' + (summary.total || 0).toFixed(2);
         document.getElementById('forecast').textContent = '$' + (forecast.monthly_projection || 0).toFixed(2);
         document.getElementById('savings').textContent = '$0.00';
-
-        const banner = document.getElementById('noAccountBanner');
-        if (summary.data_available === false) {
-            document.getElementById('noAccountMessage').textContent =
-                summary.message || 'Connect a cloud account to see real cost data.';
-            banner.hidden = false;
-        } else {
-            banner.hidden = true;
-        }
 
         const byService = summary.by_service || {};
         const labels = Object.keys(byService);
