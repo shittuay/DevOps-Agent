@@ -198,18 +198,21 @@ operating on the real, CloudWatch-derived `CostOptimization` rows from
 `services/infrastructure_sync.py`) set `status='applied'` and returned a success toast
 ("Optimization applied — saving $X/mo") without calling any cloud API to stop/resize/reconfigure
 anything — fixed the same way `routes/scaling.py`'s `api_apply_recommendation` was: an honest
-501 `not_implemented` response, never a fabricated `applied` status. **Not yet fixed:**
-`services/ai_infrastructure.py`'s `get_recommendations()` still returns a hardcoded list
-ignoring `user_id`, and its `apply_recommendation()` still reports `success: True` without
-calling any cloud API — same fake-Apply shape, not touched by this pass. See CLAUDE_RUNBOOK.md's
-2026-09-15 and 2026-09-20 entries for exact line numbers. This is now seven known instances of
-the same bug class (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the
-dashboard cost-recommendation Apply endpoint, and still-open AI Infrastructure) found
-independently across six separate audits — the recurrence itself, not just any one instance, is
-the signal that this needs a structural fix (e.g. a shared "no live account → fail closed"
-helper every new recommendation/analytics feature is required to call, and a shared "apply"
-helper that refuses to report success without an actual tool call) rather than another one-off
-patch next time it's found again.
+501 `not_implemented` response, never a fabricated `applied` status. **Fixed by the 2026-09-21
+scheduled audit:** `services/ai_infrastructure.py`'s `get_recommendations()` had the identical
+hardcoded-list-ignoring-`user_id` shape (four fake recommendations, `rec_1`..`rec_4`, including an
+invented "$150/mo savings" figure) and its `apply_recommendation()` reported `success: True` with
+no cloud API call — fixed the same fail-closed way as every instance above (`get_recommendations`
+now returns `[]`, `apply_recommendation` always returns the same "not yet implemented" 501 shape).
+See CLAUDE_RUNBOOK.md's 2026-09-15, 2026-09-20, and 2026-09-21 entries for exact line numbers.
+This was the eighth known instance of the same bug class (Drift, Predictive Scaling, Analytics,
+ChatOps, Performance Optimizer, the dashboard cost-recommendation Apply endpoint,
+`routes/scaling.py`'s Apply endpoint, and AI Infrastructure) found independently across seven
+separate audits — the recurrence itself, not just any one instance, is the signal that this needs
+a structural fix (e.g. a shared "no live account → fail closed" helper every new
+recommendation/analytics feature is required to call, and a shared "apply" helper that refuses to
+report success without an actual tool call) rather than another one-off patch next time a ninth
+instance is found.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
