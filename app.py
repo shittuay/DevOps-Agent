@@ -1577,9 +1577,9 @@ def chat():
                 user_id=current_user.id,
                 tier_id=free_tier.id,
                 credits_remaining=free_tier.monthly_credits,
-                current_period_start=datetime.utcnow(),
-                current_period_end=datetime.utcnow() + relativedelta(months=1),
-                last_reset_date=datetime.utcnow(),
+                current_period_start=utcnow(),
+                current_period_end=utcnow() + relativedelta(months=1),
+                last_reset_date=utcnow(),
             )
             db.session.add(subscription)
             db.session.commit()
@@ -1978,7 +1978,7 @@ def api_status_health():
     services = status_service.check_health()
     overall = status_service.get_overall_status(services)
     code = 200 if overall == 'operational' else 503
-    return jsonify({'status': overall, 'services': services, 'ts': datetime.utcnow().isoformat()}), code
+    return jsonify({'status': overall, 'services': services, 'ts': utcnow().isoformat()}), code
 
 
 @app.route('/api/notifications')
@@ -2778,7 +2778,7 @@ def reset_streaming_locks():
             _sa_update(Conversation).where(
                 Conversation.user_id == current_user.id,
                 Conversation.is_streaming == True  # noqa: E712
-            ).values(is_streaming=False, updated_at=datetime.utcnow())
+            ).values(is_streaming=False, updated_at=utcnow())
         )
         db.session.commit()
         return jsonify({'success': True, 'reset': result.rowcount,
@@ -3020,7 +3020,7 @@ def api_chat():
                 return jsonify({'error': 'Subscription system not initialized. Please contact support.'}), 500
 
             from dateutil.relativedelta import relativedelta
-            now = datetime.utcnow()
+            now = utcnow()
             subscription = UserSubscription(
                 user_id=current_user.id,
                 tier_id=free_tier.id,
@@ -3091,7 +3091,7 @@ def api_chat():
                 user_id=current_user.id
             ).first()
             if conversation:
-                conversation.updated_at = datetime.utcnow()
+                conversation.updated_at = utcnow()
                 # Check if this is the first message (title still default)
                 if conversation.title == 'New Chat':
                     is_first_message = True
@@ -3375,7 +3375,7 @@ def api_chat():
                     'content': _pending_download.get('content'),
                     'content_type': _pending_download.get('content_type', 'application/octet-stream'),
                     'user_id': _user_id,
-                    'expires_at': datetime.utcnow() + timedelta(minutes=5)
+                    'expires_at': utcnow() + timedelta(minutes=5)
                 }
 
                 # Build download URL
@@ -3668,7 +3668,7 @@ def api_chat_stream():
             if not free_tier:
                 return jsonify({'error': 'Subscription system not initialized.'}), 500
             from dateutil.relativedelta import relativedelta
-            now = datetime.utcnow()
+            now = utcnow()
             subscription = UserSubscription(
                 user_id=current_user.id,
                 tier_id=free_tier.id,
@@ -3729,7 +3729,7 @@ def api_chat_stream():
                 user_id=current_user.id
             ).first()
             if conversation:
-                conversation.updated_at = datetime.utcnow()
+                conversation.updated_at = utcnow()
                 if conversation.title == 'New Chat':
                     is_first_message = True
             else:
@@ -3746,7 +3746,7 @@ def api_chat_stream():
         # In-flight guard: atomic UPDATE — only sets is_streaming=True if it was False.
         # updated_at is explicitly stamped when the lock is acquired so stale detection is accurate.
         from sqlalchemy import update as _sa_update
-        _now = datetime.utcnow()
+        _now = utcnow()
         _stale_threshold = _now - timedelta(seconds=90)
         if conversation:
             # Stale lock recovery: if is_streaming=True but the lock was acquired >90s ago,
@@ -3805,7 +3805,7 @@ def api_chat_stream():
                 "INSERT INTO chat_messages (user_id, conversation_id, role, content, timestamp) "
                 "VALUES (:uid, :cid, 'user', :content, :ts)"
             ), {'uid': current_user.id, 'cid': conversation_id,
-                'content': message, 'ts': datetime.utcnow()})
+                'content': message, 'ts': utcnow()})
         if conversation and not getattr(conversation, '_preview_set', False):
             conversation.preview = message[:200]
             conversation._preview_set = True
@@ -4316,7 +4316,7 @@ def get_current_model():
 
 def cleanup_expired_downloads():
     """Remove expired download tokens from storage."""
-    now = datetime.utcnow()
+    now = utcnow()
     expired_tokens = [token for token, data in download_storage.items()
                       if data['expires_at'] < now]
     for token in expired_tokens:
@@ -4563,7 +4563,7 @@ def dismiss_recommendation(rec_id):
             return jsonify({'error': 'Unauthorized'}), 403
 
         recommendation.status = 'dismissed'
-        recommendation.dismissed_at = datetime.utcnow()
+        recommendation.dismissed_at = utcnow()
         db.session.commit()
 
         return jsonify({'success': True})
@@ -4777,7 +4777,7 @@ def resolve_finding(finding_id):
 
         data = request.get_json() or {}
         finding.status = 'resolved'
-        finding.resolved_at = datetime.utcnow()
+        finding.resolved_at = utcnow()
         finding.resolved_by = current_user.id
         finding.resolution_notes = data.get('notes', '')
         db.session.commit()
@@ -5025,7 +5025,7 @@ def new_conversation():
 
         # Clean up empty "New Chat" conversations older than 7 days for this user
         from datetime import timedelta
-        cutoff = datetime.utcnow() - timedelta(days=7)
+        cutoff = utcnow() - timedelta(days=7)
         stale_ids = [
             c.id for c in Conversation.query.filter(
                 Conversation.user_id == current_user.id,
@@ -6193,7 +6193,7 @@ def admin_update_crisis_incident(incident_id):
         if 'resolved' in data:
             incident.resolved = bool(data['resolved'])
             if incident.resolved and not incident.resolved_at:
-                incident.resolved_at = datetime.utcnow()
+                incident.resolved_at = utcnow()
 
         # Update support notes
         if 'support_notes' in data:
@@ -6247,7 +6247,7 @@ def admin_crisis_statistics():
         unresolved_count = CrisisIncident.query.filter_by(resolved=False).count()
 
         # Last 7 days trend
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = utcnow() - timedelta(days=7)
         last_7_days_count = CrisisIncident.query.filter(
             CrisisIncident.detected_at >= seven_days_ago
         ).count()
@@ -6393,6 +6393,7 @@ if __name__ != '__main__' and not _is_testing:
 # start in a short-lived import could fire emails mid-process. Opt out with
 # DISABLE_SCHEDULER=1.
 import sys as _sys
+from src.utils.timeutils import utcnow
 _under_gunicorn = 'gunicorn' in os.path.basename(_sys.argv[0] if _sys.argv else '').lower()
 if _under_gunicorn and not _is_testing and os.environ.get('DISABLE_SCHEDULER') != '1':
     try:

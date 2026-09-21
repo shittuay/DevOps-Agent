@@ -11,6 +11,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def process_drip_emails(db):
     from services.email_service import EmailService
 
     email_svc = EmailService()
-    now = datetime.utcnow()
+    now = utcnow()
 
     users = (
         User.query

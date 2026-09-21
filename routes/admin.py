@@ -12,6 +12,7 @@ from services.rbac import (
 )
 from datetime import datetime, timedelta
 import logging
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ def admin_dashboard():
     # Get user statistics
     total_users = User.query.count()
     active_users = User.query.filter(
-        User.last_login >= datetime.utcnow() - timedelta(days=30)
+        User.last_login >= utcnow() - timedelta(days=30)
     ).count()
 
     # Users by role
@@ -167,7 +168,7 @@ def lock_user(user_id):
         }), 403
 
     duration_hours = request.json.get('duration', 24)
-    user.locked_until = datetime.utcnow() + timedelta(hours=duration_hours)
+    user.locked_until = utcnow() + timedelta(hours=duration_hours)
     db.session.commit()
 
     logger.warning(
@@ -309,10 +310,10 @@ def api_stats():
     """API endpoint for admin statistics."""
     total_users = User.query.count()
     active_today = User.query.filter(
-        User.last_login >= datetime.utcnow() - timedelta(days=1)
+        User.last_login >= utcnow() - timedelta(days=1)
     ).count()
     active_week = User.query.filter(
-        User.last_login >= datetime.utcnow() - timedelta(days=7)
+        User.last_login >= utcnow() - timedelta(days=7)
     ).count()
 
     return jsonify({

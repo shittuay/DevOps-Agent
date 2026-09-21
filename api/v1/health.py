@@ -7,6 +7,7 @@ Provides system health and status information.
 from flask import jsonify
 from datetime import datetime
 from api.v1 import api_v1_bp
+from src.utils.timeutils import utcnow
 
 
 @api_v1_bp.route('/health', methods=['GET'])
@@ -19,7 +20,7 @@ def health_check():
     """
     return jsonify({
         'status': 'healthy',
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': utcnow().isoformat(),
         'service': 'devops-agent',
         'version': '1.0.0'
     })
@@ -37,7 +38,7 @@ def detailed_health_check():
 
     health = {
         'status': 'healthy',
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': utcnow().isoformat(),
         'components': {}
     }
 
@@ -73,7 +74,7 @@ def service_status():
 
     return jsonify({
         'status': 'operational',
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': utcnow().isoformat(),
         'metrics': {
             'total_users': User.query.count(),
             'total_conversations': Conversation.query.count()

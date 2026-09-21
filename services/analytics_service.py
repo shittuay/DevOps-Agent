@@ -14,6 +14,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from enum import Enum
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -355,7 +356,7 @@ class AnalyticsService:
             return series
 
         from models import InfrastructureResource
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         resources = self._resource_query().order_by(InfrastructureResource.created_at).all()
         if not resources:
             return series
@@ -374,7 +375,7 @@ class AnalyticsService:
             series.add_point(datetime.strptime(key, '%Y-%m-%d'), running_total)
 
         if not series.data_points:
-            series.add_point(datetime.utcnow(), len(resources))
+            series.add_point(utcnow(), len(resources))
         return series
 
     def _series_incidents(self, days: int) -> TimeSeries:
@@ -384,7 +385,7 @@ class AnalyticsService:
             return series
 
         from models import IncidentModel
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         incidents = IncidentModel.query.filter(
             IncidentModel.user_id == self.user_id,
             IncidentModel.triggered_at >= cutoff,
@@ -408,7 +409,7 @@ class AnalyticsService:
             return series
 
         from models import UsageLog
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         rows = UsageLog.query.filter(
             UsageLog.user_id == self.user_id,
             UsageLog.tool_name.in_(_DEPLOYMENT_TOOL_NAMES),
@@ -431,7 +432,7 @@ class AnalyticsService:
             return series
 
         from models import UsageLog
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         rows = UsageLog.query.filter(
             UsageLog.user_id == self.user_id,
             UsageLog.tool_name.isnot(None),
@@ -604,7 +605,7 @@ class AnalyticsService:
                     'resolved': 0, 'open': 0, 'trend': 'stable'}
 
         from models import IncidentModel
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         incidents = IncidentModel.query.filter(
             IncidentModel.user_id == self.user_id,
             IncidentModel.triggered_at >= cutoff,
@@ -656,7 +657,7 @@ class AnalyticsService:
             return {'total': 0, 'successful': 0, 'failed': 0, 'success_rate': 0.0, 'trend': 'stable'}
 
         from models import UsageLog
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         rows = UsageLog.query.filter(
             UsageLog.user_id == self.user_id,
             UsageLog.tool_name.in_(_DEPLOYMENT_TOOL_NAMES),

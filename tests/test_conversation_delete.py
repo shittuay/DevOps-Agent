@@ -26,6 +26,7 @@ from sqlalchemy import text
 from models import (db, Conversation, ChatMessage, UsageLog, LearningSession,
                      WorkflowExecution, WorkflowTemplate, ChatArtifact,
                      ApprovalRequest)
+from src.utils.timeutils import utcnow
 
 
 @pytest.fixture
@@ -65,7 +66,7 @@ def _make_conversation_with_dependents(user_id):
     db.session.add(ApprovalRequest(requester_id=user_id, conversation_id=conv.id,
                                     tool_name='delete_pod', risk_level='high',
                                     risk_reason='test', status='pending',
-                                    expires_at=datetime.utcnow() + timedelta(hours=1)))
+                                    expires_at=utcnow() + timedelta(hours=1)))
     template = WorkflowTemplate(name='t', description='d', category='c')
     db.session.add(template)
     db.session.flush()

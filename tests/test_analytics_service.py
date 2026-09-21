@@ -15,6 +15,7 @@ back to honest zeros/empty series rather than invented numbers.
 from datetime import datetime, timedelta
 
 from services.analytics_service import AnalyticsService, CostForecast, DataPoint
+from src.utils.timeutils import utcnow
 
 
 def test_empty_account_returns_zeros_not_fabricated_data(app, db_session, test_user):
@@ -60,7 +61,7 @@ def test_dashboard_metrics_reflect_real_synced_resources_only(app, db_session, t
     db_session.add(other)
     db_session.commit()
 
-    now = datetime.utcnow()
+    now = utcnow()
     db_session.add_all([
         InfrastructureResource(
             user_id=test_user.id, cloud_provider='aws', resource_type='ec2',
@@ -141,7 +142,7 @@ def test_cost_forecast_has_no_random_noise(app, db_session):
     """CostForecast previously added `random.uniform()` variance on top of the
     projection. Identical historical input must now yield an identical
     forecast every time."""
-    now = datetime.utcnow()
+    now = utcnow()
     historical = [DataPoint(now - timedelta(days=10 - i), 100.0 + i) for i in range(10)]
 
     first = CostForecast(historical)

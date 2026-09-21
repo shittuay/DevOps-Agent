@@ -18,6 +18,7 @@ from functools import wraps
 from flask import request, jsonify, g
 
 from src.utils.network_safety import safe_request, assert_safe_external_webhook_url, UnsafeUrlError
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ class APIGatewayService:
         api_key, plain_key = APIKey.create_for_user(user_id, name, scopes)
 
         if expires_in_days:
-            api_key.expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+            api_key.expires_at = utcnow() + timedelta(days=expires_in_days)
 
         db.session.add(api_key)
         db.session.commit()
@@ -202,12 +203,12 @@ class APIGatewayService:
         if not api_key.is_active:
             return None, {'error': 'API key revoked', 'code': 'revoked_key'}
 
-        if api_key.expires_at and datetime.utcnow() > api_key.expires_at:
+        if api_key.expires_at and utcnow() > api_key.expires_at:
             return None, {'error': 'API key expired', 'code': 'expired_key'}
 
         # Update last used
         db = self._get_db()
-        api_key.last_used_at = datetime.utcnow()
+        api_key.last_used_at = utcnow()
         api_key.last_used_ip = request.remote_addr
         db.session.commit()
 
@@ -361,7 +362,7 @@ class APIGatewayService:
                     db.session.commit()
                     logger.warning(f"Blocked SSRF attempt to {webhook.url}")
                     return delivery
-                start_time = datetime.utcnow()
+                start_time = utcnow()
                 response = safe_request(
                     'POST',
                     webhook.url,
@@ -370,12 +371,12 @@ class APIGatewayService:
                     headers=headers,
                     timeout=webhook.timeout_seconds or 30
                 )
-                duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+                duration_ms = int((utcnow() - start_time).total_seconds() * 1000)
 
                 delivery.response_status_code = response.status_code
                 delivery.response_body = response.text[:1000]
                 delivery.status = 'success' if 200 <= response.status_code < 300 else 'failed'
-                delivery.delivered_at = datetime.utcnow()
+                delivery.delivered_at = utcnow()
 
                 if delivery.status == 'success':
                     webhook.successful_deliveries += 1
@@ -389,7 +390,7 @@ class APIGatewayService:
                 logger.error(f"Webhook delivery failed: {e}")
 
             webhook.total_deliveries += 1
-            webhook.last_delivery_at = datetime.utcnow()
+            webhook.last_delivery_at = utcnow()
             webhook.last_delivery_status = delivery.status
 
             db.session.commit()
@@ -402,7 +403,7 @@ class APIGatewayService:
 
         test_payload = {
             'event': 'test',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'message': 'This is a test webhook delivery'
         }
 

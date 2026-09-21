@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 from services.chatops_service import get_chatops_service, ChatPlatform
 from src.utils.network_safety import safe_request
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -372,7 +373,7 @@ def api_generate_link_code():
     in Slack/Teams to bind their bot identity to this app account."""
     from models import db, ChatOpsLinkCode
 
-    expires_at = datetime.utcnow() + timedelta(minutes=_LINK_CODE_TTL_MINUTES)
+    expires_at = utcnow() + timedelta(minutes=_LINK_CODE_TTL_MINUTES)
 
     # Retry on the (astronomically unlikely) chance of a collision with an
     # existing unexpired code rather than trusting an 8-char space is unique.

@@ -9,6 +9,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class PreventionEngine:
         with self._app.app_context():
             from models import db, IncidentModel
             from sqlalchemy import func
-            cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+            cutoff = utcnow() - timedelta(days=lookback_days)
             rows = db.session.query(
                 IncidentModel.source,
                 func.count(IncidentModel.id).label('cnt'),
@@ -149,7 +150,7 @@ class PreventionEngine:
                 })
 
             # Stale EBS-type resources
-            cutoff = datetime.utcnow() - timedelta(days=30)
+            cutoff = utcnow() - timedelta(days=30)
             stale = [
                 r.resource_id for r in resources
                 if r.resource_type in ('ebs_volume', 'disk')
@@ -297,7 +298,7 @@ class PreventionEngine:
 
             if spec_text:
                 rec.agent_spec = spec_text
-                rec.agent_spec_generated_at = datetime.utcnow()
+                rec.agent_spec_generated_at = utcnow()
                 # Deduct credit
                 sub = UserSubscription.query.filter_by(user_id=user_id).first()
                 if sub and sub.has_credits():

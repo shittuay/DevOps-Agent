@@ -7,6 +7,7 @@ Background tasks for security scanning and auditing.
 import logging
 from celery import shared_task
 from datetime import datetime, timedelta
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def run_security_scan(self, user_id: int, scan_type: str, targets: list = None):
         with app.app_context():
             cache.set(cache_key, {
                 'status': 'in_progress',
-                'started_at': datetime.utcnow().isoformat(),
+                'started_at': utcnow().isoformat(),
                 'progress': 0,
                 'scan_type': scan_type,
                 'targets': targets or [],
@@ -56,7 +57,7 @@ def run_security_scan(self, user_id: int, scan_type: str, targets: list = None):
 
             cache.set(cache_key, {
                 'status': 'completed',
-                'completed_at': datetime.utcnow().isoformat(),
+                'completed_at': utcnow().isoformat(),
                 'progress': 100,
                 'scan_type': scan_type,
                 'results': {
@@ -108,7 +109,7 @@ def audit_user_activity(self):
             # Get users with recent failed logins
             users_with_failures = User.query.filter(
                 User.failed_login_attempts >= 3,
-                User.last_failed_login > datetime.utcnow() - timedelta(hours=1)
+                User.last_failed_login > utcnow() - timedelta(hours=1)
             ).all()
 
             for user in users_with_failures:

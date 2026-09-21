@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import request, g
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +234,7 @@ class AuditService:
         from models import AuditLog
         from sqlalchemy import func
 
-        start_date = datetime.utcnow() - timedelta(days=days)
+        start_date = utcnow() - timedelta(days=days)
 
         # Get counts by category
         category_counts = AuditLog.query.filter(
@@ -282,7 +283,7 @@ class AuditService:
         """
         from models import AuditLog, db
 
-        cutoff = datetime.utcnow() - timedelta(days=days_to_keep)
+        cutoff = utcnow() - timedelta(days=days_to_keep)
 
         deleted = AuditLog.query.filter(
             AuditLog.created_at < cutoff

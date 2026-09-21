@@ -13,6 +13,7 @@ from models import db, InfrastructureChange, InfrastructureResource
 from services.rbac import require_permission, Permission, approver_required, user_is_admin, user_is_approver, user_active_org_ids
 from datetime import datetime
 import logging
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ def create_change_request():
         change.status = 'approved'
         change.approver_id = current_user.id
         change.approval_comment = 'Auto-approved: low risk'
-        change.approved_at = datetime.utcnow()
+        change.approved_at = utcnow()
 
     db.session.add(change)
     db.session.commit()
@@ -293,7 +294,7 @@ def approve_change(change_id):
     change.status = 'approved'
     change.approver_id = current_user.id
     change.approval_comment = data.get('comment', '')
-    change.approved_at = datetime.utcnow()
+    change.approved_at = utcnow()
 
     db.session.commit()
 
@@ -328,7 +329,7 @@ def reject_change(change_id):
     change.status = 'rejected'
     change.approver_id = current_user.id
     change.approval_comment = reason
-    change.approved_at = datetime.utcnow()
+    change.approved_at = utcnow()
 
     db.session.commit()
 
@@ -385,7 +386,7 @@ def execute_change(change_id):
             }), 400
 
         change.status = 'executed'
-        change.executed_at = datetime.utcnow()
+        change.executed_at = utcnow()
         change.execution_result = result
 
         # Remove deleted/terminated resources from the sync list immediately
@@ -412,7 +413,7 @@ def execute_change(change_id):
         ))
         if already_gone:
             change.status = 'executed'
-            change.executed_at = datetime.utcnow()
+            change.executed_at = utcnow()
             change.execution_result = {'note': 'Resource was already deleted (likely via chat)', 'error': str(e)}
             _purge_resource_from_sync(change)
             db.session.commit()
@@ -424,7 +425,7 @@ def execute_change(change_id):
             })
 
         change.status = 'failed'
-        change.executed_at = datetime.utcnow()
+        change.executed_at = utcnow()
         change.execution_result = {'error': str(e)}
         db.session.commit()
 
@@ -471,8 +472,8 @@ def rollback_change(change_id):
             status='executed',
             approver_id=current_user.id,
             approval_comment='Rollback approved',
-            approved_at=datetime.utcnow(),
-            executed_at=datetime.utcnow(),
+            approved_at=utcnow(),
+            executed_at=utcnow(),
             execution_result=result
         )
         db.session.add(rollback_change)

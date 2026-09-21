@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -679,7 +680,7 @@ class ChatOpsService:
         code = args[0].strip().upper()
         link_code = ChatOpsLinkCode.query.filter_by(code=code).first()
 
-        if not link_code or link_code.used_at is not None or link_code.expires_at < datetime.utcnow():
+        if not link_code or link_code.used_at is not None or link_code.expires_at < utcnow():
             return ChatResponse(text=(
                 "That code is invalid or has expired. Generate a new one from "
                 "the ChatOps page in DevOps Agent."
@@ -690,7 +691,7 @@ class ChatOpsService:
         ).first()
         if existing:
             existing.user_id = link_code.user_id
-            existing.linked_at = datetime.utcnow()
+            existing.linked_at = utcnow()
         else:
             db.session.add(ChatOpsIdentity(
                 platform=platform.value,
@@ -698,7 +699,7 @@ class ChatOpsService:
                 user_id=link_code.user_id,
             ))
 
-        link_code.used_at = datetime.utcnow()
+        link_code.used_at = utcnow()
         db.session.commit()
 
         return ChatResponse(text="✅ Account linked! You can now use incident and monitoring commands here.")

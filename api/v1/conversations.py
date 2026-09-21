@@ -11,6 +11,7 @@ from datetime import datetime
 import uuid
 from api.v1 import api_v1_bp
 from services.api_key_service import require_api_key
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ def _ensure_subscription(user_id):
             return None, (jsonify({'error': 'Subscription system not initialized'}), 500)
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
-        now = datetime.utcnow()
+        now = utcnow()
         subscription = UserSubscription(
             user_id=user_id,
             tier_id=free_tier.id,
@@ -433,7 +434,7 @@ def send_message(conversation_id):
             title = title[:47] + '...'
         conversation.title = title
 
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utcnow()
     db.session.commit()
 
     return jsonify({
@@ -542,7 +543,7 @@ def api_v1_chat_stream():
         ).first()
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
-        conversation.updated_at = datetime.utcnow()
+        conversation.updated_at = utcnow()
         if conversation.title == 'New Chat':
             is_first_message = True
     else:

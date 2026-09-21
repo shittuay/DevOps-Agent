@@ -13,6 +13,7 @@ import os
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ def _scheduler_loop(app, db):
     last_run = {k: datetime.min for k in intervals}
 
     while not _stop_event.is_set():
-        now = datetime.utcnow()
+        now = utcnow()
 
         for task_name, interval in intervals.items():
             if now - last_run[task_name] >= interval:
@@ -250,7 +251,7 @@ def _run_infra_sync(app, db):
     from models import User, InfrastructureResource, UserCloudCredential
     from services.infrastructure_sync import sync_user_infrastructure
 
-    stale_threshold = datetime.utcnow() - timedelta(hours=2)
+    stale_threshold = utcnow() - timedelta(hours=2)
 
     # Only users with at least one credential
     users_with_creds = _users_with_credentials_query(db).all()
@@ -363,8 +364,7 @@ def _run_weekly_digest(db):
     wrong days). Only sends if today is Sunday (UTC weekday == 6).
     Skips users with no cloud credentials or no email address.
     """
-    from datetime import datetime as _dt
-    if _dt.utcnow().weekday() != 6:   # 0=Mon … 6=Sun
+    if utcnow().weekday() != 6:   # 0=Mon … 6=Sun
         logger.debug("Weekly digest: not Sunday, skipping")
         return
 
@@ -373,7 +373,7 @@ def _run_weekly_digest(db):
     from services.health_score import calculate_health_score, get_grade_label
 
     email_svc = EmailService()
-    week_ago = _dt.utcnow() - timedelta(days=7)
+    week_ago = utcnow() - timedelta(days=7)
 
     users = _users_with_credentials_query(db).filter(User.email != None).all()  # noqa: E711
 
@@ -529,10 +529,9 @@ def _run_db_backup():
     import gzip
     import shutil
     import subprocess
-    from datetime import datetime as _dt
 
     backup_dir = os.environ.get('BACKUP_DIR', '/backups')
-    timestamp = _dt.utcnow().strftime('%Y%m%d_%H%M%S')
+    timestamp = utcnow().strftime('%Y%m%d_%H%M%S')
     db_url = os.environ.get('DATABASE_URL', '')
     backup_file = None
     s3_key = None
@@ -583,7 +582,7 @@ def _run_db_backup():
 
         # Retention cleanup
         retention_days = int(os.environ.get('BACKUP_RETENTION_DAYS', '30'))
-        cutoff = _dt.utcnow().timestamp() - retention_days * 86400
+        cutoff = utcnow().timestamp() - retention_days * 86400
         deleted = 0
         for fname in os.listdir(backup_dir):
             if fname.endswith('.gz') and fname.startswith('devops_agent_'):

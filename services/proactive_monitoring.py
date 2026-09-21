@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 from dataclasses import dataclass, field
 import uuid
 import requests
+from src.utils.timeutils import utcnow
 
 # Prometheus circuit-breaker state. Module-level so it survives the
 # per-request service instances the scheduler creates.
@@ -222,8 +223,8 @@ class MetricCollector:
                 Namespace=namespace,
                 MetricName=metric_name,
                 Dimensions=dimensions,
-                StartTime=datetime.utcnow() - timedelta(minutes=5),
-                EndTime=datetime.utcnow(),
+                StartTime=utcnow() - timedelta(minutes=5),
+                EndTime=utcnow(),
                 Period=60,
                 Statistics=["Average"]
             )
@@ -640,7 +641,7 @@ class ProactiveMonitoringService:
             return
 
         value = self.collector.collect(rule.source, rule.query, user_id=user_id)
-        rule.last_check = datetime.utcnow()
+        rule.last_check = utcnow()
 
         if value is None:
             return
@@ -651,13 +652,13 @@ class ProactiveMonitoringService:
         if condition_met:
             if rule.state == AlertState.OK:
                 rule.state = AlertState.PENDING
-                rule.pending_since = datetime.utcnow()
+                rule.pending_since = utcnow()
             elif rule.state == AlertState.PENDING:
                 if rule.pending_since:
-                    duration = (datetime.utcnow() - rule.pending_since).total_seconds()
+                    duration = (utcnow() - rule.pending_since).total_seconds()
                     if duration >= rule.duration_seconds:
                         rule.state = AlertState.FIRING
-                        rule.firing_since = datetime.utcnow()
+                        rule.firing_since = utcnow()
                         self._fire_alert(user_id, rule, value)
         else:
             if rule.state in [AlertState.PENDING, AlertState.FIRING]:
@@ -677,7 +678,7 @@ class ProactiveMonitoringService:
             id=alert_key, rule_id=rule.id, rule_name=rule.name,
             severity=rule.severity, value=value, threshold=rule.threshold,
             condition=condition_str, message=message,
-            labels=rule.labels.copy(), fired_at=datetime.utcnow()
+            labels=rule.labels.copy(), fired_at=utcnow()
         )
 
         self._user_alerts.setdefault(user_id, {})[alert_key] = alert
@@ -745,7 +746,7 @@ class ProactiveMonitoringService:
 
         for alert_key, alert in alerts.items():
             if alert.rule_id == rule.id and alert.resolved_at is None:
-                alert.resolved_at = datetime.utcnow()
+                alert.resolved_at = utcnow()
                 resolved_keys.append(alert_key)
                 logger.info(f"ALERT RESOLVED [user={user_id}]: {rule.name}")
 
@@ -781,7 +782,7 @@ class ProactiveMonitoringService:
         last_checks: dict[str, datetime] = {}
 
         while self._running:
-            now = datetime.utcnow()
+            now = utcnow()
 
             for user_id in list(self._user_rules.keys()):
                 rules = self._user_rules.get(user_id, {})

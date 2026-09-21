@@ -12,6 +12,7 @@ import pytest
 
 from services import saml_service
 from services.sso_service import SSOError
+from src.utils.timeutils import utcnow
 
 SAML = 'urn:oasis:names:tc:SAML:2.0:assertion'
 SAMLP = 'urn:oasis:names:tc:SAML:2.0:protocol'
@@ -33,8 +34,8 @@ def certkey():
     subj = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"test-idp")])
     cert = (x509.CertificateBuilder().subject_name(subj).issuer_name(subj)
             .public_key(key.public_key()).serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.utcnow() - timedelta(days=1))
-            .not_valid_after(datetime.utcnow() + timedelta(days=365))
+            .not_valid_before(utcnow() - timedelta(days=1))
+            .not_valid_after(utcnow() + timedelta(days=365))
             .sign(key, hashes.SHA256()))
     cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
     key_pem = key.private_bytes(serialization.Encoding.PEM,
@@ -53,7 +54,7 @@ def _build_response(cert_pem, key_pem, *, audience=AUDIENCE, recipient=ACS,
                     not_before=None, not_on_or_after=None, sign=True, tamper=False):
     from signxml import XMLSigner
 
-    now = datetime.utcnow()
+    now = utcnow()
     nb = _fmt(not_before or now - timedelta(minutes=1))
     noa = _fmt(not_on_or_after or now + timedelta(minutes=5))
     aid = '_assertion-1'
@@ -204,7 +205,7 @@ def test_wrong_audience_rejected(certkey):
 
 def test_expired_assertion_rejected(certkey):
     cert_pem, key_pem = certkey
-    past = datetime.utcnow() - timedelta(hours=1)
+    past = utcnow() - timedelta(hours=1)
     resp = _build_response(cert_pem, key_pem, not_on_or_after=past)
     with pytest.raises(SSOError) as ei:
         saml_service.parse_and_validate_response(_config(cert_pem), resp, ACS, AUDIENCE, REQUEST_ID)
@@ -231,8 +232,8 @@ def test_wrong_signing_cert_rejected(certkey):
     subj = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"other")])
     other_cert = (x509.CertificateBuilder().subject_name(subj).issuer_name(subj)
                   .public_key(other.public_key()).serial_number(x509.random_serial_number())
-                  .not_valid_before(datetime.utcnow() - timedelta(days=1))
-                  .not_valid_after(datetime.utcnow() + timedelta(days=365))
+                  .not_valid_before(utcnow() - timedelta(days=1))
+                  .not_valid_after(utcnow() + timedelta(days=365))
                   .sign(other, hashes.SHA256()))
     bad_pem = other_cert.public_bytes(serialization.Encoding.PEM).decode()
     with pytest.raises(SSOError):

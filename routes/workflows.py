@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from models import db, WorkflowTemplate, WorkflowExecution, Conversation, ChatMessage
+from src.utils.timeutils import utcnow
 
 workflows_bp = Blueprint('workflows', __name__)
 
@@ -83,7 +84,7 @@ def execute_workflow(template_id: int):
         template_id=template.id,
         conversation_id=conv_id,
         status='queued',
-        started_at=datetime.utcnow(),
+        started_at=utcnow(),
     )
     db.session.add(execution)
 
@@ -115,9 +116,9 @@ def update_execution(execution_id: int):
 
     execution.status = new_status
     if new_status == 'running':
-        execution.started_at = datetime.utcnow()
+        execution.started_at = utcnow()
     else:
-        execution.completed_at = datetime.utcnow()
+        execution.completed_at = utcnow()
     db.session.commit()
     return jsonify(execution.to_dict())
 
@@ -136,7 +137,7 @@ def _reconcile_stale_executions(executions):
     real outcome from the conversation instead: an assistant reply means it ran
     to completion; nothing after the cutoff means it timed out.
     """
-    cutoff = datetime.utcnow() - timedelta(minutes=STALE_EXECUTION_MINUTES)
+    cutoff = utcnow() - timedelta(minutes=STALE_EXECUTION_MINUTES)
     changed = False
 
     for ex in executions:
@@ -159,7 +160,7 @@ def _reconcile_stale_executions(executions):
             ex.completed_at = ex.completed_at or last_reply.timestamp
         else:
             ex.status = 'timed_out'
-            ex.completed_at = ex.completed_at or datetime.utcnow()
+            ex.completed_at = ex.completed_at or utcnow()
         changed = True
 
     if changed:

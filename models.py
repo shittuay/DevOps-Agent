@@ -5,6 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
 import bcrypt
+from src.utils.timeutils import utcnow
 
 db = SQLAlchemy()
 
@@ -17,7 +18,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     full_name = db.Column(db.String(120))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     last_login = db.Column(db.DateTime)
 
     # Profile settings
@@ -104,7 +105,7 @@ class User(UserMixin, db.Model):
 
     def update_last_login(self, ip_address=None):
         """Update last login timestamp and reset failed attempts"""
-        self.last_login = datetime.utcnow()
+        self.last_login = utcnow()
         self.failed_login_attempts = 0
         self.locked_until = None
         if ip_address:
@@ -113,10 +114,10 @@ class User(UserMixin, db.Model):
 
     def is_locked(self):
         """Check if account is locked"""
-        if self.locked_until and self.locked_until > datetime.utcnow():
+        if self.locked_until and self.locked_until > utcnow():
             return True
         # Auto-unlock if lock period has expired
-        if self.locked_until and self.locked_until <= datetime.utcnow():
+        if self.locked_until and self.locked_until <= utcnow():
             self.locked_until = None
             self.failed_login_attempts = 0
             db.session.commit()
@@ -128,7 +129,7 @@ class User(UserMixin, db.Model):
         # Lock account for 15 minutes after 5 failed attempts
         if self.failed_login_attempts >= 5:
             from datetime import timedelta
-            self.locked_until = datetime.utcnow() + timedelta(minutes=15)
+            self.locked_until = utcnow() + timedelta(minutes=15)
         db.session.commit()
 
     def record_guardrail_violation(self):
@@ -144,19 +145,19 @@ class User(UserMixin, db.Model):
         self.guardrail_violations = (self.guardrail_violations or 0) + 1
         v = self.guardrail_violations
         if v >= 10:
-            self.guardrail_blocked_until = datetime.utcnow() + timedelta(days=30)
+            self.guardrail_blocked_until = utcnow() + timedelta(days=30)
         elif v >= 8:
-            self.guardrail_blocked_until = datetime.utcnow() + timedelta(days=7)
+            self.guardrail_blocked_until = utcnow() + timedelta(days=7)
         elif v >= 5:
-            self.guardrail_blocked_until = datetime.utcnow() + timedelta(hours=24)
+            self.guardrail_blocked_until = utcnow() + timedelta(hours=24)
         elif v >= 3:
-            self.guardrail_blocked_until = datetime.utcnow() + timedelta(hours=1)
+            self.guardrail_blocked_until = utcnow() + timedelta(hours=1)
 
     def is_guardrail_blocked(self) -> bool:
         """Check if the user is currently blocked due to guardrail violations."""
-        if self.guardrail_blocked_until and self.guardrail_blocked_until > datetime.utcnow():
+        if self.guardrail_blocked_until and self.guardrail_blocked_until > utcnow():
             return True
-        if self.guardrail_blocked_until and self.guardrail_blocked_until <= datetime.utcnow():
+        if self.guardrail_blocked_until and self.guardrail_blocked_until <= utcnow():
             # Block period served — clear the timer but keep the violation count
             # so escalation continues if they re-offend.
             self.guardrail_blocked_until = None
@@ -174,8 +175,8 @@ class User(UserMixin, db.Model):
         import hashlib
         from datetime import timedelta
         self.mfa_otp_hash = hashlib.sha256(code.encode()).hexdigest()
-        self.mfa_otp_expires = datetime.utcnow() + timedelta(minutes=10)
-        self.mfa_otp_sent_at = datetime.utcnow()
+        self.mfa_otp_expires = utcnow() + timedelta(minutes=10)
+        self.mfa_otp_sent_at = utcnow()
 
     def verify_mfa_otp(self, code):
         """Verify a 6-digit OTP against stored hash. Returns True if valid."""
@@ -183,7 +184,7 @@ class User(UserMixin, db.Model):
         import secrets
         if not self.mfa_otp_hash or not self.mfa_otp_expires:
             return False
-        if datetime.utcnow() > self.mfa_otp_expires:
+        if utcnow() > self.mfa_otp_expires:
             return False
         return secrets.compare_digest(hashlib.sha256(code.encode()).hexdigest(), self.mfa_otp_hash)
 
@@ -198,7 +199,7 @@ class User(UserMixin, db.Model):
         from datetime import timedelta
         if not self.mfa_otp_sent_at:
             return True
-        return datetime.utcnow() > self.mfa_otp_sent_at + timedelta(seconds=60)
+        return utcnow() > self.mfa_otp_sent_at + timedelta(seconds=60)
 
     def to_dict(self):
         """Convert user to dictionary"""
@@ -228,8 +229,8 @@ class Conversation(db.Model):
     title = db.Column(db.String(200), default='New Chat')
     preview = db.Column(db.String(200), default='New Chat')
     is_streaming = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, index=True)
 
     # Relationship
     user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic', cascade='all, delete-orphan'))
@@ -257,7 +258,7 @@ class ChatMessage(db.Model):
     conversation_id = db.Column(db.String(50), db.ForeignKey('conversations.id'), nullable=False, index=True)
     role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
     content = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    timestamp = db.Column(db.DateTime, default=utcnow, index=True)
     tool_trace = db.Column(db.JSON, nullable=True)   # [{tool, success, duration_ms}]
     page_context = db.Column(db.String(100), nullable=True)
 
@@ -336,8 +337,8 @@ class UserPreferences(db.Model):
     recent_operations = db.Column(db.JSON, default=lambda: [])
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationship
     user = db.relationship('User', backref=db.backref('preferences', uselist=False, cascade='all, delete-orphan'))
@@ -475,8 +476,8 @@ class CommandTemplate(db.Model):
     category = db.Column(db.String(50))  # aws, azure, gcp, kubernetes, docker, etc.
     is_public = db.Column(db.Boolean, default=False)  # Share with all users
     use_count = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationship
     user = db.relationship('User', backref=db.backref('templates', lazy='dynamic', cascade='all, delete-orphan'))
@@ -513,7 +514,7 @@ class ResponseFeedback(db.Model):
     message_id = db.Column(db.Integer, db.ForeignKey('chat_messages.id'), nullable=False, index=True)
     rating = db.Column(db.Integer, nullable=False)  # 1-5 stars
     feedback_text = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('feedback', lazy='dynamic', cascade='all, delete-orphan'))
@@ -545,7 +546,7 @@ class SubscriptionTier(db.Model):
     description = db.Column(db.Text)
     features = db.Column(db.JSON, default=lambda: [])  # List of feature descriptions
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Feature limits
     max_cloud_accounts = db.Column(db.Integer, default=1)
@@ -598,10 +599,10 @@ class UserSubscription(db.Model):
     total_credits_used = db.Column(db.Integer, default=0)
 
     # Subscription dates
-    subscription_start_date = db.Column(db.DateTime, default=datetime.utcnow)
-    current_period_start = db.Column(db.DateTime, default=datetime.utcnow)
+    subscription_start_date = db.Column(db.DateTime, default=utcnow)
+    current_period_start = db.Column(db.DateTime, default=utcnow)
     current_period_end = db.Column(db.DateTime, nullable=True)
-    last_reset_date = db.Column(db.DateTime, default=datetime.utcnow)
+    last_reset_date = db.Column(db.DateTime, default=utcnow)
 
     # Payment information
     stripe_customer_id = db.Column(db.String(100), unique=True, index=True)
@@ -613,8 +614,8 @@ class UserSubscription(db.Model):
     payment_gateway = db.Column(db.String(20), nullable=True)  # stripe
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('subscription', uselist=False, cascade='all, delete-orphan'))
@@ -676,11 +677,11 @@ class UserSubscription(db.Model):
         # Reset credits
         self.credits_remaining = monthly_credits
         self.credits_used_this_month = 0
-        self.last_reset_date = datetime.utcnow()
+        self.last_reset_date = utcnow()
 
         # Update period dates
-        self.current_period_start = datetime.utcnow()
-        self.current_period_end = datetime.utcnow() + relativedelta(months=1)
+        self.current_period_start = utcnow()
+        self.current_period_end = utcnow() + relativedelta(months=1)
 
         db.session.commit()
 
@@ -688,7 +689,7 @@ class UserSubscription(db.Model):
         """Check if it's time to reset monthly credits"""
         if not self.current_period_end:
             return True
-        return datetime.utcnow() >= self.current_period_end
+        return utcnow() >= self.current_period_end
 
     def to_dict(self):
         """Convert subscription to dictionary"""
@@ -731,7 +732,7 @@ class CreditPurchase(db.Model):
     gateway_reference = db.Column(db.String(100), nullable=True)  # Stripe reference
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     completed_at = db.Column(db.DateTime)
 
     # Relationship
@@ -771,7 +772,7 @@ class UsageLog(db.Model):
     error_message = db.Column(db.Text)
 
     # Timestamp
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('usage_logs', lazy='dynamic', cascade='all, delete-orphan'))
@@ -808,7 +809,7 @@ class ConversionEvent(db.Model):
     # event_type values: trial_start, first_tool_use, credit_exhaustion,
     #                    upgrade_cta_shown, upgrade_completed, api_key_created
     event_metadata = db.Column(db.JSON, default=dict)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
 
     __table_args__ = (
         db.Index('idx_conversion_user_event', 'user_id', 'event_type'),
@@ -846,8 +847,8 @@ class InfrastructureResource(db.Model):
     resource_metadata = db.Column(db.JSON)  # instance_type, tags, IP addresses, etc
 
     # Tracking
-    last_synced = db.Column(db.DateTime, default=datetime.utcnow)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_synced = db.Column(db.DateTime, default=utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('infrastructure_resources', lazy='dynamic', cascade='all, delete-orphan'))
@@ -901,7 +902,7 @@ class CostOptimization(db.Model):
     action_data = db.Column(db.JSON)  # Parameters needed to apply the optimization
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('cost_optimizations', lazy='dynamic', cascade='all, delete-orphan'))
@@ -959,7 +960,7 @@ class InfrastructureChange(db.Model):
     rollback_data = db.Column(db.JSON)  # Data needed to rollback the change
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
     approved_at = db.Column(db.DateTime)
 
     # Relationships
@@ -1033,9 +1034,9 @@ class SecurityFinding(db.Model):
     exploitability = db.Column(db.String(20))  # high, medium, low
 
     # Timestamps
-    first_detected = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    last_detected = db.Column(db.DateTime, default=datetime.utcnow)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    first_detected = db.Column(db.DateTime, default=utcnow, index=True)
+    last_detected = db.Column(db.DateTime, default=utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('security_findings', lazy='dynamic', cascade='all, delete-orphan'))
@@ -1117,8 +1118,8 @@ class Alert(db.Model):
     notification_sent_at = db.Column(db.DateTime)
 
     # Timestamps
-    triggered_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    triggered_at = db.Column(db.DateTime, default=utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('alerts', lazy='dynamic', cascade='all, delete-orphan'))
@@ -1177,8 +1178,8 @@ class MonitoringRuleModel(db.Model):
     state = db.Column(db.String(20), default='ok')
     last_value = db.Column(db.Float, nullable=True)
     last_check = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     user = db.relationship('User', backref=db.backref('monitoring_rules', lazy='dynamic', cascade='all, delete-orphan'))
 
@@ -1227,12 +1228,12 @@ class MonitoringAlertModel(db.Model):
     condition = db.Column(db.String(50))
     message = db.Column(db.Text)
     labels = db.Column(db.JSON, default=lambda: {})
-    fired_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    fired_at = db.Column(db.DateTime, nullable=False, default=utcnow)
     resolved_at = db.Column(db.DateTime, nullable=True)
     acknowledged = db.Column(db.Boolean, default=False)
     acknowledged_by = db.Column(db.String(200), nullable=True)
     incident_id = db.Column(db.String(100), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     user = db.relationship('User', backref=db.backref('monitoring_alerts', lazy='dynamic', cascade='all, delete-orphan'))
     rule = db.relationship('MonitoringRuleModel', backref=db.backref('alerts', lazy='dynamic'))
@@ -1278,11 +1279,11 @@ class IncidentModel(db.Model):
     actions_taken = db.Column(db.JSON, default=lambda: [])
     timeline = db.Column(db.JSON, default=lambda: [])
     correlation_group_key = db.Column(db.String(100), nullable=True, index=True)
-    triggered_at = db.Column(db.DateTime, default=datetime.utcnow)
+    triggered_at = db.Column(db.DateTime, default=utcnow)
     acknowledged_at = db.Column(db.DateTime, nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     user = db.relationship('User', backref=db.backref('incidents', lazy='dynamic', cascade='all, delete-orphan'))
 
@@ -1327,8 +1328,8 @@ class PlaybookModel(db.Model):
     escalation_policy = db.Column(db.String(100), nullable=True)
     tags = db.Column(db.JSON, default=lambda: [])
     is_builtin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     user = db.relationship('User', backref=db.backref('playbooks', lazy='dynamic', cascade='all, delete-orphan'))
 
@@ -1372,8 +1373,8 @@ class AnalysisModel(db.Model):
     recommendations = db.Column(db.JSON, default=list)
     data_sources_used = db.Column(db.JSON, default=list)
     analysis_duration_seconds = db.Column(db.Float, default=0.0)
-    analyzed_at = db.Column(db.DateTime, default=datetime.utcnow)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    analyzed_at = db.Column(db.DateTime, default=utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'analysis_key', name='uq_user_analysis_key'),
@@ -1418,8 +1419,8 @@ class UserCloudCredential(db.Model):
     verification_status = db.Column(db.String(20), default='pending')  # pending, valid, invalid
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('cloud_credentials', lazy='dynamic', cascade='all, delete-orphan'))
@@ -1581,7 +1582,7 @@ class APIKey(db.Model):
     expires_at = db.Column(db.DateTime, nullable=True)  # Optional expiration
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     revoked_at = db.Column(db.DateTime, nullable=True)
 
     @staticmethod
@@ -1619,11 +1620,11 @@ class APIKey(db.Model):
 
         if api_key:
             # Check expiration
-            if api_key.expires_at and api_key.expires_at < datetime.utcnow():
+            if api_key.expires_at and api_key.expires_at < utcnow():
                 return None
 
             # Update usage stats
-            api_key.last_used_at = datetime.utcnow()
+            api_key.last_used_at = utcnow()
             api_key.total_requests += 1
             db.session.commit()
 
@@ -1636,7 +1637,7 @@ class APIKey(db.Model):
     def revoke(self):
         """Revoke the API key"""
         self.is_active = False
-        self.revoked_at = datetime.utcnow()
+        self.revoked_at = utcnow()
         db.session.commit()
 
     def to_dict(self):
@@ -1690,7 +1691,7 @@ class AuditLog(db.Model):
     error_message = db.Column(db.Text)
 
     # Timestamp
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
 
     # Relationships
     user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('audit_logs', lazy='dynamic'))
@@ -1780,8 +1781,8 @@ class Organization(db.Model):
     is_active = db.Column(db.Boolean, default=True)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     owner = db.relationship('User', foreign_keys=[owner_id], backref='owned_organizations')
@@ -1820,7 +1821,7 @@ class OrganizationDomain(db.Model):
     verified = db.Column(db.Boolean, default=False)  # domain ownership proven via DNS TXT record
     verification_token = db.Column(db.String(64))    # value the admin must publish in DNS
     verified_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     organization = db.relationship('Organization', backref='sso_domains')
 
@@ -1849,7 +1850,7 @@ class OrganizationMember(db.Model):
     is_active = db.Column(db.Boolean, default=True)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     organization = db.relationship('Organization', back_populates='members')
@@ -1885,8 +1886,8 @@ class Team(db.Model):
     description = db.Column(db.Text)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     organization = db.relationship('Organization', back_populates='teams')
@@ -1914,7 +1915,7 @@ class TeamMember(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     role = db.Column(db.String(20), default='member')  # lead, member
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     team = db.relationship('Team', back_populates='members')
@@ -1959,8 +1960,8 @@ class WebhookEndpoint(db.Model):
     last_delivery_status = db.Column(db.String(20))
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('webhook_endpoints', lazy='dynamic', cascade='all, delete-orphan'))
@@ -2006,7 +2007,7 @@ class WebhookDelivery(db.Model):
     next_retry_at = db.Column(db.DateTime)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     delivered_at = db.Column(db.DateTime)
 
     # Relationships
@@ -2051,8 +2052,8 @@ class ComplianceFrameworkModel(db.Model):
     compliance_score = db.Column(db.Integer)  # 0-100
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     # cascade: user_id is NOT NULL, so deleting a user must delete these rows
@@ -2100,8 +2101,8 @@ class CompliancePolicy(db.Model):
     last_violation_at = db.Column(db.DateTime)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('compliance_policies', lazy='dynamic', cascade='all, delete-orphan'))
@@ -2148,7 +2149,7 @@ class ComplianceReport(db.Model):
     file_format = db.Column(db.String(10))  # pdf, csv, json
 
     # Timestamps
-    generated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    generated_at = db.Column(db.DateTime, default=utcnow)
     period_start = db.Column(db.DateTime)
     period_end = db.Column(db.DateTime)
 
@@ -2201,8 +2202,8 @@ class InfrastructureTemplate(db.Model):
     use_count = db.Column(db.Integer, default=0)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('infrastructure_templates', lazy='dynamic', cascade='all, delete-orphan'))
@@ -2259,8 +2260,8 @@ class ProvisioningRequestModel(db.Model):
     error_message = db.Column(db.Text)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('provisioning_requests', lazy='dynamic', cascade='all, delete-orphan'))
@@ -2304,8 +2305,8 @@ class AnalyticsDashboard(db.Model):
     is_shared = db.Column(db.Boolean, default=False)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('analytics_dashboards', lazy='dynamic', cascade='all, delete-orphan'))
@@ -2346,7 +2347,7 @@ class AnalyticsWidget(db.Model):
     height = db.Column(db.Integer, default=3)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     dashboard = db.relationship('AnalyticsDashboard', back_populates='widgets')
@@ -2388,8 +2389,8 @@ class ContactMessage(db.Model):
     response = db.Column(db.Text, nullable=True)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     resolved_at = db.Column(db.DateTime, nullable=True)
 
     # Relationships
@@ -2430,8 +2431,8 @@ class UserNotificationChannel(db.Model):
     notify_incidents = db.Column(db.Boolean, default=True)
     notify_alerts = db.Column(db.Boolean, default=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     user = db.relationship('User', backref=db.backref('notification_channels', lazy='dynamic', cascade='all, delete-orphan'))
 
@@ -2464,8 +2465,8 @@ class BudgetAlert(db.Model):
     last_triggered = db.Column(db.DateTime)
     last_checked_amount = db.Column(db.Float)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     user = db.relationship('User', backref=db.backref('budget_alerts', lazy='dynamic', cascade='all, delete-orphan'))
 
@@ -2492,8 +2493,8 @@ class UserMemory(db.Model):
     content = db.Column(db.Text, nullable=False)
     source = db.Column(db.String(50), default='agent')  # agent, user, system
     importance = db.Column(db.Integer, default=5)  # 1-10, higher = more important
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     is_active = db.Column(db.Boolean, default=True)
 
     user = db.relationship('User', backref=db.backref('memories', lazy='dynamic', cascade='all, delete-orphan'))
@@ -2527,7 +2528,7 @@ class LearningSession(db.Model):
     was_sandbox = db.Column(db.Boolean, default=False)
     duration_minutes = db.Column(db.Integer, default=0)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     user = db.relationship('User', backref=db.backref('learning_sessions', lazy='dynamic', cascade='all, delete-orphan'))
     conversation = db.relationship('Conversation', backref=db.backref('learning_session', uselist=False))
@@ -2558,7 +2559,7 @@ class StripeWebhookEvent(db.Model):
 
     id = db.Column(db.String(100), primary_key=True)
     event_type = db.Column(db.String(100), nullable=False)
-    processed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, default=utcnow)
 
 
 class PaymentWebhookEvent(db.Model):
@@ -2568,7 +2569,7 @@ class PaymentWebhookEvent(db.Model):
     id = db.Column(db.String(200), primary_key=True)  # format: "{gateway}:{event_id}"
     gateway = db.Column(db.String(20), nullable=False)  # stripe
     event_type = db.Column(db.String(100), nullable=False)
-    processed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, default=utcnow)
     raw_payload = db.Column(db.Text, nullable=True)
 
     def __repr__(self):
@@ -2586,8 +2587,8 @@ class NGNPriceConfig(db.Model):
     price_usd = db.Column(db.Numeric(10, 2), nullable=True)  # USD price (whole dollars)
     stripe_price_id_ngn = db.Column(db.String(100), nullable=True)  # Stripe Price ID for NGN product
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     def to_dict(self):
         return {
@@ -2615,7 +2616,7 @@ class UserCurriculumProgress(db.Model):
     completed = db.Column(db.Boolean, default=False)
     project_done = db.Column(db.Boolean, default=False)
     notes = db.Column(db.Text, nullable=True)
-    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime, default=utcnow)
     completed_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (
@@ -2647,7 +2648,7 @@ class UserQuizAttempt(db.Model):
     total = db.Column(db.Integer, nullable=False)       # total questions
     questions = db.Column(db.JSON, nullable=False)      # list of question dicts
     user_answers = db.Column(db.JSON, nullable=False)   # list of chosen answer indices
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def pct(self):
         return round((self.score / self.total) * 100) if self.total else 0
@@ -2679,7 +2680,7 @@ class UserPendingQuiz(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     module_id = db.Column(db.String(80), nullable=False)
     questions = db.Column(db.JSON, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     expires_at = db.Column(db.DateTime, nullable=False)
 
     __table_args__ = (
@@ -2687,7 +2688,7 @@ class UserPendingQuiz(db.Model):
     )
 
     def is_expired(self):
-        return datetime.utcnow() > self.expires_at
+        return utcnow() > self.expires_at
 
     def __repr__(self):
         return f'<UserPendingQuiz user={self.user_id} module={self.module_id}>'
@@ -2708,7 +2709,7 @@ class WorkflowTemplate(db.Model):
     is_public = db.Column(db.Boolean, default=True, nullable=False)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     execution_count = db.Column(db.Integer, default=0, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     executions = db.relationship('WorkflowExecution', backref='template', lazy='dynamic')
 
@@ -2742,7 +2743,7 @@ class WorkflowExecution(db.Model):
     status = db.Column(db.String(50), default='queued', nullable=False)  # queued/running/completed/failed/timed_out
     started_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def to_dict(self):
         return {
@@ -2765,7 +2766,7 @@ class StatusSubscriber(db.Model):
     email = db.Column(db.String(255), nullable=False, unique=True, index=True)
     token = db.Column(db.String(64), nullable=False, unique=True)
     confirmed = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     confirmed_at = db.Column(db.DateTime, nullable=True)
 
     def to_dict(self):
@@ -2791,7 +2792,7 @@ class AppNotification(db.Model):
     category = db.Column(db.String(40), default='info')  # info | warning | critical | success
     link = db.Column(db.String(500))  # optional deep-link
     read = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def to_dict(self):
         return {
@@ -2821,7 +2822,7 @@ class IncidentCorrelationGroup(db.Model):
     window_start = db.Column(db.DateTime)
     window_end = db.Column(db.DateTime)
     incident_keys = db.Column(db.JSON, default=list)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def to_dict(self):
         return {
@@ -2854,7 +2855,7 @@ class InvestigationJournalEntry(db.Model):
     tool_result = db.Column(db.JSON, nullable=True)
     content = db.Column(db.Text)
     author = db.Column(db.String(20), default='agent')   # 'agent'|'system'|'user'
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
 
     def to_dict(self):
         return {
@@ -2887,7 +2888,7 @@ class ChatArtifact(db.Model):
     version = db.Column(db.Integer, default=1)
     parent_id = db.Column(db.Integer, db.ForeignKey('chat_artifacts.id'), nullable=True)
     is_latest = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
 
     def to_dict(self):
         return {
@@ -2925,8 +2926,8 @@ class ProactiveRecommendation(db.Model):
     status = db.Column(db.String(20), default='pending')
     agent_spec = db.Column(db.Text, nullable=True)
     agent_spec_generated_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     def to_dict(self):
         return {
@@ -2960,7 +2961,7 @@ class UserSkillActivation(db.Model):
     skill_id = db.Column(db.String(100))
     is_active = db.Column(db.Boolean, default=True)
     activation_source = db.Column(db.String(20))   # 'manual'|'learned'|'auto'
-    activated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    activated_at = db.Column(db.DateTime, default=utcnow)
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'skill_id', name='uq_user_skill'),
@@ -2986,7 +2987,7 @@ class DripEmailLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     drip_key = db.Column(db.String(50), nullable=False)
-    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_at = db.Column(db.DateTime, default=utcnow)
     success = db.Column(db.Boolean, default=True)
 
     __table_args__ = (
@@ -3014,7 +3015,7 @@ class CrisisIncident(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     conversation_id = db.Column(db.String(50), nullable=True)
-    detected_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    detected_at = db.Column(db.DateTime, default=utcnow, index=True)
 
     # What triggered the detection
     message_snippet = db.Column(db.String(500), nullable=True)  # First 500 chars of user message
@@ -3073,7 +3074,7 @@ class ApprovalRequest(db.Model):
     approver_note = db.Column(db.Text, nullable=True)
     execution_result = db.Column(db.JSON, nullable=True)
     executed_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     requester = db.relationship('User', foreign_keys=[requester_id], backref=db.backref('approval_requests_made', cascade='all, delete-orphan'))
     approver_user = db.relationship('User', foreign_keys=[approver_id], backref='approval_requests_decided')
@@ -3122,13 +3123,13 @@ class MCPOAuthToken(db.Model):
     # client that requested it, so a leaked refresh token can't be redeemed
     # under a different client identity.
     client_id  = db.Column(db.String(64), nullable=True, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     expires_at = db.Column(db.DateTime, nullable=False, index=True)
 
     user = db.relationship('User', backref=db.backref('mcp_oauth_tokens', lazy='dynamic', cascade='all, delete-orphan'))
 
     def is_expired(self) -> bool:
-        return datetime.utcnow() >= self.expires_at
+        return utcnow() >= self.expires_at
 
     def __repr__(self):
         return f'<MCPOAuthToken user={self.user_id} expires={self.expires_at}>'
@@ -3151,13 +3152,13 @@ class MCPOAuthCode(db.Model):
     user_id        = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     redirect_uri   = db.Column(db.String(512), nullable=True)
     code_challenge = db.Column(db.String(256), nullable=True)
-    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at     = db.Column(db.DateTime, default=utcnow)
     expires_at     = db.Column(db.DateTime, nullable=False, index=True)
 
     user = db.relationship('User', backref=db.backref('mcp_oauth_codes', lazy='dynamic', cascade='all, delete-orphan'))
 
     def is_expired(self) -> bool:
-        return datetime.utcnow() >= self.expires_at
+        return utcnow() >= self.expires_at
 
     def __repr__(self):
         return f'<MCPOAuthCode user={self.user_id} expires={self.expires_at}>'
@@ -3179,7 +3180,7 @@ class MCPOAuthClient(db.Model):
     client_id     = db.Column(db.String(64), unique=True, nullable=False, index=True)
     client_name   = db.Column(db.String(200), nullable=True)
     redirect_uris = db.Column(db.Text, nullable=False, default='[]')
-    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at    = db.Column(db.DateTime, default=utcnow)
 
     def __repr__(self):
         return f'<MCPOAuthClient {self.client_id!r} ({self.client_name})>'
@@ -3202,7 +3203,7 @@ class DriftBaselineModel(db.Model):
     resource_name = db.Column(db.String(200))
     expected_config = db.Column(db.JSON, nullable=False, default=dict)
     tags = db.Column(db.JSON, default=dict)
-    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'resource_type', 'resource_id',
@@ -3252,7 +3253,7 @@ class WebhookSecret(db.Model):
     source = db.Column(db.String(20), unique=True, nullable=False, index=True)  # github, gitlab
     secret_encrypted = db.Column(db.Text, nullable=False)
     updated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     def set_secret(self, secret: str):
         """Encrypt and store the secret."""
@@ -3300,7 +3301,7 @@ class WebhookEventRecord(db.Model):
     url = db.Column(db.String(1000))
     status = db.Column(db.String(50), index=True)
     event_metadata = db.Column(db.JSON, default=dict)
-    received_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    received_at = db.Column(db.DateTime, default=utcnow, index=True)
 
     def __repr__(self):
         return f'<WebhookEventRecord {self.source}/{self.event_type} {self.id}>'
@@ -3321,7 +3322,7 @@ class ChatOpsIdentity(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     platform = db.Column(db.String(20), nullable=False)  # slack, teams
     platform_user_id = db.Column(db.String(200), nullable=False)
-    linked_at = db.Column(db.DateTime, default=datetime.utcnow)
+    linked_at = db.Column(db.DateTime, default=utcnow)
 
     user = db.relationship('User', backref=db.backref('chatops_identities', lazy='dynamic', cascade='all, delete-orphan'))
 
@@ -3346,7 +3347,7 @@ class ChatOpsLinkCode(db.Model):
     code = db.Column(db.String(16), nullable=False, unique=True, index=True)
     expires_at = db.Column(db.DateTime, nullable=False)
     used_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def __repr__(self):
         return f'<ChatOpsLinkCode {self.code} user={self.user_id} used={self.used_at is not None}>'

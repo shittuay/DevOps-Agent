@@ -18,6 +18,7 @@ from .prompt_cache import (
     build_volatile_tail,
     apply_message_breakpoint,
 )
+from src.utils.timeutils import utcnow
 
 
 # Placeholder substituted for an assistant turn with no text content — either when
@@ -994,7 +995,7 @@ class DevOpsAgent:
                     for i in range(len(_reads) - 1)
                 )
                 change_details['audit_trail'] = {
-                    'timestamp': datetime.utcnow().isoformat(),
+                    'timestamp': utcnow().isoformat(),
                     'user_confirmation': 'Confirmed by user in chat',
                     'tool_request': _redact_dict(tool_input),
                     'tool_response': _redact_dict({
@@ -1025,8 +1026,8 @@ class DevOpsAgent:
                 status='executed',
                 approver_id=user_id,
                 approval_comment='Confirmed by user in chat',
-                approved_at=datetime.utcnow(),
-                executed_at=datetime.utcnow(),
+                approved_at=utcnow(),
+                executed_at=utcnow(),
                 execution_result=result,
             )
             db.session.add(change)
@@ -1407,7 +1408,7 @@ class DevOpsAgent:
                 self._created_resources.append({
                     'tool': tool_name,
                     'ids': ids,
-                    'ts': datetime.utcnow().isoformat(),
+                    'ts': utcnow().isoformat(),
                 })
 
     def _invoke_tool(self, tool_name: str, tool_input: dict) -> Any:
@@ -2065,7 +2066,7 @@ class DevOpsAgent:
             from datetime import datetime, timedelta
             from models import InfrastructureChange
 
-            cutoff = datetime.utcnow() - timedelta(minutes=30)
+            cutoff = utcnow() - timedelta(minutes=30)
             rows = (
                 InfrastructureChange.query
                 .filter(
@@ -2086,7 +2087,7 @@ class DevOpsAgent:
                 ident = r.resource_id or r.resource_name
                 if not ident:
                     continue
-                age_min = max(0, int((datetime.utcnow() - r.created_at).total_seconds() // 60))
+                age_min = max(0, int((utcnow() - r.created_at).total_seconds() // 60))
                 age = 'just now' if age_min == 0 else f'{age_min} min ago'
                 lines.append(f"- {ident} ({details.get('tool', r.action_type)}, {age})")
                 if len(lines) >= 12:
@@ -2999,7 +3000,7 @@ class DevOpsAgent:
         # Gather diagnostics before clearing
         diagnostics = {
             'messages_count': len(self.conversation.messages),
-            'session_duration_seconds': (datetime.utcnow() - self.conversation.session_start).total_seconds(),
+            'session_duration_seconds': (utcnow() - self.conversation.session_start).total_seconds(),
             'had_tool_results': False,
             'had_tool_uses': False,
             'message_roles': []

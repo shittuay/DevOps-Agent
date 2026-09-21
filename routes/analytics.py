@@ -4,6 +4,7 @@ Advanced Analytics Dashboard Routes
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
+from src.utils.timeutils import utcnow
 
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/analytics')
 
@@ -61,8 +62,8 @@ def api_cost_summary():
     period = request.args.get('period', '30d')
     days = int(period.rstrip('dh'))
 
-    start_date = datetime.utcnow() - timedelta(days=days)
-    end_date = datetime.utcnow()
+    start_date = utcnow() - timedelta(days=days)
+    end_date = utcnow()
 
     data = service.get_cost_analytics(start_date, end_date)
     return jsonify(data)
@@ -90,8 +91,8 @@ def api_costs_by_service():
     period = request.args.get('period', '30d')
     days = int(period.rstrip('dh'))
 
-    start_date = datetime.utcnow() - timedelta(days=days)
-    end_date = datetime.utcnow()
+    start_date = utcnow() - timedelta(days=days)
+    end_date = utcnow()
 
     data = service.get_cost_analytics(start_date, end_date)
     return jsonify({'by_service': data.get('by_service', {})})
@@ -107,8 +108,8 @@ def api_costs_by_resource():
     period = request.args.get('period', '30d')
     days = int(period.rstrip('dh'))
 
-    start_date = datetime.utcnow() - timedelta(days=days)
-    end_date = datetime.utcnow()
+    start_date = utcnow() - timedelta(days=days)
+    end_date = utcnow()
 
     data = service.get_cost_analytics(start_date, end_date)
     return jsonify({'by_resource': data.get('by_resource', {})})
@@ -166,8 +167,8 @@ def api_resource_trends():
     period = request.args.get('period', '30d')
     days = int(period.rstrip('dh'))
 
-    start_date = datetime.utcnow() - timedelta(days=days)
-    end_date = datetime.utcnow()
+    start_date = utcnow() - timedelta(days=days)
+    end_date = utcnow()
 
     from services.analytics_service import TimeRange
     time_range = TimeRange.WEEK if days <= 7 else TimeRange.MONTH
@@ -239,8 +240,8 @@ def api_export_data():
     period = request.args.get('period', '30d')
     days = int(period.rstrip('dh'))
 
-    start_date = datetime.utcnow() - timedelta(days=days)
-    end_date = datetime.utcnow()
+    start_date = utcnow() - timedelta(days=days)
+    end_date = utcnow()
 
     if export_type == 'costs':
         data = service.get_cost_analytics(start_date, end_date)
@@ -316,7 +317,7 @@ def api_tool_usage():
     period = max(1, min(period, 365))
     limit = max(1, min(int(request.args.get('limit', 20)), 100))
 
-    since = datetime.utcnow() - timedelta(days=period)
+    since = utcnow() - timedelta(days=period)
 
     # Top tools by call count
     rows = (
@@ -381,7 +382,7 @@ def api_conversion_funnel():
     except ValueError:
         period = 30
     period = max(1, min(period, 365))
-    since = datetime.utcnow() - timedelta(days=period)
+    since = utcnow() - timedelta(days=period)
 
     rows = (
         db.session.query(

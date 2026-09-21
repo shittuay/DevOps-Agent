@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import app, db
 from models import User, UserSubscription, SubscriptionTier
 from datetime import datetime
+from src.utils.timeutils import utcnow
 
 def grant_subscription(email, tier_name):
     with app.app_context():
@@ -37,8 +38,8 @@ def grant_subscription(email, tier_name):
             subscription.credits_remaining = tier.monthly_credits
             subscription.credits_used_this_month = 0
             from dateutil.relativedelta import relativedelta
-            subscription.current_period_start = datetime.utcnow()
-            subscription.current_period_end = datetime.utcnow() + relativedelta(months=1)
+            subscription.current_period_start = utcnow()
+            subscription.current_period_end = utcnow() + relativedelta(months=1)
             db.session.commit()
             print(f"UPDATED subscription for {email}:")
             print(f"  Tier: {old_tier} -> {tier_name}")
@@ -51,8 +52,8 @@ def grant_subscription(email, tier_name):
                 credits_remaining=tier.monthly_credits,
                 payment_status='active',
                 payment_gateway='stripe',
-                current_period_start=datetime.utcnow(),
-                current_period_end=datetime.utcnow() + relativedelta(months=1),
+                current_period_start=utcnow(),
+                current_period_end=utcnow() + relativedelta(months=1),
             )
             db.session.add(subscription)
             db.session.commit()

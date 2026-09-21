@@ -14,6 +14,7 @@ from typing import Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 import os
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,7 @@ class RootCauseAnalyzer:
                     timeline_analysis=row.timeline_analysis or '',
                     impact_assessment=row.impact_assessment or '',
                     recommendations=row.recommendations or [],
-                    analyzed_at=row.analyzed_at or datetime.utcnow(),
+                    analyzed_at=row.analyzed_at or utcnow(),
                     analysis_duration_seconds=row.analysis_duration_seconds or 0.0,
                     data_sources_used=row.data_sources_used or [],
                     db_id=row.id,
@@ -237,7 +238,7 @@ class RootCauseAnalyzer:
                 timeline_analysis=analysis['timeline_analysis'],
                 impact_assessment=analysis['impact_assessment'],
                 recommendations=analysis['recommendations'],
-                analyzed_at=datetime.utcnow(),
+                analyzed_at=utcnow(),
                 analysis_duration_seconds=time.time() - start_time,
                 data_sources_used=self._get_data_sources(logs, metrics, related_events)
             )
@@ -253,7 +254,7 @@ class RootCauseAnalyzer:
                 timeline_analysis="",
                 impact_assessment="",
                 recommendations=[],
-                analyzed_at=datetime.utcnow(),
+                analyzed_at=utcnow(),
                 analysis_duration_seconds=time.time() - start_time,
                 data_sources_used=[]
             )

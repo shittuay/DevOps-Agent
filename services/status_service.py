@@ -8,6 +8,7 @@ import os
 import secrets
 import logging
 from datetime import datetime
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +174,7 @@ class StatusService:
                 return False, None
             if not sub.confirmed:
                 sub.confirmed = True
-                sub.confirmed_at = datetime.utcnow()
+                sub.confirmed_at = utcnow()
                 db.session.commit()
             return True, sub.email
 
@@ -241,7 +242,7 @@ class StatusService:
         rule_name = alert_data.get('rule_name', 'Service Alert')
         message = alert_data.get('message', '')
         severity = alert_data.get('severity', 'medium').upper()
-        ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+        ts = utcnow().strftime('%Y-%m-%d %H:%M UTC')
         status_url = f'{self._base_url()}/status'
 
         if event_type == 'firing':

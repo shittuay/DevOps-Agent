@@ -12,6 +12,7 @@ from services.incident_response import (
 from services.rbac import require_permission, Permission, approver_required
 from datetime import datetime
 import logging
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -658,7 +659,7 @@ def api_update_playbook(playbook_id):
             ))
         playbook.actions = actions
 
-    playbook.updated_at = datetime.utcnow()
+    playbook.updated_at = utcnow()
     engine.register_playbook(user_id, playbook)
 
     logger.info(f"Playbook '{playbook.name}' updated by {current_user.email}")

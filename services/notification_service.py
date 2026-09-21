@@ -16,6 +16,7 @@ from typing import Any, Optional
 from dataclasses import dataclass, field
 
 from src.utils.network_safety import assert_safe_external_webhook_url, safe_request, UnsafeUrlError
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class Notification:
     fields: dict = field(default_factory=dict)
     actions: list = field(default_factory=list)
     color: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utcnow)
 
     def to_slack_blocks(self) -> list:
         """Convert notification to Slack Block Kit format."""
@@ -440,7 +441,7 @@ class NotificationService:
                 "Severity": severity.upper(),
                 "Value": str(alert_data.get("value", "N/A")),
                 "Threshold": str(alert_data.get("threshold", "N/A")),
-                "Time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "Time": utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
             }
         )
 

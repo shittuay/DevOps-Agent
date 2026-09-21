@@ -30,6 +30,7 @@ import pytest
 
 from routes import chatops as chatops_routes
 from services.chatops_service import get_chatops_service, ChatPlatform
+from src.utils.timeutils import utcnow
 
 
 # ==================== Slack signature replay window ====================
@@ -126,7 +127,7 @@ def test_link_code_flow_unlocks_user_scoped_commands(app, test_user, db_session)
     code = 'TESTLNK1'
     link_code = ChatOpsLinkCode(
         user_id=test_user.id, code=code,
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
+        expires_at=utcnow() + timedelta(minutes=10),
     )
     db.session.add(link_code)
     db.session.commit()
@@ -164,7 +165,7 @@ def test_link_code_cannot_be_reused(app, test_user, db_session):
     code = 'ONETIME1'
     link_code = ChatOpsLinkCode(
         user_id=test_user.id, code=code,
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
+        expires_at=utcnow() + timedelta(minutes=10),
     )
     db.session.add(link_code)
     db.session.commit()
@@ -191,7 +192,7 @@ def test_link_code_rejects_expired_code(app, test_user, db_session):
     code = 'EXPIRED1'
     link_code = ChatOpsLinkCode(
         user_id=test_user.id, code=code,
-        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        expires_at=utcnow() - timedelta(minutes=1),
     )
     db.session.add(link_code)
     db.session.commit()
