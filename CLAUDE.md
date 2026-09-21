@@ -249,6 +249,20 @@ patch next time it's found again.
   same way (filter on `self.user_id` when set) — see CLAUDE_RUNBOOK.md's 2026-08-01 entry. A
   service class with a security-relevant `user_id` needs *every* getter audited when the class is
   touched again, not just the ones a bug report happens to point at.
+- **A non-Flask-session entry point (a bot, webhook, or CLI) that calls a per-user service still
+  needs a real app `user_id` from somewhere — it doesn't get one for free.** Every method on
+  `IncidentResponseEngine`/`ProactiveMonitoringService`/`RootCauseAnalyzer` requires `user_id` as
+  its first positional arg, same as any other per-user service in this app. `services/chatops_service.py`
+  (Slack/Teams bot commands) called all of them with no `user_id` at all, or with the Slack-typed
+  incident-id string landing in the `user_id` slot, because there was no mechanism to map a
+  Slack/Teams identity to an app `User.id` in the first place — found by the 2026-09-12 scheduled
+  audit (see CLAUDE_RUNBOOK.md). Fixed with a `ChatOpsIdentity` (platform + platform_user_id →
+  user_id) mapping, populated via a `/link <code>` command that redeems a short-lived
+  `ChatOpsLinkCode` generated on the logged-in ChatOps page; `ChatOpsService.process_message()`
+  resolves and injects `app_user_id` before dispatch, refusing to dispatch a `requires_auth`
+  command with no resolved identity rather than calling the handler with nothing valid to pass.
+  Any new ChatOps command that touches per-user data must accept `app_user_id` from `process_message`'s
+  dispatch, never invent its own notion of "the user" from the raw platform id.
 - **A route rendering another entity's nested child (team, resource, sub-object) must check the
   parent-membership guard itself — checking the child's `parent_id` foreign key is not the same
   as checking access.** `routes/organizations.py`'s `view_team` fetched `membership =

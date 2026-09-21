@@ -231,6 +231,25 @@
 
         <div class="section">
             <div class="section-header">
+                <h3>Link Your Account</h3>
+            </div>
+            <div class="section-content">
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
+                    Incident and monitoring commands (<code>/status</code>, <code>/incidents</code>,
+                    <code>/ack</code>, <code>/resolve</code>, <code>/playbooks</code>, <code>/execute</code>,
+                    <code>/analyze</code>, <code>/alerts</code>, <code>/metrics</code>, <code>/oncall</code>)
+                    read your account's data, so Slack/Teams must first be linked to your DevOps Agent
+                    account. Generate a code below, then run <code>/link &lt;code&gt;</code> in Slack or Teams.
+                </p>
+                <div class="test-section">
+                    <button class="btn btn-primary" onclick="generateLinkCode()">Generate Link Code</button>
+                    <div class="test-output" id="linkCodeOutput" style="margin-top: 1rem;">No code generated yet.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
                 <h3>Test Commands</h3>
             </div>
             <div class="section-content">
@@ -291,6 +310,24 @@
     </div>
 
     <script>
+        async function generateLinkCode() {
+            const output = document.getElementById('linkCodeOutput');
+            output.textContent = 'Generating...';
+
+            try {
+                const resp = await fetch('/chatops/api/link-code', { method: 'POST' });
+                const data = await resp.json();
+
+                if (data.success) {
+                    output.textContent = `Code: ${data.code}  (expires in ${data.expires_in_minutes} minutes)\n\nRun /link ${data.code} in Slack or Teams to link this account.`;
+                } else {
+                    output.textContent = 'Error: ' + (data.error || 'Unknown error');
+                }
+            } catch (e) {
+                output.textContent = 'Error: ' + e.message;
+            }
+        }
+
         async function testCommand() {
             const input = document.getElementById('testCommand');
             const output = document.getElementById('testOutput');

@@ -182,6 +182,19 @@ class ChatOpsService:
             aliases=["oc"]
         ))
 
+        # /link is deliberately requires_auth=False: it is the ONE command a
+        # not-yet-linked Slack/Teams user must be able to run. Every other
+        # per-user command resolves identity through _require_app_user(), which
+        # refuses without a ChatOpsIdentity row — so without this, a Slack user
+        # has no path to create one and ChatOps is permanently inert for them.
+        self.register_command(ChatCommand(
+            name="link",
+            description="Link this Slack/Teams account to your DevOps Agent account",
+            usage="/link <code>",
+            handler=self._cmd_link,
+            requires_auth=False
+        ))
+
     def register_command(self, command: ChatCommand):
         """Register a chat command."""
         self.commands[command.name] = command
@@ -242,9 +255,18 @@ class ChatOpsService:
                 text=f"Unknown command `{command_name}`. Try `/help` for available commands."
             )
 
+        # Resolve the app user from a linked ChatOpsIdentity when the caller
+        # didn't already supply one. Without this, _require_app_user() refuses
+        # every per-user command from Slack/Teams and the only site that ever
+        # passes app_user_id is the logged-in dashboard's test panel — i.e.
+        # ChatOps is inert from the chat platforms it exists to serve.
+        resolved_app_user_id = app_user_id
+        if resolved_app_user_id is None and user_id:
+            resolved_app_user_id = self._resolve_linked_app_user(platform, user_id)
+
         try:
             response = command.handler(args, user_id=user_id, channel_id=channel_id,
-                                       platform=platform, app_user_id=app_user_id)
+                                       platform=platform, app_user_id=resolved_app_user_id)
             return response
         except _UnresolvedAppUser:
             return ChatResponse(text=_UNLINKED_ACCOUNT_MESSAGE)
@@ -253,6 +275,25 @@ class ChatOpsService:
             return ChatResponse(
                 text=f"Error executing command: {str(e)}"
             )
+
+    @staticmethod
+    def _resolve_linked_app_user(platform: ChatPlatform, platform_user_id: str) -> Optional[int]:
+        """Map a Slack/Teams identity to an app User.id via a linked
+        ChatOpsIdentity row, or None when this identity hasn't run `/link`.
+
+        Returns None rather than raising: process_message() passes the result
+        straight through as app_user_id, and _require_app_user() already owns
+        the refusal path for a missing one.
+        """
+        from models import ChatOpsIdentity
+        try:
+            identity = ChatOpsIdentity.query.filter_by(
+                platform=platform.value, platform_user_id=str(platform_user_id)
+            ).first()
+        except Exception:
+            logger.exception("ChatOps identity lookup failed")
+            return None
+        return identity.user_id if identity else None
 
     @staticmethod
     def _require_app_user(kwargs: dict) -> int:
@@ -620,6 +661,47 @@ class ChatOpsService:
                  "directly (it can call `pagerduty_list_oncalls` / `opsgenie_get_oncall` "
                  "with your API key) or check your provider's dashboard."
         )
+
+    def _cmd_link(self, args: list, user_id: str = None,
+                  platform: ChatPlatform = ChatPlatform.SLACK, **kwargs) -> ChatResponse:
+        """Redeem a link code generated on the ChatOps settings page, binding
+        this Slack/Teams identity to the app user who generated it."""
+        if not args:
+            return ChatResponse(text=(
+                "Usage: `/link <code>` — generate a code from the ChatOps page "
+                "in DevOps Agent while logged in."
+            ))
+        if not user_id:
+            return ChatResponse(text="Could not determine your platform user id.")
+
+        from models import db, ChatOpsIdentity, ChatOpsLinkCode
+
+        code = args[0].strip().upper()
+        link_code = ChatOpsLinkCode.query.filter_by(code=code).first()
+
+        if not link_code or link_code.used_at is not None or link_code.expires_at < datetime.utcnow():
+            return ChatResponse(text=(
+                "That code is invalid or has expired. Generate a new one from "
+                "the ChatOps page in DevOps Agent."
+            ))
+
+        existing = ChatOpsIdentity.query.filter_by(
+            platform=platform.value, platform_user_id=str(user_id)
+        ).first()
+        if existing:
+            existing.user_id = link_code.user_id
+            existing.linked_at = datetime.utcnow()
+        else:
+            db.session.add(ChatOpsIdentity(
+                platform=platform.value,
+                platform_user_id=str(user_id),
+                user_id=link_code.user_id,
+            ))
+
+        link_code.used_at = datetime.utcnow()
+        db.session.commit()
+
+        return ChatResponse(text="✅ Account linked! You can now use incident and monitoring commands here.")
 
     def format_slack_blocks(self, response: ChatResponse) -> list:
         """Format response as Slack blocks."""
