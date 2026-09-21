@@ -8,6 +8,7 @@
     </div>
     <div class="form-card">
         <form method="POST" action="{{ url_for('organizations.create_team', org_id=org.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="name">Team Name</label>
                 <input type="text" id="name" name="name" required placeholder="e.g., Platform Engineering" class="form-control">

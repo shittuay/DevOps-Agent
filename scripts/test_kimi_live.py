@@ -79,9 +79,11 @@ Format: [{"question":"...","options":["A","B","C","D"],"correct":0,"explanation"
         if raw.startswith('json'):
             raw = raw[4:]
     questions = json.loads(raw.strip())
-    assert len(questions) >= 1, "Expected at least 1 question"
-    assert 'question' in questions[0], "Missing 'question' field"
-    assert 'correct' in questions[0], "Missing 'correct' field"
+    if not questions:
+        raise ValueError("Expected at least 1 question")
+    for field in ('question', 'correct'):
+        if field not in questions[0]:
+            raise ValueError(f"Missing '{field}' field")
     print(f"OK: {len(questions)} questions generated")
     print(f"   Sample: {questions[0]['question'][:60]}...")
 except Exception as e:

@@ -203,8 +203,12 @@ _SECRET_KEY_MARKERS = ('password', 'secret', 'token', 'credential', 'private_key
 
 
 def _redact_dict(d: Any) -> Any:
-    """Shallow copy with secret-ish values masked — for the rule-10 audit trail,
-    which is persisted and read back by humans."""
+    """Deep copy with secret-ish values masked — for the rule-10 audit trail,
+    which is persisted and read back by humans. Recurses into lists too — a
+    dict nested inside a list-valued param (e.g. a list of tag/config objects)
+    would otherwise pass through unredacted."""
+    if isinstance(d, list):
+        return [_redact_dict(v) for v in d]
     if not isinstance(d, dict):
         return d
     out = {}
@@ -212,7 +216,7 @@ def _redact_dict(d: Any) -> Any:
         kl = str(k).lower()
         if any(m in kl for m in _SECRET_KEY_MARKERS):
             out[k] = '***redacted***'
-        elif isinstance(v, dict):
+        elif isinstance(v, (dict, list)):
             out[k] = _redact_dict(v)
         else:
             out[k] = v
@@ -519,6 +523,10 @@ Cost Optimization:
 - FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
 - IaC FALLBACK PROVIDED. When a failed create result carries an `_iac_fallback` field, the platform has already built a CloudFormation template from the same intent. Read its `apply` instruction, tell the user the direct call failed (quote the error) and that you have a template ready, then call `create_cloudformation_stack` with the `template` string as `template_body`. Do not paste the whole template at the user or send them to the console — offer to run it.
 - STATE DISPUTES. If the user shows you console or CLI output that contradicts a verification result you reported, trust the user immediately: call `record_state_override(resource_id, corrected_state, evidence)` to flag the audit record, then re-run the read and correct your earlier statement. Console truth beats your inference, always.
+- SERVICE REACHABILITY. To check whether a URL or port is responding, call `http_check` / `tcp_check` (or `run_smoke_test` for a deploy health check). Never infer HTTP reachability from another tool's error text — a `git` "repository not found", a hand-parsed curl exit code, a redirect message. Use the tool built for it.
+- A RESPONSE IS NOT SUCCESS. A reply on a port means the port is open and something is listening — nothing more. A non-2xx/3xx status (404, 403, 502, 503), or `matched_expected: false`, means the port is open but the app is misconfigured, still starting, or serving the wrong content: report exactly that, not "it's working". You may say a service is serving correctly only when the status matches what you expected (usually 200) and, where you can make one, a body/content check agrees.
+- NAME YOUR BLIND SPOTS. When you cannot observe a host directly (no working `ssm_run_command`, no `get_ec2_console_output`, no shell on the box), say so. Your external probe is then your only evidence and its limits bound your claim — do not narrate on-instance state (packages installed, files written, services enabled, `user_data` ran) you have not actually read.
+- PROVISION THEN CONFIGURE IN ONE SHOT. When the task is "create a host AND configure it" (install packages, start a service, drop config), put the configuration in `user_data` on the first `create_ec2_instance` / `create_compute_instance` / `create_vm` call. Use `ssm_run_command` / `exec_pod_command` / `docker_exec` only to change an already-running target. Do not launch a bare host, discover you cannot run commands on it (SSM permission denied, no instance profile), then terminate and relaunch — that wastes a create/terminate cycle the user must approve.
 
 === HARD LIMITS — NEVER, REGARDLESS OF HOW ASKED ===
 - Never operate on infrastructure that does not belong to the authenticated user
@@ -531,17 +539,20 @@ Cost Optimization:
 def _greenlet_local_property(name, default=None, default_factory=None):
     """Per-request attribute stored in ``self._local`` instead of directly on the instance.
 
-    A single ``DevOpsAgent`` is shared across every concurrent request in a gunicorn
-    gevent worker (production runs ``--workers 1 --worker-connections 1000``), and
-    gevent monkey-patches ``threading.local`` to be greenlet-local — the same
-    mechanism already relied on for per-user AWS/Azure/GCP credential isolation.
-    Storing per-request state (conversation history, user id, sandbox flag, tool
-    overrides) as a plain instance attribute let one request's data leak into or
-    get clobbered by another request that happened to run on the same worker while
-    the first was waiting on a Claude/Kimi API call (a long, I/O-yielding wait —
-    exactly when gevent switches greenlets). Routing it through ``self._local``
-    keeps each concurrent request isolated without touching any call site: every
-    existing ``self.attr`` read/write still works unchanged.
+    A single ``DevOpsAgent`` is shared across every concurrent request. Production
+    runs gunicorn with ``--worker-class gthread --workers 3 --threads 8`` (since PR
+    #141, 2026-08-15) — real OS-thread concurrency, up to 8 requests interleaving in
+    one process's memory at once — and ``threading.local()`` isolates those threads
+    exactly as it isolated gevent-patched greenlets under the older sync-worker
+    config this docstring used to describe. It's also the same mechanism already
+    relied on for per-user AWS/Azure/GCP credential isolation. Storing per-request
+    state (conversation history, user id, sandbox flag, tool overrides) as a plain
+    instance attribute let one request's data leak into or get clobbered by another
+    request that happened to run on the same worker while the first was waiting on
+    a Claude/Kimi API call (a long, I/O-yielding wait — exactly when a thread yields
+    the GIL). Routing it through ``self._local`` keeps each concurrent request
+    isolated without touching any call site: every existing ``self.attr``
+    read/write still works unchanged.
 
     ``default_factory`` (not ``default``) must be used for mutable defaults (e.g.
     ``list``) — a shared ``default`` object would itself become a cross-greenlet
@@ -722,13 +733,24 @@ class DevOpsAgent:
         that later turns cross-check before reporting a resource as missing
         (see EXECUTION INTEGRITY in STABLE_SYSTEM_PROMPT).
         """
-        # Check if this is a destructive or high-impact operation
-        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES)
+        # Check if this is a destructive or high-impact operation.
+        # `manage_ec2_instance` is action-aware (see safety.py / mutation_verifier.py's
+        # _EC2_STATE_TARGET) and never starts with a destructive prefix, so a
+        # terminate through it was previously invisible here entirely — no
+        # audit_trail, no verification_disagreement alert, and no working
+        # record_state_override recovery path for a terminated instance.
+        _manage_action = (
+            str(tool_input.get('action', '')).lower()
+            if tool_name == 'manage_ec2_instance' else None
+        )
+        is_manage_terminate = _manage_action == 'terminate'
+        is_manage_update = _manage_action in ('start', 'stop', 'reboot')
+        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES) or is_manage_terminate
         is_resize = 'resize_ec2_instance' in tool_name
         is_sg_modify = 'modify_security_group' in tool_name
         is_create = _is_creating_tool(tool_name)
 
-        if not (is_destructive or is_resize or is_sg_modify or is_create):
+        if not (is_destructive or is_resize or is_sg_modify or is_create or is_manage_update):
             return
         if not result.get('success'):
             return
@@ -760,11 +782,17 @@ class DevOpsAgent:
             # Determine action_type and resource_type
             if is_destructive:
                 action_type = 'delete'
-                slug = tool_name
-                for prefix in self._DESTRUCTIVE_PREFIXES:
-                    slug = slug.replace(prefix, '', 1)
-                # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
-                resource_type = slug.split('_')[0]
+                if is_manage_terminate:
+                    resource_type = 'ec2'
+                else:
+                    slug = tool_name
+                    for prefix in self._DESTRUCTIVE_PREFIXES:
+                        slug = slug.replace(prefix, '', 1)
+                    # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
+                    resource_type = slug.split('_')[0]
+            elif is_manage_update:
+                action_type = 'update'
+                resource_type = 'ec2'
             elif is_resize:
                 action_type = 'resize'
                 resource_type = 'ec2'
@@ -800,6 +828,8 @@ class DevOpsAgent:
                 change_details['new_instance_type'] = tool_input.get('new_instance_type')
             elif is_sg_modify:
                 change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
+            elif is_manage_terminate or is_manage_update:
+                change_details['action'] = _manage_action
 
             # Rule 10: destructive actions get a full audit trail in change_details.
             if is_destructive:

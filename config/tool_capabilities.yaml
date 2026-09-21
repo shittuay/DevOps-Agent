@@ -47,6 +47,7 @@ tools:
   cleanup_ebs_volume: { permission: destroy, mutating: true }
   cordon_node: { permission: modify, mutating: true }
   create_aurora_cluster: { permission: modify, mutating: true }
+  create_cloudformation_stack: { permission: modify, mutating: true }
   create_cloudwatch_alarm: { permission: modify, mutating: true }
   create_cronjob: { permission: modify, mutating: true }
   create_ec2_keypair: { permission: destroy, mutating: true }
@@ -233,16 +234,19 @@ tools:
   git_show_file_at_commit: { permission: modify, mutating: false }
   git_stash_apply: { permission: modify, mutating: true }
   git_stash_drop: { permission: modify, mutating: true }
+  git_stash_save: { permission: modify, mutating: true }
   git_switch_branch: { permission: modify, mutating: true }
   github_close_issue: { permission: modify, mutating: true }
   github_close_pull_request: { permission: modify, mutating: true }
   github_create_release: { permission: modify, mutating: true }
+  github_create_repo: { permission: modify, mutating: true }
   github_delete_repo: { permission: destroy, mutating: true }
   github_invite_collaborator: { permission: modify, mutating: true }
   github_merge_pull_request: { permission: destroy, mutating: true }
   github_trigger_workflow: { permission: modify, mutating: true }
   k8s_api_write: { permission: destroy, mutating: true }
   label_node: { permission: modify, mutating: true }
+  list_storage_account_keys: { permission: destroy, mutating: true }
   modify_db_parameter_group: { permission: modify, mutating: true }
   modify_rds_instance: { permission: modify, mutating: true }
   modify_subnet_attribute: { permission: modify, mutating: true }
@@ -253,9 +257,11 @@ tools:
   nexus_delete_repository: { permission: destroy, mutating: true }
   nexus_run_cleanup_task: { permission: modify, mutating: true }
   opsgenie_acknowledge_alert: { permission: modify, mutating: true }
+  opsgenie_add_note: { permission: modify, mutating: true }
   opsgenie_close_alert: { permission: modify, mutating: true }
   opsgenie_create_alert: { permission: modify, mutating: true }
   opsgenie_escalate_alert: { permission: modify, mutating: true }
+  pagerduty_add_note: { permission: modify, mutating: true }
   pagerduty_create_incident: { permission: modify, mutating: true }
   pagerduty_update_incident: { permission: modify, mutating: true }
   pause_rollout: { permission: modify, mutating: true }
@@ -267,7 +273,7 @@ tools:
   put_s3_lifecycle_policy: { permission: modify, mutating: true }
   put_s3_replication: { permission: modify, mutating: true }
   reboot_rds_instance: { permission: modify, mutating: true }
-  regenerate_storage_key: { permission: modify, mutating: true }
+  regenerate_storage_key: { permission: destroy, mutating: true }
   register_targets: { permission: modify, mutating: true }
   release_elastic_ip: { permission: modify, mutating: true }
   remove_iam_user_from_group: { permission: destroy, mutating: true }
@@ -292,6 +298,7 @@ tools:
   run_ecs_task: { permission: modify, mutating: true }
   scale_deployment: { permission: modify, mutating: true }
   scale_statefulset: { permission: modify, mutating: true }
+  send_sqs_message: { permission: modify, mutating: true }
   set_main_route_table: { permission: modify, mutating: true }
   set_s3_cors: { permission: modify, mutating: true }
   set_s3_default_encryption: { permission: modify, mutating: true }
@@ -314,6 +321,7 @@ tools:
   terraform_import: { permission: modify, mutating: true }
   terraform_providers_lock: { permission: modify, mutating: true }
   terraform_state_move: { permission: modify, mutating: true }
+  terraform_state_pull: { permission: destroy, mutating: true }
   terraform_state_push: { permission: modify, mutating: true }
   terraform_state_rm: { permission: destroy, mutating: true }
   terraform_workspace_delete: { permission: modify, mutating: true }
