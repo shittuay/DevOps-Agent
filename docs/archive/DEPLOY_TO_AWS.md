@@ -43,7 +43,7 @@ aws configure
 ```
 
 Enter your credentials:
-- **AWS Access Key ID**: `AKIAU4YZDFIZN3R5YFIG` (or your current one)
+- **AWS Access Key ID**: your own key ID from IAM (shaped like `AKIAIOSFODNN7EXAMPLE`)
 - **AWS Secret Access Key**: Your secret key
 - **Default region**: `us-east-1` (or your preferred region)
 - **Default output format**: `json`
