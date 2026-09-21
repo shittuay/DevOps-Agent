@@ -1,7 +1,16 @@
 """Safety validation layer for DevOps Agent."""
+import logging
 import re
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+
+from . import tool_capabilities
+
+logger = logging.getLogger(__name__)
+
+# risk_level ordering, for reconciling a tool's declared capability with the
+# legacy name-set classification. 'critical' is 'high' plus production context.
+_RISK_RANK = {'low': 0, 'medium': 1, 'high': 2, 'critical': 3}
 
 
 @dataclass
@@ -165,7 +174,9 @@ class SafetyValidator:
     def validate_tool_call(
         self,
         tool_name: str,
-        tool_input: Dict[str, Any]
+        tool_input: Dict[str, Any],
+        *,
+        use_declared: bool = True,
     ) -> ValidationResult:
         """
         Validate a tool call for safety.
@@ -173,6 +184,9 @@ class SafetyValidator:
         Args:
             tool_name: Name of the tool being called
             tool_input: Input parameters for the tool
+            use_declared: When False, skip the declared-capability reconciliation
+                and return the pure legacy classification. Used by
+                ``legacy_risk_level()`` / ``scripts/audit_tool_capabilities.py``.
 
         Returns:
             ValidationResult with safety assessment
@@ -732,37 +746,59 @@ class SafetyValidator:
                 )
             # action='start' falls through to low risk
 
-        # Priority: explicit sets override auto-detection.
-        # A tool in medium_risk_tools stays medium even if its name matches a high-risk pattern.
+        # ---------------------------------------------------------------
+        # Legacy classification. Explicit name-sets are authoritative over
+        # auto-detection: a tool in medium_risk_tools stays medium even if its
+        # name matches a high-risk pattern.
+        # ---------------------------------------------------------------
         if tool_name in high_risk_tools:
+            legacy_risk, legacy_source = 'high', 'classified'
+        elif tool_name in medium_risk_tools:
+            legacy_risk, legacy_source = 'medium', 'classified'
+        elif self._matches_high_risk_pattern(tool_name):
+            legacy_risk, legacy_source = 'high', 'auto-detected'
+        elif self._matches_medium_risk_pattern(tool_name):
+            legacy_risk, legacy_source = 'medium', 'auto-detected'
+        else:
+            legacy_risk, legacy_source = 'low', 'default'
+
+        effective_risk, source = legacy_risk, legacy_source
+
+        # ---------------------------------------------------------------
+        # Declared capability (governance refactor, Phase 1). A tool's own
+        # declared capability is the primary risk source; the legacy result
+        # above is a floor it can raise but never lower. A declaration that is
+        # more lenient than the legacy rules is logged and ignored here —
+        # tests/test_tool_capabilities.py fails the build on it so the mismatch
+        # gets fixed rather than silently shipped.
+        # ---------------------------------------------------------------
+        if use_declared:
+            cap = tool_capabilities.resolve(tool_name)
+            if cap is not None:
+                cap_risk = cap.risk()
+                if _RISK_RANK[cap_risk] >= _RISK_RANK[legacy_risk]:
+                    effective_risk = cap_risk
+                    source = f'declared:{cap.source}'
+                else:
+                    logger.warning(
+                        "tool_capabilities: %r declares '%s' but legacy classification is "
+                        "'%s' — keeping '%s'. Fix the entry in config/tool_capabilities.yaml "
+                        "or the legacy set in safety.py.",
+                        tool_name, cap_risk, legacy_risk, legacy_risk,
+                    )
+
+        if effective_risk == 'high':
             return ValidationResult(
                 is_safe=True,
-                reason=f"High-risk tool '{tool_name}'" + (" on production" if targets_production else ""),
+                reason=f"High-risk tool '{tool_name}' ({source})" + (" on production" if targets_production else ""),
                 requires_confirmation=True,
                 risk_level='critical' if targets_production else 'high'
             )
 
-        if tool_name in medium_risk_tools:
+        if effective_risk == 'medium':
             return ValidationResult(
                 is_safe=True,
-                reason=f"Medium-risk tool '{tool_name}'",
-                requires_confirmation=True,
-                risk_level='medium'
-            )
-
-        # Auto-detect: catch tools not in either explicit set
-        if self._matches_high_risk_pattern(tool_name):
-            return ValidationResult(
-                is_safe=True,
-                reason=f"High-risk tool '{tool_name}' (auto-detected)" + (" on production" if targets_production else ""),
-                requires_confirmation=True,
-                risk_level='critical' if targets_production else 'high'
-            )
-
-        if self._matches_medium_risk_pattern(tool_name):
-            return ValidationResult(
-                is_safe=True,
-                reason=f"Medium-risk tool '{tool_name}' (auto-detected)",
+                reason=f"Medium-risk tool '{tool_name}' ({source})",
                 requires_confirmation=True,
                 risk_level='medium'
             )
@@ -774,6 +810,21 @@ class SafetyValidator:
             requires_confirmation=False,
             risk_level='low'
         )
+
+    def legacy_risk_level(self, tool_name: str, tool_input: Optional[Dict[str, Any]] = None) -> str:
+        """Risk level ('low' | 'medium' | 'high') from the legacy name-set and
+        pattern rules alone — ignoring declared capability.
+
+        Pentest gating and the action-aware special cases
+        (``manage_ec2_instance`` etc.) can still short-circuit this; callers
+        that enumerate the whole catalogue (``scripts/audit_tool_capabilities.py``)
+        exclude those names.
+        """
+        result = self.validate_tool_call(tool_name, tool_input or {}, use_declared=False)
+        lvl = result.risk_level
+        if lvl in ('high', 'critical'):
+            return 'high'
+        return 'medium' if lvl == 'medium' else 'low'
 
     # Auto-detection patterns: catch new tools that weren't added to the static sets
     _HIGH_RISK_NAME_PREFIXES = (
