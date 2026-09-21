@@ -3917,6 +3917,8 @@ def api_chat_stream():
             )
             full_response = []
             actual_mc = mc
+            from services.secret_detector import StreamingRedactor
+            _secret_redactor = StreamingRedactor()
 
             # Tool event queue — callbacks fire synchronously inside the generator
             _tool_events = []
@@ -3979,7 +3981,9 @@ def api_chat_stream():
                                 yield from _drain_tool_events()
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
-                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
+                                    _safe = _secret_redactor.feed(buf_chunk)
+                                    if _safe:
+                                        yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                                 _buf_exhausted = False
                                 break
                         if _approval_from_buf:
@@ -4004,7 +4008,9 @@ def api_chat_stream():
                             else:
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
-                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
+                                    _safe = _secret_redactor.feed(buf_chunk)
+                                    if _safe:
+                                        yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                                 stream_source = iter([])  # already consumed
                     except Exception:
                         # Actual exception (not swallowed by agent) — fallback to Groq
@@ -4028,8 +4034,17 @@ def api_chat_stream():
                         return
                     yield from _drain_tool_events()
                     full_response.append(chunk)
-                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(chunk)})}\n\n"
+                    _safe = _secret_redactor.feed(chunk)
+                    if _safe:
+                        yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                 yield from _drain_tool_events()
+
+                # Flush whatever tail the redactor is still holding back so it
+                # isn't lost — see StreamingRedactor's docstring for why chunks
+                # are buffered rather than redacted one at a time.
+                _safe = _secret_redactor.flush()
+                if _safe:
+                    yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
 
                 # Append fallback note if we switched providers
                 if actual_mc.provider != mc.provider:
