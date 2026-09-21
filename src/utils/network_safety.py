@@ -33,6 +33,42 @@ def _is_blocked_ip(ip_str: str) -> bool:
     )
 
 
+def assert_safe_host(host: str) -> str:
+    """
+    Validate that `host` (a bare hostname or IP, no scheme) does not resolve to
+    a loopback, link-local, multicast or unspecified address — the same SSRF
+    policy as `assert_safe_url` but for callers that connect at the socket
+    level (e.g. a raw TCP probe) rather than over HTTP.
+
+    Returns the first resolved IP address string. Raises UnsafeUrlError if the
+    host is missing, unresolvable, or resolves to a disallowed address.
+    """
+    if not host or not isinstance(host, str):
+        raise UnsafeUrlError("host must be a non-empty string")
+
+    if host.lower() in ('metadata.google.internal',):
+        raise UnsafeUrlError(f"Access to {host} is not allowed")
+
+    try:
+        addr_infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise UnsafeUrlError(f"Could not resolve host {host!r}: {e}")
+
+    first_ip = None
+    for _, _, _, _, sockaddr in addr_infos:
+        ip_str = sockaddr[0]
+        if first_ip is None:
+            first_ip = ip_str
+        if _is_blocked_ip(ip_str):
+            raise UnsafeUrlError(
+                f"host {host!r} resolves to a disallowed internal/private address ({ip_str})"
+            )
+
+    if first_ip is None:
+        raise UnsafeUrlError(f"Could not resolve host {host!r}")
+    return first_ip
+
+
 def assert_safe_url(url: str) -> str:
     """
     Validate that `url` is http(s) and does not resolve to a loopback,

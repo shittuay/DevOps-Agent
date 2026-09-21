@@ -98,7 +98,8 @@ from src.tools import (
     monitoring_tools,
     ansible_tools,
     alerting_tools,
-    devops_operations_tools
+    devops_operations_tools,
+    verification_tools
 )
 
 # Import database models
@@ -1142,6 +1143,7 @@ def initialize_agent():
 
         # Register tools
         agent.register_tools_from_module(command_tools)
+        agent.register_tools_from_module(verification_tools)  # http_check / tcp_check — always available
         if config_manager.aws_enabled:
             agent.register_tools_from_module(aws_tools)
         # Always enable GCP and Azure tools
@@ -3915,6 +3917,8 @@ def api_chat_stream():
             )
             full_response = []
             actual_mc = mc
+            from services.secret_detector import StreamingRedactor
+            _secret_redactor = StreamingRedactor()
 
             # Tool event queue — callbacks fire synchronously inside the generator
             _tool_events = []
@@ -3977,7 +3981,9 @@ def api_chat_stream():
                                 yield from _drain_tool_events()
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
-                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
+                                    _safe = _secret_redactor.feed(buf_chunk)
+                                    if _safe:
+                                        yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                                 _buf_exhausted = False
                                 break
                         if _approval_from_buf:
@@ -4002,7 +4008,9 @@ def api_chat_stream():
                             else:
                                 for buf_chunk in initial_buf:
                                     full_response.append(buf_chunk)
-                                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(buf_chunk)})}\n\n"
+                                    _safe = _secret_redactor.feed(buf_chunk)
+                                    if _safe:
+                                        yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                                 stream_source = iter([])  # already consumed
                     except Exception:
                         # Actual exception (not swallowed by agent) — fallback to Groq
@@ -4026,8 +4034,17 @@ def api_chat_stream():
                         return
                     yield from _drain_tool_events()
                     full_response.append(chunk)
-                    yield f"data: {_json.dumps({'type': 'chunk', 'content': redact_secrets(chunk)})}\n\n"
+                    _safe = _secret_redactor.feed(chunk)
+                    if _safe:
+                        yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                 yield from _drain_tool_events()
+
+                # Flush whatever tail the redactor is still holding back so it
+                # isn't lost — see StreamingRedactor's docstring for why chunks
+                # are buffered rather than redacted one at a time.
+                _safe = _secret_redactor.flush()
+                if _safe:
+                    yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
 
                 # Append fallback note if we switched providers
                 if actual_mc.provider != mc.provider:
@@ -4489,10 +4506,19 @@ def sync_status(task_id):
 @app.route('/api/dashboard/recommendations/<int:rec_id>/apply', methods=['POST'])
 @login_required
 def apply_recommendation(rec_id):
-    """Apply a cost optimization recommendation."""
+    """Apply a cost optimization recommendation.
+
+    This endpoint does not yet call any AWS/Azure/GCP API to carry out the
+    recommended action (stop the instance, resize it, add a lifecycle
+    policy, etc.) — it must never report success it didn't perform (see
+    CLAUDE.md's "every feature runs against a real cloud account" rule, and
+    the identical fix in routes/scaling.py's api_apply_recommendation). A
+    user trusting a false "applied — saving $X/mo" toast would stop looking
+    for other ways to address the cost/reliability issue that was never
+    actually fixed, while the resource keeps running exactly as before.
+    """
     try:
-        from models import CostOptimization, InfrastructureResource
-        from datetime import datetime
+        from models import CostOptimization
 
         # Get recommendation
         recommendation = CostOptimization.query.get_or_404(rec_id)
@@ -4501,17 +4527,20 @@ def apply_recommendation(rec_id):
         if recommendation.user_id != current_user.id:
             return jsonify({'error': 'Unauthorized'}), 403
 
-        # For now, just mark as applied
-        # In production, actually execute the action (stop instance, etc.)
-        recommendation.status = 'applied'
-        recommendation.applied_at = utcnow()
-        db.session.commit()
+        logger.info(
+            f"Cost optimization apply requested by {current_user.email} for "
+            f"recommendation {rec_id} ({recommendation.recommendation_type}), but no "
+            f"execution path exists yet — refusing to report false success"
+        )
 
         return jsonify({
-            'success': True,
-            'message': f'Optimization applied successfully',
-            'savings': recommendation.potential_monthly_savings
-        })
+            'success': False,
+            'error': 'Applying this recommendation is not yet implemented — no cloud API '
+                     'call is made. Use the equivalent AWS/Azure/GCP tool in chat to make '
+                     'this change yourself, then dismiss this recommendation.',
+            'recommendation_id': rec_id,
+            'recommendation_type': recommendation.recommendation_type,
+        }), 501
     except HTTPException:
         raise  # let get_or_404's 404 (and other HTTP errors) pass through
     except Exception as e:

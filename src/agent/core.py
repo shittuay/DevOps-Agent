@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..config import ConfigManager
 from ..utils import get_logger, log_operation
+from . import tool_capabilities
 from .conversation import ConversationManager
 from .safety import SafetyValidator
 from .tool_selection import classify_tool, select_tool_definitions, module_category_from_name
@@ -179,6 +180,33 @@ def _validate_tool_result_ids(result_str: str) -> str:
     return result_str
 
 
+# ---------------------------------------------------------------------------
+# Fabricated action claims — a mutation reported without the tool that does it
+# ---------------------------------------------------------------------------
+#
+# _hallucination_severity() answers "did any tool run this turn?", which goes
+# silent the moment one does — and _history_has_real_resource_data() keeps it
+# silent for the rest of the conversation once real IDs appear in history. That
+# is how the 2026-09-04 incident shipped: a single get_aws_resource_inventory
+# call disarmed the check, and Kimi then reported a fully-detailed EC2 launch
+# (instance id, VPC, subnet, volume, public IP) with create_ec2_instance never
+# called. See CLAUDE_RUNBOOK.md.
+#
+# This guard asks the narrower, per-claim question instead: the response asserts
+# a mutation completed — did a tool that can actually perform that mutation run?
+# Each family is (name, request verbs, completion assertion, substantiating tool
+# markers). The request gate is what keeps read flows quiet: "describe my
+# instance" answered with "launched on 2026-05-15" is narration, not a claim.
+
+# Tools that can carry out any mutation, so they substantiate every family.
+# Getting this list wrong is the dangerous direction: telling a user "nothing
+# was created" after a real mutation invites them to create a duplicate.
+_UNIVERSAL_WRITE_TOOLS = (
+    'aws_api_write', 'azure_api_write', 'gcp_api_write', 'k8s_api_write',
+    'execute_command', 'execute_script', 'terraform_apply',
+    'ansible_playbook_run', 'ansible_adhoc_command',
+)
+
 # Tools that bring a new cloud resource into existence — their success results
 # feed the session resource registry (see DevOpsAgent._record_tool_call). Prefix
 # match on the tool name; deliberately excludes create_*_request / create_change_*
@@ -203,8 +231,12 @@ _SECRET_KEY_MARKERS = ('password', 'secret', 'token', 'credential', 'private_key
 
 
 def _redact_dict(d: Any) -> Any:
-    """Shallow copy with secret-ish values masked — for the rule-10 audit trail,
-    which is persisted and read back by humans."""
+    """Deep copy with secret-ish values masked — for the rule-10 audit trail,
+    which is persisted and read back by humans. Recurses into lists too — a
+    dict nested inside a list-valued param (e.g. a list of tag/config objects)
+    would otherwise pass through unredacted."""
+    if isinstance(d, list):
+        return [_redact_dict(v) for v in d]
     if not isinstance(d, dict):
         return d
     out = {}
@@ -212,7 +244,7 @@ def _redact_dict(d: Any) -> Any:
         kl = str(k).lower()
         if any(m in kl for m in _SECRET_KEY_MARKERS):
             out[k] = '***redacted***'
-        elif isinstance(v, dict):
+        elif isinstance(v, (dict, list)):
             out[k] = _redact_dict(v)
         else:
             out[k] = v
@@ -268,19 +300,140 @@ _TOOL_SIGNAL_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+_ACTION_FAMILIES = tuple(
+    (name, request_re, claim_re, tuple(markers) + _UNIVERSAL_WRITE_TOOLS)
+    for name, request_re, claim_re, markers in (
+        (
+            'create',
+            re.compile(r'\b(?:create|creating|launch|launching|provision|provisioning|'
+                       r'spin\s*up|deploy|deploying)\b', re.IGNORECASE),
+            re.compile(r'\b(?:created|launched|provisioned|deployed)\b'
+                       r'|\bis\s+(?:now\s+)?live\b', re.IGNORECASE),
+            ('create_', 'launch_', 'run_', 'provision_', 'deploy_', 'trigger_',
+             'apply_', 'docker_compose_up', 'docker_build_image'),
+        ),
+        (
+            'destroy',
+            re.compile(r'\b(?:delete|deleting|terminate|terminating|destroy|destroying|'
+                       r'remove|removing|tear\s*down)\b', re.IGNORECASE),
+            re.compile(r'\b(?:deleted|terminated|destroyed|removed|torn\s+down)\b',
+                       re.IGNORECASE),
+            ('delete_', 'terminate_', 'destroy_', 'remove_', 'purge_', 'drop_',
+             'deregister_', 'manage_ec2_instance', 'manage_vm',
+             'manage_compute_instance', 'docker_manage_container',
+             'terraform_destroy', 'docker_compose_down'),
+        ),
+        (
+            'power',
+            re.compile(r'\b(?:start|starting|stop|stopping|restart|restarting|reboot|'
+                       r'rebooting)\b', re.IGNORECASE),
+            re.compile(r'\b(?:started|stopped|restarted|rebooted)\b', re.IGNORECASE),
+            # delete_/rollout_ included deliberately: restarting a pod by deleting
+            # it, or via a rollout restart, is standard Kubernetes practice.
+            ('start_', 'stop_', 'restart_', 'reboot_', 'delete_', 'rollout_',
+             'manage_ec2_instance', 'manage_vm', 'manage_compute_instance',
+             'docker_manage_container'),
+        ),
+        (
+            'modify',
+            re.compile(r'\b(?:update|updating|modify|modifying|resize|resizing|'
+                       r'scale|scaling)\b', re.IGNORECASE),
+            re.compile(r'\b(?:updated|modified|resized|scaled)\b', re.IGNORECASE),
+            ('update_', 'modify_', 'resize_', 'scale_', 'put_', 'set_', 'attach_',
+             'detach_', 'register_', 'patch_', 'tag_'),
+        ),
+    )
+)
 
-def _should_require_tool_use(messages: list) -> bool:
-    """Return True when the latest user message is clearly an infra data query."""
-    for msg in reversed(messages):
-        if msg.get('role') == 'user':
-            content = msg.get('content', '')
-            if isinstance(content, list):
-                content = ' '.join(
-                    b.get('text', '') for b in content
-                    if isinstance(b, dict) and b.get('type') == 'text'
-                )
-            return bool(_TOOL_SIGNAL_RE.search(content))
+
+def _latest_user_text(messages: list) -> str:
+    """Text of the most recent user message, flattening Anthropic block content."""
+    for msg in reversed(messages or []):
+        if msg.get('role') != 'user':
+            continue
+        content = msg.get('content', '') or ''
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return '\n'.join(
+                b.get('text', '') for b in content
+                if isinstance(b, dict) and b.get('type') == 'text'
+            )
+        return ''
+    return ''
+
+
+def _tool_substantiates(tool_name: str, markers: tuple) -> bool:
+    name = (tool_name or '').lower()
+    return any(name == m or name.startswith(m) for m in markers)
+
+
+# "No new instance has been created yet" is an honest denial, not a claim.
+# Replacing that response would destroy a correct answer — and the agent
+# produces exactly that sentence when it declines to act (2026-09-05).
+_NEGATION_RE = re.compile(
+    r"\b(?:no|not|never|nothing|none|cannot|without|unable|fail(?:ed|s|ure)?)\b"
+    r"|\b\w+n['’]t\b",
+    re.IGNORECASE,
+)
+
+# A negation binds only to its own clause: "No errors occurred. The instance
+# was created." is still a claim, so the lookback stops at a clause break
+# (table cells and list items count — the incident's table used '|' rows).
+_CLAUSE_BREAK_CHARS = '.!?;:|\n'
+_CLAIM_LOOKBACK = 80
+
+
+def _claim_asserted(text: str, claim_re) -> bool:
+    """True when at least one completion phrase appears un-negated."""
+    for match in claim_re.finditer(text):
+        window = text[max(0, match.start() - _CLAIM_LOOKBACK):match.start()]
+        break_at = max((window.rfind(ch) for ch in _CLAUSE_BREAK_CHARS), default=-1)
+        if break_at != -1:
+            window = window[break_at + 1:]
+        if not _NEGATION_RE.search(window):
+            return True
     return False
+
+
+def _fabricated_action_claim(
+    user_message: str,
+    response_text: str,
+    executed_tools: list,
+    sandbox_mode: bool = False,
+) -> bool:
+    """
+    True when the response claims a mutating action completed but no tool
+    capable of performing it actually executed this turn.
+
+    Unlike _hallucination_severity(), this is NOT disarmed by unrelated tool
+    calls: the question is whether *this* claim is substantiated, not whether
+    the turn touched the cloud at all.
+
+    Sandbox mode is exempt — simulated mutations are the point there.
+    """
+    if sandbox_mode or not user_message or not response_text:
+        return False
+    executed = executed_tools or []
+    for _name, request_re, claim_re, markers in _ACTION_FAMILIES:
+        if not request_re.search(user_message):
+            continue
+        if not _claim_asserted(response_text, claim_re):
+            continue
+        if any(_tool_substantiates(t, markers) for t in executed):
+            continue
+        return True
+    return False
+
+
+_FABRICATED_ACTION_REPLACEMENT = (
+    "I was about to report that action as completed, but no tool actually ran — "
+    "**nothing was created or changed in your cloud account**, and any resource "
+    "IDs I was about to show would have been fabricated.\n\n"
+    "Please retry the request. If this repeats, the tool needed for it may not "
+    "be reachable for your account — check that your cloud credentials are "
+    "connected under Settings."
+)
 
 
 def _json_default(obj):
@@ -519,6 +672,10 @@ Cost Optimization:
 - FALLBACK ORDER — NEVER DEAD-END. On a tool failure, in this order: retry once with a corrected call → use the provider's generic fallback (aws_api_write / aws_api_read, and the azure/gcp/k8s equivalents) for the same operation → if that also fails, produce runnable CloudFormation/Terraform or the exact CLI command and offer to execute it. Telling the user to go do it themselves in the console or CLI is a last resort, never your first response.
 - IaC FALLBACK PROVIDED. When a failed create result carries an `_iac_fallback` field, the platform has already built a CloudFormation template from the same intent. Read its `apply` instruction, tell the user the direct call failed (quote the error) and that you have a template ready, then call `create_cloudformation_stack` with the `template` string as `template_body`. Do not paste the whole template at the user or send them to the console — offer to run it.
 - STATE DISPUTES. If the user shows you console or CLI output that contradicts a verification result you reported, trust the user immediately: call `record_state_override(resource_id, corrected_state, evidence)` to flag the audit record, then re-run the read and correct your earlier statement. Console truth beats your inference, always.
+- SERVICE REACHABILITY. To check whether a URL or port is responding, call `http_check` / `tcp_check` (or `run_smoke_test` for a deploy health check). Never infer HTTP reachability from another tool's error text — a `git` "repository not found", a hand-parsed curl exit code, a redirect message. Use the tool built for it.
+- A RESPONSE IS NOT SUCCESS. A reply on a port means the port is open and something is listening — nothing more. A non-2xx/3xx status (404, 403, 502, 503), or `matched_expected: false`, means the port is open but the app is misconfigured, still starting, or serving the wrong content: report exactly that, not "it's working". You may say a service is serving correctly only when the status matches what you expected (usually 200) and, where you can make one, a body/content check agrees.
+- NAME YOUR BLIND SPOTS. When you cannot observe a host directly (no working `ssm_run_command`, no `get_ec2_console_output`, no shell on the box), say so. Your external probe is then your only evidence and its limits bound your claim — do not narrate on-instance state (packages installed, files written, services enabled, `user_data` ran) you have not actually read.
+- PROVISION THEN CONFIGURE IN ONE SHOT. When the task is "create a host AND configure it" (install packages, start a service, drop config), put the configuration in `user_data` on the first `create_ec2_instance` / `create_compute_instance` / `create_vm` call. Use `ssm_run_command` / `exec_pod_command` / `docker_exec` only to change an already-running target. Do not launch a bare host, discover you cannot run commands on it (SSM permission denied, no instance profile), then terminate and relaunch — that wastes a create/terminate cycle the user must approve.
 
 === HARD LIMITS — NEVER, REGARDLESS OF HOW ASKED ===
 - Never operate on infrastructure that does not belong to the authenticated user
@@ -632,6 +789,10 @@ class DevOpsAgent:
         self.tool_definitions: List[Dict[str, Any]] = []
         # Category tag per tool name (for progressive tool loading).
         self.tool_categories: Dict[str, str] = {}
+        # Declared capability block per tool name (governance refactor, Phase 1).
+        # safety.py resolves risk from this before its legacy name-sets; see
+        # src/agent/tool_capabilities.py and config/tool_capabilities.yaml.
+        self.tool_capabilities: Dict[str, Dict[str, Any]] = {}
         # Filtered tool list for the in-flight request (progressive loading).
         self._tools_override: Optional[List[Dict[str, Any]]] = None
         # Token budget for per-request conversation history compaction.
@@ -721,13 +882,24 @@ class DevOpsAgent:
         that later turns cross-check before reporting a resource as missing
         (see EXECUTION INTEGRITY in STABLE_SYSTEM_PROMPT).
         """
-        # Check if this is a destructive or high-impact operation
-        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES)
+        # Check if this is a destructive or high-impact operation.
+        # `manage_ec2_instance` is action-aware (see safety.py / mutation_verifier.py's
+        # _EC2_STATE_TARGET) and never starts with a destructive prefix, so a
+        # terminate through it was previously invisible here entirely — no
+        # audit_trail, no verification_disagreement alert, and no working
+        # record_state_override recovery path for a terminated instance.
+        _manage_action = (
+            str(tool_input.get('action', '')).lower()
+            if tool_name == 'manage_ec2_instance' else None
+        )
+        is_manage_terminate = _manage_action == 'terminate'
+        is_manage_update = _manage_action in ('start', 'stop', 'reboot')
+        is_destructive = tool_name.startswith(self._DESTRUCTIVE_PREFIXES) or is_manage_terminate
         is_resize = 'resize_ec2_instance' in tool_name
         is_sg_modify = 'modify_security_group' in tool_name
         is_create = _is_creating_tool(tool_name)
 
-        if not (is_destructive or is_resize or is_sg_modify or is_create):
+        if not (is_destructive or is_resize or is_sg_modify or is_create or is_manage_update):
             return
         if not result.get('success'):
             return
@@ -759,11 +931,17 @@ class DevOpsAgent:
             # Determine action_type and resource_type
             if is_destructive:
                 action_type = 'delete'
-                slug = tool_name
-                for prefix in self._DESTRUCTIVE_PREFIXES:
-                    slug = slug.replace(prefix, '', 1)
-                # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
-                resource_type = slug.split('_')[0]
+                if is_manage_terminate:
+                    resource_type = 'ec2'
+                else:
+                    slug = tool_name
+                    for prefix in self._DESTRUCTIVE_PREFIXES:
+                        slug = slug.replace(prefix, '', 1)
+                    # slug is now e.g. 'ec2_instance', 'rds_instance', 's3_bucket'
+                    resource_type = slug.split('_')[0]
+            elif is_manage_update:
+                action_type = 'update'
+                resource_type = 'ec2'
             elif is_resize:
                 action_type = 'resize'
                 resource_type = 'ec2'
@@ -799,6 +977,8 @@ class DevOpsAgent:
                 change_details['new_instance_type'] = tool_input.get('new_instance_type')
             elif is_sg_modify:
                 change_details['rules_to_revoke'] = tool_input.get('rules_to_revoke', [])
+            elif is_manage_terminate or is_manage_update:
+                change_details['action'] = _manage_action
 
             # Rule 10: destructive actions get a full audit trail in change_details.
             if is_destructive:
@@ -921,7 +1101,8 @@ class DevOpsAgent:
         name: str,
         description: str,
         input_schema: Dict[str, Any],
-        handler: Callable
+        handler: Callable,
+        capability: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Register a tool that Claude can use.
@@ -931,6 +1112,10 @@ class DevOpsAgent:
             description: Tool description
             input_schema: JSON schema for tool input
             handler: Function to execute when tool is called
+            capability: Optional declared capability block
+                ({permission, mutating, reversible, produces, pentest}) —
+                the primary risk source for safety.py. See
+                src/agent/tool_capabilities.py.
         """
         # Store tool definition for Claude API
         self.tool_definitions.append({
@@ -941,6 +1126,10 @@ class DevOpsAgent:
 
         # Store handler function
         self.tools[name] = handler
+
+        if capability:
+            self.tool_capabilities[name] = capability
+            tool_capabilities.register_declared(name, capability)
 
         self.logger.info(f"Registered tool: {name}")
 
@@ -959,7 +1148,8 @@ class DevOpsAgent:
                     name=tool['name'],
                     description=tool['description'],
                     input_schema=tool['input_schema'],
-                    handler=tool['handler']
+                    handler=tool['handler'],
+                    capability=tool.get('capability'),
                 )
                 self.tool_categories[tool['name']] = classify_tool(tool['name'], module_category)
 
@@ -2171,6 +2361,10 @@ class DevOpsAgent:
         max_iterations = 20  # Kimi non-streaming: cap at 20 to stay well under 300s HTTP timeout
         iteration = 0
         tools_called_this_turn = False
+        # Tools that really executed this turn, for the fabricated-claim guard.
+        # _last_tools_used is appended to at every execution site and is not
+        # reset by the streaming entry point, so mark the offset and slice.
+        executed_from = len(self._last_tools_used)
 
         # Compute swarm agent count once — based on the initial user query only.
         # Must not be re-evaluated inside the loop: tool results accumulate geographic
@@ -2315,6 +2509,19 @@ class DevOpsAgent:
 
                 # No tool calls — return text, but check for hallucinated tool output
                 text = msg.content or ""
+                # Claiming a mutation that no tool performed is checked first and
+                # independently: unlike the severity check below, it must NOT be
+                # disarmed by unrelated tool calls or by real IDs already in history.
+                if _fabricated_action_claim(
+                    _latest_user_text(messages), text,
+                    self._last_tools_used[executed_from:],
+                    getattr(self, '_sandbox_mode', False),
+                ):
+                    self.logger.warning(
+                        "Fabricated action claim in Kimi response — no substantiating "
+                        "tool ran this turn; replacing"
+                    )
+                    return _FABRICATED_ACTION_REPLACEMENT
                 # Skip weak patterns when real resource IDs already exist in prior
                 # assistant messages — the agent is referencing legitimately-fetched data.
                 tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
@@ -2385,6 +2592,8 @@ class DevOpsAgent:
 
         max_iterations = 50
         tools_called_this_turn = False
+        # See the non-streaming path: offset into _last_tools_used for this turn.
+        executed_from = len(self._last_tools_used)
         for iteration in range(max_iterations):
             try:
                 oai_tools = self._current_oai_tools()
@@ -2587,6 +2796,19 @@ class DevOpsAgent:
 
                 # No tool calls — check for hallucination before yielding buffered content
                 if collected_content:
+                    # See the non-streaming path: an unsubstantiated mutation claim
+                    # is checked first and is not disarmed by unrelated tool calls.
+                    if _fabricated_action_claim(
+                        _latest_user_text(messages), collected_content,
+                        self._last_tools_used[executed_from:],
+                        getattr(self, '_sandbox_mode', False),
+                    ):
+                        self.logger.warning(
+                            "Fabricated action claim in Kimi streaming response — no "
+                            "substantiating tool ran this turn; replacing"
+                        )
+                        yield _FABRICATED_ACTION_REPLACEMENT
+                        return
                     # Skip weak patterns when real resource IDs already exist in prior
                     # assistant messages — the agent is referencing legitimately-fetched data.
                     tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)

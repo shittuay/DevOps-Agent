@@ -11,10 +11,14 @@ import hmac
 import hashlib
 import json
 import os
+import secrets
+import string
 import time
+from datetime import datetime, timedelta
 
 from services.chatops_service import get_chatops_service, ChatPlatform
 from src.utils.network_safety import safe_request
+from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +29,15 @@ _BOTFRAMEWORK_OPENID_CONFIG = 'https://login.botframework.com/v1/.well-known/ope
 _BOTFRAMEWORK_ISSUER = 'https://api.botframework.com'
 _TEAMS_JWKS_CACHE: dict = {}
 _TEAMS_JWKS_TTL = 3600  # seconds
+
+# Slack requires rejecting requests whose timestamp has drifted too far from
+# now, to stop a captured valid signature+body pair from being replayed
+# indefinitely (see https://api.slack.com/authentication/verifying-requests).
+_SLACK_REPLAY_WINDOW_SECONDS = 300
+
+_LINK_CODE_ALPHABET = string.ascii_uppercase + string.digits
+_LINK_CODE_LENGTH = 8
+_LINK_CODE_TTL_MINUTES = 10
 
 
 # ==================== WEB ROUTES ====================
@@ -322,7 +335,13 @@ def teams_commands():
 @chatops_bp.route('/api/test', methods=['POST'])
 @login_required
 def api_test_command():
-    """API: Test a ChatOps command."""
+    """API: Test a ChatOps command.
+
+    Runs as the logged-in web user directly (app_user_id=current_user.id)
+    rather than through the Slack/Teams identity-link lookup, since this
+    panel is only reachable by an already-authenticated app user testing
+    their own account's data.
+    """
     data = request.get_json()
 
     if not data or not data.get('command'):
@@ -344,6 +363,36 @@ def api_test_command():
             'text': response.text,
             'ephemeral': response.ephemeral
         }
+    })
+
+
+@chatops_bp.route('/api/link-code', methods=['POST'])
+@login_required
+def api_generate_link_code():
+    """API: Generate a short-lived code the user redeems via `/link <code>`
+    in Slack/Teams to bind their bot identity to this app account."""
+    from models import db, ChatOpsLinkCode
+
+    expires_at = utcnow() + timedelta(minutes=_LINK_CODE_TTL_MINUTES)
+
+    # Retry on the (astronomically unlikely) chance of a collision with an
+    # existing unexpired code rather than trusting an 8-char space is unique.
+    for _ in range(5):
+        code = ''.join(secrets.choice(_LINK_CODE_ALPHABET) for _ in range(_LINK_CODE_LENGTH))
+        if not ChatOpsLinkCode.query.filter_by(code=code).first():
+            break
+    else:
+        return jsonify({'success': False, 'error': 'Could not generate a unique code, try again'}), 500
+
+    link_code = ChatOpsLinkCode(user_id=current_user.id, code=code, expires_at=expires_at)
+    db.session.add(link_code)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'code': code,
+        'expires_at': expires_at.isoformat(),
+        'expires_in_minutes': _LINK_CODE_TTL_MINUTES
     })
 
 
@@ -389,8 +438,21 @@ def _verify_slack_request() -> bool:
 
 
 def _verify_slack_signature(signing_secret: str, timestamp: str, signature: str, body: bytes) -> bool:
-    """Verify Slack request signature."""
+    """Verify Slack request signature.
+
+    Also enforces Slack's recommended replay window: an HMAC-valid signature
+    is still rejected if its timestamp is stale, so a request captured from a
+    proxy/log can't be replayed indefinitely to re-trigger the same command.
+    """
     if not timestamp or not signature:
+        return False
+
+    try:
+        request_time = int(timestamp)
+    except ValueError:
+        return False
+
+    if abs(time.time() - request_time) > _SLACK_REPLAY_WINDOW_SECONDS:
         return False
 
     sig_basestring = f"v0:{timestamp}:{body.decode('utf-8')}"

@@ -2073,6 +2073,27 @@ def generate_mock_result(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str
             'message': f'[Sandbox] Newest {distro} {version} AMI. Pass this as ami_id to create_ec2_instance.',
         }
 
+    if tn == 'http_check':
+        url = tool_input.get('url', 'http://example.com/')
+        expected = tool_input.get('expected_status')
+        status = expected or 200
+        return {
+            'success': True, 'simulated': True, 'reachable': True, 'url': url,
+            'final_url': url, 'redirected': False, 'status_code': status,
+            'matched_expected': None if expected is None else True,
+            'response_time_ms': 42, 'server': 'nginx/1.24.0', 'content_type': 'text/html',
+            'body_snippet': '<html><body><h1>[Sandbox] it works</h1></body></html>',
+            'message': f'[Sandbox] {url} responded {status} in 42ms.',
+        }
+    if tn == 'tcp_check':
+        host = tool_input.get('host', 'example.com')
+        port = tool_input.get('port', 80)
+        return {
+            'success': True, 'simulated': True, 'open': True, 'host': host, 'port': port,
+            'resolved_ip': '203.0.113.10', 'response_time_ms': 12,
+            'message': f'[Sandbox] {host}:{port} accepted a TCP connection in 12ms.',
+        }
+
     if is_git:
         return _mock_git(tn, tool_input)
     if is_jenkins:

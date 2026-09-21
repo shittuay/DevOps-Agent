@@ -408,11 +408,12 @@ def send_message(conversation_id):
     is_first = conversation.title == 'New Chat'
 
     from services.chat_service import ensure_non_empty_response
+    from services.secret_detector import redact_secrets
     assistant_message = ChatMessage(
         user_id=user_id,
         conversation_id=conversation_id,
         role='assistant',
-        content=ensure_non_empty_response(response)
+        content=ensure_non_empty_response(redact_secrets(response))
     )
     db.session.add(assistant_message)
 
@@ -616,6 +617,8 @@ def api_v1_chat_stream():
         )
         full_response = []
         actual_mc = mc
+        from services.secret_detector import redact_secrets, StreamingRedactor
+        secret_redactor = StreamingRedactor()
 
         try:
             if mc.provider not in ('anthropic', 'kimi'):
@@ -645,7 +648,9 @@ def api_v1_chat_stream():
                         if len(combined) > 20 or not combined.startswith(('\u274c', 'Error', 'API', '{')):
                             for buf_chunk in initial_buf:
                                 full_response.append(buf_chunk)
-                                yield f"data: {json.dumps({'type': 'chunk', 'content': buf_chunk})}\n\n"
+                                _safe = secret_redactor.feed(buf_chunk)
+                                if _safe:
+                                    yield f"data: {json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                             break
                     else:
                         combined = ''.join(initial_buf)
@@ -655,7 +660,9 @@ def api_v1_chat_stream():
                         else:
                             for buf_chunk in initial_buf:
                                 full_response.append(buf_chunk)
-                                yield f"data: {json.dumps({'type': 'chunk', 'content': buf_chunk})}\n\n"
+                                _safe = secret_redactor.feed(buf_chunk)
+                                if _safe:
+                                    yield f"data: {json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                             stream_source = iter([])
                 except Exception:
                     actual_mc = groq_fallback_mc
@@ -663,7 +670,13 @@ def api_v1_chat_stream():
 
             for chunk in stream_source:
                 full_response.append(chunk)
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                _safe = secret_redactor.feed(chunk)
+                if _safe:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
+
+            _safe = secret_redactor.flush()
+            if _safe:
+                yield f"data: {json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
 
             # Append fallback note if we switched providers
             if actual_mc.provider != mc.provider:
@@ -673,7 +686,7 @@ def api_v1_chat_stream():
                 yield f"data: {json.dumps({'type': 'chunk', 'content': note})}\n\n"
 
             from services.chat_service import ensure_non_empty_response
-            complete = ensure_non_empty_response(''.join(full_response))
+            complete = redact_secrets(ensure_non_empty_response(''.join(full_response)))
 
             # Save to DB
             with app.app_context():

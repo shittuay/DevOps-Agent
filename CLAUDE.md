@@ -42,6 +42,7 @@ src/
     pentest_tools.py     # 12 Security audit/scan tools (require pentest_config.enabled=True)
     ansible_tools.py     # 13 Ansible tools (playbooks, adhoc, inventory, vault, galaxy)
     alerting_tools.py    # 16 PagerDuty + OpsGenie alerting tools
+    verification_tools.py # 2 service-reachability probes (http_check, tcp_check) — always registered, in ALWAYS_TOOL_NAMES
   config/
     config_manager.py
 services/
@@ -78,11 +79,13 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (746 total, 17 modules)
+## Tool Inventory (748 total, 18 modules)
 
-> Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`.
-> Two modules below are not detailed in the per-provider sections:
-> `command_tools` (2) and `devops_operations_tools` (10).
+> Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`
+> (`tests/test_tool_counts.py` guards this against the user-facing pages).
+> Three modules below are not detailed in the per-provider sections:
+> `command_tools` (2), `devops_operations_tools` (10), and `verification_tools`
+> (2 — `http_check`, `tcp_check`).
 
 ### AWS (352 tools)
 Full lifecycle management: EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, SSM, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT Gateway, Load Balancers, Target Groups, ECR, Secrets Manager, Service Quotas, Resource Groups.
@@ -177,21 +180,36 @@ Deployment model). If a new feature's data
 doesn't visibly come from `credential_service`/a provider tool/a real DB query, assume it's the
 same bug until traced.
 
-**Still recurring — three more instances found by the 2026-09-15 scheduled audit, all flagged,
-none fixed yet:** `services/performance_optimizer.py`'s `_generate_sample_recommendations()`
-seeds the literal `i-0abc123def456` fake instance id (the same id from the 2026-08-12 drift
-incident above) for every user with no cloud account, rendered at `/optimization/`;
-`services/ai_infrastructure.py`'s `get_recommendations()` returns a hardcoded list ignoring
-`user_id`, and its `apply_recommendation()` reports `success: True` without calling any cloud
-API — the identical fake-Apply shape the Predictive Scaling fix above closed, just in a
-different service; `services/chatops_service.py`'s `_cmd_metrics`/`_cmd_oncall` deliver a
-hardcoded metrics block and on-call roster into Slack as if live. See CLAUDE_RUNBOOK.md's
-2026-09-15 entry for exact line numbers. This is now five known instances of the same bug
-class (Drift, Predictive Scaling, Analytics, Performance Optimizer, AI Infrastructure/ChatOps)
-found independently across five separate audits — the recurrence itself, not just any one
-instance, is the signal that this needs a structural fix (e.g. a shared "no live account →
-fail closed" helper every new recommendation/analytics feature is required to call) rather than
-another one-off patch next time it's found again.
+**Three more instances found by the 2026-09-15 scheduled audit.**
+`services/chatops_service.py`'s `_cmd_metrics`/`_cmd_oncall` delivered a hardcoded metrics block
+and on-call roster into Slack as if live — **fixed by the 2026-09-13 scheduled audit** (see
+CLAUDE_RUNBOOK.md's 2026-09-13 entry; it predates the 2026-09-15 audit that re-flagged it, so
+that entry was already stale when written). `services/performance_optimizer.py`'s
+`_generate_sample_recommendations()` seeded the literal `i-0abc123def456` fake instance id (the
+same id from the 2026-08-12 drift incident above) plus four other hardcoded resources
+(`prod-db`, `default/api-service`, `vol-0xyz789`, `data-archive`) for every user with no cloud
+account, rendered at `/optimization/` and `/optimization/recommendations` — **fixed by the
+2026-09-20 scheduled audit**: `_get_user_recommendations()` now returns an empty dict until a
+real caller feeds it live resource data via the existing (previously unused)
+`analyze_resource()` entry point, same fail-closed shape as `predictive_scaling.py`'s fix. The
+same audit found the identical fake-Apply shape one call site over: `app.py`'s
+`/api/dashboard/recommendations/<id>/apply` (backing the "Apply" button on `dashboard_live.html`,
+operating on the real, CloudWatch-derived `CostOptimization` rows from
+`services/infrastructure_sync.py`) set `status='applied'` and returned a success toast
+("Optimization applied — saving $X/mo") without calling any cloud API to stop/resize/reconfigure
+anything — fixed the same way `routes/scaling.py`'s `api_apply_recommendation` was: an honest
+501 `not_implemented` response, never a fabricated `applied` status. **Not yet fixed:**
+`services/ai_infrastructure.py`'s `get_recommendations()` still returns a hardcoded list
+ignoring `user_id`, and its `apply_recommendation()` still reports `success: True` without
+calling any cloud API — same fake-Apply shape, not touched by this pass. See CLAUDE_RUNBOOK.md's
+2026-09-15 and 2026-09-20 entries for exact line numbers. This is now seven known instances of
+the same bug class (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the
+dashboard cost-recommendation Apply endpoint, and still-open AI Infrastructure) found
+independently across six separate audits — the recurrence itself, not just any one instance, is
+the signal that this needs a structural fix (e.g. a shared "no live account → fail closed"
+helper every new recommendation/analytics feature is required to call, and a shared "apply"
+helper that refuses to report success without an actual tool call) rather than another one-off
+patch next time it's found again.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
@@ -231,6 +249,20 @@ another one-off patch next time it's found again.
   same way (filter on `self.user_id` when set) — see CLAUDE_RUNBOOK.md's 2026-08-01 entry. A
   service class with a security-relevant `user_id` needs *every* getter audited when the class is
   touched again, not just the ones a bug report happens to point at.
+- **A non-Flask-session entry point (a bot, webhook, or CLI) that calls a per-user service still
+  needs a real app `user_id` from somewhere — it doesn't get one for free.** Every method on
+  `IncidentResponseEngine`/`ProactiveMonitoringService`/`RootCauseAnalyzer` requires `user_id` as
+  its first positional arg, same as any other per-user service in this app. `services/chatops_service.py`
+  (Slack/Teams bot commands) called all of them with no `user_id` at all, or with the Slack-typed
+  incident-id string landing in the `user_id` slot, because there was no mechanism to map a
+  Slack/Teams identity to an app `User.id` in the first place — found by the 2026-09-12 scheduled
+  audit (see CLAUDE_RUNBOOK.md). Fixed with a `ChatOpsIdentity` (platform + platform_user_id →
+  user_id) mapping, populated via a `/link <code>` command that redeems a short-lived
+  `ChatOpsLinkCode` generated on the logged-in ChatOps page; `ChatOpsService.process_message()`
+  resolves and injects `app_user_id` before dispatch, refusing to dispatch a `requires_auth`
+  command with no resolved identity rather than calling the handler with nothing valid to pass.
+  Any new ChatOps command that touches per-user data must accept `app_user_id` from `process_message`'s
+  dispatch, never invent its own notion of "the user" from the raw platform id.
 - **A route rendering another entity's nested child (team, resource, sub-object) must check the
   parent-membership guard itself — checking the child's `parent_id` foreign key is not the same
   as checking access.** `routes/organizations.py`'s `view_team` fetched `membership =
@@ -355,6 +387,33 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - `is_guardrail_blocked()` — auto-unblocks and resets counter after block expires
 - Run `migrate_missing_columns.py` to add these columns to existing databases
 
+### Secret redaction on chat/agent response paths (`services/secret_detector.py`)
+
+The backstop for `get_secret_value`/`create_ec2_keypair`-class tools (both classified high-risk in
+`safety.py` specifically because they disclose live secret plaintext into the response path):
+`redact_secrets(text)` scans a whole string against `SECRET_PATTERNS` (AWS/Anthropic/OpenAI/Stripe/
+GitHub keys, bearer tokens, private key blocks, DB connection strings, Slack/Discord webhooks, etc.)
+and replaces matches with `[REDACTED]`. **Every chat-to-agent response surface must redact before
+persisting to `ChatMessage` and before returning/streaming to the caller** — found missing entirely
+on 3 of the 4 documented guardrail-gated entry points (`routes/api_gateway.py`'s `/v1/agent`+
+`/v1/agent/stream`, `api/v1/conversations.py`'s `send_message()`+`api_v1_chat_stream()`) by the
+2026-09-14 scheduled audit; only `app.py`'s `/api/chat`+`/api/chat/stream` had it, and even there
+with a chunk-boundary gap (see below). All fixed the same day — see CLAUDE_RUNBOOK.md.
+
+**A streaming response cannot just call `redact_secrets(chunk)` per chunk.** Anthropic's raw
+`content_block_delta` events are often just a handful of characters, so a real 20+ char secret has a
+high chance of landing split across two or more chunks and matching nothing per-chunk, even though
+the final assembled string is redacted correctly before it's saved to the DB — the persisted history
+looks clean while the raw secret already reached the browser during streaming. Use
+`StreamingRedactor` (same module) instead: `feed(chunk)` holds back a trailing window of unredacted
+text (long enough for any `SECRET_PATTERNS` match, and never cuts through a match still forming at
+the boundary) and returns only the portion now safe to emit; call `flush()` once at stream end for
+whatever's left buffered. Wired into all 3 streaming loops (`app.py`, `routes/api_gateway.py`,
+`api/v1/conversations.py`); the Kimi streaming path buffers its whole response before yielding for
+unrelated hallucination-check reasons and was never affected. `routes/curriculum.py`'s
+`/curriculum/api/ai-guide` is a plain curriculum Q&A completion with no tool execution, so it has no
+path to disclose a live cloud secret and doesn't need this.
+
 ## Safety System (`src/agent/safety.py`)
 
 `SafetyValidator.validate_tool_call()` classifies every tool into risk levels:
@@ -363,7 +422,37 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 - **medium_risk_tools**: Update, restart, firewall rule, IAM, scale, cordon operations. Requires user confirmation.
 - **low risk** (default): Create and read operations. No confirmation needed.
 
+### Declared tool capability (governance refactor, Phase 1 — `src/agent/tool_capabilities.py`)
+
+Risk now lives on the tool, resolved **before** the legacy name-sets below.
+`validate_tool_call` computes the legacy risk, then reconciles it with
+`tool_capabilities.resolve(name)` (module-declared `capability=` block →
+`config/tool_capabilities.yaml` → `None`): a declaration can **raise** the risk
+or hold it, never lower it — a more-lenient declaration is logged and ignored at
+runtime, and `tests/test_tool_capabilities.py` fails the build on it.
+
+- `config/tool_capabilities.yaml` is **generated** by `scripts/gen_tool_capabilities.py`
+  from the legacy classification (legacy `high` → `permission: destroy`, `medium`
+  → `modify`). Re-run it after changing the legacy sets; `tests/test_tool_capabilities.py`
+  asserts it is not stale.
+- The pentest gating and the three action-aware `manage_*` special cases run
+  first and are unaffected. Production escalation (`high` → `critical`) still
+  applies after the capability resolves.
+- `mutating` / `reversible` / `produces` are recorded but not yet consumed (Phase
+  5 rollback stack). Full spec: `docs/governance-refactor.md`.
+
 **When adding new tools:**
+- **Preferred:** add a `capability` block to the tool's `get_tools()` entry —
+  `{'permission': 'destroy'|'deploy'|'modify'|'analyze'|'read', 'mutating': bool, 'reversible': bool}`.
+- Otherwise run `python scripts/gen_tool_capabilities.py` to backfill
+  `config/tool_capabilities.yaml`.
+- `tests/test_tool_capabilities.py` fails if a medium/high tool has neither — the
+  safety net the "remember to edit `safety.py`" step below never had.
+- The legacy `high_risk_tools` / `medium_risk_tools` sets and prefix
+  auto-detection remain as the **floor** (removed in a later phase once every
+  module declares inline). The `<provider>_<verb>_<noun>` blind spot documented
+  below still applies to the legacy layer, which is why the capability check now
+  sits in front of it:
 - Every new `delete_*` or `terminate_*` tool MUST be added to `high_risk_tools`
 - Every new `update_*`, `restart_*`, `create_*_rule`, or IAM tool MUST be added to `medium_risk_tools`
 - Forgetting this causes the tool to default to low risk with no confirmation prompt
@@ -374,7 +463,7 @@ Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer 
 `abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase), `create_ec2_keypair` (AWS — returns the raw PEM private key material directly in the tool result, same disclosure class as `get_secret_value`; its `delete_ec2_keypair` sibling was already high-risk but the create path that actually discloses the secret was missed until the 2026-08-23 scheduled audit), `generate_s3_presigned_url` (AWS — generates an unauthenticated bearer URL, up to 7 days, for `get_object` or `put_object` with no further AWS auth required; same live-access-credential disclosure class, also caught by the 2026-08-23 audit), `list_storage_account_keys` (Azure — returns the raw storage-account access key, a full data-plane credential over every blob/file/queue/table in the account, into the chat/tool-trace/LLM-provider path; same disclosure class as `get_secret_value`/`create_ec2_keypair` — its mutating sibling `regenerate_storage_key` was then only medium-risk and this read path had no gate at all, caught by the 2026-09-15 audit; both are now high-risk), `regenerate_storage_key` (Azure — discloses the newly-generated key value the same way `list_storage_account_keys` does; was previously only medium-risk despite the identical disclosure shape as the high-risk tools above, escalated in the same audit), `terraform_state_pull` (returns the entire Terraform state file, which routinely stores sensitive resource attributes — DB passwords, TLS keys, API tokens — in plaintext; its `terraform_state_push`/`_move`/`_rm` siblings were already classified, also caught 2026-09-15)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_stash_save`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `pagerduty_add_note`, `opsgenie_add_note`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`, `publish_sns_message`, `subscribe_sns_topic`, `create_route53_record`, `publish_pubsub_message`, `send_sqs_message`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_stash_save`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `pagerduty_add_note`, `opsgenie_add_note`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`, `publish_sns_message`, `subscribe_sns_topic`, `create_route53_record`, `publish_pubsub_message`, `send_sqs_message`, `github_create_repo`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -413,6 +502,11 @@ those modules (`create`/`update`/`acknowledge`/`close`/`escalate`) was already m
 `git_stash_save` joined its already-medium `git_stash_apply`/`git_stash_drop` siblings the same
 day — it's the one stash operation that actually reverts the working tree (discarding
 uncommitted changes from view), and was the only one of the three without a gate.
+
+`github_create_repo` joined after the 2026-09-01 scheduled audit — same permissive-default-`create_`
+shape as `create_route53_record`: its `private` parameter defaults to `False`, so a repo created
+without the caller explicitly passing `private=True` is published to GitHub with no confirmation,
+while its `github_delete_repo` sibling was already correctly high-risk via the `delete_` prefix.
 
 **Action-aware risk classification:**
 - `manage_ec2_instance` — risk level depends on the `action` parameter:
@@ -828,7 +922,14 @@ selection). Rides the **existing `_tools_override` hook** — no new plumbing.
      this, follow-ups that carry no keywords of their own ("yes go ahead", "now
      delete it") matched nothing and fell back to shipping all ~746 schemas,
      which is the single largest avoidable latency source on the Kimi path.
-- **`ALWAYS_TOOL_NAMES`** — `search_tools` only, unconditionally. The eight
+- **`ALWAYS_TOOL_NAMES`** — `search_tools`, `record_state_override`, `http_check`
+  and `tcp_check`, unconditionally. The last two are cheap read-only SSRF-guarded
+  reachability probes (`src/tools/verification_tools.py`) the model needs to
+  verify anything it just built ("is nginx serving on port 80") regardless of the
+  turn's topic — without them it improvised (`git clone http://<ip>/`, reading the
+  404 as success). `run_smoke_test` (in `cicd_tools`) is re-homed to the
+  `verification` category via a `classify_tool` name override so it surfaces on
+  "reachable / serving / health check" tasks too. The eight
   provider-generic escape hatches (`aws_api_read`/`write`, `azure_*`, `gcp_*`,
   `k8s_*`) that the system prompt tells the model to fall back on are now
   **scoped per turn** via `HATCH_PAIRS_BY_PROVIDER` / `_hatch_providers_for()`
@@ -926,6 +1027,64 @@ execution paths** (Kimi non-streaming, Kimi streaming, Claude); adding a new exe
 means wiring both `_repeat_guard_blocked` and `_repeat_guard_record` into it, and
 `tests/test_tool_selection_engaged.py` asserts the count of each is exactly 3.
 
+### Fabricated action claims (`core.py`)
+
+**"Did any tool run this turn?" is the wrong question to ask about a claim that
+infrastructure changed.** `_hallucination_severity()` asks exactly that and returns `''`
+the instant `tools_called_this_turn` is true; the call sites widen it further with
+`tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)`,
+which stays true for the rest of a conversation once any real `vpc-`/`i-` id lands in
+assistant history. On 2026-09-04 that let a single `get_aws_resource_inventory` call
+disarm detection while Kimi reported a fully-detailed EC2 launch — instance id, VPC,
+subnet, volume, public IP — with `create_ec2_instance` never called and nothing created.
+The IDs were style-matched to real recon (`devops-keypair` real, private IP inside the
+real us-east-1b CIDR, VPC/subnet ids invented), which is what made it convincing. See
+CLAUDE_RUNBOOK.md's 2026-09-04 entry.
+
+`_fabricated_action_claim(user_message, response_text, executed_tools, sandbox_mode)`
+asks the per-claim question instead: **the response asserts a mutation completed — did a
+tool that can actually perform that mutation run this turn?** `_ACTION_FAMILIES` holds
+four families (create / destroy / power / modify), each a `(request verbs, completion
+assertion, substantiating tool markers)` triple. The **request gate is what keeps read
+flows quiet** — "describe my instance" answered with "launched on 2026-05-15" is
+narration, not a claim — and the **completion assertion is past-tense only**, so "I could
+not create it" and "before I launch it I need…" don't fire.
+
+**Completion phrases are matched only when un-negated** (`_claim_asserted`). "No new
+instance **has been created** yet" is an honest denial, and the agent produces exactly
+that sentence when it declines to act — replacing it would destroy a correct answer that
+was asking the user a question (caught 2026-09-05, before this guard shipped). The
+lookback stops at a clause break (`.!?;:|` or newline), so a negation cannot launder a
+real claim from an earlier sentence: "No errors occurred. The instance was created."
+still fires. Un-negated matching fails **open** by design — "with no downtime, the
+instance was created" is read as a denial and passes — because a false "nothing was
+created" after a real mutation is the more damaging error.
+
+- It runs **before** the severity check on both Kimi response paths and is deliberately
+  **not** disarmed by unrelated tool calls or by history. On a hit the response is
+  replaced with `_FABRICATED_ACTION_REPLACEMENT`, which says plainly that nothing changed.
+- Executed tools come from `self._last_tools_used[executed_from:]`, with `executed_from`
+  marked at loop start — `process_message_streaming` never resets that list, so an
+  absolute read would pick up a previous turn's tools on a reused gthread worker.
+- **`_UNIVERSAL_WRITE_TOOLS` substantiates every family** (the four `*_api_write` escape
+  hatches, `execute_command`/`execute_script`, `terraform_apply`, the Ansible runners).
+  A false "nothing was created" after a real mutation invites a duplicate resource, which
+  is the more dangerous direction — when adding a tool that can perform arbitrary writes,
+  add it here. A name that drifts out of the catalog silently stops substantiating
+  anything; `tests/test_fabricated_action_claim.py` pins every name against the live
+  registry (it already caught `ansible_run_playbook` vs the real `ansible_playbook_run`).
+- Adding a mutation verb the families don't cover, or a new response path, means updating
+  `_ACTION_FAMILIES` / wiring the guard; the test file asserts it appears on exactly 2
+  response paths.
+- **Known gap:** the Claude (professional/business) tool loop has no hallucination check
+  at all, this one included. Pre-existing, not a regression.
+
+`_should_require_tool_use()` / `_TOOL_SIGNAL_RE` were **deleted** — they were defined and
+never called from anywhere in the repo, so a guard that looked present in review enforced
+nothing, and the regex only matched read verbs (`list|show|get|describe|…`), exempting the
+create/delete requests where a fabricated success does the most damage. A test asserts the
+helper does not come back without a call site.
+
 ### Config keys
 - `context.token_budget` (default `120000`) — history compaction budget.
 - `tool_selection.enabled` (default `true`) — kill-switch for progressive loading.
@@ -951,6 +1110,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   resource 'not found'"), the (a)/(b)/(c) error classification, the
   retry→generic-API→IaC fallback order, and "console truth beats agent
   inference" on state disputes.
+- **Service reachability** (2026-09-09) — four bullets in the same block:
+  *SERVICE REACHABILITY* (use `http_check`/`tcp_check`/`run_smoke_test`, never
+  infer HTTP reachability from another tool's error text — a live run had the
+  agent `git clone http://<ip>/` and read the 404 as success); *A RESPONSE IS
+  NOT SUCCESS* (a non-2xx/3xx or `matched_expected: false` = port open but app
+  not serving what you intended — say exactly that); *NAME YOUR BLIND SPOTS*
+  (no SSM / console / shell → your probe is your only evidence, don't narrate
+  on-instance state you haven't read); *PROVISION THEN CONFIGURE IN ONE SHOT*
+  (bake config into `user_data` on the first `create_ec2_instance` — don't
+  launch bare, hit an IAM wall, and terminate+relaunch).
 - **Session resource registry** — a creating tool (`create_`/`run_`/`launch_`/
   `provision_`/`deploy_`, excluding `_rule`/`change_request`) that succeeds is
   recorded by `_audit_infrastructure_change` (renamed from
@@ -1002,6 +1171,16 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   always-available `record_state_override(resource_id, corrected_state,
   evidence)` tool lets the model flag a row when the user's console evidence
   wins (rule 9).
+  **`_audit_infrastructure_change`'s `is_destructive` check is a tool-name
+  prefix match and does not by itself cover action-aware tools.**
+  `manage_ec2_instance` never starts with a destructive prefix, so a
+  terminate through it produced no audit row / disagreement alert /
+  `record_state_override` target at all until the 2026-09-09 scheduled audit
+  added an explicit `action`-aware branch (`is_manage_terminate` folded into
+  `is_destructive`, `is_manage_update` for `start`/`stop`/`reboot` as a new
+  `update` row) — see CLAUDE_RUNBOOK.md. A future action-aware tool
+  (`manage_vm`, `manage_compute_instance`) needs the same explicit branch;
+  it will not be picked up by the prefix check.
 
 Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
 subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for
@@ -1043,8 +1222,8 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 
 ### General Steps
 1. Create handler function in the appropriate `src/tools/*_tools.py`
-2. Register in `get_tools()` at the bottom of the same file with `{name, description, input_schema, handler}`
-3. Add to `safety.py` risk classification if delete/update operation
+2. Register in `get_tools()` at the bottom of the same file with `{name, description, input_schema, handler}` — add a `capability` block for any mutating tool (`{'permission': 'destroy'|'deploy'|'modify', 'mutating': True, ...}`)
+3. Risk classification: either the `capability` block in step 2, or run `python scripts/gen_tool_capabilities.py` to backfill `config/tool_capabilities.yaml`. Also add to the legacy `safety.py` set for a delete/update operation (still the floor — see Safety System section). `tests/test_tool_capabilities.py` fails if a medium/high tool has no declared capability.
 4. Add sandbox mock branch in `services/learning_sandbox.py` if new tool module
 5. Register the module in `app.py` with `agent.register_tools_from_module(my_tools)` (inside an `if config_manager.get('module.enabled', True):` guard)
 6. Import the module in `src/tools/__init__.py` and add to `__all__`
@@ -1052,7 +1231,7 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **746** across 17 modules. Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **748** across 18 modules (`verification_tools` added 2026-09-09). Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:
