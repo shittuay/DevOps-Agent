@@ -167,9 +167,11 @@ def ansible_playbook_run(
         command = ['ansible-playbook', playbook_path]
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         if limit:
+            _reject_flag_like(limit, 'limit')
             command.extend(['--limit', limit])
 
         if tags:
@@ -188,6 +190,7 @@ def ansible_playbook_run(
             command.append('--become')
 
         if become_user:
+            _reject_flag_like(become_user, 'become_user')
             command.extend(['--become-user', become_user])
 
         if check_mode:
@@ -258,15 +261,18 @@ def ansible_adhoc_command(
         command = ['ansible', host_pattern, '-m', module]
 
         if module_args:
+            _reject_flag_like(module_args, 'module_args')
             command.extend(['-a', module_args])
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         if become:
             command.append('--become')
 
         if become_user:
+            _reject_flag_like(become_user, 'become_user')
             command.extend(['--become-user', become_user])
 
         command.extend(['--forks', str(forks)])
@@ -367,6 +373,7 @@ def ansible_playbook_syntax_check(
         command = ['ansible-playbook', '--syntax-check', playbook_path]
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)
@@ -412,16 +419,19 @@ def ansible_galaxy_install(
             _reject_flag_like(collection_name, 'collection_name')
             command = ['ansible-galaxy', 'collection', 'install', collection_name]
             if collections_path:
+                _reject_flag_like(collections_path, 'collections_path')
                 command.extend(['-p', collections_path])
         elif role_name:
             _reject_flag_like(role_name, 'role_name')
             command = ['ansible-galaxy', 'role', 'install', role_name]
             if roles_path:
+                _reject_flag_like(roles_path, 'roles_path')
                 command.extend(['-p', roles_path])
         elif requirements_file:
             _reject_flag_like(requirements_file, 'requirements_file')
             command = ['ansible-galaxy', 'install', '-r', requirements_file]
             if roles_path:
+                _reject_flag_like(roles_path, 'roles_path')
                 command.extend(['-p', roles_path])
         else:
             return {
@@ -467,6 +477,7 @@ def ansible_galaxy_list(
         else:
             command = ['ansible-galaxy', 'role', 'list']
             if roles_path:
+                _reject_flag_like(roles_path, 'roles_path')
                 command.extend(['-p', roles_path])
 
         result = _run_ansible_command(command, working_dir)
@@ -505,9 +516,11 @@ def ansible_vault_encrypt(
         command = ['ansible-vault', 'encrypt', file_path]
 
         if vault_password_file:
+            _reject_flag_like(vault_password_file, 'vault_password_file')
             command.extend(['--vault-password-file', vault_password_file])
 
         if vault_id:
+            _reject_flag_like(vault_id, 'vault_id')
             command.extend(['--vault-id', vault_id])
 
         result = _run_ansible_command(command, working_dir)
@@ -552,6 +565,7 @@ def ansible_vault_decrypt(
             command = ['ansible-vault', 'decrypt', file_path]
 
         if vault_password_file:
+            _reject_flag_like(vault_password_file, 'vault_password_file')
             command.extend(['--vault-password-file', vault_password_file])
 
         result = _run_ansible_command(command, working_dir)
@@ -590,6 +604,7 @@ def ansible_vault_view(
         command = ['ansible-vault', 'view', file_path]
 
         if vault_password_file:
+            _reject_flag_like(vault_password_file, 'vault_password_file')
             command.extend(['--vault-password-file', vault_password_file])
 
         result = _run_ansible_command(command, working_dir)
@@ -693,6 +708,7 @@ def ansible_ping(
         command = ['ansible', host_pattern, '-m', 'ping']
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)
@@ -740,6 +756,7 @@ def ansible_facts(
             command.extend(['-a', module_args])
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)

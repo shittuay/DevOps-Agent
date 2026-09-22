@@ -263,6 +263,16 @@ patch next time it's found again.
   command with no resolved identity rather than calling the handler with nothing valid to pass.
   Any new ChatOps command that touches per-user data must accept `app_user_id` from `process_message`'s
   dispatch, never invent its own notion of "the user" from the raw platform id.
+  **Not every ChatOps command is per-user data, though — some are admin-only, and `_require_app_user`
+  alone doesn't cover that.** `_cmd_deployments` reads `WebhookEventRecord`, a global feed with no
+  `user_id` column at all; every other access path to it (`routes/webhooks.py`'s dashboard,
+  `/api/events`, `/api/stats`) is `@admin_required`, but the command had no `_require_app_user` call
+  and no role check — any Slack/Teams user, linked or not, could read it. Found by the 2026-09-22
+  scheduled audit; fixed by resolving `app_user_id`, loading the `User` row, and gating on
+  `services.rbac.user_is_admin()`. When a new command's underlying data has its own access
+  control elsewhere in the app (admin-only, org-scoped, etc.), that control has to be reproduced
+  in the handler explicitly — `_require_app_user` only proves a chat identity is linked to *some*
+  app user, not that the user is allowed to see this particular data.
 - **A route rendering another entity's nested child (team, resource, sub-object) must check the
   parent-membership guard itself — checking the child's `parent_id` foreign key is not the same
   as checking access.** `routes/organizations.py`'s `view_team` fetched `membership =
@@ -659,6 +669,22 @@ and is disabled outright in this function anyway (`allow_unsafe_options=True`, n
 parameter in the file was re-walked by hand in the same audit and is guarded** — this appears to
 close the gap for now, but per the note above, nothing stops the next new function from repeating
 it.
+
+**Confirmed on the sibling module, twice in two days.** The same guard exists in
+`src/tools/ansible_tools.py` (`_reject_flag_like`, same name and shape, ported for
+`ansible`/`ansible-playbook`/`ansible-vault`/`ansible-galaxy` argv lists). Its 2026-09-14→21
+"complete" pass went from 2 of 14 known sites to 14 of 14 — then the 2026-09-22 scheduled audit
+found 16 more unguarded flag-carried sites in the same file the very next day, including
+`vault_password_file`, the parameter the guard's own docstring names as the highest-value target
+(`ansible-vault --vault-password-file=<path>` executes the file when it's executable). See
+CLAUDE_RUNBOOK.md's 2026-09-22 entry. **This guard has now been applied incompletely on a
+claimed-complete pass four times across two files** (git_tools.py: 2026-08-04, 2026-08-12,
+2026-09-15; ansible_tools.py: 2026-09-22, the day after its own "all 14" claim) — the recurrence
+itself is now the signal that an opt-in per-function guard with no automated check is the wrong
+shape long-term, per the "not yet enforced by an automated check" note above. The next time
+either file is touched, extending `scripts/check_security_invariants.py` with an AST check for
+"a caller-supplied parameter reaches an argv list passed to `subprocess.run`/`repo.git.*` with no
+preceding `_reject_flag_like` call in the same function" should be treated as due, not optional.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 

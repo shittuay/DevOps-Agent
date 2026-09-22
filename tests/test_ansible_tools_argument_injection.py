@@ -113,3 +113,43 @@ def test_flag_like_value_is_rejected(call):
     result = call()
     assert result['success'] is False
     assert 'must not start with' in result['error'], result
+
+
+# ---------------------------------------------------------------------------
+# Coverage for the second incomplete pass, found by a 2026-09-22 scheduled
+# audit: the guard above only covered bare positionals and a few
+# flag-carried values. `inventory` (passed via `-i`), `limit`
+# (`--limit`), `become_user` (`--become-user`), `module_args` (`-a`),
+# `roles_path`/`collections_path` (`-p`), and `vault_id`
+# (`--vault-id`) all reach an argv list the same way `vault_password_file`
+# does, and were unguarded even after the "all 14 sites" pass. This is the
+# same "opt-in guard applied incompletely on its first pass" shape as the
+# two prior git_tools.py follow-ups and the first ansible_tools.py pass
+# above -- now the fourth recurrence of that exact bug class.
+# ---------------------------------------------------------------------------
+
+from src.tools.ansible_tools import ansible_galaxy_list  # noqa: E402
+
+
+@pytest.mark.parametrize('call', [
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', inventory=FLAG), id='playbook_run.inventory'),
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', limit=FLAG), id='playbook_run.limit'),
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', become_user=FLAG), id='playbook_run.become_user'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='copy', inventory=FLAG), id='adhoc_command.inventory'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='copy', module_args=FLAG), id='adhoc_command.module_args'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='copy', become_user=FLAG), id='adhoc_command.become_user'),
+    pytest.param(lambda: ansible_playbook_syntax_check(playbook_path='site.yml', inventory=FLAG), id='syntax_check.inventory'),
+    pytest.param(lambda: ansible_ping(host_pattern='all', inventory=FLAG), id='ping.inventory'),
+    pytest.param(lambda: ansible_facts(host_pattern='all', inventory=FLAG), id='facts.inventory'),
+    pytest.param(lambda: ansible_galaxy_install(collection_name='community.general', collections_path=FLAG), id='galaxy_install.collections_path'),
+    pytest.param(lambda: ansible_galaxy_install(role_name='geerlingguy.docker', roles_path=FLAG), id='galaxy_install.roles_path'),
+    pytest.param(lambda: ansible_galaxy_list(roles_path=FLAG), id='galaxy_list.roles_path'),
+    pytest.param(lambda: ansible_vault_encrypt(file_path='secrets.yml', vault_password_file=FLAG), id='vault_encrypt.vault_password_file'),
+    pytest.param(lambda: ansible_vault_encrypt(file_path='secrets.yml', vault_id=FLAG), id='vault_encrypt.vault_id'),
+    pytest.param(lambda: ansible_vault_decrypt(file_path='secrets.yml', vault_password_file=FLAG), id='vault_decrypt.vault_password_file'),
+    pytest.param(lambda: ansible_vault_view(file_path='secrets.yml', vault_password_file=FLAG), id='vault_view.vault_password_file'),
+])
+def test_second_pass_flag_like_value_is_rejected(call):
+    result = call()
+    assert result['success'] is False
+    assert 'must not start with' in result['error'], result

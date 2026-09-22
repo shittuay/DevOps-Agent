@@ -3089,3 +3089,68 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## Scheduled audit (2026-09-22): ChatOps `/deployments` had no authorization check; ansible argv guard's "all 14 sites" pass missed 16 more — both fixed
+
+Routine code review, focused on the highest-risk commits merged the previous two days
+(375f5bf's manual ChatOps rebase, 27545fc's ansible argv-guard extension, fc9eed6's tool
+capability metadata). `pytest tests/test_security_invariants.py tests/test_tool_capabilities.py
+tests/test_csrf_enforcement.py tests/test_fabricated_action_claim.py` and the
+webhook/ChatOps/StreamingRedactor tests were all green going in — the two findings below were
+new, not regressions of something already covered by a test.
+
+**Fixed — `services/chatops_service.py`'s `_cmd_deployments` had no authorization check at
+all.** Every other per-user command in this file resolves and requires an `app_user_id` via
+`_require_app_user()` before touching per-user data (see the 2026-09-12 entry above). This
+command needed a *different* check — `WebhookEventRecord` has no `user_id` column, it's a
+global feed, and every other access path to it (`routes/webhooks.py`'s dashboard,
+`/api/events`, `/api/stats`) is `@admin_required` — and it had neither: no `_require_app_user`
+call, no role check, just `service.get_events(event_type='deployment', limit=5)` straight to
+the handler. Any Slack/Teams user who could message the bot — including one who had never run
+`/link`, so with zero application identity — could pull repository names, branches, commit
+SHAs, actor names, and deployment status that requires the platform `admin` role everywhere
+else in the app. Fixed by resolving `app_user_id` via `_require_app_user()`, loading the
+`User` row, and refusing with a plain-language message via `services.rbac.user_is_admin()` when
+the linked account isn't an admin — same gate `routes/webhooks.py` already uses, just reached
+through the chat identity link instead of a Flask session. 3 new tests in
+`tests/test_chatops_fixes.py` cover unlinked, linked-non-admin, and linked-admin.
+
+**Fixed — the ansible argv-injection guard (`src/tools/ansible_tools.py`), whose own commit
+message the previous day claimed covered "all 14" caller-supplied argv sites, actually missed
+16 more of the identical shape.** Unguarded: `inventory` passed via `-i` in
+`ansible_playbook_run`, `ansible_adhoc_command`, `ansible_playbook_syntax_check`, `ansible_ping`,
+`ansible_facts` (5 sites); `limit` via `--limit` and `become_user` via `--become-user` in
+`ansible_playbook_run` (2); `module_args` via `-a` and `become_user` via `--become-user` in
+`ansible_adhoc_command` (2); `roles_path`/`collections_path` via `-p` in `ansible_galaxy_install`
+(3) and `ansible_galaxy_list` (1); and — the highest-value target, per this same guard's own
+docstring — `vault_password_file` via `--vault-password-file` in all three vault functions plus
+`vault_id` via `--vault-id` in `ansible_vault_encrypt` (4). `ansible-vault` executes
+`--vault-password-file`'s target when it's an executable file, reading the password from stdout,
+so a caller-controlled value starting with `-` reaching that flag's argument position is the
+same class of gap the guard's docstring already named as the module's top concern — it just
+hadn't actually been closed. This is the fourth time this specific opt-in, no-automated-check
+guard pattern (`_reject_flag_like`, first built for `git_tools.py`) has been applied
+incompletely on a claimed-complete pass: `git_tools.py` needed follow-ups on 2026-08-04,
+2026-08-12, and 2026-09-15; `ansible_tools.py` itself needed one on 2026-09-14→2026-09-21 (2 of
+14 → 14 of 14, per that commit's own account); this is now a second incomplete pass on the same
+file the very next day. Fixed by adding `_reject_flag_like()` calls at all 16 sites; 16 new
+parametrized tests appended to `tests/test_ansible_tools_argument_injection.py` (35 total, up
+from 19) pin every site found so far. **Given the pattern has now recurred four times across two
+files despite each fix believing it was complete, the standing recommendation in
+`scripts/check_security_invariants.py`'s section of CLAUDE.md — extend it with an AST check for
+"caller-supplied parameter reaches a list passed to `subprocess.run`/`repo.git.*` with no
+preceding `_reject_flag_like` call in the same function" — should be treated as due, not
+optional, the next time this file or `git_tools.py` is touched.**
+
+Also verified and found clean: the ChatOps `/link` account-linking layer (single-use, 10-minute
+expiry, `secrets.choice` codes, every other command properly gated); PR #197's ChatOps
+fabrication fixes survived the rebase unchanged; `StreamingRedactor` wired at all 3 claimed call
+sites; `config/tool_capabilities.yaml` not stale against the registry; no new hardcoded
+resource-id or `random.uniform`-style fabrication introduced since the 2026-09-20 audit.
+
+**Flagged, not fixed this pass (pre-existing, lower severity, out of scope for a drive-by
+fix):** `routes/webhooks.py`'s Bitbucket receiver has no signature/token verification at all
+(GitHub/GitLab at least support an optional shared secret); none of the GitHub/GitLab/Bitbucket
+webhook processors dedupe on the provider's own delivery id (a fresh `uuid4` is minted per
+receipt), so a provider retry after a transient non-2xx creates a duplicate `WebhookEventRecord`
+indefinitely. Neither is a regression from a recent commit; recommend a dedicated pass.

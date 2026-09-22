@@ -623,8 +623,26 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
-        """List recent deployments."""
+        """List recent deployments.
+
+        `WebhookEventRecord` has no `user_id` column — it's a global feed, and
+        every other access path to it (`routes/webhooks.py`'s dashboard,
+        `/api/events`, `/api/stats`) is gated `@admin_required`. Unlike the
+        rest of this file's commands, the check here isn't "does a linked
+        app user exist" but "is that linked user an admin" — an unprivileged
+        linked user must be refused too.
+        """
+        from models import User
+        from services.rbac import user_is_admin
         from services.webhook_integrations import get_webhook_service, EventType
+
+        app_user_id = self._require_app_user(kwargs)
+        user = User.query.get(app_user_id)
+        if not user_is_admin(user):
+            return ChatResponse(
+                text="Deployment history is admin-only in DevOps Agent, and "
+                     "this linked account doesn't have the admin role."
+            )
 
         service = get_webhook_service()
         events = service.get_events(event_type='deployment', limit=5)

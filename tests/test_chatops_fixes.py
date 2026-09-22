@@ -260,3 +260,41 @@ def test_incidents_list_command_runs_without_error(app, test_user):
     service = get_chatops_service()
     response = service._cmd_incidents([], app_user_id=test_user.id)
     assert response.text
+
+
+# ==================== /deployments admin gating (2026-09-22 audit) ====================
+#
+# WebhookEventRecord has no user_id column -- it's a global feed, and every
+# other access path to it (routes/webhooks.py's dashboard, /api/events,
+# /api/stats) is @admin_required. _cmd_deployments was the one command in
+# this file that never called _require_app_user at all, so any Slack/Teams
+# user -- including one who had never run /link -- could pull repository
+# names, branches, commit SHAs and deployment status through the bot with no
+# authorization check whatsoever.
+
+def test_deployments_command_refuses_unlinked_identity():
+    service = get_chatops_service()
+    response = service.process_message(
+        platform=ChatPlatform.SLACK,
+        user_id='U_UNLINKED',
+        channel_id='C1',
+        text='/deployments',
+    )
+    assert 'not linked' in response.text.lower() or 'link' in response.text.lower()
+
+
+def test_deployments_command_refuses_non_admin_linked_user(app, test_user):
+    service = get_chatops_service()
+    response = service._cmd_deployments([], app_user_id=test_user.id)
+    assert 'admin' in response.text.lower()
+
+
+def test_deployments_command_allows_admin_user(app, test_user, db_session):
+    from models import db
+
+    test_user.role = 'admin'
+    db.session.commit()
+
+    service = get_chatops_service()
+    response = service._cmd_deployments([], app_user_id=test_user.id)
+    assert 'admin' not in response.text.lower()
