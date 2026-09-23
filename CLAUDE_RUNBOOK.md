@@ -3089,3 +3089,123 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## Scheduled audit (2026-09-23): incident auto-remediation fabricated success (8th instance, worst yet — falsely auto-resolves incidents); two under-classified Terraform secret-disclosure tools; ansible `-i` guard missed on 5 functions; broken compliance audit-log pagination
+
+Routine code review (vulnerabilities/smells/duplicates). `python3 scripts/check_security_invariants.py`
+was clean. Four findings fixed; two lower-priority items and the already-known-open items
+(guardrails pipeline duplication, the three tool-execution paths that bypass Execution
+Integrity, `services/ai_infrastructure.py` above) confirmed still in the documented state and
+left untouched.
+
+**Fixed — `services/incident_response.py`'s auto-remediation handlers reported fake success and
+that fake success auto-resolved incidents with a false audit trail.** This is the eighth known
+instance of the fabrication bug class in CLAUDE.md's "every feature runs against a real cloud
+account" section, and structurally worse than the prior seven: those were passive dashboard
+fabrications a user could in principle notice was static; this one actively closes out incidents.
+Six `IncidentResponseEngine` action handlers (`_handle_run_script`, `_handle_clear_cache`,
+`_handle_block_ip`, `_handle_failover`, `_handle_rollback`, `_handle_rotate_credentials`) each
+have a correct real-execution branch that calls `aws_tools`/`kubernetes_tools` when the incident
+metadata carries enough to act on (an `instance_id`, `security_group_id`, `deployment`, etc.) —
+but when that metadata is missing, which is common since metadata is populated opportunistically
+from whatever triggered the alert, every one of them fell through to a fallback that logged a
+message and returned `{'success': True, 'message': '...logged...'}` with no cloud API call at
+all. `execute_playbook()` (line ~838) computes `all_success = all(r.get('success', False)...)`
+over every action's result and, when true, sets `incident.status = IncidentStatus.RESOLVED`,
+stamps `resolved_at`, and journals "All remediation actions completed successfully" — so an
+incident whose alert didn't happen to carry an `instance_id` got marked resolved with a
+false-positive audit trail while the underlying problem (unblocked IP, unrotated credential,
+un-rolled-back deployment) was still live. The file's own `_handle_ansible_playbook`/
+`_handle_custom` stubs already had the correct shape (`success: False` with an actionable
+error when they can't act) — the six handlers above now match that shape: the "no target"
+fallback in each returns `success: False` and an error naming exactly what metadata field would
+let it act (e.g. "provide instance_id or security_group_id in metadata for automated blocking").
+No behavior change to any handler's real-execution branch — only the silent-no-op fallback was
+touched. `execute_playbook`'s existing `if not result.get('success', False): break` (it already
+stops the playbook and never reaches the `all_success` resolve-the-incident check on a failed
+action) needed no change — it was already correct, it just never fired because nothing upstream
+of it ever returned `success: False` for a no-op.
+
+**Fixed — `terraform_output`/`terraform_state_show` (src/tools/terraform_tools.py) defaulted to
+low risk despite disclosing plaintext secrets, same class as the already-high-risk
+`terraform_state_pull`.** `terraform output -json` does not redact sensitive-marked outputs
+(only the default human CLI format masks them to `"(sensitive value)"` — the `-json` form this
+tool uses returns real plaintext); `terraform state show <address>` prints every attribute of one
+resource, which routinely includes DB passwords/TLS keys/API tokens stored in plaintext, same as
+the whole-state-file disclosure `terraform_state_pull` was fixed for on 2026-09-15. Neither tool
+had a `capability` block, a `config/tool_capabilities.yaml` entry, or a `safety.py` set
+membership — both added to `high_risk_tools` in `src/agent/safety.py` with the same disclosure-
+class comment as their sibling, and backfilled into `config/tool_capabilities.yaml`
+(`permission: destroy, mutating: false`, matching `get_secret_value`/`generate_s3_presigned_url`'s
+shape for a read-only disclosure rather than `terraform_state_pull`'s `mutating: true`, since
+neither of these two mutates anything).
+
+**Fixed — the ansible `-i <inventory>` argv-injection guard (2026-09-14's `_reject_flag_like`
+fix) was applied to only 1 of 6 functions that build the identical `command.extend(['-i',
+inventory])` pair.** `ansible_inventory_list` guards `inventory` correctly;
+`ansible_playbook_run`, `ansible_adhoc_command`, `ansible_playbook_syntax_check`, `ansible_ping`,
+and `ansible_facts` did not, despite `_reject_flag_like`'s own docstring citing `-i <inventory>`
+as exactly the flag this guard exists to close. Same "one function guards it, five don't" pattern
+this guard has now hit three times (see CLAUDE.md's git argument-injection section for the first
+two, and the 2026-09-14/2026-09-21 ansible entries for this module's own prior misses) — the
+2026-09-21 pass that added coverage for 12 other argv sites in this file didn't happen to include
+`inventory` because its own docstring's claim ("playbook_path/host_pattern are always the first
+bare positional") was true for the sites it *was* checking, and `inventory` is a different
+parameter passed as a flag value, not a bare positional, so it wasn't caught by that pass's
+search pattern. Fixed by adding `_reject_flag_like(inventory, 'inventory')` before each of the
+five `command.extend(['-i', inventory])` call sites; regression tests added to
+`tests/test_ansible_tools_argument_injection.py` (`test_inventory_flag_like_value_is_rejected`,
+parametrized over all five). Exploitability of `-i` specifically was not reproduced (ansible's
+option parser may or may not consume a dash-prefixed value the same way the already-confirmed
+git flags did) — guarded for the same defense-in-depth reason the rest of this module's argv
+sites were, not because RCE was proven.
+
+**Not fixed, lower priority, same class:** `become_user`, `module_args`, `vault_password_file`,
+`roles_path`/`collections_path`, and `vault_id` in this same file reach argv as a flag's value
+with no `_reject_flag_like` call either. Worth a follow-up pass; not fixed here to keep this
+change reviewable and because (unlike `inventory`) none of them were previously claimed as
+covered by any docstring or prior fix.
+
+**Fixed — `routes/compliance.py`'s two audit-log endpoints didn't actually paginate.**
+`/audit-log` (the HTML view) computed `limit = per_page * page` and passed only `limit` (no
+offset) to `ComplianceService.get_audit_logs()`, so every page request re-fetched and displayed
+an ever-growing *prefix* of the log (page 2 showed the same rows as page 1 plus more), never a
+distinct page N. `/api/audit-log` (the JSON endpoint) read `page` from the query string but never
+used it — passed only `limit=per_page` with no offset — so every page number returned the
+identical first `per_page` rows, and its response's `total`/`pages` fields were fabricated
+(`total: len(logs)`, capped at `per_page`; `pages: 1` hardcoded, regardless of how many log rows
+actually existed). Fixed by adding `offset`/`count_audit_logs()` to
+`services/compliance_service.py` (factored the shared filter-building into
+`_filtered_audit_log_query()` so the list query and the count query can't drift out of sync with
+each other's filters) and wiring real `offset=(page-1)*per_page` plus a real total count into both
+routes. `templates/compliance/audit_log.html` has no pagination controls yet (out of scope for
+this fix — the bug was the backend silently returning wrong data, not a missing UI; the template
+now receives correct `page`/`per_page`/`total`/`total_pages` context variables to build controls
+from whenever that UI work happens).
+
+**Also removed:** `vuln-review-report.png`, a screenshot accidentally committed to the repo root
+during an unrelated PR's manual merge-conflict resolution (landed via merge commit `cb779f1`,
+part of PR #207's branch history — not present in either merge parent). It depicted an *old*,
+already-fixed finding (an unauthenticated `execute_command` path) from an unrelated automated
+review session; verified current `routes/api_gateway.py`'s `api_execute_tool()` already gates via
+`SafetyValidator` + an HMAC confirm-token challenge and doesn't even expose `command_tools` in its
+tool dict, so the screenshot's finding was stale, not live — removed as a repo-hygiene item
+(accidentally-committed internal review chatter), not a vulnerability fix.
+
+**Confirmed still open, not touched by this pass** (already documented elsewhere in
+CLAUDE.md/this file, re-verified accurate): `services/ai_infrastructure.py`'s
+`get_recommendations()`/`apply_recommendation()` fabrication (above); the 8-call-site duplicated
+guardrails pipeline with no `enforce_guardrails()` helper; `services/approval_service.py`'s
+`_execute_tool`, `routes/api_gateway.py`'s `api_execute_tool`, and `routes/mcp.py`'s
+`_handle_tools_call` all still bypassing the Execution Integrity stack
+(`_verify_and_annotate`/`_audit_infrastructure_change`/`READ_CACHE` invalidation).
+
+**Minor, not fixed:** `POST /chatops/api/link-code` (routes/chatops.py) is a state-changing,
+`@login_required`-only endpoint called with no request body, so it passes under both the app's
+form-MIME CSRF hook and JSON's preflight-based protection — a cross-site page could blind-CSRF a
+link-code generation for a logged-in victim. Impact is low (CORS blocks the attacker from reading
+the response, so the generated code itself is never disclosed to them; worst case is one wasted
+10-minute-TTL code), so left as a follow-up rather than fixed in this pass. Everything else about
+the ChatOps account-linking flow (PR #193) — link-code entropy/TTL/single-use, the
+platform-identity-to-app-user mapping, Slack/Teams request-signature verification gating who can
+redeem a code — was reviewed and found correct.

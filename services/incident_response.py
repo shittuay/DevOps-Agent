@@ -1397,8 +1397,8 @@ class IncidentResponseEngine:
                     return {'success': False, 'error': f'SSM script execution failed: {str(e)}'}
 
         logger.info(f"RUN SCRIPT [{platform}]: {command} (no remote execution target configured)")
-        return {'success': True, 'script': script, 'platform': platform,
-                'message': f'Script {script} logged for execution (set instance_id in metadata for remote execution via SSM)'}
+        return {'success': False, 'script': script, 'platform': platform,
+                'error': f'No execution target configured for script {script} — set instance_id in metadata for remote execution via SSM'}
 
     def _handle_clear_cache(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
         """Clear cache — uses SSM for AWS, or logs for other platforms."""
@@ -1434,13 +1434,13 @@ class IncidentResponseEngine:
             pod = meta.get('pod')
             namespace = meta.get('namespace', 'default')
             if pod:
-                logger.info(f"CLEAR CACHE: Would exec into pod {pod} to clear caches")
-                return {'success': True, 'platform': 'kubernetes', 'target': target,
-                        'message': f'Cache clear logged for pod {pod} in {namespace}'}
+                logger.info(f"CLEAR CACHE: no exec-based cache clear implemented for pod {pod}")
+                return {'success': False, 'platform': 'kubernetes', 'target': target,
+                        'error': f'Cache clear for pod {pod} in {namespace} is not implemented (no pod-exec cache-clear path)'}
 
-        logger.info(f"CLEAR CACHE [{platform}]: {target}")
-        return {'success': True, 'target': target, 'platform': platform,
-                'message': f'Cache clear logged for {target} (set instance_id for SSM execution)'}
+        logger.info(f"CLEAR CACHE [{platform}]: {target} (no execution target configured)")
+        return {'success': False, 'target': target, 'platform': platform,
+                'error': f'No execution target configured to clear cache for {target} — set instance_id in metadata for SSM execution'}
 
     def _handle_block_ip(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
         """Block an IP address using AWS security group or SSM iptables."""
@@ -1486,9 +1486,9 @@ class IncidentResponseEngine:
                 except Exception as e:
                     return {'success': False, 'error': f'SG update failed: {str(e)}'}
 
-        logger.info(f"BLOCK IP [{platform}]: {ip}")
-        return {'success': True, 'ip': ip, 'platform': platform,
-                'message': f'IP {ip} block logged (provide instance_id or security_group_id for automated blocking)'}
+        logger.info(f"BLOCK IP [{platform}]: {ip} (no execution target configured)")
+        return {'success': False, 'ip': ip, 'platform': platform,
+                'error': f'No execution target configured to block IP {ip} — provide instance_id or security_group_id in metadata for automated blocking'}
 
     def _handle_failover(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
         """Initiate failover — RDS failover for AWS, deployment switch for K8s."""
@@ -1545,9 +1545,9 @@ class IncidentResponseEngine:
                 except Exception as e:
                     return {'success': False, 'error': f'K8s failover failed: {str(e)}'}
 
-        logger.info(f"FAILOVER [{platform}]: to {target} for incident {incident.id}")
-        return {'success': True, 'target': target, 'platform': platform,
-                'message': f'Failover to {target} logged (provide db_instance/task_definition/failover_image for automated failover)'}
+        logger.info(f"FAILOVER [{platform}]: to {target} for incident {incident.id} (no execution target configured)")
+        return {'success': False, 'target': target, 'platform': platform,
+                'error': f'No execution target configured to fail over to {target} — provide db_instance/task_definition/failover_image in metadata for automated failover'}
 
     def _handle_rollback(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
         """Rollback a deployment or service to a previous version."""
@@ -1605,9 +1605,9 @@ class IncidentResponseEngine:
 
         version = params.get('version', 'previous')
         service_name = params.get('service', incident.title)
-        logger.info(f"ROLLBACK [{platform}]: {service_name} to {version}")
-        return {'success': True, 'platform': platform,
-                'message': f'Rollback of {service_name} to {version} logged '
+        logger.info(f"ROLLBACK [{platform}]: {service_name} to {version} (no execution target configured)")
+        return {'success': False, 'platform': platform,
+                'error': f'No execution target configured to roll back {service_name} to {version} '
                 '(provide deployment+previous_image or cluster+service+previous_task_definition for automated rollback)'}
 
     def _handle_rotate_credentials(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:
@@ -1638,9 +1638,9 @@ class IncidentResponseEngine:
                 except Exception as e:
                     return {'success': False, 'error': f'IAM key rotation failed: {str(e)}'}
 
-        logger.info(f"ROTATE CREDENTIALS [{platform}]: {credential_type}")
-        return {'success': True, 'credential_type': credential_type, 'platform': platform,
-                'message': f'Credential rotation for {credential_type} logged '
+        logger.info(f"ROTATE CREDENTIALS [{platform}]: {credential_type} (no execution target configured)")
+        return {'success': False, 'credential_type': credential_type, 'platform': platform,
+                'error': f'No execution target configured to rotate {credential_type} '
                 '(provide iam_user in metadata for automated AWS key rotation)'}
 
     def _handle_ansible_playbook(self, incident: Incident, action: RemediationAction) -> Dict[str, Any]:

@@ -287,6 +287,16 @@ class SafetyValidator:
             # terraform_state_push/_move/_rm siblings are already classified; the
             # read-out-the-secrets path was not.
             'terraform_state_pull',
+            # `terraform output -json` does NOT redact sensitive-marked outputs — only
+            # the default human-readable CLI format masks them to "(sensitive value)".
+            # The -json form this tool uses returns real plaintext, same disclosure
+            # class as terraform_state_pull/get_secret_value.
+            'terraform_output',
+            # `terraform state show <address>` prints every attribute of one resource,
+            # including any stored in plaintext (DB passwords, TLS keys, API tokens) —
+            # same disclosure class as terraform_state_pull, just scoped to one resource
+            # instead of the whole state file.
+            'terraform_state_show',
             'delete_cloud_run_service',
             'delete_gke_cluster',
             'delete_firewall_rule',

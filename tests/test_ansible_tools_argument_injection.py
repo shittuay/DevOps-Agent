@@ -113,3 +113,24 @@ def test_flag_like_value_is_rejected(call):
     result = call()
     assert result['success'] is False
     assert 'must not start with' in result['error'], result
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-23 follow-up: `inventory` (`-i <inventory>` passed to the
+# `ansible`/`ansible-playbook` CLI) was guarded in ansible_inventory_list but
+# missed in five other functions that build the identical `['-i', inventory]`
+# option pair. Same "one function guards it, five don't" shape the module's
+# own comment above already warns is this guard's recurring failure mode.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('call', [
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', inventory=FLAG), id='playbook_run.inventory'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='webservers', module='ping', inventory=FLAG), id='adhoc_command.inventory'),
+    pytest.param(lambda: ansible_playbook_syntax_check(playbook_path='site.yml', inventory=FLAG), id='syntax_check.inventory'),
+    pytest.param(lambda: ansible_ping(host_pattern='webservers', inventory=FLAG), id='ping.inventory'),
+    pytest.param(lambda: ansible_facts(host_pattern='webservers', inventory=FLAG), id='facts.inventory'),
+])
+def test_inventory_flag_like_value_is_rejected(call):
+    result = call()
+    assert result['success'] is False
+    assert 'must not start with' in result['error'], result
