@@ -59,6 +59,7 @@ NON_MUTATING_HIGH = {
     "git_grep_search", "get_diff", "git_diff_stat",
     "git_show_file_at_commit", "git_show_commit", "git_blame_file",
     "ansible_vault_view", "ansible_vault_decrypt",
+    "terraform_output", "terraform_state_show",
 }
 
 _MUTATING_PREFIXES = (
