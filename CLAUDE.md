@@ -2027,6 +2027,13 @@ Use `/skill-name` or mention the skill:
 - `/security-scan` - Run security scans (infrastructure, compliance, secrets, vulnerabilities, audit)
 - `/integration-testing` - Pre-production gate: env preflight, full pytest, smoke tests, regression checks, security gate → ship/no-ship verdict
 
+## Subagents (`.claude/agents/`)
+
+- `executive-assistant` — owner-facing briefings, next-work ranking, PR/CI triage, TODOS.md/WORKLOG.md
+  hygiene, and email/status drafts. Reads TODOS.md, CLAUDE.md "Not yet fixed" items, git log, GitHub,
+  and Calendar/Gmail when connected. Drafts only: it never sends email, merges, pushes to `main`, or
+  touches production unless explicitly asked for that specific action.
+
 ## Code Style
 
 - No emojis unless requested
