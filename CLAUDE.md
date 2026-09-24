@@ -263,6 +263,20 @@ patch next time it's found again.
   command with no resolved identity rather than calling the handler with nothing valid to pass.
   Any new ChatOps command that touches per-user data must accept `app_user_id` from `process_message`'s
   dispatch, never invent its own notion of "the user" from the raw platform id.
+  **That description overstates what the code actually enforces, though: `ChatCommand.requires_auth`
+  is declarative only — `process_message()` never reads it.** Enforcement is entirely per-handler
+  discipline (each handler calls `self._require_app_user(kwargs)` itself), and nothing structurally
+  catches a handler that forgets. The 2026-09-24 scheduled audit found exactly that:
+  `_cmd_deployments` never called `_require_app_user()` at all and read `WebhookEventRecord` (a
+  platform-wide table with no `user_id` column, gated `@admin_required` everywhere else it's read —
+  `routes/webhooks.py`) directly, so any Slack/Teams user who could message the bot — linked to an
+  app account or not, any platform role — could read every tenant's CI/CD deployment history with
+  zero authentication. Fixed by requiring a resolved app user and gating on
+  `services.rbac.user_is_admin()`, mirroring the web dashboard's own gate rather than inventing a
+  per-user view over data that was never partitioned per user. See CLAUDE_RUNBOOK.md's 2026-09-24
+  entry. Still open: making `requires_auth` load-bearing at dispatch time instead of trusting every
+  handler to remember — the same "duplicated pipeline, no shared enforcement point" shape as the
+  guardrails pipeline and CSRF/login-timing checks elsewhere in this file.
 - **A route rendering another entity's nested child (team, resource, sub-object) must check the
   parent-membership guard itself — checking the child's `parent_id` foreign key is not the same
   as checking access.** `routes/organizations.py`'s `view_team` fetched `membership =
@@ -463,7 +477,7 @@ runtime, and `tests/test_tool_capabilities.py` fails the build on it.
 `abort_jenkins_build`, `delete_jenkins_build`, `terraform_destroy`, `terraform_state_rm`, `delete_sonar_project`, `nexus_delete_repository`, `nexus_delete_component`, `nexus_delete_asset`, `git_reset_to_commit`, `git_clean_working_directory`, `git_force_push_branch`, `git_delete_branch`, `git_delete_tag`, `resize_ec2_instance`, `execute_script` (shares `execute_command`'s risk — same underlying subprocess path), `docker_create_container` (unrestricted host bind-mounts, e.g. `/var/run/docker.sock`, give trivial container-escape to full host control — same risk class as `execute_command`; `_validate_container_volumes()` in `docker_tools.py` blocks the clearest cases as defense-in-depth), `get_secret_value` (GCP — discloses live secret plaintext into the chat/tool-trace/LLM-provider path, unlike every other secret-bearing tool in this codebase), `create_ec2_keypair` (AWS — returns the raw PEM private key material directly in the tool result, same disclosure class as `get_secret_value`; its `delete_ec2_keypair` sibling was already high-risk but the create path that actually discloses the secret was missed until the 2026-08-23 scheduled audit), `generate_s3_presigned_url` (AWS — generates an unauthenticated bearer URL, up to 7 days, for `get_object` or `put_object` with no further AWS auth required; same live-access-credential disclosure class, also caught by the 2026-08-23 audit), `list_storage_account_keys` (Azure — returns the raw storage-account access key, a full data-plane credential over every blob/file/queue/table in the account, into the chat/tool-trace/LLM-provider path; same disclosure class as `get_secret_value`/`create_ec2_keypair` — its mutating sibling `regenerate_storage_key` was then only medium-risk and this read path had no gate at all, caught by the 2026-09-15 audit; both are now high-risk), `regenerate_storage_key` (Azure — discloses the newly-generated key value the same way `list_storage_account_keys` does; was previously only medium-risk despite the identical disclosure shape as the high-risk tools above, escalated in the same audit), `terraform_state_pull` (returns the entire Terraform state file, which routinely stores sensitive resource attributes — DB passwords, TLS keys, API tokens — in plaintext; its `terraform_state_push`/`_move`/`_rm` siblings were already classified, also caught 2026-09-15)
 
 **Current medium-risk additions:**
-`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_stash_save`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `pagerduty_add_note`, `opsgenie_add_note`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`, `publish_sns_message`, `subscribe_sns_topic`, `create_route53_record`, `publish_pubsub_message`, `send_sqs_message`, `github_create_repo`
+`disable_jenkins_job`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `trigger_github_workflow`, `terraform_apply`, `terraform_state_move`, `terraform_import`, `terraform_force_unlock`, `terraform_state_push`, `terraform_workspace_delete`, `terraform_providers_lock`, `update_sonar_issue`, `assign_sonar_quality_gate`, `create_sonar_project`, `trigger_sonar_analysis`, `nexus_create_repository`, `nexus_run_cleanup_task`, `docker_build_image`, `git_clone_repository`, `git_switch_branch`, `git_merge_branch`, `git_rename_branch`, `git_reset_files`, `git_amend_commit`, `git_pull`, `git_push`, `git_cherry_pick`, `git_push_tag`, `git_stash_apply`, `git_stash_drop`, `git_stash_save`, `git_revert_commit`, `git_rebase_branch`, `git_grep_search`, `get_diff`, `git_diff_stat`, `git_show_file_at_commit`, `git_blame_file` (the last five are flag-injection-guarded by `_reject_flag_like` — see the git argument-injection guard section below — but classified medium as a human-review layer over the same class of git-flag primitive as the tools above), `github_close_pull_request`, `add_iam_user_to_group`, `create_eventbridge_rule`, `pagerduty_update_incident`, `opsgenie_acknowledge_alert`, `opsgenie_close_alert`, `opsgenie_escalate_alert`, `pagerduty_add_note`, `opsgenie_add_note`, `ansible_vault_encrypt`, `register_targets`, `pagerduty_create_incident`, `opsgenie_create_alert`, `publish_sns_message`, `subscribe_sns_topic`, `create_route53_record`, `publish_pubsub_message`, `send_sqs_message`, `github_create_repo`, `git_create_branch`, `git_fetch`, `git_create_tag`, `docker_pull_image`, `docker_create_network`, `docker_create_volume`
 
 `trigger_sonar_analysis` is the same "kick off a remote job" shape as
 `trigger_jenkins_job`/`trigger_github_workflow`/`create_gitlab_pipeline_trigger` (its `trigger_`
@@ -502,6 +516,20 @@ those modules (`create`/`update`/`acknowledge`/`close`/`escalate`) was already m
 `git_stash_save` joined its already-medium `git_stash_apply`/`git_stash_drop` siblings the same
 day — it's the one stash operation that actually reverts the working tree (discarding
 uncommitted changes from view), and was the only one of the three without a gate.
+
+`git_create_branch`, `git_fetch`, and `git_create_tag` joined after the 2026-09-24 scheduled audit
+— all three are genuinely mutating (new branch/tag, fetching remote refs) and already call
+`_reject_flag_like()` on their caller-supplied params (the argument-injection RCE class is not
+open here), but had no risk classification at all, unlike comparably-benign siblings
+(`git_switch_branch`, `git_add_remote`) already gated medium for the human-review/audit-trail
+layer. `docker_pull_image` joined the same day — it's the one step in the pull/build/push chain
+that actually introduces untrusted code onto the host (an arbitrary caller-specified image:tag
+from a registry) and had zero risk classification, despite its `docker_build_image`/
+`docker_push_image` siblings both already being medium. `docker_create_network`/
+`docker_create_volume` joined too — lower severity, but the same "destructive op gated, its
+creating counterpart isn't" asymmetry as `create_route53_record`/`github_create_repo` below
+(their `docker_remove_network`/`docker_remove_volume` siblings were already high-risk via the
+`remove_` auto-detect prefix).
 
 `github_create_repo` joined after the 2026-09-01 scheduled audit — same permissive-default-`create_`
 shape as `create_route53_record`: its `private` parameter defaults to `False`, so a repo created

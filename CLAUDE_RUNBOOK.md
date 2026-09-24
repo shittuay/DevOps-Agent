@@ -3089,3 +3089,67 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## Scheduled audit (2026-09-24): ChatOps `/deployments` disclosed platform-wide webhook data with no auth check at all — fixed
+
+Routine review of `src/tools/`, `services/`, and `routes/` for vulnerabilities, smells, and
+duplication, run in four parallel passes: git/ansible argument-injection guards, the ChatOps
+identity-linking and fabricated-action-claim wiring merged 2026-09-21 (PRs #193/#172), a grep
+sweep for raw `requests.*`/`.check_password(`/fabricated-data/leaked-secret patterns, and
+tool-capability staleness for newer tools. Three of the four passes came back clean (see below);
+the ChatOps re-check of PR #193 found a real gap the PR's own description overstated.
+
+**The bug.** `services/chatops_service.py`'s `_cmd_deployments` — unlike every other per-user
+command in the file (`_cmd_status`, `_cmd_incidents`, `_cmd_metrics`, `_cmd_alerts`, ...) — never
+called `_require_app_user()` at all. It called `get_webhook_service().get_events(event_type=
+'deployment', limit=5)` directly, with no identity check of any kind. `WebhookEventRecord`
+(models.py) has **no `user_id` column** — it's a single platform-wide table of CI/CD webhook
+events (repository, branch, commit SHA, actor, title, description, URL), and every other reader
+of it (`routes/webhooks.py`'s `webhooks_dashboard()` and `api_list_events()`) is correctly gated
+`@login_required` + `@admin_required`. `_cmd_deployments` was the one path that skipped this
+entirely: any Slack/Teams user who could message the bot — linked to an app account or not, and
+regardless of platform role — could run `/deployments` and read every tenant's CI/CD history
+platform-wide.
+
+This also exposed a design gap PR #193's own CLAUDE.md description overstated: `ChatCommand`'s
+`requires_auth` field (default `True`) is declarative only — `process_message()` never reads it.
+Enforcement is entirely per-handler discipline (`_require_app_user(kwargs)` called at the top of
+each handler that needs it), and nothing structurally catches a handler that forgets. This is the
+same "duplicated pipeline, no shared enforcement point" shape already called out elsewhere in
+CLAUDE.md for the guardrails pipeline and the CSRF/login-timing checks — a real fix would make
+`requires_auth` load-bearing at dispatch time instead of trusting every handler to remember; not
+done in this pass since it touches every command's calling convention at once.
+
+**Verified as sound in the same pass:** the `/link <code>` redemption flow itself (8-char
+alphanumeric code, 10-minute TTL, single-use via `used_at`, keyed to a platform identity that's
+already authenticated upstream by Slack HMAC or Teams Bot Framework JWT before it ever reaches
+`_cmd_link` — no way to link an arbitrary platform id without controlling that account); the
+`_fabricated_action_claim()` wiring from PR #172 (`_UNIVERSAL_WRITE_TOOLS` names all still live
+against the registry, both Kimi paths still call it before `_hallucination_severity`, no negation
+bypass found — the only gap is a known coverage limit: verbs like "run the playbook"/"rotate the
+key"/"cordon the node" match no `_ACTION_FAMILIES` request or claim regex, so a fabricated claim
+phrased that way isn't checked; a pre-existing "known gap," not a regression); the git/ansible
+argument-injection guards (every bare-positional caller-controlled parameter in `git_tools.py`
+still calls `_reject_flag_like()`, and `ansible_tools.py`'s subprocess calls use list-form argv
+with no shell=True and no unguarded flag-injectable parameter found); and the grep sweep (all 36
+raw `requests.*` call sites are either `# ssrf-safe:`-exempted hardcoded hosts or already route
+through `safe_request()`, zero `.check_password(` calls outside `routes/auth.py`, no new
+fabricated-data patterns, and the AWS key removed by PR #208 has not recurred anywhere in the repo
+including docs/).
+
+**Fix (`services/chatops_service.py`):** `_cmd_deployments` now calls `_require_app_user()` like
+every sibling handler, then loads the resolved user and requires `services.rbac.user_is_admin()`
+before returning any webhook data — mirroring the web dashboard's own gate rather than inventing a
+per-user view over data that was never partitioned per user. A non-admin (linked or not) gets a
+plain refusal pointing at `/webhooks/` and the `/link` command; an unlinked identity is turned away
+by `_require_app_user()` before the admin check ever runs, same as every other command.
+
+**Tests:** new `tests/test_chatops_deployments_access_control.py` — unlinked identity refused
+before dispatch; a linked non-admin `test_user` gets the admin-only refusal text and no webhook
+data; calling the handler with no `app_user_id` raises `_UnresolvedAppUser` like every sibling
+handler; a linked admin user is not turned away by the gate. Could not run the full suite in this
+audit environment (dependency install was still in progress when this entry was written — see the
+2026-09-11/2026-09-13 entries above for the same environment gap); the new test file follows the
+same direct-handler-call pattern already used by `tests/test_chatops_fixes.py` and
+`tests/test_chatops_fabricated_data.py`, both of which pass in isolation without the full app
+context.

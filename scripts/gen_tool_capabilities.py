@@ -38,7 +38,7 @@ TOOL_MODULES = (
     "command_tools", "aws_tools", "azure_tools", "gcp_tools", "kubernetes_tools",
     "git_tools", "github_tools", "docker_tools", "cicd_tools", "terraform_tools",
     "monitoring_tools", "ansible_tools", "alerting_tools", "pentest_tools",
-    "sonarqube_tools", "nexus_tools", "devops_operations_tools",
+    "sonarqube_tools", "nexus_tools", "devops_operations_tools", "verification_tools",
 )
 
 # validate_tool_call short-circuits before the capability layer for these, so a
