@@ -2031,8 +2031,10 @@ Use `/skill-name` or mention the skill:
 
 - `executive-assistant` — owner-facing briefings, next-work ranking, PR/CI triage, TODOS.md/WORKLOG.md
   hygiene, and email/status drafts. Reads TODOS.md, CLAUDE.md "Not yet fixed" items, git log, GitHub,
-  and Calendar/Gmail when connected. Drafts only: it never sends email, merges, pushes to `main`, or
-  touches production unless explicitly asked for that specific action.
+  and Calendar/Gmail when connected. Proposes only: it never sends email, creates drafts, merges,
+  pushes, or touches production itself — it returns proposed actions to the main session, which
+  confirms with the owner and carries them out (a subagent cannot see the owner's conversation, so
+  it cannot verify an approval).
 
 ## Code Style
 
