@@ -3089,3 +3089,54 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## Scheduled audit (2026-09-26): ChatOps `/deployments` bypassed both identity linking and the admin boundary; `services/ai_infrastructure.py`'s recommendations were the last open fabricated-data instance — both fixed
+
+Routine code review for vulnerabilities, smells, and duplicates. `python3 scripts/check_security_invariants.py`
+was clean. Two findings, both fixed; full test suite green afterward.
+
+**Fixed — `services/chatops_service.py`'s `_cmd_deployments` was the one command in the file
+that skipped the per-user identity requirement this file exists to enforce, and leaked
+admin-only data.** Every other per-user command handler (`_cmd_status`, `_cmd_incidents`,
+`_cmd_acknowledge`, `_cmd_metrics`, etc.) calls `_require_app_user(kwargs)` before touching any
+data. `_cmd_deployments` never did — it called `get_webhook_service().get_events(...)` directly,
+so it ran for a completely unlinked Slack/Teams identity (no `/link` ever run) with no
+`app_user_id` at all. Worse, `WebhookEventRecord` (the table backing it) has no `user_id` or
+`organization_id` column — it's the same platform-wide CI/CD event stream that
+`/webhooks/`, `/webhooks/api/events`, and `/webhooks/api/stats` all gate behind
+`@admin_required` (platform role level 4). The ChatOps path had no role check at all, so any
+chat user — including one who had never linked an app account — could list recent deployments
+(repository, branch, commit SHA, actor, title, description, URL) across the entire platform via
+`/deployments`, data otherwise restricted to platform admins in the web UI. Fixed by adding
+`_require_app_user()` + `services.rbac.user_is_admin()` checks to the handler, refusing with an
+honest "admin-only" message otherwise.
+
+**Root cause, also fixed:** `ChatCommand.requires_auth` (declared `True` by default on every
+command) was purely decorative — `process_message()` never read it; enforcement was delegated
+entirely to each handler remembering to call `_require_app_user()` itself, which is exactly how
+`_cmd_deployments` slipped through. `process_message()` now checks
+`command.requires_auth and resolved_app_user_id is None` centrally, before dispatch, so a future
+command with the same oversight fails closed by default instead of silently running.
+
+**Fixed — `services/ai_infrastructure.py`'s `get_recommendations()`/`apply_recommendation()`,
+flagged as still-open since the 2026-09-15 audit (the sixth/seventh known instances of the
+fabricated-data bug class).** `get_recommendations()` returned four hardcoded recommendations
+(EC2 right-sizing, S3 encryption, RDS read replicas, Multi-AZ) unconditionally, ignoring
+`user_id` and identical for every user regardless of what was in their account, rendered at
+`/ai/recommendations` and `/ai/api/recommendations`. `apply_recommendation()` reported
+`success: True` for any known recommendation id with no cloud API call ever made. Fixed the same
+way as the Performance Optimizer and Predictive Scaling fixes: `get_recommendations()` now
+returns `[]` until wired to a real data source (the template already had a proper "No
+recommendations available" empty state, so no template change was needed), and
+`apply_recommendation()` returns `{success: false, error: "..."}`; `routes/ai_infrastructure.py`'s
+`api_apply_recommendation` now returns that with HTTP 501, matching `routes/scaling.py`'s
+identical fix. This closes out the last open instance of the seven-times-recurring bug class
+CLAUDE.md's "Non-negotiable" section tracks (Drift, Predictive Scaling, Analytics, ChatOps,
+Performance Optimizer, dashboard cost-recommendation Apply, AI Infrastructure).
+
+**Tests:** new `tests/test_ai_infrastructure_no_fabrication.py` (6 cases) and 3 new cases in
+`tests/test_chatops_fixes.py` covering the unlinked-identity refusal, the non-admin refusal, and
+the admin success path. Full suite green: 47/47 in the touched chatops/ai-infrastructure files,
+plus `test_tool_capabilities.py`, `test_security_invariants.py`,
+`test_check_security_invariants.py`, `test_tool_counts.py`, `test_iam_policies.py` (45/45)
+unaffected.

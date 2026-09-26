@@ -265,6 +265,15 @@ class ChatOpsService:
         if resolved_app_user_id is None and user_id:
             resolved_app_user_id = self._resolve_linked_app_user(platform, user_id)
 
+        # `command.requires_auth` was previously decorative: every handler had
+        # to remember to call `_require_app_user()` itself, and `_cmd_deployments`
+        # didn't, running unauthenticated for a completely unlinked chat identity
+        # (see the 2026-09-26 scheduled audit). Enforce it here too, centrally,
+        # so a future command with the same oversight fails closed by default
+        # instead of silently dispatching.
+        if command.requires_auth and resolved_app_user_id is None:
+            return ChatResponse(text=_UNLINKED_ACCOUNT_MESSAGE)
+
         try:
             response = command.handler(args, user_id=user_id, channel_id=channel_id,
                                        platform=platform, app_user_id=resolved_app_user_id)
@@ -623,8 +632,30 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
-        """List recent deployments."""
-        from services.webhook_integrations import get_webhook_service, EventType
+        """List recent deployments.
+
+        `WebhookEventRecord` has no per-user or per-org column at all — it is
+        the same platform-wide CI/CD event stream that `/webhooks/`,
+        `/webhooks/api/events` and `/webhooks/api/stats` gate behind
+        `@admin_required` (see routes/webhooks.py). Unlike every other
+        per-user command in this file, this handler was calling
+        `get_webhook_service().get_events()` directly with no
+        `_require_app_user()` call at all — reachable by a completely
+        unlinked chat identity, and even once linked, exposing admin-only
+        repository/branch/commit/actor data to any regular user. Enforce the
+        same admin boundary the web UI already requires.
+        """
+        from services.webhook_integrations import get_webhook_service
+        from services.rbac import user_is_admin
+        from models import User
+
+        app_user_id = self._require_app_user(kwargs)
+        user = User.query.get(app_user_id)
+        if not user_is_admin(user):
+            return ChatResponse(
+                text="Deployment history is admin-only. Ask a platform admin, "
+                     "or view it in the app at /webhooks/ if you have access."
+            )
 
         service = get_webhook_service()
         events = service.get_events(event_type='deployment', limit=5)

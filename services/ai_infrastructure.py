@@ -628,80 +628,43 @@ class AIInfrastructureService:
     # Recommendations
 
     def get_recommendations(self, user_id: int) -> List[Dict]:
-        """Get AI recommendations based on current infrastructure."""
-        recommendations = [
-            {
-                'id': 'rec_1',
-                'type': 'cost',
-                'title': 'Right-size underutilized EC2 instances',
-                'description': 'Analysis shows instances consistently using less than 20% CPU',
-                'impact': 'Reduce monthly costs by switching to smaller instance types',
-                'estimated_savings': 150.00,
-                'confidence': 92,
-                'action_items': [
-                    'Review usage metrics',
-                    'Test application on smaller instance',
-                    'Schedule maintenance window for resize'
-                ],
-                'auto_applicable': True
-            },
-            {
-                'id': 'rec_2',
-                'type': 'security',
-                'title': 'Enable encryption for S3 buckets',
-                'description': 'Some S3 buckets do not have default encryption enabled',
-                'impact': 'Improve data security and compliance posture',
-                'estimated_savings': 0,
-                'confidence': 98,
-                'action_items': [
-                    'Enable SSE-S3 encryption on buckets',
-                    'Review bucket policies'
-                ],
-                'auto_applicable': True
-            },
-            {
-                'id': 'rec_3',
-                'type': 'performance',
-                'title': 'Add read replicas for RDS',
-                'description': 'Primary database shows high read load during peak hours',
-                'impact': 'Improve read performance and application responsiveness',
-                'estimated_savings': -50.00,
-                'confidence': 85,
-                'action_items': [
-                    'Create read replica',
-                    'Update application connection strings',
-                    'Implement read/write splitting'
-                ],
-                'auto_applicable': False
-            },
-            {
-                'id': 'rec_4',
-                'type': 'reliability',
-                'title': 'Enable Multi-AZ for critical databases',
-                'description': 'Production database is single-AZ, creating availability risk',
-                'impact': 'Improve availability and disaster recovery capability',
-                'estimated_savings': -100.00,
-                'confidence': 95,
-                'action_items': [
-                    'Enable Multi-AZ deployment',
-                    'Verify automatic failover configuration'
-                ],
-                'auto_applicable': True
-            }
-        ]
-        return recommendations
+        """Get AI recommendations based on current infrastructure.
+
+        Returns empty until this is wired to a real data source. This used to
+        return four hardcoded recommendations (EC2 right-sizing, S3
+        encryption, RDS read replicas, Multi-AZ), unconditionally and
+        identically for every user regardless of `user_id` or what — if
+        anything — was in their account: the same "canned output
+        indistinguishable from a real query" bug class as Drift/Predictive
+        Scaling/Analytics/Performance Optimizer (see CLAUDE.md's "Non-negotiable"
+        section). Fail closed the same way `services/performance_optimizer.py`'s
+        `_get_user_recommendations()` and `services/predictive_scaling.py`'s
+        `generate_all_predictions()` do, rather than fabricate.
+        """
+        return []
 
     def apply_recommendation(self, recommendation_id: str, user_id: int) -> Dict:
-        """Apply an auto-applicable recommendation."""
+        """Apply an auto-applicable recommendation.
+
+        This previously reported `success: True` unconditionally for any
+        known recommendation id with no cloud API call ever made — the same
+        fake-Apply shape fixed in `routes/scaling.py`'s
+        `api_apply_recommendation` and `app.py`'s
+        `/api/dashboard/recommendations/<id>/apply`. Fail closed instead of
+        lying about what happened — but keep the existence check (mirroring
+        `routes/scaling.py`'s own 404-before-501 shape) rather than collapsing
+        every id into the same "not implemented" response: `get_recommendations()`
+        returns no data yet, so today every id is genuinely "not found";
+        once real data is wired in, a real match will get the honest
+        "not yet implemented" message instead of a fabricated success.
+        """
         recommendations = self.get_recommendations(user_id)
         for rec in recommendations:
             if str(rec['id']) == str(recommendation_id):
-                if not rec.get('auto_applicable'):
-                    return {'success': False, 'error': 'Recommendation requires manual action'}
                 return {
-                    'success': True,
-                    'message': f'Applied recommendation: {rec["title"]}',
-                    'actions_taken': rec['action_items']
+                    'success': False,
+                    'error': 'Applying this recommendation is not yet implemented — no cloud '
+                             'API call is made and no infrastructure was changed.',
                 }
         return {'success': False, 'error': 'Recommendation not found'}
 

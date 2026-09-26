@@ -260,3 +260,41 @@ def test_incidents_list_command_runs_without_error(app, test_user):
     service = get_chatops_service()
     response = service._cmd_incidents([], app_user_id=test_user.id)
     assert response.text
+
+
+# ==================== Scheduled audit (2026-09-26): /deployments bypassed
+# both identity linking and the admin boundary the web UI enforces ====================
+
+def test_deployments_command_refuses_unlinked_identity():
+    """Unlike every other per-user command, `_cmd_deployments` never called
+    `_require_app_user()` — it ran for a completely unlinked chat identity."""
+    service = get_chatops_service()
+    response = service.process_message(
+        'deployments', user_id='slack-U-unlinked-deploy', platform=ChatPlatform.SLACK
+    )
+    assert 'link' in response.text.lower()
+
+
+def test_deployments_command_refuses_non_admin_user(app, test_user):
+    """WebhookEventRecord has no per-user column at all — it's the same
+    platform-wide CI/CD stream /webhooks/api/events gates behind
+    @admin_required. A regular linked user must still be refused."""
+    service = get_chatops_service()
+    assert test_user.role != 'admin'
+
+    response = service._cmd_deployments([], app_user_id=test_user.id)
+    assert 'admin' in response.text.lower()
+
+
+def test_deployments_command_allows_admin_user(app, test_user, db_session):
+    from models import db
+
+    test_user.role = 'admin'
+    db.session.commit()
+    try:
+        service = get_chatops_service()
+        response = service._cmd_deployments([], app_user_id=test_user.id)
+        assert 'admin-only' not in response.text.lower()
+    finally:
+        test_user.role = 'user'
+        db.session.commit()

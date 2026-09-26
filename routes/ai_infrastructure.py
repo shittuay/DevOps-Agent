@@ -234,7 +234,17 @@ def api_apply_recommendation(rec_id):
     service = AIInfrastructureService(current_user.id)
 
     result = service.apply_recommendation(rec_id, current_user.id)
-    return jsonify(result)
+    # apply_recommendation() never reports success (no cloud API call exists
+    # yet) — surface that honestly, matching routes/scaling.py's
+    # api_apply_recommendation: 404 for an id that doesn't exist, 501 for one
+    # that exists but isn't implemented, never a 200 that reads as success.
+    if result.get('success'):
+        status_code = 200
+    elif result.get('error') == 'Recommendation not found':
+        status_code = 404
+    else:
+        status_code = 501
+    return jsonify(result), status_code
 
 
 @ai_infrastructure_bp.route('/api/recommendations/<int:rec_id>/dismiss', methods=['POST'])
