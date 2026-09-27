@@ -167,9 +167,11 @@ def ansible_playbook_run(
         command = ['ansible-playbook', playbook_path]
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         if limit:
+            _reject_flag_like(limit, 'limit')
             command.extend(['--limit', limit])
 
         if tags:
@@ -188,6 +190,7 @@ def ansible_playbook_run(
             command.append('--become')
 
         if become_user:
+            _reject_flag_like(become_user, 'become_user')
             command.extend(['--become-user', become_user])
 
         if check_mode:
@@ -261,12 +264,14 @@ def ansible_adhoc_command(
             command.extend(['-a', module_args])
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         if become:
             command.append('--become')
 
         if become_user:
+            _reject_flag_like(become_user, 'become_user')
             command.extend(['--become-user', become_user])
 
         command.extend(['--forks', str(forks)])
@@ -367,6 +372,7 @@ def ansible_playbook_syntax_check(
         command = ['ansible-playbook', '--syntax-check', playbook_path]
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)
@@ -693,6 +699,7 @@ def ansible_ping(
         command = ['ansible', host_pattern, '-m', 'ping']
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)
@@ -740,6 +747,7 @@ def ansible_facts(
             command.extend(['-a', module_args])
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)

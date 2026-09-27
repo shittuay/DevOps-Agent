@@ -113,3 +113,32 @@ def test_flag_like_value_is_rejected(call):
     result = call()
     assert result['success'] is False
     assert 'must not start with' in result['error'], result
+
+
+# ---------------------------------------------------------------------------
+# Coverage for values carried by an explicit flag (`-i <inventory>`,
+# `--become-user <user>`, `--limit <pattern>`) rather than a bare positional.
+#
+# _reject_flag_like's own docstring already claimed this class was covered
+# ("values carried by an explicit flag ... since a dash-prefixed VALUE is
+# still consumed as the option's own argument"), but a 2026-09-27 scheduled
+# audit found 8 of these call sites built `command.extend(['-i', inventory])`
+# / `['--become-user', become_user]` / `['--limit', limit]` with no guard at
+# all -- the function existed and was applied to every bare positional, just
+# not to the flag-carried values the same docstring already described.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('call', [
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', inventory=FLAG), id='playbook_run.inventory'),
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', limit=FLAG), id='playbook_run.limit'),
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', become_user=FLAG), id='playbook_run.become_user'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='ping', inventory=FLAG), id='adhoc_command.inventory'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='ping', become_user=FLAG), id='adhoc_command.become_user'),
+    pytest.param(lambda: ansible_playbook_syntax_check(playbook_path='site.yml', inventory=FLAG), id='syntax_check.inventory'),
+    pytest.param(lambda: ansible_ping(host_pattern='all', inventory=FLAG), id='ping.inventory'),
+    pytest.param(lambda: ansible_facts(host_pattern='all', inventory=FLAG), id='facts.inventory'),
+])
+def test_flag_carried_value_is_rejected(call):
+    result = call()
+    assert result['success'] is False
+    assert 'must not start with' in result['error'], result

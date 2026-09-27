@@ -198,15 +198,17 @@ operating on the real, CloudWatch-derived `CostOptimization` rows from
 `services/infrastructure_sync.py`) set `status='applied'` and returned a success toast
 ("Optimization applied — saving $X/mo") without calling any cloud API to stop/resize/reconfigure
 anything — fixed the same way `routes/scaling.py`'s `api_apply_recommendation` was: an honest
-501 `not_implemented` response, never a fabricated `applied` status. **Not yet fixed:**
-`services/ai_infrastructure.py`'s `get_recommendations()` still returns a hardcoded list
-ignoring `user_id`, and its `apply_recommendation()` still reports `success: True` without
-calling any cloud API — same fake-Apply shape, not touched by this pass. See CLAUDE_RUNBOOK.md's
-2026-09-15 and 2026-09-20 entries for exact line numbers. This is now seven known instances of
-the same bug class (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the
-dashboard cost-recommendation Apply endpoint, and still-open AI Infrastructure) found
-independently across six separate audits — the recurrence itself, not just any one instance, is
-the signal that this needs a structural fix (e.g. a shared "no live account → fail closed"
+501 `not_implemented` response, never a fabricated `applied` status. **Fixed by the 2026-09-27
+scheduled audit:** `services/ai_infrastructure.py`'s `get_recommendations()` had returned a
+hardcoded list ignoring `user_id`, and its `apply_recommendation()` had reported `success: True`
+without calling any cloud API — same fake-Apply shape as the rest of this tally. Fixed the same
+way: `get_recommendations()` now returns `[]` (no live wiring exists yet), `apply_recommendation()`
+returns an honest `success: False` "not yet implemented" error. See CLAUDE_RUNBOOK.md's
+2026-09-15, 2026-09-20, and 2026-09-27 entries for exact line numbers. This was eight known
+instances of the same bug class (Drift, Predictive Scaling, Analytics, ChatOps, Performance
+Optimizer, the dashboard cost-recommendation Apply endpoint, and AI Infrastructure) found
+independently across seven separate audits, all now fixed — the recurrence itself, not just any
+one instance, was the signal that this needs a structural fix (e.g. a shared "no live account → fail closed"
 helper every new recommendation/analytics feature is required to call, and a shared "apply"
 helper that refuses to report success without an actual tool call) rather than another one-off
 patch next time it's found again.
@@ -659,6 +661,20 @@ and is disabled outright in this function anyway (`allow_unsafe_options=True`, n
 parameter in the file was re-walked by hand in the same audit and is guarded** — this appears to
 close the gap for now, but per the note above, nothing stops the next new function from repeating
 it.
+
+**The sibling guard in `src/tools/ansible_tools.py` had the same shape of gap, one level down.**
+That module's own `_reject_flag_like()` docstring claims coverage of both bare positionals *and*
+"values carried by an explicit flag (`-i <inventory>`, `-r <requirements_file>`, `--output
+<output_file>`)" — but a 2026-09-27 scheduled audit found 8 call sites building
+`command.extend(['-i', inventory])` / `['--become-user', become_user]` / `['--limit', limit]`
+with no guard call at all, across `ansible_playbook_run`, `ansible_adhoc_command`,
+`ansible_playbook_syntax_check`, `ansible_ping`, and `ansible_facts`. Bare positionals in this
+file had already gotten a follow-up pass (2026-09-14, see
+`tests/test_ansible_tools_argument_injection.py`'s own docstring) but flag-carried values never
+did — the exact "opt-in per call site, not enforced by an automated check" pattern this section
+already describes, recurring in a sibling module instead of the same one. Fixed by adding
+`_reject_flag_like()` immediately before each of the 8 `command.extend([...])` calls; see
+CLAUDE_RUNBOOK.md's 2026-09-27 entry.
 
 ## Security invariants (`scripts/check_security_invariants.py`)
 

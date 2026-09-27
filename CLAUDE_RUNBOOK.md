@@ -3089,3 +3089,98 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## Scheduled audit (2026-09-27): `services/ai_infrastructure.py` fabricated recommendations fixed (final known instance); Ansible argv-injection guard closed a second gap in flag-carried values
+
+Routine "review for vulnerabilities, smells, duplicates" audit. Two findings, both fixed.
+
+**Fixed — `services/ai_infrastructure.py`'s `get_recommendations()`/`apply_recommendation()`
+was the eighth instance of the "canned output indistinguishable from a real query" bug class**
+(Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the dashboard
+cost-recommendation Apply endpoint, and this one — see CLAUDE.md's "Non-negotiable" section for
+the full tally). `get_recommendations()` returned four hardcoded findings (fake EC2/S3/RDS
+resources, invented dollar savings, `confidence` scores) for every user regardless of the
+`user_id` argument, with zero live AWS/Azure/GCP query anywhere in the class — confirmed via
+grep that `analyze_resource()` (the one method shaped to take real `resource_data`) has no
+callers anywhere in the codebase. `apply_recommendation()` then reported `success: True` with
+fabricated `actions_taken` for any `auto_applicable` recommendation, with no cloud API call.
+Both reachable in production via `routes/ai_infrastructure.py`'s `/ai/recommendations` page and
+`/ai/api/recommendations` + `/ai/api/recommendations/<id>/apply` JSON endpoints. Fixed the same
+way as the `performance_optimizer.py`/`predictive_scaling.py` precedents: `get_recommendations()`
+now returns `[]` (fail closed, no live wiring exists yet) and `apply_recommendation()` returns
+`{'success': False, 'error': 'Applying this recommendation is not yet implemented — no cloud API
+call is made.'}` instead of fabricating success — same 501-style honest-failure shape as
+`routes/scaling.py`'s `api_apply_recommendation` and `app.py`'s dashboard cost-recommendation
+Apply endpoint. `templates/ai_infrastructure/recommendations.html` already renders "No
+recommendations available" on an empty list, so no template change was needed. No test asserted
+on the old fabricated data (`tests/test_ai_infrastructure_templates.py` only covers templates,
+not recommendations) — confirmed by running it green after the change (7 passed).
+
+**This closes CLAUDE.md's running tally of fabricated-recommendation instances** — all eight
+found across audits since 2026-08-12 are now fixed. The structural fix CLAUDE.md calls for (a
+shared "fail closed" helper for recommendation generation and a shared "apply" helper that
+refuses to report success without an actual tool call) is still not built; each instance so far
+has been fixed one service at a time, this one included. Worth a dedicated pass if a ninth
+instance turns up.
+
+**Fixed — Ansible argument-injection guard (`_reject_flag_like`, `src/tools/ansible_tools.py`)
+covered only bare-positional argv values, not the flag-carried values its own docstring already
+claimed to cover.** The docstring says the guard is "applied to every caller-supplied value that
+reaches an argv list in this module — bare positionals ... and also values carried by an
+explicit flag (`-i <inventory>`, `-r <requirements_file>`, `--output <output_file>`)" — but 8
+call sites building `command.extend(['-i', inventory])` / `['--become-user', become_user]` /
+`['--limit', limit]` had no guard call at all: `ansible_playbook_run` (`inventory`, `limit`,
+`become_user`), `ansible_adhoc_command` (`inventory`, `become_user`),
+`ansible_playbook_syntax_check` (`inventory`), `ansible_ping` (`inventory`), `ansible_facts`
+(`inventory`). `tags`/`skip_tags` were not affected — each is joined into a single comma-separated
+string before being placed as one argv token, so a dash-prefixed item can't become its own
+argv-boundary flag; `extra_vars_file` is always emitted as `@{extra_vars_file}`, never a bare
+value, for the same reason. This is the third time this module-level, opt-in guard has been
+applied incompletely on a first pass — `git_tools.py` needed follow-ups on 2026-08-04 and
+2026-08-12 for the same "opt-in per call site, not enforced by an automated check" reason
+documented in CLAUDE.md's git-guard section; `ansible_tools.py` itself already needed one
+follow-up on 2026-09-14 (`tests/test_ansible_tools_argument_injection.py`'s docstring records
+that pass) for six bare-positional sites the first ansible pass missed. This is the same gap
+shape recurring a level down — bare positionals got a second pass, flag-carried values never
+did. Fixed by adding `_reject_flag_like()` immediately before each of the 8 `command.extend([...])`
+calls above, matching the guard call already present at every bare-positional site in the file.
+No known confirmed RCE chain for `-i`/`--become-user`/`--limit` specifically (unlike the
+vault trio's `--vault-password-file`, called out in the guard's own docstring) — same
+defense-in-depth posture as the git-guard's later additions, which the docstring already
+described as the policy for this argv-ambiguity class even without a confirmed exploit for a
+given flag.
+
+**Tests:** extended `tests/test_ansible_tools_argument_injection.py` with a
+`test_flag_carried_value_is_rejected` parametrized block covering all 8 previously-unguarded
+sites, plus confirmed a normal call (`inventory='hosts.ini', limit='webservers',
+become_user='deploy'`) still passes the guard and only fails later at subprocess execution —
+27/27 passed (19 pre-existing + 8 new).
+
+**Environment note:** this sandbox had no Python dependencies installed at all
+(no `pytest`, `flask`, `boto3`, `kubernetes`, `GitPython`, `PyGithub`, `docker`,
+`prometheus_client`, `email_validator`). Installed them individually to get a working test
+environment; `python-jenkins` failed to build here (`multi-key-dict`'s legacy `setup.py` is
+incompatible with this environment's setuptools) and was stubbed with a two-line fake `jenkins`
+module (`Jenkins`/`JenkinsException` only) purely so `src/tools/__init__.py`'s eager import
+chain would resolve for local test collection — this stub is not part of the repo and has no
+effect on any real deploy, which installs the pinned `requirements.txt` normally. Ran the
+targeted suite (50 tests across ansible/ai_infrastructure/optimization/scaling/
+performance_optimizer) green; a full-suite run was kicked off in the background to catch any
+wider regression but two unrelated pre-existing collection errors (`test_saml.py` needs `lxml`,
+`test_stripe_precedence.py` needs `stripe` — neither installed, neither touched by this change)
+had to be excluded via `--ignore`.
+
+**Also reviewed this pass, no new issue found:** the 3 known-flagged tool-execution paths that
+bypass the Execution Integrity stack (`services/approval_service.py`, `routes/api_gateway.py`,
+`routes/mcp.py` — confirmed still present, still deferred per CLAUDE_RUNBOOK.md's 2026-09-07
+entry, same reasoning: touches three surfaces at once, warrants its own reviewed PR); the
+`model_failover.py`/`credit_service.py` intra-process races (confirmed still present, still
+low-severity/deferred per the Concurrency Model section); the 8-site guardrails pipeline
+duplication (confirmed all 8 sites still present and NOT drifted from each other — same
+step, same order at every site; still no shared helper, unchanged from prior audits);
+`redact_secrets`/`StreamingRedactor` coverage on all 3 streaming loops (confirmed intact, no
+regression); CSRF token presence on every form template (clean); no `eval`/`exec`/`pickle.loads`/
+unsafe `yaml.load` anywhere in the codebase; no `shell=True` subprocess call outside one
+Windows-only helper script under `tools/remote-control/` (not part of the Flask app); the
+`_AUTHORIZE_HTML` OAuth login page in `routes/mcp.py` renders via `render_template_string` with
+autoescape on and no `| safe` filters — not an SSTI/XSS vector.
