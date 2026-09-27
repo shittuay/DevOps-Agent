@@ -676,6 +676,13 @@ class SafetyValidator:
             # content to an external sink" the same as publish_sns_message /
             # publish_pubsub_message, and send_ isn't an auto-detected prefix either.
             'send_sqs_message',
+            # Same provider_verb_noun gap in a module not previously audited for it:
+            # create_datadog_event posts caller-controlled title/text/tags to a live
+            # Datadog event stream visible to the whole team (can affect monitor/dashboard
+            # state), with no confirmation — same "arbitrary content to an external sink"
+            # risk class as pagerduty_create_incident/opsgenie_create_alert above, missed
+            # until the 2026-09-27 scheduled audit.
+            'create_datadog_event',
         }
 
         # Check if tool is a pentest tool

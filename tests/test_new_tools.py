@@ -412,6 +412,12 @@ class TestSafetyClassifications:
     def test_opsgenie_add_note_is_medium_risk(self):
         assert self._classify('opsgenie_add_note') == 'medium'
 
+    def test_create_datadog_event_is_medium_risk(self):
+        # 2026-09-27 audit: posts caller-controlled title/text/tags to a live
+        # Datadog event stream visible to the whole team, same provider_verb_noun
+        # gap as pagerduty_create_incident/opsgenie_create_alert above.
+        assert self._classify('create_datadog_event') == 'medium'
+
     def test_git_stash_save_is_medium_risk(self):
         # The one stash operation that actually reverts the working tree,
         # discarding uncommitted changes from view — git_stash_apply/

@@ -3184,3 +3184,39 @@ unsafe `yaml.load` anywhere in the codebase; no `shell=True` subprocess call out
 Windows-only helper script under `tools/remote-control/` (not part of the Flask app); the
 `_AUTHORIZE_HTML` OAuth login page in `routes/mcp.py` renders via `render_template_string` with
 autoescape on and no `| safe` filters — not an SSTI/XSS vector.
+
+## Same audit, continued: `create_datadog_event` had no risk classification at all
+
+A parallel Explore pass over `src/agent/safety.py`'s tool-classification coverage (looking for
+new `<provider>_<verb>_<noun>`-shaped tools that defeat prefix auto-detection, the same search
+that has previously caught `pagerduty_create_incident`/`opsgenie_create_alert`/
+`publish_sns_message`/`publish_pubsub_message`/`send_sqs_message`/`pagerduty_add_note`/
+`opsgenie_add_note`) found one more: `create_datadog_event` (`src/tools/monitoring_tools.py:444`,
+registered as a tool at line 821) posts caller-controlled `title`/`text`/`alert_type`/`priority`/
+`tags` straight to `https://api.datadoghq.com/api/v1/events` — a live event visible to the whole
+team that can affect monitor/dashboard state — with **zero risk gating**: absent from both
+`high_risk_tools` and `medium_risk_tools`, no inline `capability` block, no
+`config/tool_capabilities.yaml` entry. `python3 scripts/gen_tool_capabilities.py --check`-style
+re-run confirmed the yaml itself wasn't stale relative to the (incomplete) legacy sets — the gap
+was in the legacy classification never having covered this tool in the first place, a module
+that hadn't been swept for this bug class before.
+
+Fixed by adding `create_datadog_event` to `medium_risk_tools` in `src/agent/safety.py` (same
+shape/comment style as the alerting-tool entries above it) and re-running
+`scripts/gen_tool_capabilities.py` to backfill `config/tool_capabilities.yaml`. Added
+`test_create_datadog_event_is_medium_risk` to `tests/test_new_tools.py` next to the other
+2026-09-15-audit medium-risk pins. `tests/test_tool_capabilities.py` (16 tests) and
+`tests/test_new_tools.py` (122 tests) both green.
+
+**Other two categories in the same pass (SSRF guard coverage, git argument-injection guard
+coverage) came back clean — no new gaps.** `scripts/check_security_invariants.py` reports no
+violations; every raw `requests.*` call site outside the SSRF-guarded helpers carries a specific
+`# ssrf-safe:` exemption comment pointing at a hardcoded host, matching CLAUDE.md's documented
+exemption list; the non-`requests` paths (`git_tools._validate_git_url`'s
+`socket.getaddrinfo`, `aws_tools.associate_eks_oidc_provider`'s `ssl.get_server_certificate`,
+`verification_tools.tcp_check`'s `socket.create_connection`) are all pre-guarded. Every
+bare-positional caller-supplied value in `git_tools.py` reaching `repo.git.*`/`Repo.clone_from`/
+`repo.create_remote`/`repo.commit` calls `_reject_flag_like()` first; the unguarded-looking
+`git_commit`/`git_amend_commit` message/author params and `git_stash_save`'s message param are
+safe by construction (always consumed as a flag's own mandatory argument, or pre-concatenated
+after `--author=`/`--grep=`/`--since=`, so a leading `-` can't become a new argv boundary).
