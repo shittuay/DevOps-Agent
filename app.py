@@ -342,6 +342,9 @@ app.register_blueprint(billing_bp)
 from routes.admin import admin_bp
 app.register_blueprint(admin_bp)
 
+from routes.marketing import marketing_bp
+app.register_blueprint(marketing_bp)
+
 # Register incidents blueprint
 from routes.incidents import incidents_bp
 app.register_blueprint(incidents_bp)

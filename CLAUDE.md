@@ -1411,6 +1411,8 @@ Optional:
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi API key (required for Kimi model provider)
 - `KIMI_MODEL` - Kimi model override (default: `kimi-k3`, the latest). Valid Moonshot ids (verified live via `/v1/models` 2026-07-22): `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5` (no bare `kimi-k2.7`).
+- `MARKETING_POSTAL_ADDRESS` - sender postal address added to marketing emails. Sending is refused while it is unset.
+- `MARKETING_DAILY_EMAIL_CAP` (default 25) / `MARKETING_MODEL` (default `claude-sonnet-4-6`) - marketing agent limits and model.
 - `METRICS_TOKEN` - Bearer token gating `/metrics` (see Prometheus Metrics section below). Unset = endpoint returns 403, disabled by default.
 - `PROMETHEUS_MULTIPROC_DIR` - Set in `devops-agent.service` (not `.env`) to enable multiprocess metric aggregation across gunicorn's 3 workers. Unset in local dev/tests — falls back to a single process-local registry.
 
@@ -1829,6 +1831,38 @@ written by the SSE `done` handler in the page, so a closed tab would strand a ro
 `running` forever. `list_executions` reconciles on read: past `STALE_EXECUTION_MINUTES`
 (30), an assistant reply in the conversation means `completed`, none means `timed_out`.
 Any new status a client reports must have an equivalent server-derivable fallback.
+
+### Marketing Agent (`/marketing/`, admin-only)
+
+Service `services/marketing_agent.py`, routes `routes/marketing.py`, page
+`templates/admin/marketing.html`, models `MarketingProspect` / `MarketingDraft` /
+`MarketingSuppression`. Rationale: `vault/decisions/marketing-agent-human-approval.md`.
+
+**Flow:** discover, then draft, then human review, then a person publishes.
+- `discover_prospects()` searches the public Hacker News Algolia API and Reddit's
+  `search.json` (both through `safe_request`), scores each post with `score_text()`
+  (pain signals plus buying intent), and stores posts at or above `min_score` (5),
+  deduplicated by URL. A failing source shows up in `errors` and is never treated as
+  "no results". Reddit may block unauthenticated clients.
+- `generate_draft()` writes copy for one of `CHANNELS` (email, HN/Reddit reply,
+  LinkedIn, X, blog) through Claude (`MARKETING_MODEL`, default `claude-sonnet-4-6`).
+  With no `ANTHROPIC_API_KEY` it falls back to fact-sheet templates. The scraped post
+  goes into the prompt inside `<post>` tags as data.
+- **Copy may only claim what `PRODUCT_FACTS` says.** `check_compliance()` flags
+  testimonials, customer counts, guarantees, certifications, superlatives, numbers not
+  in `ALLOWED_NUMBERS`, and community replies without an affiliation disclosure.
+  Approving a flagged draft returns 409 unless `acknowledge_issues: true` is sent.
+  **When pricing, tool counts or features change, update `PRODUCT_FACTS` and
+  `ALLOWED_NUMBERS`**, or the agent will advertise stale facts.
+- Every draft starts as `pending`. Any edit resets it to `pending`.
+- **Only `email` is sent by the app** (`send_approved_email`). Other channels are
+  copied out and marked posted by hand, because automated posting breaks HN, Reddit,
+  LinkedIn and X rules. Sending requires: an approved draft, a recipient entered by a
+  person (the agent never harvests addresses), `MARKETING_POSTAL_ADDRESS` set
+  (CAN-SPAM), a recipient not in `MarketingSuppression`, and room under
+  `MARKETING_DAILY_EMAIL_CAP` (default 25 per 24h). Each email carries a signed
+  `/marketing/unsubscribe/<token>` link (itsdangerous, salt `marketing-unsubscribe`).
+- Tests: `tests/test_marketing_agent.py`.
 
 ### Proactive Prevention Engine
 **Access:** `/optimization/prevention` — click "Run Analysis" to scan

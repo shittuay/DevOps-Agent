@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}Marketing Agent - DevOps Agent{% endblock %}
+{% block content %}
+<style>
+    .mk-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+    .mk-head h1 { font-family: 'Syne', sans-serif; font-size: 1.6rem; margin: 0 0 4px; }
+    .mk-head p { color: var(--text-secondary); margin: 0 0 20px; }
+    .mk-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .mk-stat { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px; }
+    .mk-stat b { display: block; font-size: 1.5rem; font-family: 'IBM Plex Mono', monospace; }
+    .mk-stat span { color: var(--text-secondary); font-size: .85rem; }
+    .mk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .mk-grid { grid-template-columns: 1fr; } }
+    .mk-card { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 18px; margin-bottom: 16px; min-width: 0; }
+    .mk-card h2 { font-size: 1.05rem; margin: 0 0 12px; }
+    .mk-card label { display: block; font-size: .8rem; color: var(--text-secondary); margin: 10px 0 4px; }
+    .mk-card textarea, .mk-card input, .mk-card select { width: 100%; box-sizing: border-box; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; font: inherit; }
+    .mk-btn { background: var(--accent-primary, #ff6b35); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; margin-top: 10px; }
+    .mk-btn.secondary { background: transparent; color: var(--text-primary); border: 1px solid var(--border-subtle); }
+    .mk-btn:disabled { opacity: .5; cursor: default; }
+    .mk-list { display: flex; flex-direction: column; gap: 10px; max-height: 640px; overflow: auto; }
+    .mk-item { border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px; }
+    .mk-item a { color: var(--accent-primary, #ff6b35); word-break: break-word; }
+    .mk-meta { font-size: .78rem; color: var(--text-secondary); margin: 4px 0; }
+    .mk-snippet { font-size: .85rem; white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }
+    .mk-body { white-space: pre-wrap; font-size: .88rem; background: var(--bg-primary); border-radius: 8px; padding: 10px; margin: 8px 0; }
+    .mk-issue { color: #f59e0b; font-size: .8rem; }
+    .mk-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .mk-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .mk-tabs button.active { border-color: var(--accent-primary, #ff6b35); }
+    .mk-note { font-size: .8rem; color: var(--text-secondary); }
+    #mkToast { position: fixed; bottom: 16px; left: 16px; right: 16px; max-width: 480px; margin: 0 auto; background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px; display: none; z-index: 50; }
+</style>
+
+<div class="mk-wrap">
+    <div class="mk-head">
+        <h1>Marketing Agent</h1>
+        <p>Finds public conversations where DevOps Agent helps, drafts honest outreach from the fact sheet, and waits for your approval. Only email is sent by the app; post everything else yourself.</p>
+    </div>
+
+    <div class="mk-stats" id="mkStats"></div>
+
+    <div class="mk-grid">
+        <div>
+            <div class="mk-card">
+                <h2>1. Find prospects</h2>
+                <label for="mkQueries">Search queries (one per line)</label>
+                <textarea id="mkQueries" rows="5">{{ default_queries | join('\n') }}</textarea>
+                <div class="mk-row">
+                    <label><input type="checkbox" class="mkSource" value="hackernews" checked style="width:auto"> Hacker News</label>
+                    <label><input type="checkbox" class="mkSource" value="reddit" checked style="width:auto"> Reddit</label>
+                </div>
+                <button class="mk-btn" id="mkDiscover">Search the web</button>
+                <p class="mk-note" id="mkDiscoverResult"></p>
+            </div>
+
+            <div class="mk-card">
+                <h2>Prospects</h2>
+                <div class="mk-tabs" id="mkProspectTabs">
+                    <button class="mk-btn secondary active" data-status="new">New</button>
+                    <button class="mk-btn secondary" data-status="drafted">Drafted</button>
+                    <button class="mk-btn secondary" data-status="contacted">Contacted</button>
+                    <button class="mk-btn secondary" data-status="ignored">Ignored</button>
+                </div>
+                <div class="mk-list" id="mkProspects"></div>
+            </div>
+        </div>
+
+        <div>
+            <div class="mk-card">
+                <h2>2. Create content</h2>
+                <label for="mkChannel">Channel</label>
+                <select id="mkChannel">
+                    {% for key, ch in channels.items() %}<option value="{{ key }}">{{ ch.label }}</option>{% endfor %}
+                </select>
+                <label for="mkTopic">Topic / angle</label>
+                <input id="mkTopic" placeholder="e.g. Cutting AWS costs without a dedicated SRE">
+                <label for="mkRecipient">Recipient email (email only, someone you may lawfully contact)</label>
+                <input id="mkRecipient" type="email" placeholder="optional">
+                <button class="mk-btn" id="mkGenerate">Write draft</button>
+            </div>
+
+            <div class="mk-card">
+                <h2>3. Review queue</h2>
+                <div class="mk-tabs" id="mkDraftTabs">
+                    <button class="mk-btn secondary active" data-status="pending">Pending</button>
+                    <button class="mk-btn secondary" data-status="approved">Approved</button>
+                    <button class="mk-btn secondary" data-status="sent">Sent / posted</button>
+                    <button class="mk-btn secondary" data-status="rejected">Rejected</button>
+                </div>
+                <div class="mk-list" id="mkDrafts"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="mkToast" role="status"></div>
+
+<script>
+(function () {
+    const channels = {{ channels | tojson }};
+    let prospectStatus = 'new', draftStatus = 'pending';
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    function toast(msg) {
+        const t = $('mkToast'); t.textContent = msg; t.style.display = 'block';
+        clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', 5000);
+    }
+    async function api(url, method = 'GET', body) {
+        const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' },
+                                     body: body ? JSON.stringify(body) : undefined });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { const e = new Error(data.error || ('Request failed: ' + r.status)); e.data = data; e.status = r.status; throw e; }
+        return data;
+    }
+
+    async function loadStats() {
+        const s = await api('/marketing/api/stats');
+        const tiles = [['New prospects', s.prospects_new], ['Pending review', s.drafts_pending],
+                       ['Approved', s.drafts_approved], ['Sent / posted', s.emails_sent],
+                       ['Daily email cap', s.daily_email_cap]];
+        $('mkStats').innerHTML = tiles.map(([l, v]) => `<div class="mk-stat"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
+    }
+
+    async function loadProspects() {
+        const { prospects } = await api('/marketing/api/prospects?status=' + prospectStatus);
+        $('mkProspects').innerHTML = prospects.length ? prospects.map(p => `
+            <div class="mk-item">
+                <a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.title || '(comment)')}</a>
+                <div class="mk-meta">${esc(p.source)} · score ${esc(p.score)} · ${esc((p.matched_signals || []).join(', '))}${p.author ? ' · ' + esc(p.author) : ''}</div>
+                <div class="mk-snippet">${esc(p.snippet)}</div>
+                <div class="mk-row">
+                    <select data-pid="${p.id}" class="mkReplyChannel" style="width:auto">
+                        <option value="${p.source === 'reddit' ? 'reddit_reply' : 'hackernews_reply'}">Reply</option>
+                        <option value="email">Email</option>
+                    </select>
+                    <button class="mk-btn" data-act="draft" data-pid="${p.id}">Draft response</button>
+                    <button class="mk-btn secondary" data-act="ignore" data-pid="${p.id}">Ignore</button>
+                </div>
+            </div>`).join('') : '<p class="mk-note">Nothing here yet.</p>';
+    }
+
+    async function loadDrafts() {
+        const { drafts } = await api('/marketing/api/drafts?status=' + draftStatus);
+        $('mkDrafts').innerHTML = drafts.length ? drafts.map(d => {
+            const ch = channels[d.channel] || { label: d.channel };
+            const issues = (d.compliance_issues || []).map(i => `<div class="mk-issue">⚠ ${esc(i)}</div>`).join('');
+            let actions = '';
+            if (d.status === 'pending') actions = `<button class="mk-btn" data-act="approve" data-did="${d.id}">Approve</button>
+                <button class="mk-btn secondary" data-act="reject" data-did="${d.id}">Reject</button>`;
+            if (d.status === 'approved') actions = ch.sendable
+                ? `<button class="mk-btn" data-act="send" data-did="${d.id}">Send email</button>`
+                : `<button class="mk-btn secondary" data-act="copy" data-did="${d.id}">Copy</button>
+                   <button class="mk-btn" data-act="posted" data-did="${d.id}">Mark posted</button>`;
+            return `<div class="mk-item">
+                <div class="mk-meta">${esc(ch.label)} · ${esc(d.status)} · ${esc(d.generated_by)}${d.recipient_email ? ' · to ' + esc(d.recipient_email) : ''}</div>
+                ${d.subject ? `<b>${esc(d.subject)}</b>` : ''}
+                ${d.status === 'pending'
+                    ? `<textarea rows="8" data-body="${d.id}">${esc(d.body)}</textarea>
+                       <button class="mk-btn secondary" data-act="save" data-did="${d.id}">Save edits</button>`
+                    : `<div class="mk-body" data-text="${d.id}">${esc(d.body)}</div>`}
+                ${issues}
+                <div class="mk-row">${actions}</div>
+            </div>`;
+        }).join('') : '<p class="mk-note">Nothing here yet.</p>';
+    }
+
+    async function refresh() { await Promise.all([loadStats(), loadProspects(), loadDrafts()]).catch(e => toast(e.message)); }
+
+    function bindTabs(id, set) {
+        $(id).addEventListener('click', (e) => {
+            const b = e.target.closest('button[data-status]'); if (!b) return;
+            $(id).querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+            set(b.dataset.status);
+        });
+    }
+    bindTabs('mkProspectTabs', s => { prospectStatus = s; loadProspects(); });
+    bindTabs('mkDraftTabs', s => { draftStatus = s; loadDrafts(); });
+
+    $('mkDiscover').addEventListener('click', async (e) => {
+        const btn = e.target; btn.disabled = true; btn.textContent = 'Searching…';
+        try {
+            const sources = [...document.querySelectorAll('.mkSource:checked')].map(x => x.value);
+            const r = await api('/marketing/api/discover', 'POST', { queries: $('mkQueries').value, sources });
+            let msg = `Scanned ${r.scanned} posts, added ${r.added} new prospects.`;
+            if (r.errors.length) msg += ` ${r.errors.length} searches failed (e.g. ${r.errors[0].source}: ${r.errors[0].error}).`;
+            $('mkDiscoverResult').textContent = msg;
+            refresh();
+        } catch (err) { toast(err.message); }
+        finally { btn.disabled = false; btn.textContent = 'Search the web'; }
+    });
+
+    $('mkGenerate').addEventListener('click', async (e) => {
+        const btn = e.target; btn.disabled = true; btn.textContent = 'Writing…';
+        try {
+            await api('/marketing/api/drafts', 'POST', { channel: $('mkChannel').value,
+                topic: $('mkTopic').value, recipient_email: $('mkRecipient').value });
+            toast('Draft added to the review queue.'); refresh();
+        } catch (err) { toast(err.message); }
+        finally { btn.disabled = false; btn.textContent = 'Write draft'; }
+    });
+
+    $('mkProspects').addEventListener('click', async (e) => {
+        const b = e.target.closest('button[data-act]'); if (!b) return;
+        const pid = Number(b.dataset.pid);
+        try {
+            if (b.dataset.act === 'ignore') await api(`/marketing/api/prospects/${pid}/status`, 'PUT', { status: 'ignored' });
+            if (b.dataset.act === 'draft') {
+                const channel = document.querySelector(`.mkReplyChannel[data-pid="${pid}"]`).value;
+                let recipient_email = null;
+                if (channel === 'email') {
+                    recipient_email = prompt('Recipient email (only someone you may lawfully contact):');
+                    if (!recipient_email) return;
+                }
+                b.disabled = true; b.textContent = 'Writing…';
+                await api('/marketing/api/drafts', 'POST', { channel, prospect_id: pid, recipient_email });
+                toast('Draft added to the review queue.');
+            }
+            refresh();
+        } catch (err) { toast(err.message); b.disabled = false; }
+    });
+
+    $('mkDrafts').addEventListener('click', async (e) => {
+        const b = e.target.closest('button[data-act]'); if (!b) return;
+        const id = b.dataset.did;
+        try {
+            switch (b.dataset.act) {
+                case 'save':
+                    await api(`/marketing/api/drafts/${id}`, 'PUT', { body: document.querySelector(`[data-body="${id}"]`).value });
+                    toast('Saved; compliance re-checked.'); break;
+                case 'approve':
+                    try { await api(`/marketing/api/drafts/${id}/review`, 'POST', { decision: 'approve' }); }
+                    catch (err) {
+                        if (err.status !== 409) throw err;
+                        if (!confirm('This draft has compliance warnings:\n\n' + err.data.compliance_issues.join('\n') + '\n\nApprove anyway?')) return;
+                        await api(`/marketing/api/drafts/${id}/review`, 'POST', { decision: 'approve', acknowledge_issues: true });
+                    }
+                    break;
+                case 'reject': await api(`/marketing/api/drafts/${id}/review`, 'POST', { decision: 'reject' }); break;
+                case 'send':
+                    if (!confirm('Send this email now?')) return;
+                    await api(`/marketing/api/drafts/${id}/send`, 'POST'); toast('Email sent.'); break;
+                case 'copy':
+                    await navigator.clipboard.writeText(document.querySelector(`[data-text="${id}"]`).textContent);
+                    toast('Copied. Post it yourself, then click "Mark posted".'); return;
+                case 'posted': await api(`/marketing/api/drafts/${id}/mark-posted`, 'POST'); break;
+            }
+            refresh();
+        } catch (err) { toast(err.message); }
+    });
+
+    refresh();
+})();
+</script>
+{% endblock %}

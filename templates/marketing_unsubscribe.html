@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unsubscribe - DevOps Agent</title>
+    <style>
+        :root { --bg: #ffffff; --fg: #1a1a1a; --muted: #666; }
+        @media (prefers-color-scheme: dark) { :root { --bg: #0d0f12; --fg: #e8e8e8; --muted: #9a9a9a; } }
+        body { background: var(--bg); color: var(--fg); font-family: sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; padding: 16px; }
+        main { max-width: 480px; text-align: center; }
+        p { color: var(--muted); line-height: 1.5; }
+    </style>
+</head>
+<body>
+<main>
+    {% if ok %}
+    <h1>You're unsubscribed</h1>
+    <p>You won't receive marketing email from DevOps Agent again. Account emails such as password resets are unaffected.</p>
+    {% else %}
+    <h1>Link not valid</h1>
+    <p>This unsubscribe link is invalid. Reply to the email you received and we will remove you by hand.</p>
+    {% endif %}
+</main>
+</body>
+</html>

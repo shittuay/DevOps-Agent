@@ -14,6 +14,7 @@ Read this index first, then follow only the links relevant to the current task.
 - [[ssm-deploy-no-ssh]] — why deploys go through AWS SSM instead of inbound SSH
 - [[service-reachability-probes]] — http_check/tcp_check + "a 404 is not success" prompt rules (2026-09-09)
 - [[tool-capability-metadata]] — risk lives on the tool, not a name-set in safety.py (2026-09-06, governance refactor Phase 1)
+- [[marketing-agent-human-approval]] — marketing agent drafts, a person publishes; fact-sheet-only claims (2026-10-01)
 
 ## Debugging / Postmortems
 - [[coverage-7-15-1-ci-outage]] — loose `coverage>=` pin took CI down Jul 13–15, 2026

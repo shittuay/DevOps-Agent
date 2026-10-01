@@ -3351,3 +3351,95 @@ class ChatOpsLinkCode(db.Model):
 
     def __repr__(self):
         return f'<ChatOpsLinkCode {self.code} user={self.user_id} used={self.used_at is not None}>'
+
+
+class MarketingProspect(db.Model):
+    """A public conversation the marketing agent found where DevOps Agent may be relevant.
+
+    Platform-level (admin-only) data, not per-user tenant data: these are
+    public posts from Hacker News / Reddit, deduplicated by URL.
+    """
+    __tablename__ = 'marketing_prospects'
+
+    id = db.Column(db.Integer, primary_key=True)
+    source = db.Column(db.String(30), nullable=False, index=True)  # hackernews|reddit|manual
+    url = db.Column(db.String(1000), nullable=False, unique=True)
+    title = db.Column(db.String(500))
+    snippet = db.Column(db.Text)
+    author = db.Column(db.String(200))
+    search_query = db.Column(db.String(200))
+    score = db.Column(db.Integer, default=0, index=True)
+    matched_signals = db.Column(db.JSON, default=list)
+    status = db.Column(db.String(20), default='new', index=True)  # new|drafted|contacted|ignored
+    posted_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'source': self.source,
+            'url': self.url,
+            'title': self.title,
+            'snippet': self.snippet,
+            'author': self.author,
+            'search_query': self.search_query,
+            'score': self.score,
+            'matched_signals': self.matched_signals or [],
+            'status': self.status,
+            'posted_at': self.posted_at.isoformat() if self.posted_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class MarketingDraft(db.Model):
+    """A piece of marketing content awaiting human review.
+
+    Nothing the agent writes reaches the internet without an admin approving
+    it here first; only `email` drafts are sent by the app itself, the rest
+    are copied and posted by a person.
+    """
+    __tablename__ = 'marketing_drafts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    channel = db.Column(db.String(30), nullable=False, index=True)
+    prospect_id = db.Column(db.Integer, db.ForeignKey('marketing_prospects.id'), nullable=True, index=True)
+    topic = db.Column(db.String(300))
+    subject = db.Column(db.String(300))
+    body = db.Column(db.Text, nullable=False)
+    recipient_email = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(20), default='pending', index=True)  # pending|approved|rejected|sent|failed
+    compliance_issues = db.Column(db.JSON, default=list)
+    generated_by = db.Column(db.String(50))  # model id, or 'template' when AI was unavailable
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'channel': self.channel,
+            'prospect_id': self.prospect_id,
+            'topic': self.topic,
+            'subject': self.subject,
+            'body': self.body,
+            'recipient_email': self.recipient_email,
+            'status': self.status,
+            'compliance_issues': self.compliance_issues or [],
+            'generated_by': self.generated_by,
+            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
+            'sent_at': self.sent_at.isoformat() if self.sent_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class MarketingSuppression(db.Model):
+    """Addresses that unsubscribed (or were manually blocked) from marketing email."""
+    __tablename__ = 'marketing_suppressions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    reason = db.Column(db.String(50), default='unsubscribed')
+    created_at = db.Column(db.DateTime, default=utcnow)
