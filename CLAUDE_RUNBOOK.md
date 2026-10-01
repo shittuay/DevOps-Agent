@@ -3089,3 +3089,23 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## 2026-10-01 scheduled code audit
+
+**Fixed - `services/ai_infrastructure.py` `get_recommendations()`/`apply_recommendation()`.**
+The last open instance of the fabricated-data bug class from CLAUDE.md's running tally:
+four hardcoded recommendations (right-size EC2, S3 encryption, RDS replicas, Multi-AZ)
+returned for every user ignoring `user_id`, and `apply_recommendation()` returned
+`success: True` with no cloud call. Now `get_recommendations()` returns `[]` until a live
+source is wired in, and apply returns `not_implemented` (HTTP 501 from
+`/ai/api/recommendations/<id>/apply`). `dismiss_recommendation`/`get_optimization_suggestions`
+inherit the empty list.
+
+Re-checked and clean: `scripts/check_security_invariants.py` (no violations), unscoped
+`Model.query.get(id)` in webhooks/analytics widgets/organizations (all guarded by callers),
+no `shell=True`/`yaml.load`/`pickle`/`verify=False` in app code.
+
+Minor, not changed: `services/incident_response.py:520` uses `hashlib.md5` for a grouping key
+without `usedforsecurity=False` (not security use; Sonar/bandit noise only). The
+`get_organization()`/`get_team()` getters in `services/multi_tenancy.py` are unscoped by design;
+every route caller checks membership, but a new caller must do the same.
