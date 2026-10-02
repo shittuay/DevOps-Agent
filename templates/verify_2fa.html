@@ -304,6 +304,7 @@
             {% endif %}
 
             <form method="POST" action="/verify-2fa" id="verifyForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div id="totpSection">
                     <div class="form-group">
                         <label for="totpCode">Verification Code</label>

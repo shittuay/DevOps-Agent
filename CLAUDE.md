@@ -369,6 +369,7 @@ The enforcement now lives in a single `@app.before_request` hook, `_enforce_csrf
 **When adding a form-rendering template, it must include
 `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`** — the hook will otherwise
 reject the submission at runtime with no compile-time warning.
+Check **each `<form>`** individually, not the template as a whole: `verify_2fa.html` had a token in its secondary form but not in its main code form, and that locked every 2FA user out until 2026-10-02 (see CLAUDE_RUNBOOK.md).
 
 ### Guardrails (Jailbreak / Prompt Injection Defense)
 Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer REST API
