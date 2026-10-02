@@ -3089,3 +3089,22 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## 2026-10-02 scheduled audit (vulnerabilities / smells / duplicates)
+
+**Fixed - `services/ai_infrastructure.py` fabricated recommendations and fake Apply.**
+`get_recommendations()` returned four hardcoded recommendations (EC2 rightsizing, S3 encryption,
+RDS replicas, Multi-AZ) with invented savings for every user regardless of account, and
+`apply_recommendation()` returned `success: True` with `actions_taken` without calling any cloud
+API. Now `[]` and an honest not-implemented failure (HTTP 501). Test:
+`tests/test_ai_infrastructure_no_fabrication.py`.
+
+**Checked, clean:** `scripts/check_security_invariants.py`; no `shell=True`/`yaml.load`/pickle/`eval`;
+all `Model.query.get(id)` sites in `app.py`/`routes/` have ownership checks; webhook
+get/update/delete/toggle are owner-scoped.
+
+**Open, not fixed (latent):** `services/multi_tenancy.py`'s `update_team()`/`delete_team()` take
+only a `team_id` with no org/user scoping. They have no callers today, so not reachable, but any
+future route must verify team.organization_id + membership/admin role itself. Many routes also
+return `str(e)` to the client in `except Exception` blocks (information disclosure smell, e.g.
+`download_compliance_pdf` in `app.py`).

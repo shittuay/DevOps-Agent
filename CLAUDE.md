@@ -198,10 +198,11 @@ operating on the real, CloudWatch-derived `CostOptimization` rows from
 `services/infrastructure_sync.py`) set `status='applied'` and returned a success toast
 ("Optimization applied — saving $X/mo") without calling any cloud API to stop/resize/reconfigure
 anything — fixed the same way `routes/scaling.py`'s `api_apply_recommendation` was: an honest
-501 `not_implemented` response, never a fabricated `applied` status. **Not yet fixed:**
-`services/ai_infrastructure.py`'s `get_recommendations()` still returns a hardcoded list
-ignoring `user_id`, and its `apply_recommendation()` still reports `success: True` without
-calling any cloud API — same fake-Apply shape, not touched by this pass. See CLAUDE_RUNBOOK.md's
+501 `not_implemented` response, never a fabricated `applied` status. **Fixed by the
+2026-10-02 scheduled audit:** `services/ai_infrastructure.py`'s `get_recommendations()` now
+returns `[]` (it was a hardcoded list ignoring `user_id`) and `apply_recommendation()` returns
+`success: False, error: not_implemented` (route answers 501) instead of reporting success
+without a cloud API call. See CLAUDE_RUNBOOK.md's
 2026-09-15 and 2026-09-20 entries for exact line numbers. This is now seven known instances of
 the same bug class (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the
 dashboard cost-recommendation Apply endpoint, and still-open AI Infrastructure) found
