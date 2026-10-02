@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 from extensions import limiter, security_logger
 from models import db, SubscriptionTier, User, UserSubscription
+from sqlalchemy import func
 from src.utils.timeutils import utcnow
 
 auth_bp = Blueprint('auth', __name__)
@@ -157,8 +158,12 @@ def login():
             security_logger.warning(f"Failed login attempt from {ip_address}: Missing credentials")
             return render_template('login.html', error='Email/Username and password are required')
 
+        # Email match is case-insensitive (signup stores it lowercased, and mobile
+        # keyboards auto-capitalize the first letter); usernames stay exact since
+        # their uniqueness constraint is case-sensitive.
         user = User.query.filter(
-            (User.email == email_or_username) | (User.username == email_or_username)
+            (func.lower(User.email) == email_or_username.lower())
+            | (User.username == email_or_username)
         ).first()
 
         # Always pay bcrypt's cost here, before the early return below, so a
