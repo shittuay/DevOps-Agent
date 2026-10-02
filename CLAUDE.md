@@ -1412,6 +1412,7 @@ Optional:
 - `MOONSHOT_API_KEY` - Kimi API key (required for Kimi model provider)
 - `KIMI_MODEL` - Kimi model override (default: `kimi-k3`, the latest). Valid Moonshot ids (verified live via `/v1/models` 2026-07-22): `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5` (no bare `kimi-k2.7`).
 - `MARKETING_POSTAL_ADDRESS` - sender postal address added to marketing emails. Sending is refused while it is unset.
+- `MARKETING_FROM_EMAIL` (default `support@devopsagent.io`) - sender and contact address for marketing emails only; account email keeps `EMAIL_FROM`. It must be a verified sender with the email provider.
 - `MARKETING_DAILY_EMAIL_CAP` (default 25) / `MARKETING_MODEL` (default `claude-sonnet-4-6`) - marketing agent limits and model.
 - `METRICS_TOKEN` - Bearer token gating `/metrics` (see Prometheus Metrics section below). Unset = endpoint returns 403, disabled by default.
 - `PROMETHEUS_MULTIPROC_DIR` - Set in `devops-agent.service` (not `.env`) to enable multiprocess metric aggregation across gunicorn's 3 workers. Unset in local dev/tests — falls back to a single process-local registry.
@@ -1862,6 +1863,8 @@ Service `services/marketing_agent.py`, routes `routes/marketing.py`, page
   (CAN-SPAM), a recipient not in `MarketingSuppression`, and room under
   `MARKETING_DAILY_EMAIL_CAP` (default 25 per 24h). Each email carries a signed
   `/marketing/unsubscribe/<token>` link (itsdangerous, salt `marketing-unsubscribe`).
+  It is sent from `MARKETING_FROM_EMAIL` (default `support@devopsagent.io`), which the
+  footer also lists as the contact address.
 - Tests: `tests/test_marketing_agent.py`.
 
 ### Proactive Prevention Engine

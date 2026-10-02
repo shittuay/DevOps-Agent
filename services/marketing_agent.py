@@ -473,6 +473,10 @@ def is_suppressed(email: str) -> bool:
     return MarketingSuppression.query.filter_by(email=normalize_email(email)).first() is not None
 
 
+def marketing_sender() -> str:
+    return os.getenv('MARKETING_FROM_EMAIL', 'support@devopsagent.io').strip() or 'support@devopsagent.io'
+
+
 def daily_email_cap() -> int:
     try:
         return max(0, int(os.getenv('MARKETING_DAILY_EMAIL_CAP', '25')))
@@ -503,16 +507,20 @@ def send_approved_email(draft, sender_id: int) -> None:
         raise MarketingAgentError(f'Daily marketing email cap reached ({daily_email_cap()})')
 
     unsubscribe_url = f"{_base_url()}/marketing/unsubscribe/{make_unsubscribe_token(draft.recipient_email)}"
-    footer_text = f"\n\n--\n{postal}\nUnsubscribe: {unsubscribe_url}"
+    sender = marketing_sender()
+    footer_text = f"\n\n--\n{postal}\nQuestions: {sender}\nUnsubscribe: {unsubscribe_url}"
     import html as _html
     html_body = (
         '<div style="font-family:sans-serif;font-size:14px;line-height:1.5">'
         + _html.escape(draft.body).replace('\n', '<br>')
         + '<hr style="border:none;border-top:1px solid #ddd;margin-top:24px">'
         + f'<p style="font-size:12px;color:#777">{_html.escape(postal)}<br>'
+        + f'Questions: {_html.escape(sender)}<br>'
         + f'<a href="{_html.escape(unsubscribe_url)}">Unsubscribe</a></p></div>'
     )
-    ok = EmailService().send_email(draft.recipient_email, draft.subject or 'DevOps Agent',
+    mailer = EmailService()
+    mailer.from_email = marketing_sender()
+    ok = mailer.send_email(draft.recipient_email, draft.subject or 'DevOps Agent',
                                    html_body, draft.body + footer_text)
     draft.status = 'sent' if ok else 'failed'
     draft.sent_at = utcnow() if ok else None

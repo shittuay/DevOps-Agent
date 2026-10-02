@@ -227,3 +227,14 @@ def test_editing_an_approved_draft_requires_re_review(admin_client):
     d = _approved_email(admin_client)
     resp = admin_client.put(f"/marketing/api/drafts/{d['id']}", json={'body': 'New text'})
     assert resp.get_json()['status'] == 'pending'
+
+
+def test_marketing_email_is_sent_from_support_address(admin_client, monkeypatch):
+    monkeypatch.setenv('MARKETING_POSTAL_ADDRESS', '1 Test Street')
+    monkeypatch.delenv('MARKETING_FROM_EMAIL', raising=False)
+    d = _approved_email(admin_client, to='sender-check@example.com')
+    with patch('services.email_service.EmailService.send_email', autospec=True, return_value=True) as send:
+        assert admin_client.post(f"/marketing/api/drafts/{d['id']}/send").status_code == 200
+    mailer, _to, _subject, _html, text = send.call_args[0]
+    assert mailer.from_email == 'support@devopsagent.io'
+    assert 'Questions: support@devopsagent.io' in text
