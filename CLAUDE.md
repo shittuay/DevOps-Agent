@@ -292,6 +292,7 @@ patch next time it's found again.
 - `@login_required` decorator on all API routes
 - Email verification required for new accounts
 - Account lockout after 5 failed attempts
+- **Email lookups are case-insensitive everywhere** (`/login` matches `func.lower(User.email)`; every other entry point lowercases input). A case-sensitive email match rejects phone logins, because mobile keyboards auto-capitalize the first letter. Usernames are exact-match.
 - `routes/auth.py`'s `login()` always runs a bcrypt comparison before returning, even for an
   unknown email/username — `_run_timing_safe_password_check()` checks against a fixed dummy hash
   (`_DUMMY_PASSWORD_HASH`) when no account is found, so response time can't be used to enumerate

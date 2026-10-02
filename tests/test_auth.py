@@ -119,6 +119,35 @@ class TestLogin:
         assert response.status_code == 200
         assert b'Invalid' in response.data or b'invalid' in response.data
 
+    def test_login_email_is_case_insensitive(self, client, test_user):
+        """Mobile keyboards capitalize the first letter; that must not reject a valid login."""
+        response = client.post('/login', data={
+            'email': 'Test@Example.com',
+            'password': 'TestPassword123!'
+        })
+        assert response.status_code == 302
+        assert '/login' not in response.headers['Location']
+
+    def test_login_matches_mixed_case_stored_email(self, client, test_user, db_session):
+        """Accounts stored before signup lowercased emails still log in."""
+        from models import db
+        test_user.email = 'Test@Example.com'
+        db.session.commit()
+        response = client.post('/login', data={
+            'email': 'test@example.com',
+            'password': 'TestPassword123!'
+        })
+        assert response.status_code == 302
+        assert '/login' not in response.headers['Location']
+
+    def test_login_username_stays_case_sensitive(self, client, test_user):
+        response = client.post('/login', data={
+            'email': 'TestUser',
+            'password': 'TestPassword123!'
+        })
+        assert response.status_code == 200
+        assert b'Invalid' in response.data
+
     def test_login_nonexistent_user(self, client):
         """Test login with nonexistent user fails."""
         response = client.post('/login', data={
