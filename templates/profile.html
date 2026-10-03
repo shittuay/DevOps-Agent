@@ -704,7 +704,6 @@
                     <span class="info-label">Method</span>
                     <span class="info-value" style="font-weight:600;">
                         {% if user.mfa_method == 'email' %}Email OTP
-                        {% elif user.mfa_method == 'sms' %}SMS OTP
                         {% elif user.mfa_method == 'totp' %}Authenticator App
                         {% else %}{{ user.mfa_method|upper }}{% endif %}
                     </span>

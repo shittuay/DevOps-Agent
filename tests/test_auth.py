@@ -331,3 +331,43 @@ class TestPasswordSecurity:
                 test_user.record_failed_login()
 
             assert test_user.is_locked()
+
+
+class TestSmsMfaRemoved:
+    """SMS codes were never delivered and were removed; existing SMS users must
+    fall back to email codes rather than be locked out."""
+
+    def test_sms_user_is_migrated_to_email_and_can_log_in(self, client, test_user, db_session):
+        from unittest.mock import patch
+        from models import db, User
+
+        test_user.mfa_method = 'sms'
+        test_user.phone_number = '+15555550100'
+        test_user.phone_verified = True
+        db.session.commit()
+
+        sent = {}
+        with patch('services.email_service.email_service.send_otp_email',
+                   side_effect=lambda user, code: sent.setdefault('code', code) or True):
+            resp = client.post('/login', data={
+                'email': 'test@example.com', 'password': 'TestPassword123!',
+            })
+
+        assert resp.status_code == 302
+        assert '/verify-2fa' in resp.headers['Location']
+        assert 'code' in sent
+        assert User.query.get(test_user.id).mfa_method == 'email'
+
+        resp = client.post('/verify-2fa', data={'code': sent['code']})
+        assert resp.status_code == 302
+        assert '/verify-2fa' not in resp.headers['Location']
+        assert '/login' not in resp.headers['Location']
+
+    def test_sms_can_no_longer_be_chosen(self, authenticated_client):
+        resp = authenticated_client.post('/api/mfa/set-method', json={'method': 'sms'})
+        assert resp.status_code == 400
+        assert 'SMS' in resp.get_json()['error']
+
+    def test_phone_endpoints_are_gone(self, authenticated_client):
+        resp = authenticated_client.post('/api/mfa/phone/add', json={'phone_number': '+15555550100'})
+        assert resp.status_code == 404

@@ -187,6 +187,13 @@ def login():
 
         if password_matches:
             if user.has_mfa_enabled():
+                # SMS codes were removed (never delivered); anyone still on SMS
+                # gets email codes from now on instead of being locked out.
+                if user.mfa_method == 'sms':
+                    user.mfa_method = 'email'
+                    db.session.commit()
+                    security_logger.info(f"MFA migrated sms -> email for {user.email}")
+
                 session['2fa_pending_user'] = user.id
                 session['2fa_pending_time'] = utcnow().isoformat()
                 _next = request.args.get('next', '')
@@ -194,27 +201,18 @@ def login():
                 session['2fa_method'] = user.mfa_method or 'totp'
                 security_logger.info(f"MFA ({user.mfa_method}) required for {user.email} from {ip_address}")
 
-                if user.mfa_method in ('email', 'sms'):
+                if user.mfa_method == 'email':
                     from services.two_factor_service import two_factor_service
                     code = two_factor_service.generate_otp()
                     user.set_mfa_otp(code)
                     db.session.commit()
-                    if user.mfa_method == 'email':
-                        from services.email_service import email_service
-                        sent = email_service.send_otp_email(user, code)
-                        if not sent:
-                            session.pop('2fa_pending_user', None)
-                            session.pop('2fa_pending_time', None)
-                            session.pop('2fa_method', None)
-                            return render_template('login.html', error='Failed to send verification email. Please try again.')
-                    else:
-                        from services.sms_service import sms_service
-                        sent = sms_service.send_otp(user.phone_number, code)
-                        if not sent:
-                            session.pop('2fa_pending_user', None)
-                            session.pop('2fa_pending_time', None)
-                            session.pop('2fa_method', None)
-                            return render_template('login.html', error='Failed to send SMS verification code. Please try again or switch to email MFA.')
+                    from services.email_service import email_service
+                    sent = email_service.send_otp_email(user, code)
+                    if not sent:
+                        session.pop('2fa_pending_user', None)
+                        session.pop('2fa_pending_time', None)
+                        session.pop('2fa_method', None)
+                        return render_template('login.html', error='Failed to send verification email. Please try again.')
 
                 return redirect(url_for('.verify_2fa'))
 
@@ -545,7 +543,7 @@ def resend_verification():
 @auth_bp.route('/verify-2fa', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
 def verify_2fa():
-    """Verify MFA code after password authentication (supports TOTP, email OTP, SMS OTP)."""
+    """Verify MFA code after password authentication (supports TOTP and email OTP)."""
     from services.two_factor_service import two_factor_service
 
     pending_user_id = session.get('2fa_pending_user')
@@ -593,7 +591,7 @@ def verify_2fa():
 
         if mfa_method == 'totp':
             verified = two_factor_service.verify_totp(user.two_factor_secret, code)
-        elif mfa_method in ('email', 'sms'):
+        elif mfa_method == 'email':
             verified = user.verify_mfa_otp(code)
             if verified:
                 user.clear_mfa_otp()
@@ -605,7 +603,7 @@ def verify_2fa():
             if is_backup_valid:
                 verified = True
                 user.backup_codes = [h for h in user.backup_codes if h != matched_hash]
-                if mfa_method in ('email', 'sms'):
+                if mfa_method == 'email':
                     user.clear_mfa_otp()
 
         if verified:
@@ -838,14 +836,17 @@ def api_2fa_regenerate_backup_codes():
 @auth_bp.route('/api/mfa/set-method', methods=['POST'])
 @login_required
 def api_mfa_set_method():
-    """Choose an MFA method (email, sms, totp). Sends verification OTP for email/sms."""
+    """Choose an MFA method (email or totp). Sends a verification OTP for email."""
     from services.two_factor_service import two_factor_service
 
     data = request.get_json()
     method = (data or {}).get('method', '').strip().lower()
 
-    if method not in ('email', 'sms', 'totp'):
-        return jsonify({'error': 'Invalid method. Choose email, sms, or totp.'}), 400
+    if method == 'sms':
+        return jsonify({'error': 'SMS codes are no longer offered. Use email or an authenticator app.'}), 400
+
+    if method not in ('email', 'totp'):
+        return jsonify({'error': 'Invalid method. Choose email or totp.'}), 400
 
     if method == 'totp':
         return jsonify({'success': True, 'method': 'totp', 'action': 'totp_setup'})
@@ -862,30 +863,18 @@ def api_mfa_set_method():
             return jsonify({'error': 'Failed to send verification email. Please try again.'}), 500
         return jsonify({'success': True, 'method': 'email', 'action': 'verify_otp'})
 
-    if method == 'sms':
-        if not current_user.phone_number or not current_user.phone_verified:
-            return jsonify({'error': 'Please add and verify a phone number first.', 'needs_phone': True}), 400
-        code = two_factor_service.generate_otp()
-        current_user.set_mfa_otp(code)
-        db.session.commit()
-        from services.sms_service import sms_service
-        sent = sms_service.send_otp(current_user.phone_number, code)
-        if not sent:
-            return jsonify({'error': 'Failed to send SMS. Check your phone number or try again later.'}), 500
-        return jsonify({'success': True, 'method': 'sms', 'action': 'verify_otp'})
-
 
 @auth_bp.route('/api/mfa/verify-method', methods=['POST'])
 @login_required
 def api_mfa_verify_method():
-    """Confirm OTP to activate email or SMS MFA. Generates backup codes."""
+    """Confirm OTP to activate email MFA. Generates backup codes."""
     from services.two_factor_service import two_factor_service
 
     data = request.get_json()
     code = (data or {}).get('code', '').strip()
     method = (data or {}).get('method', '').strip().lower()
 
-    if not code or method not in ('email', 'sms'):
+    if not code or method != 'email':
         return jsonify({'error': 'Code and method are required.'}), 400
 
     if not current_user.verify_mfa_otp(code):
@@ -908,67 +897,16 @@ def api_mfa_verify_method():
     return jsonify({'success': True, 'backup_codes': backup_codes})
 
 
-@auth_bp.route('/api/mfa/phone/add', methods=['POST'])
-@login_required
-@limiter.limit("5 per hour")
-def api_mfa_phone_add():
-    """Add a phone number and send verification SMS."""
-    from services.two_factor_service import two_factor_service
-    from services.sms_service import sms_service
-
-    data = request.get_json()
-    phone = (data or {}).get('phone_number', '').strip()
-
-    if not phone:
-        return jsonify({'error': 'Phone number is required.'}), 400
-
-    if not re.match(r'^\+[1-9]\d{6,14}$', phone):
-        return jsonify({'error': 'Invalid phone number. Use E.164 format (e.g. +12125551234).'}), 400
-
-    current_user.phone_number = phone
-    current_user.phone_verified = False
-
-    code = two_factor_service.generate_otp()
-    current_user.set_mfa_otp(code)
-    db.session.commit()
-
-    sent = sms_service.send_otp(phone, code)
-    if not sent:
-        return jsonify({'error': 'Failed to send SMS verification code. Check your phone number and try again.'}), 500
-    return jsonify({'success': True, 'message': 'Verification code sent to your phone.'})
-
-
-@auth_bp.route('/api/mfa/phone/verify', methods=['POST'])
-@login_required
-@limiter.limit("10 per minute")
-def api_mfa_phone_verify():
-    """Verify phone ownership via OTP."""
-    data = request.get_json()
-    code = (data or {}).get('code', '').strip()
-
-    if not code:
-        return jsonify({'error': 'Verification code is required.'}), 400
-
-    if not current_user.verify_mfa_otp(code):
-        return jsonify({'error': 'Invalid or expired code.'}), 400
-
-    current_user.phone_verified = True
-    current_user.clear_mfa_otp()
-    db.session.commit()
-
-    return jsonify({'success': True, 'message': 'Phone number verified.'})
-
-
 @auth_bp.route('/api/2fa/resend-otp', methods=['POST'])
 @limiter.limit("3 per 5 minutes")
 def api_2fa_resend_otp():
-    """Resend email/SMS OTP during login flow (60s cooldown)."""
+    """Resend the email OTP during the login flow (60s cooldown)."""
     from services.two_factor_service import two_factor_service
 
     pending_user_id = session.get('2fa_pending_user')
     mfa_method = session.get('2fa_method')
 
-    if not pending_user_id or mfa_method not in ('email', 'sms'):
+    if not pending_user_id or mfa_method != 'email':
         return jsonify({'error': 'No pending MFA session.'}), 400
 
     user = User.query.get(pending_user_id)
@@ -982,15 +920,9 @@ def api_2fa_resend_otp():
     user.set_mfa_otp(code)
     db.session.commit()
 
-    if mfa_method == 'email':
-        from services.email_service import email_service
-        sent = email_service.send_otp_email(user, code)
-        if not sent:
-            return jsonify({'error': 'Failed to send verification email. Please try again.'}), 500
-    else:
-        from services.sms_service import sms_service
-        sent = sms_service.send_otp(user.phone_number, code)
-        if not sent:
-            return jsonify({'error': 'Failed to send SMS. Please try again.'}), 500
+    from services.email_service import email_service
+    sent = email_service.send_otp_email(user, code)
+    if not sent:
+        return jsonify({'error': 'Failed to send verification email. Please try again.'}), 500
 
-    return jsonify({'success': True, 'message': f'Code resent via {mfa_method}.'})
+    return jsonify({'success': True, 'message': 'Code resent via email.'})
