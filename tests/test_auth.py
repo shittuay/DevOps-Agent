@@ -452,3 +452,88 @@ class TestEmailMfaFlow:
     def test_verify_method_rejects_sms(self, authenticated_client):
         resp = authenticated_client.post('/api/mfa/verify-method', json={'method': 'sms', 'code': '123456'})
         assert resp.status_code == 400
+
+
+class TestVerify2faPaths:
+    """Behaviour of /verify-2fa's failure and fallback paths, pinned so the
+    helper split (SonarCloud complexity) can't change what users see."""
+
+    def _pending_totp(self, client, test_user):
+        import pyotp
+        from models import db
+        secret = pyotp.random_base32()
+        test_user.mfa_method = 'totp'
+        test_user.two_factor_secret = secret
+        db.session.commit()
+        resp = client.post('/login', data={'email': 'test@example.com', 'password': 'TestPassword123!'})
+        assert '/verify-2fa' in resp.headers['Location']
+        return secret
+
+    def test_get_renders_the_form(self, client, test_user, db_session):
+        self._pending_totp(client, test_user)
+        assert client.get('/verify-2fa').status_code == 200
+
+    def test_no_pending_login_redirects_to_login(self, client):
+        resp = client.get('/verify-2fa')
+        assert resp.status_code == 302 and '/login' in resp.headers['Location']
+
+    def test_expired_pending_login_redirects_and_clears_session(self, client, test_user, db_session):
+        self._pending_totp(client, test_user)
+        with client.session_transaction() as sess:
+            sess['2fa_pending_time'] = '2000-01-01T00:00:00'
+        resp = client.get('/verify-2fa')
+        assert resp.status_code == 302 and '/login' in resp.headers['Location']
+        with client.session_transaction() as sess:
+            assert '2fa_pending_user' not in sess
+
+    def test_empty_code_is_rejected(self, client, test_user, db_session):
+        self._pending_totp(client, test_user)
+        resp = client.post('/verify-2fa', data={'code': ''})
+        assert b'Please enter a verification code.' in resp.data
+
+    def test_wrong_code_counts_down_then_locks(self, client, test_user, db_session):
+        from models import User
+        self._pending_totp(client, test_user)
+        resp = client.post('/verify-2fa', data={'code': '000000'})
+        assert b'Invalid code. 4 attempts remaining.' in resp.data
+        for _ in range(4):
+            resp = client.post('/verify-2fa', data={'code': '000000'})
+        assert b'Account locked for 15 minutes.' in resp.data
+        assert User.query.get(test_user.id).two_factor_locked_until is not None
+
+        resp = client.post('/verify-2fa', data={'code': '000000'})
+        assert b'Too many failed attempts. Try again in' in resp.data
+
+    def test_expired_lock_is_cleared_and_valid_code_logs_in(self, client, test_user, db_session):
+        import pyotp
+        from datetime import timedelta
+        from models import db
+        from src.utils.timeutils import utcnow
+        secret = self._pending_totp(client, test_user)
+        test_user.two_factor_locked_until = utcnow() - timedelta(minutes=1)
+        test_user.two_factor_attempts = 5
+        db.session.commit()
+        resp = client.post('/verify-2fa', data={'code': pyotp.TOTP(secret).now()})
+        assert resp.status_code == 302 and '/verify-2fa' not in resp.headers['Location']
+
+    def test_backup_code_logs_in_and_is_consumed(self, client, test_user, db_session):
+        from models import db, User
+        from services.two_factor_service import two_factor_service
+        self._pending_totp(client, test_user)
+        codes = two_factor_service.generate_backup_codes()
+        test_user.backup_codes = [two_factor_service.hash_backup_code(c) for c in codes]
+        db.session.commit()
+        resp = client.post('/verify-2fa', data={'code': codes[0]})
+        assert resp.status_code == 302 and '/verify-2fa' not in resp.headers['Location']
+        assert len(User.query.get(test_user.id).backup_codes) == len(codes) - 1
+
+    def test_safe_next_is_honoured(self, client, test_user, db_session):
+        import pyotp
+        from models import db
+        secret = pyotp.random_base32()
+        test_user.mfa_method = 'totp'
+        test_user.two_factor_secret = secret
+        db.session.commit()
+        client.post('/login?next=/settings', data={'email': 'test@example.com', 'password': 'TestPassword123!'})
+        resp = client.post('/verify-2fa', data={'code': pyotp.TOTP(secret).now()})
+        assert resp.headers['Location'].endswith('/settings')
