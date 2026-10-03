@@ -41,8 +41,7 @@ MANAGED_SECRET_KEYS = [
     'EMAIL_FROM',
     'EMAIL_FROM_NAME',
     'SENDGRID_API_KEY',
-    'BREVO_API_KEY',     # required for SMS (phone MFA) and Brevo email
-    'SMS_SENDER_NAME',
+    'BREVO_API_KEY',
     'CREDENTIAL_ENCRYPTION_KEY',
     'GROQ_API_KEY',
     'MOONSHOT_API_KEY',

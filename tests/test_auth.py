@@ -331,3 +331,209 @@ class TestPasswordSecurity:
                 test_user.record_failed_login()
 
             assert test_user.is_locked()
+
+
+class TestSmsMfaRemoved:
+    """SMS codes were never delivered and were removed; existing SMS users must
+    fall back to email codes rather than be locked out."""
+
+    def test_sms_user_is_migrated_to_email_and_can_log_in(self, client, test_user, db_session):
+        from unittest.mock import patch
+        from models import db, User
+
+        test_user.mfa_method = 'sms'
+        test_user.phone_number = '+15555550100'
+        test_user.phone_verified = True
+        db.session.commit()
+
+        sent = {}
+        with patch('services.email_service.email_service.send_otp_email',
+                   side_effect=lambda user, code: sent.setdefault('code', code) or True):
+            resp = client.post('/login', data={
+                'email': 'test@example.com', 'password': 'TestPassword123!',
+            })
+
+        assert resp.status_code == 302
+        assert '/verify-2fa' in resp.headers['Location']
+        assert 'code' in sent
+        assert User.query.get(test_user.id).mfa_method == 'email'
+
+        resp = client.post('/verify-2fa', data={'code': sent['code']})
+        assert resp.status_code == 302
+        assert '/verify-2fa' not in resp.headers['Location']
+        assert '/login' not in resp.headers['Location']
+
+    def test_sms_can_no_longer_be_chosen(self, authenticated_client):
+        resp = authenticated_client.post('/api/mfa/set-method', json={'method': 'sms'})
+        assert resp.status_code == 400
+        assert 'SMS' in resp.get_json()['error']
+
+    def test_phone_endpoints_are_gone(self, authenticated_client):
+        resp = authenticated_client.post('/api/mfa/phone/add', json={'phone_number': '+15555550100'})
+        assert resp.status_code == 404
+
+
+class TestEmailMfaFlow:
+    """The email-only paths left after SMS removal: resend, method activation,
+    and the login-time send failure."""
+
+    def _start_login(self, client, test_user, send_ok=True):
+        from unittest.mock import patch
+        from models import db
+        test_user.mfa_method = 'email'
+        db.session.commit()
+        with patch('services.email_service.email_service.send_otp_email', return_value=send_ok):
+            return client.post('/login', data={
+                'email': 'test@example.com', 'password': 'TestPassword123!',
+            })
+
+    def test_email_send_failure_returns_to_login_and_clears_pending_state(self, client, test_user, db_session):
+        resp = self._start_login(client, test_user, send_ok=False)
+        assert resp.status_code == 200
+        assert b'Failed to send verification email' in resp.data
+        with client.session_transaction() as sess:
+            assert '2fa_pending_user' not in sess
+
+    def test_resend_sends_a_new_email_code(self, client, test_user, db_session):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from models import db, User
+        from src.utils.timeutils import utcnow
+
+        self._start_login(client, test_user)
+        user = User.query.get(test_user.id)
+        user.mfa_otp_sent_at = utcnow() - timedelta(minutes=2)
+        db.session.commit()
+
+        with patch('services.email_service.email_service.send_otp_email', return_value=True) as send:
+            resp = client.post('/api/2fa/resend-otp')
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'Code resent via email.'
+        send.assert_called_once()
+
+    def test_resend_reports_email_failure(self, client, test_user, db_session):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from models import db, User
+        from src.utils.timeutils import utcnow
+
+        self._start_login(client, test_user)
+        user = User.query.get(test_user.id)
+        user.mfa_otp_sent_at = utcnow() - timedelta(minutes=2)
+        db.session.commit()
+
+        with patch('services.email_service.email_service.send_otp_email', return_value=False):
+            resp = client.post('/api/2fa/resend-otp')
+        assert resp.status_code == 500
+
+    def test_resend_without_pending_session_is_rejected(self, client):
+        resp = client.post('/api/2fa/resend-otp')
+        assert resp.status_code == 400
+
+    def test_activate_email_mfa(self, authenticated_client, test_user, db_session):
+        from unittest.mock import patch
+        from models import db, User
+
+        test_user.email_verified = True
+        db.session.commit()
+        sent = {}
+        with patch('services.email_service.email_service.send_otp_email',
+                   side_effect=lambda user, code: sent.setdefault('code', code) or True):
+            resp = authenticated_client.post('/api/mfa/set-method', json={'method': 'email'})
+        assert resp.status_code == 200
+        assert resp.get_json()['action'] == 'verify_otp'
+
+        resp = authenticated_client.post('/api/mfa/verify-method',
+                                         json={'method': 'email', 'code': sent['code']})
+        assert resp.status_code == 200
+        assert len(resp.get_json()['backup_codes']) > 0
+        assert User.query.get(test_user.id).mfa_method == 'email'
+
+    def test_verify_method_rejects_sms(self, authenticated_client):
+        resp = authenticated_client.post('/api/mfa/verify-method', json={'method': 'sms', 'code': '123456'})
+        assert resp.status_code == 400
+
+
+class TestVerify2faPaths:
+    """Behaviour of /verify-2fa's failure and fallback paths, pinned so the
+    helper split (SonarCloud complexity) can't change what users see."""
+
+    def _pending_totp(self, client, test_user):
+        import pyotp
+        from models import db
+        secret = pyotp.random_base32()
+        test_user.mfa_method = 'totp'
+        test_user.two_factor_secret = secret
+        db.session.commit()
+        resp = client.post('/login', data={'email': 'test@example.com', 'password': 'TestPassword123!'})
+        assert '/verify-2fa' in resp.headers['Location']
+        return secret
+
+    def test_get_renders_the_form(self, client, test_user, db_session):
+        self._pending_totp(client, test_user)
+        assert client.get('/verify-2fa').status_code == 200
+
+    def test_no_pending_login_redirects_to_login(self, client):
+        resp = client.get('/verify-2fa')
+        assert resp.status_code == 302 and '/login' in resp.headers['Location']
+
+    def test_expired_pending_login_redirects_and_clears_session(self, client, test_user, db_session):
+        self._pending_totp(client, test_user)
+        with client.session_transaction() as sess:
+            sess['2fa_pending_time'] = '2000-01-01T00:00:00'
+        resp = client.get('/verify-2fa')
+        assert resp.status_code == 302 and '/login' in resp.headers['Location']
+        with client.session_transaction() as sess:
+            assert '2fa_pending_user' not in sess
+
+    def test_empty_code_is_rejected(self, client, test_user, db_session):
+        self._pending_totp(client, test_user)
+        resp = client.post('/verify-2fa', data={'code': ''})
+        assert b'Please enter a verification code.' in resp.data
+
+    def test_wrong_code_counts_down_then_locks(self, client, test_user, db_session):
+        from models import User
+        self._pending_totp(client, test_user)
+        resp = client.post('/verify-2fa', data={'code': '000000'})
+        assert b'Invalid code. 4 attempts remaining.' in resp.data
+        for _ in range(4):
+            resp = client.post('/verify-2fa', data={'code': '000000'})
+        assert b'Account locked for 15 minutes.' in resp.data
+        assert User.query.get(test_user.id).two_factor_locked_until is not None
+
+        resp = client.post('/verify-2fa', data={'code': '000000'})
+        assert b'Too many failed attempts. Try again in' in resp.data
+
+    def test_expired_lock_is_cleared_and_valid_code_logs_in(self, client, test_user, db_session):
+        import pyotp
+        from datetime import timedelta
+        from models import db
+        from src.utils.timeutils import utcnow
+        secret = self._pending_totp(client, test_user)
+        test_user.two_factor_locked_until = utcnow() - timedelta(minutes=1)
+        test_user.two_factor_attempts = 5
+        db.session.commit()
+        resp = client.post('/verify-2fa', data={'code': pyotp.TOTP(secret).now()})
+        assert resp.status_code == 302 and '/verify-2fa' not in resp.headers['Location']
+
+    def test_backup_code_logs_in_and_is_consumed(self, client, test_user, db_session):
+        from models import db, User
+        from services.two_factor_service import two_factor_service
+        self._pending_totp(client, test_user)
+        codes = two_factor_service.generate_backup_codes()
+        test_user.backup_codes = [two_factor_service.hash_backup_code(c) for c in codes]
+        db.session.commit()
+        resp = client.post('/verify-2fa', data={'code': codes[0]})
+        assert resp.status_code == 302 and '/verify-2fa' not in resp.headers['Location']
+        assert len(User.query.get(test_user.id).backup_codes) == len(codes) - 1
+
+    def test_safe_next_is_honoured(self, client, test_user, db_session):
+        import pyotp
+        from models import db
+        secret = pyotp.random_base32()
+        test_user.mfa_method = 'totp'
+        test_user.two_factor_secret = secret
+        db.session.commit()
+        client.post('/login?next=/settings', data={'email': 'test@example.com', 'password': 'TestPassword123!'})
+        resp = client.post('/verify-2fa', data={'code': pyotp.TOTP(secret).now()})
+        assert resp.headers['Location'].endswith('/settings')

@@ -292,8 +292,6 @@
             <p class="subtitle">
                 {% if mfa_method == 'email' %}
                     Enter the 6-digit code sent to your email.
-                {% elif mfa_method == 'sms' %}
-                    Enter the 6-digit code sent to your phone.
                 {% else %}
                     Enter the 6-digit code from your authenticator app.
                 {% endif %}
@@ -339,7 +337,7 @@
                 <button type="submit" class="btn-primary" id="submitBtn">Verify</button>
             </form>
 
-            {% if mfa_method in ('email', 'sms') %}
+            {% if mfa_method == 'email' %}
             <div class="toggle-link" id="resendSection">
                 <a id="resendBtn" onclick="resendOTP()" style="cursor:pointer;">Resend code</a>
                 <span id="resendTimer" style="display:none; color: var(--text-tertiary); font-size:14px;"></span>
@@ -416,7 +414,7 @@
             this.value = val;
         });
 
-        // Resend OTP with 60s cooldown (email/SMS only)
+        // Resend OTP with 60s cooldown (email only)
         let resendCooldown = 0;
         function resendOTP() {
             const btn = document.getElementById('resendBtn');

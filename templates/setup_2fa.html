@@ -437,17 +437,6 @@
                         <div style="font-size:20px; color:var(--text-tertiary);">&#8250;</div>
                     </div>
 
-                    <!-- SMS OTP Card -->
-                    <div class="method-card" onclick="selectMethod('sms')" id="methodSms"
-                         style="padding:20px 24px; border:2px solid var(--glass-border); border-radius:12px; cursor:pointer; transition:all 0.3s ease; display:flex; align-items:center; gap:16px;">
-                        <div style="font-size:32px; width:48px; text-align:center;">&#x1f4f1;</div>
-                        <div style="flex:1;">
-                            <div style="font-weight:700; font-size:16px; color:var(--text-primary); margin-bottom:4px;">SMS OTP</div>
-                            <div style="font-size:13px; color:var(--text-secondary);">A 6-digit code is sent to your phone via SMS each login.</div>
-                        </div>
-                        <div style="font-size:20px; color:var(--text-tertiary);">&#8250;</div>
-                    </div>
-
                     <!-- Authenticator App Card -->
                     <div class="method-card" onclick="selectMethod('totp')" id="methodTotp"
                          style="padding:20px 24px; border:2px solid var(--glass-border); border-radius:12px; cursor:pointer; transition:all 0.3s ease; display:flex; align-items:center; gap:16px;">
@@ -463,40 +452,7 @@
                 </div>
             </div>
 
-            <!-- Phone Number Step (for SMS only) -->
-            <div class="step-card hidden" id="stepPhone">
-                <h2 class="step-title">
-                    <span class="step-number">1</span>
-                    Add Phone Number
-                </h2>
-                <p class="step-desc">
-                    Enter your phone number in international format (e.g. +12125551234).
-                </p>
-                <div id="phoneError" class="alert alert-error hidden"></div>
-                <div id="phoneSuccess" class="alert alert-success hidden"></div>
-                <div class="form-group">
-                    <label for="phoneInput">Phone Number</label>
-                    <input type="tel" id="phoneInput" placeholder="+1234567890" style="letter-spacing:1px; text-align:left; font-size:18px;" />
-                </div>
-                <button class="btn-primary" id="phoneBtn" onclick="addPhone()">Send Verification Code</button>
-            </div>
-
-            <!-- Phone Verify Step -->
-            <div class="step-card hidden" id="stepPhoneVerify">
-                <h2 class="step-title">
-                    <span class="step-number">2</span>
-                    Verify Phone
-                </h2>
-                <p class="step-desc">Enter the 6-digit code sent to your phone.</p>
-                <div id="phoneVerifyError" class="alert alert-error hidden"></div>
-                <div class="form-group">
-                    <label for="phoneVerifyCode">Verification Code</label>
-                    <input type="text" id="phoneVerifyCode" placeholder="000000" maxlength="6" inputmode="numeric" />
-                </div>
-                <button class="btn-primary" id="phoneVerifyBtn" onclick="verifyPhone()">Verify Phone</button>
-            </div>
-
-            <!-- Email/SMS OTP Verify Step -->
+            <!-- Email OTP Verify Step -->
             <div class="step-card hidden" id="stepOtpVerify">
                 <h2 class="step-title">
                     <span class="step-number" id="otpStepNum">2</span>
@@ -619,7 +575,7 @@
         let selectedMethod = '';
 
         function hideAll() {
-            ['step0','stepPhone','stepPhoneVerify','stepOtpVerify','step1','step2','step3'].forEach(id => {
+            ['step0','stepOtpVerify','step1','step2','step3'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.add('hidden');
             });
@@ -652,7 +608,7 @@
                 return;
             }
 
-            // For email/sms, call set-method API
+            // For email, call set-method API
             fetch('/api/mfa/set-method', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -663,95 +619,19 @@
                 if (data.success) {
                     if (data.action === 'verify_otp') {
                         hideAll();
-                        const desc = method === 'email'
-                            ? 'Enter the 6-digit code sent to your email.'
-                            : 'Enter the 6-digit code sent to your phone.';
-                        document.getElementById('otpVerifyDesc').textContent = desc;
-                        document.getElementById('otpStepNum').textContent = method === 'sms' ? '3' : '1';
+                        document.getElementById('otpVerifyDesc').textContent = 'Enter the 6-digit code sent to your email.';
+                        document.getElementById('otpStepNum').textContent = '1';
                         document.getElementById('stepOtpVerify').classList.remove('hidden');
                         document.getElementById('otpVerifyCode').focus();
                     }
                 } else {
-                    if (data.needs_phone) {
-                        // Need to add phone first
-                        hideAll();
-                        document.getElementById('stepPhone').classList.remove('hidden');
-                        document.getElementById('phoneInput').focus();
-                    } else {
-                        showError('step0Error', data.error || 'Failed to set method.');
-                    }
+                    showError('step0Error', data.error || 'Failed to set method.');
                 }
             })
             .catch(() => showError('step0Error', 'Network error. Please try again.'));
         }
 
-        // --- Phone Add/Verify ---
-        function addPhone() {
-            const phone = document.getElementById('phoneInput').value.trim();
-            if (!phone) { showError('phoneError', 'Phone number is required.'); return; }
-            hideError('phoneError');
-
-            const btn = document.getElementById('phoneBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Sending...';
-
-            fetch('/api/mfa/phone/add', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone_number: phone })
-            })
-            .then(r => r.json())
-            .then(data => {
-                btn.disabled = false;
-                btn.textContent = 'Send Verification Code';
-                if (data.success) {
-                    hideAll();
-                    document.getElementById('stepPhoneVerify').classList.remove('hidden');
-                    document.getElementById('phoneVerifyCode').focus();
-                } else {
-                    showError('phoneError', data.error || 'Failed to send SMS.');
-                }
-            })
-            .catch(() => {
-                btn.disabled = false;
-                btn.textContent = 'Send Verification Code';
-                showError('phoneError', 'Network error.');
-            });
-        }
-
-        function verifyPhone() {
-            const code = document.getElementById('phoneVerifyCode').value.trim();
-            if (!code || code.length !== 6) { showError('phoneVerifyError', 'Enter a 6-digit code.'); return; }
-            hideError('phoneVerifyError');
-
-            const btn = document.getElementById('phoneVerifyBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Verifying...';
-
-            fetch('/api/mfa/phone/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code: code })
-            })
-            .then(r => r.json())
-            .then(data => {
-                btn.disabled = false;
-                btn.textContent = 'Verify Phone';
-                if (data.success) {
-                    // Phone verified, now activate SMS MFA
-                    selectMethod('sms');
-                } else {
-                    showError('phoneVerifyError', data.error || 'Invalid code.');
-                }
-            })
-            .catch(() => {
-                btn.disabled = false;
-                btn.textContent = 'Verify Phone';
-                showError('phoneVerifyError', 'Network error.');
-            });
-        }
-
-        // --- Email/SMS OTP Verify (final activation) ---
+        // --- Email OTP Verify (final activation) ---
         function verifyMethodOtp() {
             const code = document.getElementById('otpVerifyCode').value.trim();
             if (!code || code.length !== 6) { showError('otpVerifyError', 'Enter a 6-digit code.'); return; }

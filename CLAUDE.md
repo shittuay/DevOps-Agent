@@ -1462,22 +1462,28 @@ unit (this one included) must be applied to the box manually via SSM, same as
 this feature's initial rollout — the repo copy is documentation of the intended
 unit, not the deployed one, until this gap is closed.
 
-### Email / SMS MFA delivery (`email`/`sms` mfa_method)
+### Email MFA delivery (`email` mfa_method)
 
-TOTP (authenticator app) needs no config — it's computed locally with `pyotp`.
-**Email and SMS verification codes require a delivery provider**, or login fails
-with "Failed to send verification email/SMS code" (`routes/auth.py:120-142`).
+2FA methods are **email code** and **authenticator app (TOTP)**. TOTP needs no
+config; it's computed locally with `pyotp`. **Email codes require a delivery
+provider**, or login fails with "Failed to send verification email".
 
-- Email (`services/email_service.py`) — set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
+- Email (`services/email_service.py`): set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
   + `EMAIL_FROM`, then one of: `BREVO_API_KEY`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`; `SENDGRID_API_KEY`.
-- SMS (`services/email_service.py`'s sibling `sms_service.py`) — Brevo only, so it
-  **requires `BREVO_API_KEY`** (optional `SMS_SENDER_NAME`).
+
+**SMS codes were removed on 2026-10-03.** They were never delivered, because
+Brevo SMS needs prepaid credits plus a registered sender ID per country.
+`services/sms_service.py` and `/api/mfa/phone/*` are gone, and
+`/api/mfa/set-method` rejects `sms`. A user still stored as `mfa_method='sms'` is
+migrated to `email` by `login()` on their next sign-in, so nobody is locked out. The
+`phone_number`/`phone_verified` columns are kept. Don't reintroduce SMS without
+first proving delivery end-to-end.
 
 **Secrets Manager:** all of these are in `MANAGED_SECRET_KEYS`
 (`services/secrets_manager.py`), so in production (`FLASK_ENV=production` or
 `USE_AWS_SECRETS=true`) `init_secrets()` loads them from the
 `devops-agent/production` JSON secret into the environment at startup. Add the
-email/SMS keys to that secret — `SMTP_USER`/`SMTP_PASS` alone are insufficient
+email keys to that secret — `SMTP_USER`/`SMTP_PASS` alone are insufficient
 (without `SMTP_HOST` the app defaults to Brevo's relay and a non-Brevo SMTP
 credential fails to authenticate).
 
