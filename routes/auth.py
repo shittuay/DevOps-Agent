@@ -132,6 +132,37 @@ def _check_csrf():
         return 'Invalid or expired session. Please refresh and try again.'
 
 
+def _start_mfa_challenge(user, ip_address):
+    """Stash the pending-MFA state in the session, send an email code if that's
+    the user's method, and redirect to /verify-2fa."""
+    # SMS codes were removed (never delivered); anyone still on SMS gets email
+    # codes from now on instead of being locked out.
+    if user.mfa_method == 'sms':
+        user.mfa_method = 'email'
+        db.session.commit()
+        security_logger.info(f"MFA migrated sms -> email for {user.email}")
+
+    session['2fa_pending_user'] = user.id
+    session['2fa_pending_time'] = utcnow().isoformat()
+    _next = request.args.get('next', '')
+    session['2fa_next'] = _next if _is_safe_redirect(_next) else ''
+    session['2fa_method'] = user.mfa_method or 'totp'
+    security_logger.info(f"MFA ({user.mfa_method}) required for {user.email} from {ip_address}")
+
+    if user.mfa_method == 'email':
+        from services.two_factor_service import two_factor_service
+        from services.email_service import email_service
+        code = two_factor_service.generate_otp()
+        user.set_mfa_otp(code)
+        db.session.commit()
+        if not email_service.send_otp_email(user, code):
+            for key in ('2fa_pending_user', '2fa_pending_time', '2fa_method'):
+                session.pop(key, None)
+            return render_template('login.html', error='Failed to send verification email. Please try again.')
+
+    return redirect(url_for('.verify_2fa'))
+
+
 # ==========================================
 # Core Auth Routes
 # ==========================================
@@ -187,34 +218,7 @@ def login():
 
         if password_matches:
             if user.has_mfa_enabled():
-                # SMS codes were removed (never delivered); anyone still on SMS
-                # gets email codes from now on instead of being locked out.
-                if user.mfa_method == 'sms':
-                    user.mfa_method = 'email'
-                    db.session.commit()
-                    security_logger.info(f"MFA migrated sms -> email for {user.email}")
-
-                session['2fa_pending_user'] = user.id
-                session['2fa_pending_time'] = utcnow().isoformat()
-                _next = request.args.get('next', '')
-                session['2fa_next'] = _next if _is_safe_redirect(_next) else ''
-                session['2fa_method'] = user.mfa_method or 'totp'
-                security_logger.info(f"MFA ({user.mfa_method}) required for {user.email} from {ip_address}")
-
-                if user.mfa_method == 'email':
-                    from services.two_factor_service import two_factor_service
-                    code = two_factor_service.generate_otp()
-                    user.set_mfa_otp(code)
-                    db.session.commit()
-                    from services.email_service import email_service
-                    sent = email_service.send_otp_email(user, code)
-                    if not sent:
-                        session.pop('2fa_pending_user', None)
-                        session.pop('2fa_pending_time', None)
-                        session.pop('2fa_method', None)
-                        return render_template('login.html', error='Failed to send verification email. Please try again.')
-
-                return redirect(url_for('.verify_2fa'))
+                return _start_mfa_challenge(user, ip_address)
 
             remember_me = request.form.get('remember') == 'on'
             login_user(user, remember=remember_me)

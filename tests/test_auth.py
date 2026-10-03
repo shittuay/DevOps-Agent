@@ -371,3 +371,84 @@ class TestSmsMfaRemoved:
     def test_phone_endpoints_are_gone(self, authenticated_client):
         resp = authenticated_client.post('/api/mfa/phone/add', json={'phone_number': '+15555550100'})
         assert resp.status_code == 404
+
+
+class TestEmailMfaFlow:
+    """The email-only paths left after SMS removal: resend, method activation,
+    and the login-time send failure."""
+
+    def _start_login(self, client, test_user, send_ok=True):
+        from unittest.mock import patch
+        from models import db
+        test_user.mfa_method = 'email'
+        db.session.commit()
+        with patch('services.email_service.email_service.send_otp_email', return_value=send_ok):
+            return client.post('/login', data={
+                'email': 'test@example.com', 'password': 'TestPassword123!',
+            })
+
+    def test_email_send_failure_returns_to_login_and_clears_pending_state(self, client, test_user, db_session):
+        resp = self._start_login(client, test_user, send_ok=False)
+        assert resp.status_code == 200
+        assert b'Failed to send verification email' in resp.data
+        with client.session_transaction() as sess:
+            assert '2fa_pending_user' not in sess
+
+    def test_resend_sends_a_new_email_code(self, client, test_user, db_session):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from models import db, User
+        from src.utils.timeutils import utcnow
+
+        self._start_login(client, test_user)
+        user = User.query.get(test_user.id)
+        user.mfa_otp_sent_at = utcnow() - timedelta(minutes=2)
+        db.session.commit()
+
+        with patch('services.email_service.email_service.send_otp_email', return_value=True) as send:
+            resp = client.post('/api/2fa/resend-otp')
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'Code resent via email.'
+        send.assert_called_once()
+
+    def test_resend_reports_email_failure(self, client, test_user, db_session):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from models import db, User
+        from src.utils.timeutils import utcnow
+
+        self._start_login(client, test_user)
+        user = User.query.get(test_user.id)
+        user.mfa_otp_sent_at = utcnow() - timedelta(minutes=2)
+        db.session.commit()
+
+        with patch('services.email_service.email_service.send_otp_email', return_value=False):
+            resp = client.post('/api/2fa/resend-otp')
+        assert resp.status_code == 500
+
+    def test_resend_without_pending_session_is_rejected(self, client):
+        resp = client.post('/api/2fa/resend-otp')
+        assert resp.status_code == 400
+
+    def test_activate_email_mfa(self, authenticated_client, test_user, db_session):
+        from unittest.mock import patch
+        from models import db, User
+
+        test_user.email_verified = True
+        db.session.commit()
+        sent = {}
+        with patch('services.email_service.email_service.send_otp_email',
+                   side_effect=lambda user, code: sent.setdefault('code', code) or True):
+            resp = authenticated_client.post('/api/mfa/set-method', json={'method': 'email'})
+        assert resp.status_code == 200
+        assert resp.get_json()['action'] == 'verify_otp'
+
+        resp = authenticated_client.post('/api/mfa/verify-method',
+                                         json={'method': 'email', 'code': sent['code']})
+        assert resp.status_code == 200
+        assert len(resp.get_json()['backup_codes']) > 0
+        assert User.query.get(test_user.id).mfa_method == 'email'
+
+    def test_verify_method_rejects_sms(self, authenticated_client):
+        resp = authenticated_client.post('/api/mfa/verify-method', json={'method': 'sms', 'code': '123456'})
+        assert resp.status_code == 400
