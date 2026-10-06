@@ -3092,3 +3092,15 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## 2026-10-06 scheduled audit
+
+**Fixed — `services/ai_infrastructure.py` fabricated recommendations and fake Apply.**
+`get_recommendations()` returned four hardcoded items (`rec_1`..`rec_4`) ignoring `user_id`;
+`apply_recommendation()` reported `success: True` with no cloud call. Now fail-closed: empty list,
+and apply returns `success: False` with HTTP 501. Guarded by `tests/test_ai_infrastructure_no_fabrication.py`
+(not run locally: the sandbox could not build the full requirements).
+
+**Reviewed, no change:** `.query.get()` call sites (all have ownership/membership checks or are
+auth/admin lookups); webhook service methods take optional `user_id` (fail-open default, but every
+route caller passes it); `check_security_invariants.py` is clean.

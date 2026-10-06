@@ -234,7 +234,7 @@ def api_apply_recommendation(rec_id):
     service = AIInfrastructureService(current_user.id)
 
     result = service.apply_recommendation(rec_id, current_user.id)
-    return jsonify(result)
+    return jsonify(result), 501
 
 
 @ai_infrastructure_bp.route('/api/recommendations/<int:rec_id>/dismiss', methods=['POST'])
