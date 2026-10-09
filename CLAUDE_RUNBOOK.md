@@ -3092,3 +3092,9 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## 2026-10-09 scheduled audit
+
+- `services/ai_infrastructure.py`: removed the hardcoded recommendation list and fake-success `apply_recommendation()` (fail closed; test in `tests/test_ai_infrastructure_no_fabrication.py`). Remaining smell: `routes/ai_infrastructure.py` uses `<int:rec_id>` for string ids, and `ami-0c55b159cbfafe1f0` is hardcoded in template generation (lines ~116, ~320).
+- `routes/auth.py`: `/request-mfa-reset` had no rate limit (email flood from one pending session); added `3 per hour`.
+- Checked clean: security-invariants scanner, no `shell=True`/`eval`/`verify=False` in app code (only `tools/remote-control/server.py`, a local dev helper).

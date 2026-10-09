@@ -656,6 +656,7 @@ def verify_2fa():
 
 
 @auth_bp.route('/request-mfa-reset', methods=['POST'])
+@limiter.limit("3 per hour")
 def request_mfa_reset():
     """Send MFA reset link to user's email. Called from verify-2fa page."""
     pending_user_id = session.get('2fa_pending_user')
