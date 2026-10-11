@@ -3092,3 +3092,17 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## 2026-10-11 - scheduled review: AI Infrastructure fabricated recommendations
+
+**Fixed - `services/ai_infrastructure.py` `get_recommendations()`/`apply_recommendation()`.** The
+last open instance of the fabricated-data bug class: four hardcoded recommendations (right-size EC2,
+S3 encryption, RDS replicas, Multi-AZ) returned to every user ignoring `user_id`, and "apply"
+returned `success: True` with no cloud call. Now `get_recommendations()` returns `[]` and
+`apply_recommendation()` returns `not_implemented`; `routes/ai_infrastructure.py` maps that to HTTP 501.
+
+**Reviewed, no action:** security-invariant scan clean; all `Model.query.get(id)` sites in
+`app.py`/`routes/` check `user_id`. Dead, unrouted and unguarded: `MultiTenancyService.update_team`/
+`delete_team` (no callers; add an org-membership check before wiring a route). `get_webhook()`/
+`get_team()` are unscoped getters but every routed caller checks ownership/membership.
+Could not run pytest in this environment (not installed).
