@@ -54,14 +54,12 @@ services/
   credential_encryption.py # Fernet encryption for credentials
   input_sanitizer.py       # sanitize_input() + validate_message() (injection blocking)
   learning_sandbox.py      # Mock tool results for sandbox/learning mode
-  prevention_engine.py     # ProactiveRecommendation: SQL pattern analysis + Claude spec generation
   skills_engine.py         # Skills: frontmatter parsing, trigger matching, learned infra context
   starter_templates.py     # Curated public infrastructure templates (data only)
   starter_workflows.py     # Curated pre-built workflow templates + seed_workflow_templates()
 routes/
   incidents.py             # Incident dashboard, journal, correlation group APIs
   artifacts.py             # Chat artifact CRUD + markdown export
-  optimization.py          # Cost + proactive prevention endpoints
   skills.py                # Skills activate/deactivate/list/learned endpoints
 skills/                    # Built-in skill *.md files (loaded at startup, cached in memory)
   aws_cost_optimization.md
@@ -71,15 +69,13 @@ skills/                    # Built-in skill *.md files (loaded at startup, cache
   terraform_best_practices.md
 templates/
   index.html               # Main chat UI (dark terminal aesthetic, centered nav, artifacts panel)
-  optimization/
-    prevention.html        # Proactive prevention — 4-category card UI with spec generation
   settings/
     skills.html            # Skills toggle grid + learned infrastructure summary
   incidents/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (748 total, 18 modules)
+## Tool Inventory (749 total, 18 modules)
 
 > Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`
 > (`tests/test_tool_counts.py` guards this against the user-facing pages).
@@ -118,11 +114,12 @@ Compute (list, describe, start, stop, create, delete, snapshots), GCS (list buck
 
 ### CI/CD — Jenkins + GitHub Actions + GitLab (35 tools)
 `trigger_jenkins_job`, `get_jenkins_job_status`, `get_jenkins_build_logs`, `list_jenkins_jobs`, `get_jenkins_queue`, `abort_jenkins_build`, `enable_jenkins_job`, `disable_jenkins_job`, `get_jenkins_job_config`, `list_jenkins_nodes`, `delete_jenkins_build`.
-Credentials: `JENKINS_URL`, `JENKINS_USERNAME`, `JENKINS_TOKEN` env vars.
+Credentials: the user's Jenkins connection (Settings > Integrations) or explicit params; never env vars.
 
 ### CI/CD — GitHub Actions (10 tools)
 `trigger_github_workflow`, `get_github_workflow_runs`, `list_github_workflows`, `get_github_workflow_run`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `list_github_runners`, `list_github_secrets`, `list_github_environments`, `get_github_workflow_usage`.
-Credentials: `GITHUB_TOKEN` env var.
+Plus `get_github_run_jobs` (jobs, failed steps, failed-job log tails).
+Credentials: the user's GitHub connection or an explicit `github_token`; never env vars.
 
 ### Terraform (26 tools)
 `terraform_init`, `terraform_plan`, `terraform_apply`, `terraform_destroy`, `terraform_show`, `terraform_output`, `terraform_validate`, `terraform_fmt`, `terraform_workspace_list`, `terraform_workspace_select`, `terraform_workspace_new`, `terraform_state_list`, `terraform_import`, `terraform_state_move`, `terraform_state_rm`, `terraform_refresh`.
@@ -130,11 +127,11 @@ All tools take `working_dir` as the primary param.
 
 ### SonarQube (12 tools)
 `get_sonar_projects`, `get_sonar_project_quality`, `get_sonar_measures`, `get_sonar_issues`, `trigger_sonar_analysis`, `get_sonar_hotspots`, `create_sonar_project`, `delete_sonar_project`, `update_sonar_issue`, `list_sonar_quality_gates`, `assign_sonar_quality_gate`, `get_sonar_analysis_history`.
-Credentials: `SONAR_TOKEN` env var + `base_url` per-call param.
+Credentials: the user's SonarQube connection (or explicit `token`) + `base_url`, which must match the saved server's origin.
 
 ### Nexus Repository Manager (12 tools)
 `nexus_get_system_status`, `nexus_list_repositories`, `nexus_get_repository`, `nexus_create_repository`, `nexus_delete_repository`, `nexus_search_components`, `nexus_get_component`, `nexus_delete_component`, `nexus_list_assets`, `nexus_delete_asset`, `nexus_list_users`, `nexus_run_cleanup_task`.
-Credentials: `NEXUS_USERNAME` / `NEXUS_PASSWORD` env vars + `base_url` per-call param.
+Credentials: the user's Nexus connection (or explicit username/password) + `base_url`, which must match the saved server's origin.
 
 ### Docker (22 tools)
 `docker_list_containers`, `docker_get_container_details`, `docker_manage_container`, `docker_get_container_logs`, `docker_list_images`, `docker_pull_image`, `docker_remove_image`, `docker_list_volumes`, `docker_list_networks`, `docker_get_stats`, `docker_compose_up`, `docker_compose_down`, `docker_build_image`, `docker_create_container`, `docker_create_network`, `docker_remove_network`, `docker_create_volume`, `docker_remove_volume`, `docker_exec`, `docker_tag_image`, `docker_push_image`, `docker_system_prune`.
@@ -193,7 +190,7 @@ that entry was already stale when written). `services/performance_optimizer.py`'
 same id from the 2026-08-12 drift incident above) plus four other hardcoded resources
 (`prod-db`, `default/api-service`, `vol-0xyz789`, `data-archive`) for every user with no cloud
 account, rendered at `/optimization/` and `/optimization/recommendations` — **fixed by the
-2026-09-20 scheduled audit**: `_get_user_recommendations()` now returns an empty dict until a
+2026-09-20 scheduled audit** (the whole Optimize area was later removed, 2026-10-13): `_get_user_recommendations()` now returns an empty dict until a
 real caller feeds it live resource data via the existing (previously unused)
 `analyze_resource()` entry point, same fail-closed shape as `predictive_scaling.py`'s fix. The
 same audit found the identical fake-Apply shape one call site over: `app.py`'s
@@ -258,7 +255,7 @@ instance is found.
   touched again, not just the ones a bug report happens to point at.
 - **A non-Flask-session entry point (a bot, webhook, or CLI) that calls a per-user service still
   needs a real app `user_id` from somewhere — it doesn't get one for free.** Every method on
-  `IncidentResponseEngine`/`ProactiveMonitoringService`/`RootCauseAnalyzer` requires `user_id` as
+  `IncidentResponseEngine`/`RootCauseAnalyzer` (and the since-removed `ProactiveMonitoringService`) requires `user_id` as
   its first positional arg, same as any other per-user service in this app. `services/chatops_service.py`
   (Slack/Teams bot commands) called all of them with no `user_id` at all, or with the Slack-typed
   incident-id string landing in the `user_id` slot, because there was no mechanism to map a
@@ -300,7 +297,8 @@ instance is found.
   - `auth_mode='role_arn'`: IAM Role ARN + optional External ID → STS AssumeRole for temp creds (enterprise, cross-account)
   - `get_user_boto_client()` / `get_user_boto_resource()` handle both modes transparently
   - Settings UI (`templates/settings.html`) and onboarding wizard (`templates/onboarding.html`) both have a mode toggle; **role ARN is the recommended default** (access keys demoted to fallback for self-hosted setups)
-  - Trust policy instructions in both UIs render the platform account ID from `PLATFORM_AWS_ACCOUNT_ID` env var (default `188046727805`), exposed via the `/settings` and `/onboarding` routes in `app.py`
+  - Trust policy instructions in both UIs render the platform account ID from `PLATFORM_AWS_ACCOUNT_ID` env var (default `188046727805`), exposed via the `/settings` and `/onboarding` routes in `app.py`; the quick-create template link comes from `CF_TEMPLATE_URL` (same routes). The two must move together — the template's trust policy names that account.
+  - **Migration bridge** (`PLATFORM_BRIDGE_ROLE_ARN`, unset by default): when a direct `AssumeRole` into a customer role is **denied**, `_assume_role()` retries by first assuming that bridge role in the *previous* platform account and chaining from it (External ID still sent; chained sessions max 3600s). Exists only so role-based customers keep working while they update trust policies after a platform account move — each bridged call logs `assumed via migration bridge`. Unset it once that log goes quiet. Full procedure: `docs/aws-account-migration.md`; `scripts/count_role_arn_customers.py` lists who is affected (and reports undecryptable credentials, a check that the encryption key carried over).
   - **Published least-privilege IAM policies** (`static/iam/devops-agent-readonly.json` + `devops-agent-management.json`, docs in `docs/iam-policies.md`): read-only = metadata never data (no `s3:GetObject`, `secretsmanager:GetSecretValue`, `ssm:GetParameter`, `lambda:GetFunction`); management = service writes but IAM read-only + `iam:PassRole` conditioned to AWS service principals, secret values still excluded. Guarded by `tests/test_iam_policies.py` — update the tests if you change the policy guarantees.
   - **CloudFormation quick-create**: `cloudformation/devops-agent-role.json` is generated from the policy files by `scripts/build_cf_template.py` and hosted at `s3://devopsagent-cf-templates/devops-agent-role.json` (public read — quick-create requires an S3 URL). "Create role with CloudFormation" buttons in settings + onboarding auto-generate an External ID and open the console quick-create page. **After editing a policy file: re-run the build script and re-upload to S3** (command in `docs/iam-policies.md`); a sync test fails if the committed template drifts.
   - **Public `/security` trust page** (`templates/security.html`, route `security_page` in `app.py`): credential handling, auditable policy links, sandbox pitch, guardrails stack, vulnerability contact (`security@devopsagent.io`). Linked from landing + about footers. Onboarding step 1 has a "Start in sandbox" callout that PUTs `{sandbox_mode: true}` to `/api/preferences` and completes onboarding without credentials.
@@ -432,6 +430,12 @@ whatever's left buffered. Wired into all 3 streaming loops (`app.py`, `routes/ap
 unrelated hallucination-check reasons and was never affected. `routes/curriculum.py`'s
 `/curriculum/api/ai-guide` is a plain curriculum Q&A completion with no tool execution, so it has no
 path to disclose a live cloud secret and doesn't need this.
+
+**Learning-page AI (Coach + quiz, `routes/curriculum.py`) must never hardcode a model id.** Both use
+`DEFAULT_KIMI_MODEL` via `_create_completion()`, which falls back to it if an override
+(`CURRICULUM_MODEL`/`KIMI_MODEL`) is unavailable. Provider errors go through
+`_friendly_ai_error()`; never echo `str(e)` to the page. Hardcoded `moonshot-v1-*` ids that Moonshot
+had retired broke both features until 2026-10-13 (see CLAUDE_RUNBOOK.md).
 
 ## Safety System (`src/agent/safety.py`)
 
@@ -1264,7 +1268,7 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **748** across 18 modules (`verification_tools` added 2026-09-09). Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **749** across 18 modules (`verification_tools` added 2026-09-09, `get_github_run_jobs` 2026-10-13). Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:
@@ -1499,6 +1503,13 @@ unit, not the deployed one, until this gap is closed.
 config; it's computed locally with `pyotp`. **Email codes require a delivery
 provider**, or login fails with "Failed to send verification email".
 
+2FA lives on the account (`User.mfa_method` / `two_factor_secret`), never on a device.
+The code screen stays valid for `_MFA_PENDING_MINUTES` (10, the email OTP lifetime).
+Keep these two equal, or emailed codes expire on the screen while still valid.
+`_check_mfa_code` strips whitespace and dashes before checking. The code box must not
+cap input at 6 characters: a pasted "123 456" would be cut to 5 digits. Both MFA
+screens show which account is signing in. Pinned by `tests/test_2fa_code_acceptance.py`.
+
 - Email (`services/email_service.py`): set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
   + `EMAIL_FROM`, then one of: `BREVO_API_KEY`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`; `SENDGRID_API_KEY`.
 
@@ -1678,6 +1689,12 @@ GitHub Actions workflows live in `.github/workflows/`:
   broke with "Could not load credentials from any providers" on every run from
   2026-07-23 onward).
 
+- **`mcp-diagnose.yml`** — on-demand (`workflow_dispatch`). Run it right after a failed
+  claude.ai connector "Connect". It prints MCP/OAuth request lines with status codes (gunicorn
+  and nginx), the app's `MCP auth:` log lines (shows whether the Bearer header arrived and
+  whether the token was found), the `mcp_oauth_*` table schemas, and recent token
+  **metadata** (never token values). Same OIDC + SSM pattern as `check-errors.yml`.
+
 Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
 do). The scheduled scan is the only timer-based scan.
 
@@ -1690,6 +1707,12 @@ do). The scheduled scan is the only timer-based scan.
 | `AWS_SECRET_ACCESS_KEY` | ~~none~~ | No longer needed — deploys authenticate via GitHub OIDC (2026-07-18) |
 | `EC2_INSTANCE_ID` | `ci.yml`, `deploy.yml` | EC2 instance ID for SSM targeting |
 
+Every AWS-touching workflow (`ci.yml`, `deploy.yml`, `check-errors.yml`,
+`run-migration.yml`) reads the role from the repo **variable** `AWS_DEPLOY_ROLE_ARN`
+and the region from `AWS_REGION`, falling back to the values below — so moving
+accounts is `gh variable set`, not a code change (`tests/test_aws_account_migration.py`
+fails on a hardcoded role or long-lived keys). `run-migration.yml` still used the
+deleted access-key secrets until 2026-10-13 and could not authenticate at all.
 Deploy jobs assume `arn:aws:iam::188046727805:role/github-actions-deploy` via
 GitHub OIDC (`token.actions.githubusercontent.com` provider; trust scoped to
 `repo:shittuay/DevOps-Agent:*`; permissions = SSM SendCommand on the app
@@ -1891,8 +1914,54 @@ edits to an existing starter workflow never reached production. It now also upda
 templates are never touched.
 
 Categories as of 2026-10-13: Compute, Security, Monitoring, Storage, Database, Cost,
-Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC. The Incident Response
-and pod-troubleshooting workflows are read-only, and a test asserts they name no write tool.
+Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC, CI/CD, On-Call. 46 starter
+workflows across AWS, Azure, GCP, Kubernetes, GitHub, GitLab, Jenkins, SonarQube, PagerDuty
+and OpsGenie. `tests/test_workflow_inputs.py` pins, per workflow:
+- every tool it names exists in the live catalog;
+- the read-only list (Incident Response, pod troubleshooting, IAM audit, compliance check,
+  cluster health check, multi-cloud snapshot) names no write tool;
+- provisioning workflows end with a teardown step;
+- the fix-offering audits (public S3 buckets, idle resources) change nothing until the user
+  names the items;
+- the new databases (RDS, Azure SQL, Cloud SQL) are private, encrypted and firewalled to one IP.
+
+Rules for new workflows:
+- When a dedicated tool can't express a safe default, use the `*_api_write` escape hatch.
+  `create_rds_instance` has no subnet group, security group, encryption or deletion-protection
+  parameters, so the RDS workflow calls `aws_api_write("rds", "create_db_instance", ...)` with
+  `ManageMasterUserPassword` (the password never enters chat).
+- **Do not build workflows on `docker_*` or `terraform_*` tools.** They run against the DevOps
+  Agent server's own Docker daemon and local filesystem, not the customer's machine or repo.
+- CI/CD and On-Call workflows (added 2026-10-13) open with `_NEEDS_INTEGRATION`, which points
+  at Settings > Integrations and never asks for a pasted token. Their one write (re-run, retry,
+  rebuild, page) waits for "I say yes". `tests/test_workflow_inputs.py` pins both
+  (`INTEGRATION_WORKFLOWS`, `CONFIRM_BEFORE_WRITE`). `get_github_run_jobs` was added for them:
+  run details alone have no job, step or log data.
+
+**Integration credentials are per user (fixed 2026-10-13).** GitHub, GitLab, Jenkins, PagerDuty,
+OpsGenie, Datadog, SonarQube and Nexus tools used to fall back to the platform's env vars
+(`GITHUB_TOKEN`, `PAGERDUTY_API_KEY`, `SONAR_TOKEN`, ...), so any user's chat acted through the
+platform's accounts. The URL-taking ones (GitLab, Jenkins, SonarQube, Nexus) also sent that
+platform secret to whatever URL the chat supplied. Now:
+- Credentials live in `UserIntegrationCredential` (encrypted with the same key as
+  `UserCloudCredential`, but a separate table so they never count as a cloud account, trigger a
+  sync, or appear in `connected_providers`). `services/integration_credentials.py` holds the
+  provider specs (`INTEGRATIONS`), validation, save/load/status, and `resolve()`.
+- Tools call `src/tools/integration_auth.credentials(provider, caller_url=..., **explicit)`. It
+  uses values the caller passed explicitly, otherwise the requesting user's saved row, and
+  **never** env vars. With neither it raises `IntegrationNotConnected` ("connect it in Settings >
+  Integrations"). A saved secret is only sent to the saved URL's origin; a different host passed
+  by the chat is refused.
+- The requesting user comes from `integration_auth`'s thread-local, set and cleared by
+  `DevOpsAgent._set_cloud_user_context` / `_clear_cloud_user_context` with the cloud contexts.
+- Settings > Integrations (`#integrations`, `routes/integrations.py`: `GET/PUT/DELETE
+  /api/integrations[/<provider>]`) connects each tool. Secrets are write-only: never returned,
+  and a blank secret on update keeps the saved one. URLs go through `assert_safe_url` at save.
+- `tests/test_integration_credentials.py` fails if any of these tool modules mentions one of the
+  old env var names again, or if any integration works for a user with nothing saved.
+- The CLI (`main.py`) has no signed-in user, so these tools need explicit tokens there.
+- When adding a tool for a new third-party service, add an `IntegrationSpec` and resolve through
+  `credentials()`. Never read a credential from `os.environ` inside a tool.
 
 **AI/ML workflows (added 2026-10-12, extended 2026-10-13):** five self-hosted LLM
 workflows — AWS EC2, EKS, Azure GPU VM, GCP GPU VM, and on-prem Kubernetes. Steps
@@ -1922,35 +1991,34 @@ matching `filter-chip` in `templates/workflows.html`**; `test_workflow_seeding.p
 now reads the chips from the template and fails if they drift. Teaching notes for
 this domain live in `LEARNING_MODE_CONTEXT` ("Self-hosted LLMs").
 
-### Proactive Prevention Engine
-**Access:** `/optimization/prevention` — click "Run Analysis" to scan
+### Optimize (`/optimization`) — removed 2026-10-13
 
-**What it does:** Analyzes your synced infrastructure using pure SQL (no AI cost) to surface four categories of recommendations. "Generate Spec" calls Claude to write a detailed implementation plan for any recommendation.
+The Optimize area (`routes/optimization.py`, `templates/optimization/`,
+`services/performance_optimizer.py`, `services/prevention_engine.py`) was deleted at the
+owner's request. Its fabricated sample data had already been stripped by the 2026-09-20 audit
+(see the real-cloud-account section above), which left the page rendering an empty list —
+nothing ever fed `analyze_resource()` live data. Real cost data lives elsewhere and is
+unaffected: `services/cost_explorer.py` backs `/api/dashboard/costs` and the
+`get_cost_summary`/`get_optimization_recommendations` agent tools. Slack/Teams cost, security,
+and change notifications now link to `/dashboard`. The `ProactiveRecommendation` table is left
+in place, unused. `tests/test_optimize_removed.py` guards against a dangling link or a
+`url_for('optimization.…')` (one in `scaling/dashboard.html` would otherwise 500 `/scaling`).
 
-**New model:** `ProactiveRecommendation`
+### Monitoring (`/monitoring`) — removed 2026-10-13
 
-**Recommendation categories:**
-
-| Category | Example types |
-|---|---|
-| Observability | `missing_alert`, `no_log_aggregation`, `no_uptime_check` |
-| Infrastructure | `single_az`, `no_auto_scaling`, `unencrypted_storage`, `unused_resource` |
-| Governance | `untagged_resources`, `overpermissive_iam`, `missing_backup` |
-| Code Optimization | `recurring_pod_crash`, `high_restart_count`, `deploy_without_healthcheck` |
-
-**API endpoints (in `routes/optimization.py`):**
-```
-GET  /optimization/api/recommendations/proactive                    → list (filter: category, status)
-POST /optimization/api/recommendations/proactive/analyze            → trigger analysis, save new recs
-POST /optimization/api/recommendations/<id>/agent-spec              → generate Claude impl spec (costs 1 credit)
-PUT  /optimization/api/recommendations/<id>/status                  → update status (resolved/dismissed/pending)
-```
-
-**Service (`services/prevention_engine.py`):**
-- `analyze_incident_patterns()` — groups incidents by title prefix, count > 2 = recommendation
-- `generate_observability_recommendations()` — resources with no matching monitoring rule
-- `generate_governance_recommendations()` — untagged resources, unattached EBS > 30 days
-- `generate_agent_spec()` — single Claude API call; deducts 1 credit; saves to `ProactiveRecommendation.agent_spec`
+The Monitoring page (`routes/monitoring.py`, `templates/monitoring/`) and the engine behind it
+(`services/proactive_monitoring.py`) were deleted at the owner's request. That engine seeded
+default alert rules for every user with a cloud account, evaluated them on a 60s scheduler tick
+(`monitoring_tick`, also removed from `services/scheduler.py`), and **auto-opened incidents** and
+sent Slack/Teams/status-page notifications when an alert fired. **Incidents are no longer created
+from metric alerts** — manual and webhook-created incidents, RCA, and incident notifications are
+unaffected. ChatOps `/alerts` and `/metrics` were removed; `/status` now reports incident stats
+only. The dead `notification_service.notify_alert()` (it linked to `/monitoring`) was deleted;
+`status_service.broadcast_incident()` is now unused but kept. The agent's Prometheus/Datadog/Grafana
+tools (`src/tools/monitoring_tools.py`) are a separate feature and remain. `MonitoringRuleModel` /
+`MonitoringAlertModel` tables are left in place, unused. `tests/test_monitoring_removed.py` guards
+the route, the engine import, the scheduler tick, the ChatOps commands, and every page that used to
+`url_for('monitoring.…')` (six did — each would 500 without the fix).
 
 ---
 
@@ -2033,7 +2101,7 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 
 **Header layout (3 zones):**
 - Left: sidebar toggle (☰)
-- Center: primary nav (Dashboard / Monitoring / Incidents / Optimize) | secondary nav (Map / Analysis / Learn) — orange underline on hover
+- Center: primary nav (Dashboard / Incidents) | secondary nav (Map / Analysis / Learn) — orange underline on hover
 - Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.

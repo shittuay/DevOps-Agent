@@ -477,12 +477,12 @@ class TestVerify2faPaths:
         resp = client.get('/verify-2fa')
         assert resp.status_code == 302 and '/login' in resp.headers['Location']
 
-    def test_expired_pending_login_redirects_and_clears_session(self, client, test_user, db_session):
+    def test_expired_pending_login_says_so_and_clears_session(self, client, test_user, db_session):
         self._pending_totp(client, test_user)
         with client.session_transaction() as sess:
             sess['2fa_pending_time'] = '2000-01-01T00:00:00'
         resp = client.get('/verify-2fa')
-        assert resp.status_code == 302 and '/login' in resp.headers['Location']
+        assert resp.status_code == 200 and b'timed out' in resp.data
         with client.session_transaction() as sess:
             assert '2fa_pending_user' not in sess
 

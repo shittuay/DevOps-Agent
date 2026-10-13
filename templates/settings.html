@@ -97,6 +97,30 @@
         .settings-section:nth-child(6) { animation-delay: 0.5s; animation-fill-mode: both; }
         .settings-section:nth-child(7) { animation-delay: 0.6s; animation-fill-mode: both; }
 
+        .integration-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+            gap: 16px;
+        }
+        .integration-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 18px;
+            min-width: 0;
+        }
+        .integration-card .ic-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px;
+        }
+        .integration-card h3 { font-size: 1.05rem; color: var(--text-primary); margin: 0; }
+        .integration-card .ic-help { font-size: 0.8rem; color: var(--text-tertiary); margin: 0 0 14px; line-height: 1.5; }
+        .integration-card .form-group { margin-bottom: 14px; }
+        .integration-card input, .integration-card select { padding: 10px 12px; font-size: 14px; }
+        .integration-card .ic-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .integration-card .ic-actions button { padding: 10px 16px; font-size: 12px; }
+        .integration-card .ic-error { color: var(--accent-error, #ef4444); font-size: 0.78rem; margin-top: 4px; }
+        .integration-card .ic-msg { font-size: 0.8rem; margin-top: 10px; min-height: 1em; }
+
         .section-header {
             display: flex;
             align-items: center;
@@ -489,6 +513,7 @@
                 <a href="#notifications" class="settings-tab" data-tab="notifications"><i class="fa-solid fa-bell"></i> Notifications</a>
                 <a href="#budgets" class="settings-tab" data-tab="budgets"><i class="fa-solid fa-coins"></i> Budgets</a>
                 <a href="#learning" class="settings-tab" data-tab="learning"><i class="fa-solid fa-graduation-cap"></i> Learning</a>
+                <a href="#integrations" class="settings-tab" data-tab="integrations"><i class="fa-solid fa-plug"></i> Integrations</a>
                 <a href="#api-keys" class="settings-tab" data-tab="api-keys"><i class="fa-solid fa-key"></i> API Keys</a>
             </nav>
 
@@ -585,7 +610,7 @@
 
                     <!-- Info boxes for each mode -->
                     <div id="roleArnInfo" class="info-box">
-                        <p style="margin:0 0 12px;font-size:0.85em;color:#666;">The quick-create button above fills in your External ID automatically and opens the AWS console. The template is <a href="https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json" target="_blank">public and auditable</a>.</p>
+                        <p style="margin:0 0 12px;font-size:0.85em;color:#666;">The quick-create button above fills in your External ID automatically and opens the AWS console. The template is <a href="{{ cf_template_url }}" target="_blank">public and auditable</a>.</p>
                         <h4>Or set up manually:</h4>
                         <ol>
                             <li>In your AWS account, go to <strong>IAM &rarr; Roles &rarr; Create Role</strong></li>
@@ -1065,6 +1090,21 @@
                 </div>
             </div>
 
+            <!-- Integrations -->
+            <div class="settings-section" data-tab-panel="integrations">
+                <div class="section-header">
+                    <div>
+                        <h2>Integrations</h2>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Connect your CI/CD, on-call, monitoring and code-quality tools so the agent can act on them for you.</p>
+                    </div>
+                    <span id="integrationCountBadge" class="status-badge not-configured">0 connected</span>
+                </div>
+                <div style="background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6;">
+                    The agent only ever uses the credentials you save here (or ones you paste into a chat). Secrets are encrypted at rest, never shown again, and only sent to the server URL you save with them. Use a token scoped to just what you want the agent to do.
+                </div>
+                <div id="integrationGrid" class="integration-grid"></div>
+            </div>
+
             <!-- API Keys -->
             <div class="settings-section" data-tab-panel="api-keys">
                 <div class="section-header">
@@ -1148,7 +1188,7 @@
         // AWS Functions
         var currentAwsMode = 'role_arn';
 
-        var CF_TEMPLATE_URL = 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json';
+        var CF_TEMPLATE_URL = {{ cf_template_url|tojson }};
 
         function buildCfQuickCreateUrl(externalId) {
             return 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate'
@@ -1238,10 +1278,10 @@
                         ' — these are not real IAM action prefixes, so the EFS and OpenSearch tools ' +
                         'fail with permission errors. The published policies were fixed on 2026-07-24.' +
                         '<br><br><strong>If you used the CloudFormation quick-create:</strong> update your stack ' +
-                        'with the same template URL (keeps your External ID and policy level):' +
+                        'with the same template URL (keeps your External ID, policy level and role name):' +
                         '<code>aws cloudformation update-stack --stack-name YOUR_STACK_NAME \\\n' +
-                        '  --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \\\n' +
-                        '  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true \\\n' +
+                        '  --template-url ' + CF_TEMPLATE_URL + ' \\\n' +
+                        '  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true ParameterKey=RoleName,UsePreviousValue=true \\\n' +
                         '  --capabilities CAPABILITY_NAMED_IAM</code>' +
                         '<br><strong>If you created the role manually:</strong> replace the policy JSON with the current version from ' +
                         '<a href="/static/iam/devops-agent-readonly.json" target="_blank">devops-agent-readonly.json</a> or ' +
@@ -2057,9 +2097,139 @@
     </script>
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
     <script>
+    // Integrations: per-user credentials for CI/CD, on-call, monitoring and code-quality tools.
+    (function() {
+        const FIELD_LABELS = {
+            token: 'Token', api_key: 'API key', app_key: 'Application key', password: 'Password',
+            url: 'Server URL', username: 'Username', from_email: 'PagerDuty user email', region: 'Region'
+        };
+        const PLACEHOLDERS = {
+            url: 'https://', from_email: 'you@company.com'
+        };
+
+        function el(tag, attrs, text) {
+            const node = document.createElement(tag);
+            Object.entries(attrs || {}).forEach(([k, v]) => node.setAttribute(k, v));
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function fieldInput(item, name, isSecret) {
+            const group = el('div', {class: 'form-group'});
+            const id = 'int-' + item.provider + '-' + name;
+            const required = item.required.includes(name);
+            group.appendChild(el('label', {for: id}, (FIELD_LABELS[name] || name) + (required ? '' : ' (optional)')));
+            let input;
+            if (item.choices[name]) {
+                input = el('select', {id: id, name: name});
+                item.choices[name].forEach(c => {
+                    const opt = el('option', {value: c}, c.toUpperCase());
+                    if ((item.values[name] || '') === c) opt.selected = true;
+                    input.appendChild(opt);
+                });
+            } else {
+                input = el('input', {id: id, name: name, type: isSecret ? 'password' : 'text', autocomplete: 'off', spellcheck: 'false'});
+                if (isSecret) {
+                    input.placeholder = item.connected ? 'Saved. Leave blank to keep it' : '';
+                } else {
+                    input.value = item.values[name] || '';
+                    if (PLACEHOLDERS[name]) input.placeholder = PLACEHOLDERS[name];
+                }
+            }
+            group.appendChild(input);
+            group.appendChild(el('div', {class: 'ic-error', 'data-error-for': name}));
+            return group;
+        }
+
+        function renderCard(item) {
+            const card = el('form', {class: 'integration-card', 'data-provider': item.provider, novalidate: ''});
+            const head = el('div', {class: 'ic-head'});
+            head.appendChild(el('h3', {}, item.label));
+            const badge = el('span', {class: 'status-badge ' + (item.connected ? 'configured' : 'not-configured')},
+                item.connected ? 'Connected' : (item.needs_reconnect ? 'Reconnect' : 'Not connected'));
+            head.appendChild(badge);
+            card.appendChild(head);
+            card.appendChild(el('p', {class: 'ic-help'}, item.help));
+            item.plain_fields.forEach(f => card.appendChild(fieldInput(item, f, false)));
+            item.secret_fields.forEach(f => card.appendChild(fieldInput(item, f, true)));
+            const actions = el('div', {class: 'ic-actions'});
+            const save = el('button', {type: 'submit', class: 'btn-primary'}, item.connected ? 'Update' : 'Connect');
+            actions.appendChild(save);
+            if (item.connected || item.needs_reconnect) {
+                const remove = el('button', {type: 'button', class: 'btn-secondary'}, 'Disconnect');
+                remove.addEventListener('click', () => disconnect(item, card));
+                actions.appendChild(remove);
+            }
+            card.appendChild(actions);
+            card.appendChild(el('div', {class: 'ic-msg', role: 'status'}));
+            card.addEventListener('submit', (e) => { e.preventDefault(); saveCard(item, card, save); });
+            return card;
+        }
+
+        function setMsg(card, text, ok) {
+            const msg = card.querySelector('.ic-msg');
+            msg.textContent = text;
+            msg.style.color = ok ? 'var(--accent-success)' : 'var(--accent-error, #ef4444)';
+        }
+
+        function saveCard(item, card, button) {
+            card.querySelectorAll('.ic-error').forEach(e => e.textContent = '');
+            const body = {};
+            card.querySelectorAll('input, select').forEach(i => { body[i.name] = i.value; });
+            button.disabled = true;
+            fetch('/api/integrations/' + encodeURIComponent(item.provider), {
+                method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+            })
+            .then(r => r.json().then(d => ({ok: r.ok, d: d})))
+            .then(({ok, d}) => {
+                button.disabled = false;
+                if (!ok) {
+                    Object.entries(d.fields || {}).forEach(([f, m]) => {
+                        const slot = card.querySelector('[data-error-for="' + f + '"]');
+                        if (slot) slot.textContent = m;
+                    });
+                    setMsg(card, d.error || 'Could not save.', false);
+                    return;
+                }
+                loadIntegrations(item.provider, d.message);
+            })
+            .catch(err => { button.disabled = false; setMsg(card, 'Error: ' + err.message, false); });
+        }
+
+        function disconnect(item, card) {
+            if (!window.confirm('Disconnect ' + item.label + '? The agent will no longer be able to use it.')) return;
+            fetch('/api/integrations/' + encodeURIComponent(item.provider), {method: 'DELETE'})
+            .then(r => r.json().then(d => ({ok: r.ok, d: d})))
+            .then(({ok, d}) => ok ? loadIntegrations(item.provider, d.message) : setMsg(card, d.error || 'Could not disconnect.', false))
+            .catch(err => setMsg(card, 'Error: ' + err.message, false));
+        }
+
+        function loadIntegrations(focusProvider, message) {
+            const grid = document.getElementById('integrationGrid');
+            if (!grid) return;
+            fetch('/api/integrations')
+            .then(r => r.json())
+            .then(d => {
+                const items = d.integrations || [];
+                grid.replaceChildren(...items.map(renderCard));
+                const count = items.filter(i => i.connected).length;
+                const badge = document.getElementById('integrationCountBadge');
+                badge.textContent = count + ' connected';
+                badge.className = 'status-badge ' + (count ? 'configured' : 'not-configured');
+                if (focusProvider && message) {
+                    const card = grid.querySelector('[data-provider="' + focusProvider + '"]');
+                    if (card) setMsg(card, message, true);
+                }
+            })
+            .catch(() => { grid.textContent = 'Could not load integrations.'; });
+        }
+
+        loadIntegrations();
+    })();
+
     // Section tabs: hash-driven show/hide of settings sections
     (function() {
-        const validTabs = ['cloud', 'notifications', 'budgets', 'learning', 'api-keys'];
+        const validTabs = ['cloud', 'notifications', 'budgets', 'learning', 'integrations', 'api-keys'];
         function activateTab(tab) {
             if (!validTabs.includes(tab)) tab = 'cloud';
             document.querySelectorAll('.settings-tab').forEach(t =>

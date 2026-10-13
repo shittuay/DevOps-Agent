@@ -693,7 +693,7 @@
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                         </div>
                         <div>
-                            <div class="feature-name">748 Cloud Tools</div>
+                            <div class="feature-name">749 Cloud Tools</div>
                             <div class="feature-desc">AWS, Azure, GCP, Kubernetes, Docker, Terraform, CI/CD and more — all from one chat interface</div>
                         </div>
                     </div>
@@ -774,7 +774,7 @@
                         </button>
                         <p class="field-hint" style="margin-bottom:16px;">
                             One click sets up the role, trust policy, and least-privilege permissions in your AWS account
-                            (<a href="https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json" target="_blank">auditable template</a>).
+                            (<a href="{{ cf_template_url }}" target="_blank">auditable template</a>).
                             When the stack finishes, copy the <code>RoleArn</code> from its Outputs tab into the field below.
                         </p>
                         <div class="form-group">
@@ -970,7 +970,7 @@
         // ── AWS auth mode switching ─────────────────────────────────
         let awsAuthMode = 'role_arn';
 
-        const CF_TEMPLATE_URL = 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json';
+        const CF_TEMPLATE_URL = {{ cf_template_url|tojson }};
 
         function openCfQuickCreate() {
             const eidInput = document.getElementById('aws-external-id');

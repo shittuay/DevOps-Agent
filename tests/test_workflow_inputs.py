@@ -168,17 +168,109 @@ NEW_WORKFLOW_TOOLS = {
     'Terraform Remote State Backend on S3': {
         'aws_api_read', 'create_dynamodb_table', 'create_s3_bucket', 'get_s3_bucket_info',
         'put_s3_lifecycle_policy'},
+    'Production PostgreSQL on RDS': {
+        'authorize_security_group_ingress', 'aws_api_read', 'aws_api_write', 'create_db_subnet_group',
+        'create_security_group', 'delete_rds_instance', 'describe_rds_instance', 'list_subnets', 'list_vpcs',
+        'modify_rds_instance'},
+    'Database Restore Drill (RDS)': {
+        'aws_api_read', 'create_rds_snapshot', 'delete_rds_instance', 'delete_rds_snapshot',
+        'describe_rds_instance', 'list_rds_snapshots', 'restore_rds_from_snapshot'},
+    'CloudWatch Alarms + Email Alerts for an EC2 Instance': {
+        'create_cloudwatch_alarm', 'create_sns_topic', 'delete_cloudwatch_alarm', 'delete_sns_topic',
+        'get_ec2_instances', 'list_cloudwatch_alarms', 'subscribe_sns_topic'},
+    'HTTPS Certificate for Your Domain (ACM + Route 53)': {
+        'aws_api_read', 'create_route53_record', 'list_acm_certificates', 'list_route53_zones',
+        'request_acm_certificate'},
+    'Find Publicly Exposed S3 Buckets': {
+        'aws_api_read', 'get_s3_bucket_policy', 'list_s3_buckets', 'set_s3_public_access_block'},
+    'IAM Hygiene Audit': {
+        'generate_iam_credential_report', 'get_iam_account_summary', 'get_iam_credential_report',
+        'list_iam_roles', 'list_iam_services_last_accessed'},
+    'Compliance Readiness Check (SOC 2 / HIPAA / PCI DSS)': {'get_security_findings', 'run_compliance_check'},
+    'Find Idle Resources Wasting Money': {
+        'aws_api_read', 'create_ebs_snapshot', 'delete_ebs_snapshot', 'delete_ebs_volume', 'get_ec2_instances',
+        'list_ebs_volumes', 'list_elastic_ips', 'list_nat_gateways', 'release_elastic_ip'},
+    'Autoscale a Kubernetes Deployment': {'create_hpa', 'delete_hpa', 'describe_deployment', 'list_hpas',
+                                          'top_pods'},
+    'Safe Rollout with Automatic Rollback': {
+        'describe_deployment', 'get_pod_logs', 'get_pods', 'rollback_deployment', 'rollout_history',
+        'rollout_status', 'run_smoke_test', 'update_deployment_image'},
+    'Kubernetes Cluster Health Check': {'describe_node', 'get_cluster_events', 'get_nodes', 'k8s_api_read',
+                                        'list_pvcs', 'top_nodes'},
+    'Secure Linux VM on Azure': {'create_resource_group', 'create_virtual_machine', 'delete_resource_group',
+                                 'get_vm_details', 'tcp_check'},
+    'Azure SQL Database Locked to Your IP': {
+        'create_resource_group', 'create_sql_database', 'create_sql_firewall_rule', 'create_sql_server',
+        'delete_resource_group', 'delete_sql_server', 'tcp_check'},
+    'Deploy a Container to Google Cloud Run': {
+        'delete_cloud_run_service', 'deploy_cloud_run_service', 'http_check', 'list_cloud_run_services'},
+    'Cloud SQL Database on GCP': {'create_cloud_sql_instance', 'delete_cloud_sql_instance',
+                                  'list_cloud_sql_instances'},
+    'Multi-Cloud Inventory and Cost Snapshot': {
+        'get_cost_summary', 'get_ec2_instances', 'get_infrastructure_summary',
+        'get_optimization_recommendations', 'list_cloud_sql_instances', 'list_compute_instances',
+        'list_rds_instances', 'list_virtual_machines'},
+    'Fix a Failing GitHub Actions Run': {
+        'get_github_run_jobs', 'get_github_workflow_runs', 'list_github_runners', 'list_github_secrets',
+        'rerun_failed_github_jobs'},
+    'Debug a Failing GitLab Pipeline': {
+        'get_gitlab_job_log', 'get_gitlab_pipeline', 'list_gitlab_jobs', 'list_gitlab_pipelines',
+        'retry_gitlab_pipeline'},
+    'Debug a Failing Jenkins Build': {
+        'get_jenkins_build_logs', 'get_jenkins_job_config', 'get_jenkins_job_status', 'get_jenkins_queue',
+        'list_jenkins_nodes', 'trigger_jenkins_job'},
+    'CI/CD Pipeline Health Report': {
+        'get_github_workflow_runs', 'get_github_workflow_usage', 'list_github_environments',
+        'list_github_runners', 'list_github_workflows'},
+    'Release Readiness Check (SonarQube + CI)': {
+        'get_github_workflow_runs', 'get_sonar_hotspots', 'get_sonar_issues', 'get_sonar_project_quality'},
+    'On-Call Shift Handoff Report': {
+        'opsgenie_get_alert', 'opsgenie_get_oncall', 'opsgenie_list_alerts', 'opsgenie_list_schedules',
+        'pagerduty_get_incident', 'pagerduty_list_incidents', 'pagerduty_list_oncalls'},
+    'Page the On-Call Engineer (PagerDuty)': {
+        'pagerduty_add_note', 'pagerduty_create_incident', 'pagerduty_get_incident',
+        'pagerduty_list_incidents', 'pagerduty_list_services'},
+}
+
+# Integration workflows run only on the user's own connection; none may ask for a pasted token.
+INTEGRATION_WORKFLOWS = (
+    'Fix a Failing GitHub Actions Run', 'Debug a Failing GitLab Pipeline', 'Debug a Failing Jenkins Build',
+    'CI/CD Pipeline Health Report', 'Release Readiness Check (SonarQube + CI)',
+    'On-Call Shift Handoff Report', 'Page the On-Call Engineer (PagerDuty)')
+
+# Diagnose-then-offer workflows: the one write they may make waits for an explicit yes.
+CONFIRM_BEFORE_WRITE = {
+    'Fix a Failing GitHub Actions Run': 'rerun_failed_github_jobs',
+    'Debug a Failing GitLab Pipeline': 'retry_gitlab_pipeline',
+    'Debug a Failing Jenkins Build': 'trigger_jenkins_job',
+    'Page the On-Call Engineer (PagerDuty)': 'pagerduty_create_incident',
 }
 
 # Read-only workflows: diagnosing must never change anything.
 READ_ONLY_WORKFLOWS = ('Troubleshoot Failing Kubernetes Pods', 'Diagnose a Website That Is Down',
-                       'Investigate an AWS Cost Spike')
+                       'Investigate an AWS Cost Spike', 'IAM Hygiene Audit',
+                       'Compliance Readiness Check (SOC 2 / HIPAA / PCI DSS)',
+                       'Kubernetes Cluster Health Check', 'Multi-Cloud Inventory and Cost Snapshot',
+                       'CI/CD Pipeline Health Report', 'Release Readiness Check (SonarQube + CI)',
+                       'On-Call Shift Handoff Report')
+
+# Workflows that leave billed resources running must tell the user how to remove them.
+PROVISIONING_WORKFLOWS = (
+    'Production PostgreSQL on RDS', 'Database Restore Drill (RDS)',
+    'CloudWatch Alarms + Email Alerts for an EC2 Instance', 'Secure Linux VM on Azure',
+    'Azure SQL Database Locked to Your IP', 'Deploy a Container to Google Cloud Run',
+    'Cloud SQL Database on GCP', 'Container App on ECS Fargate + Load Balancer',
+    'Static Website on S3 + CloudFront (HTTPS)', 'Create an EKS Cluster (Ready for kubectl)')
+
+# Audits that offer a fix must not apply it before the user names what to change.
+ASK_BEFORE_CHANGING = ('Find Publicly Exposed S3 Buckets', 'Find Idle Resources Wasting Money')
 
 
 def _catalog_names():
     names = set()
     for mod_name in ('aws_tools', 'azure_tools', 'gcp_tools', 'kubernetes_tools',
-                     'verification_tools', 'devops_operations_tools', 'cicd_tools'):
+                     'verification_tools', 'devops_operations_tools', 'cicd_tools',
+                     'alerting_tools', 'sonarqube_tools'):
         mod = importlib.import_module('src.tools.' + mod_name)
         names.update(t['name'] for t in mod.get_tools())
     return names
@@ -193,7 +285,50 @@ def test_new_workflows_name_only_real_tools():
         for tool in tools:
             assert tool in text, f'{tool} no longer referenced in {name}; update this test'
             assert tool in catalog, f'{name} tells the agent to call {tool}, which does not exist'
-        assert by_name[name].get('inputs'), f'{name} should open an input form'
+        # Declared explicitly; an account-wide audit may need none and starts on one click.
+        assert 'inputs' in by_name[name], f'{name} should declare its inputs'
+
+
+def test_provisioning_workflows_end_with_teardown():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name in PROVISIONING_WORKFLOWS:
+        assert 'teardown' in by_name[name]['steps'][-1].lower() or 'clean up' in \
+            by_name[name]['steps'][-1].lower(), f'{name} must end with how to remove what it created'
+
+
+def test_fix_offering_audits_ask_before_changing_anything():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name in ASK_BEFORE_CHANGING:
+        text = ' '.join(by_name[name]['steps'])
+        assert 'Do not' in text and 'only those' in text, f'{name} must wait for the user to pick items'
+
+
+def test_new_databases_are_never_public():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    rds = ' '.join(by_name['Production PostgreSQL on RDS']['steps'])
+    assert 'PubliclyAccessible false' in rds and 'StorageEncrypted true' in rds
+    assert 'ManageMasterUserPassword true' in rds and 'DeletionProtection true' in rds
+    azure_sql = ' '.join(by_name['Azure SQL Database Locked to Your IP']['steps'])
+    assert 'start_ip and end_ip both {client_ip}' in azure_sql
+    assert 'Do not add the 0.0.0.0' in azure_sql
+    cloud_sql = ' '.join(by_name['Cloud SQL Database on GCP']['steps'])
+    assert 'Add no authorized networks' in cloud_sql
+
+
+def test_integration_workflows_use_the_users_own_connection():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name in INTEGRATION_WORKFLOWS:
+        steps = by_name[name]['steps']
+        assert 'Settings > Integrations' in steps[0], f'{name} must start by pointing at the user connection'
+        assert 'do not ask me to paste a token' in steps[0]
+        assert not any(i['type'] == 'secret' for i in by_name[name]['inputs']), f'{name} asks for a secret'
+
+
+def test_diagnose_then_offer_workflows_wait_for_a_yes():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name, write_tool in CONFIRM_BEFORE_WRITE.items():
+        step = next(s for s in by_name[name]['steps'] if write_tool in s)
+        assert 'I say yes' in step, f'{name} must not call {write_tool} before the user agrees'
 
 
 def test_read_only_workflows_never_call_a_write_tool():

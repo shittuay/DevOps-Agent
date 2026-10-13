@@ -79,7 +79,6 @@ services = [
     ('drift_detection', 'services.drift_detection'),
     ('ai_infrastructure', 'services.ai_infrastructure'),
     ('learning_sandbox', 'services.learning_sandbox'),
-    ('proactive_monitoring', 'services.proactive_monitoring'),
     ('notification_service', 'services.notification_service'),
     ('incident_response', 'services.incident_response'),
     ('root_cause_analyzer', 'services.root_cause_analyzer'),

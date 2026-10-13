@@ -762,7 +762,7 @@ def notify_security(user_id: int, results: dict, base_url: str = _BASE_URL) -> N
         },
         actions=[{
             'text': 'View Findings',
-            'url':  f"{base_url}/optimization",
+            'url':  f"{base_url}/dashboard",
             'primary': True,
         }],
     )
@@ -784,7 +784,7 @@ def notify_cost(user_id: int, new_count: int, total_savings: float,
         },
         actions=[{
             'text': 'View Recommendations',
-            'url':  f"{base_url}/optimization",
+            'url':  f"{base_url}/dashboard",
             'primary': True,
         }],
     )
@@ -802,36 +802,9 @@ def notify_changes(user_id: int, rec_count: int, base_url: str = _BASE_URL) -> N
         fields={'New Findings': str(rec_count)},
         actions=[{
             'text': 'View Analysis',
-            'url':  f"{base_url}/optimization/prevention",
+            'url':  f"{base_url}/dashboard",
             'primary': True,
         }],
     )
     _send_async(user_id, 'changes', notification)
 
-
-def notify_alert(user_id: int, alert: dict, base_url: str = _BASE_URL) -> None:
-    """Fire a Slack notification when a monitoring alert fires."""
-    severity = alert.get('severity', 'medium')
-    priority_map = {
-        'low':      NotificationPriority.LOW,
-        'medium':   NotificationPriority.NORMAL,
-        'high':     NotificationPriority.HIGH,
-        'critical': NotificationPriority.CRITICAL,
-    }
-    notification = Notification(
-        title=f"Alert Firing: {alert.get('rule_name', 'Unknown')}",
-        message=alert.get('message', 'Monitoring alert triggered'),
-        priority=priority_map.get(severity, NotificationPriority.NORMAL),
-        fields={
-            'Severity':  severity.upper(),
-            'Value':     str(alert.get('value', 'N/A')),
-            'Threshold': str(alert.get('threshold', 'N/A')),
-            'Condition': alert.get('condition', 'N/A'),
-        },
-        actions=[{
-            'text': 'View Alerts',
-            'url':  f"{base_url}/monitoring",
-            'primary': True,
-        }],
-    )
-    _send_async(user_id, 'alerts', notification)

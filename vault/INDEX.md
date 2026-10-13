@@ -14,6 +14,8 @@ Read this index first, then follow only the links relevant to the current task.
 - [[ssm-deploy-no-ssh]] — why deploys go through AWS SSM instead of inbound SSH
 - [[service-reachability-probes]] — http_check/tcp_check + "a 404 is not success" prompt rules (2026-09-09)
 - [[tool-capability-metadata]] — risk lives on the tool, not a name-set in safety.py (2026-09-06, governance refactor Phase 1)
+- [[remove-optimize-area]] — why the Optimize area was deleted rather than rebuilt (2026-10-13)
+- [[remove-monitoring-engine]] — why Monitoring (page + alert→incident engine) was removed (2026-10-13)
 
 ## Debugging / Postmortems
 - [[coverage-7-15-1-ci-outage]] — loose `coverage>=` pin took CI down Jul 13–15, 2026

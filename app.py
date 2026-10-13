@@ -346,17 +346,9 @@ app.register_blueprint(admin_bp)
 from routes.incidents import incidents_bp
 app.register_blueprint(incidents_bp)
 
-# Register monitoring blueprint and initialize proactive monitoring
-from routes.monitoring import monitoring_bp
-app.register_blueprint(monitoring_bp)
-
 # Register notifications blueprint
 from routes.notifications import notifications_bp
 app.register_blueprint(notifications_bp)
-
-# Register optimization blueprint
-from routes.optimization import optimization_bp
-app.register_blueprint(optimization_bp)
 
 # Register analysis blueprint for AI-powered root cause analysis
 from routes.analysis import analysis_bp
@@ -424,6 +416,9 @@ csrf.exempt(artifacts_bp)
 
 from routes.skills import skills_bp
 app.register_blueprint(skills_bp)
+
+from routes.integrations import integrations_bp
+app.register_blueprint(integrations_bp)
 
 # Load built-in skills at import time — gunicorn never runs the __main__ block,
 # so loading there left the Skills feature empty in production. Passing `app`
@@ -498,14 +493,11 @@ from api import api_bp
 app.register_blueprint(api_bp)
 csrf.exempt(api_bp)
 
-# Initialize proactive monitoring service with incident integration
-from services.proactive_monitoring import get_monitoring_service
+# Initialize incident response, notifications, and root cause analysis
 from services.incident_response import get_incident_engine
 from services.notification_service import get_notification_service
 from services.root_cause_analyzer import get_root_cause_analyzer
 
-monitoring_service = get_monitoring_service()
-monitoring_service.set_app(app)
 incident_engine = get_incident_engine()
 incident_engine.set_app(app)
 notification_service = get_notification_service()
@@ -513,26 +505,9 @@ incident_engine.set_notification_service(notification_service)
 root_cause_analyzer = get_root_cause_analyzer()
 root_cause_analyzer.set_app(app)
 
-monitoring_service.set_incident_engine(incident_engine)
-
 # Initialise status service (public status page + Brevo subscriber broadcasts)
 status_service.set_app(app)
 status_service.set_email_service(email_service)
-
-# Add notification callback to monitoring service for alert notifications
-def send_alert_notification(event_type, alert_data, user_id=None):
-    """Send notifications when alerts fire or resolve."""
-    if event_type in ("firing", "resolved") and user_id is not None:
-        notification_service.send_alert(user_id, alert_data)
-    # Broadcast to public status page subscribers via Brevo
-    if event_type in ("firing", "resolved"):
-        try:
-            status_service.broadcast_incident(event_type, alert_data)
-        except Exception:
-            pass  # never let broadcast failure break the alert pipeline
-
-monitoring_service.add_alert_callback(send_alert_notification)
-monitoring_service.start()
 
 # RBAC context processor - makes RBAC helpers available in all templates
 from services.rbac import RBACContext, get_user_role, user_has_permission, Permission
@@ -1721,6 +1696,10 @@ def doctor_page():
 
 
 PLATFORM_AWS_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '188046727805')
+# Public quick-create template; its trust policy names PLATFORM_AWS_ACCOUNT_ID, so the
+# two must move together (docs/aws-account-migration.md).
+CF_TEMPLATE_URL = os.environ.get(
+    'CF_TEMPLATE_URL', 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json')
 
 
 @app.route('/onboarding', methods=['GET'])
@@ -1728,7 +1707,8 @@ PLATFORM_AWS_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '18804672780
 def onboarding_page():
     """Onboarding wizard for new users."""
     return render_template('onboarding.html', user=current_user,
-                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID)
+                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID,
+                           cf_template_url=CF_TEMPLATE_URL)
 
 
 @app.route('/api/onboarding/complete', methods=['POST'])
@@ -1861,7 +1841,8 @@ def setup():
 def settings():
     """Settings page for AWS and other configurations."""
     return render_template('settings.html', user=current_user,
-                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID)
+                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID,
+                           cf_template_url=CF_TEMPLATE_URL)
 
 
 @app.route('/settings/skills')

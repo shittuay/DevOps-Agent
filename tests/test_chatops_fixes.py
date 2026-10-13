@@ -92,14 +92,6 @@ def test_oncall_fails_closed_without_any_integration_configured(monkeypatch):
     assert 'primary:' not in text
 
 
-def test_metrics_command_never_returns_hardcoded_placeholder_numbers(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_metrics([], app_user_id=test_user.id)
-
-    for fabricated in ('45% (avg)', '62% (avg)', '0.05%', '120ms', 'Replication Lag: 0ms'):
-        assert fabricated not in response.text
-
-
 # ==================== Identity linking + per-user wiring ====================
 
 def test_status_command_without_linked_identity_asks_to_link():
@@ -212,12 +204,6 @@ def test_playbooks_command_runs_without_error(app, test_user):
     service = get_chatops_service()
     response = service._cmd_playbooks([], app_user_id=test_user.id)
     assert response.text
-
-
-def test_alerts_command_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_alerts([], app_user_id=test_user.id)
-    assert 'no active alerts' in response.text.lower()
 
 
 def test_incident_detail_not_found_runs_without_error(app, test_user):

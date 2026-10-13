@@ -278,13 +278,8 @@ def list_pull_requests(
         Dictionary with pull request list
     """
     try:
-        if not github_token:
-            return {
-                'success': False,
-                'error': 'GitHub token not provided'
-            }
-
-        g = Github(github_token)
+        from .integration_auth import credentials
+        g = Github(credentials('github', token=github_token)['token'])
         repo = g.get_repo(f"{repo_owner}/{repo_name}")
 
         # Get pull requests
@@ -346,13 +341,8 @@ def get_pull_request_details(
         Dictionary with pull request details
     """
     try:
-        if not github_token:
-            return {
-                'success': False,
-                'error': 'GitHub token not provided'
-            }
-
-        g = Github(github_token)
+        from .integration_auth import credentials
+        g = Github(credentials('github', token=github_token)['token'])
         repo = g.get_repo(f"{repo_owner}/{repo_name}")
         pr = repo.get_pull(pr_number)
 

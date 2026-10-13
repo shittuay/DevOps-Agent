@@ -296,6 +296,11 @@
                     Enter the 6-digit code from your authenticator app.
                 {% endif %}
             </p>
+            {% if account_email %}
+            <p class="subtitle" id="signingInAs" style="margin-top:-8px;">
+                Signing in as <strong>{{ account_email }}</strong> &middot; <a href="/login" style="color:inherit; text-decoration:underline;">Not you?</a>
+            </p>
+            {% endif %}
 
             {% if error %}
             <div class="alert alert-error">{{ error }}</div>
@@ -311,7 +316,7 @@
                             id="totpCode"
                             name="code"
                             placeholder="000000"
-                            maxlength="6"
+                            maxlength="12"
                             pattern="[0-9]{6}"
                             inputmode="numeric"
                             autocomplete="one-time-code"
@@ -391,16 +396,26 @@
             }
         }
 
-        document.getElementById('verifyForm').addEventListener('submit', function(e) {
+        let submitting = false;
+        function lockSubmit() {
+            submitting = true;
             const btn = document.getElementById('submitBtn');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> Verifying...';
+        }
+
+        document.getElementById('verifyForm').addEventListener('submit', function(e) {
+            if (submitting) { e.preventDefault(); return; }
+            lockSubmit();
         });
 
-        // Auto-submit when 6 digits are entered for TOTP
+        // Keep only digits. The box allows more than 6 characters so a pasted
+        // "123 456" isn't cut to "123 45" before the space is stripped.
+        // Auto-submit once there are 6 digits, exactly once.
         document.getElementById('totpCode').addEventListener('input', function(e) {
-            this.value = this.value.replace(/\D/g, '');
-            if (this.value.length === 6) {
+            this.value = this.value.replace(/\D/g, '').slice(0, 6);
+            if (this.value.length === 6 && !submitting) {
+                lockSubmit();
                 document.getElementById('verifyForm').submit();
             }
         });

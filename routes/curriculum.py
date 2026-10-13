@@ -13,10 +13,59 @@ from flask_login import login_required, current_user
 from extensions import limiter
 from models import db, UserCurriculumProgress, UserQuizAttempt, UserPendingQuiz
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
+from services.model_router import DEFAULT_KIMI_MODEL
 from services.secrets_manager import get_moonshot_api_key
 from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
+
+# The AI Coach and quiz used to hardcode moonshot-v1-8k / moonshot-v1-32k, which are not in
+# Moonshot's current model list (CLAUDE.md, verified 2026-07-22), so every request failed with
+# the provider's raw error. They now follow the same model as the rest of the app.
+COACH_MAX_TOKENS = 4096  # kimi-k3 is a reasoning model: thinking tokens count against this
+QUIZ_MAX_TOKENS = 4096
+
+
+def _curriculum_models():
+    """Models to try, in order: an explicit override first, then the app-wide default."""
+    configured = (os.environ.get('CURRICULUM_MODEL') or os.environ.get('KIMI_MODEL')
+                  or DEFAULT_KIMI_MODEL)
+    return list(dict.fromkeys([configured, DEFAULT_KIMI_MODEL]))
+
+
+def _is_model_unavailable(exc) -> bool:
+    import openai
+    if isinstance(exc, openai.NotFoundError):
+        return True
+    return isinstance(exc, openai.BadRequestError) and 'model' in str(exc).lower()
+
+
+def _create_completion(client, **kwargs):
+    """Call the first available model; fall back only when a model itself is unavailable."""
+    last_error = None
+    for model in _curriculum_models():
+        try:
+            return model, client.chat.completions.create(model=model, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — re-raised unless it is a missing model
+            if not _is_model_unavailable(exc):
+                raise
+            logger.warning('Curriculum model %s unavailable (%s); trying the next one', model, exc)
+            last_error = exc
+    raise last_error
+
+
+def _friendly_ai_error(exc) -> str:
+    """A message the learner can act on. The raw provider error goes to the log, not the page."""
+    import openai
+    if isinstance(exc, (openai.AuthenticationError, openai.PermissionDeniedError)):
+        return 'The AI service rejected our API key. This is on our side; please let support know.'
+    if isinstance(exc, openai.RateLimitError):
+        return 'The AI service is busy or out of quota right now. Please try again in a minute.'
+    if isinstance(exc, (openai.APITimeoutError, openai.APIConnectionError)):
+        return 'Could not reach the AI service. Please try again shortly.'
+    if _is_model_unavailable(exc):
+        return 'The AI model is unavailable right now. Please let support know.'
+    return 'Something went wrong while generating a response. Please try again.'
 
 curriculum_bp = Blueprint('curriculum', __name__, url_prefix='/curriculum')
 
@@ -250,9 +299,6 @@ def api_ai_guide():
                 return
 
             client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-            # moonshot-v1-8k is the stable chat completion model.
-            # kimi-k2.x models are tool-call models that return empty for plain chat.
-            kimi_model = os.environ.get('CURRICULUM_MODEL', 'moonshot-v1-8k')
 
             system_prompt = (
                 f"You are a DevOps learning coach on devopsagent.io. "
@@ -265,25 +311,34 @@ def api_ai_guide():
                 f"capstone project. Be concise but thorough. Format with markdown."
             )
 
-            stream = client.chat.completions.create(
-                model=kimi_model,
-                max_tokens=1024,
+            model, stream = _create_completion(
+                client,
+                max_tokens=COACH_MAX_TOKENS,
                 stream=True,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": question},
                 ],
             )
+            got_text = False
             for chunk in stream:
+                if not chunk.choices:
+                    continue
+                # Only the answer is streamed; a reasoning model's reasoning_content is not shown.
                 text = chunk.choices[0].delta.content or ''
                 if text:
+                    got_text = True
                     yield f"data: {json.dumps({'text': text})}\n\n"
 
+            if not got_text:
+                logger.warning('AI guide: model %s returned no answer text for module %s', model, module_id)
+                yield f"data: {json.dumps({'error': 'The AI Coach did not return an answer this time. Please try again.'})}\n\n"
             yield "data: [DONE]\n\n"
 
         except Exception as e:
-            logger.error(f"AI guide error: {e}", exc_info=True)
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            logger.error('AI guide error (%s, models tried %s): %s', type(e).__name__,
+                         _curriculum_models(), e, exc_info=True)
+            yield f"data: {json.dumps({'error': _friendly_ai_error(e)})}\n\n"
             yield "data: [DONE]\n\n"
 
     return Response(
@@ -316,6 +371,27 @@ def _save_pending_quiz(user_id, module_id, questions):
         )
         db.session.add(record)
     db.session.commit()
+
+
+def _parse_quiz_questions(raw: str) -> list:
+    """Pull the JSON array out of a model reply and check every question is usable.
+
+    Models wrap JSON in code fences or a sentence of prose, so take the outermost [...].
+    Raises ValueError on anything the quiz UI could not render or grade.
+    """
+    start, end = raw.find('['), raw.rfind(']')
+    if start == -1 or end <= start:
+        raise ValueError('no JSON array in quiz response')
+    questions = json.loads(raw[start:end + 1])
+    if not isinstance(questions, list) or not questions:
+        raise ValueError('quiz response is not a non-empty list')
+    for q in questions:
+        options = q.get('options') if isinstance(q, dict) else None
+        if (not isinstance(q, dict) or not isinstance(q.get('question'), str)
+                or not isinstance(options, list) or len(options) != 4
+                or not isinstance(q.get('correct'), int) or not 0 <= q['correct'] <= 3):
+            raise ValueError(f'malformed quiz question: {q!r}'[:200])
+    return questions
 
 
 def _get_module_ctx(module_id):
@@ -356,8 +432,6 @@ def api_quiz_generate():
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url="https://api.moonshot.ai/v1")
-        # Use 32k for quiz JSON generation to avoid truncation
-        kimi_model = os.environ.get('CURRICULUM_MODEL', 'moonshot-v1-32k')
 
         prompt = f"""Generate exactly 5 multiple-choice quiz questions for a DevOps student studying:
 
@@ -382,19 +456,13 @@ Rules:
 - Vary difficulty: 2 easy, 2 medium, 1 hard
 - No trick questions — test genuine understanding"""
 
-        response = client.chat.completions.create(
-            model=kimi_model,
-            max_tokens=2048,
+        _, response = _create_completion(
+            client,
+            max_tokens=QUIZ_MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        raw = response.choices[0].message.content.strip()
-        # Strip markdown code fences if present
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'):
-                raw = raw[4:]
-        questions = json.loads(raw.strip())
+        questions = _parse_quiz_questions(response.choices[0].message.content or '')
 
         # Cache for 1 hour (shared across users — questions are per-module)
         _quiz_cache[module_id] = (questions, time.time() + _QUIZ_CACHE_TTL)
@@ -405,12 +473,13 @@ Rules:
 
         return jsonify({'success': True, 'questions': questions, 'module_id': module_id})
 
-    except json.JSONDecodeError as e:
-        logger.error(f"Quiz JSON parse error: {e}")
+    except ValueError as e:  # json.JSONDecodeError is a ValueError
+        logger.error(f"Quiz parse error: {e}")
         return jsonify({'error': 'Failed to parse quiz questions. Please try again.'}), 500
     except Exception as e:
-        logger.error(f"Quiz generation error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error('Quiz generation error (%s, models tried %s): %s', type(e).__name__,
+                     _curriculum_models(), e, exc_info=True)
+        return jsonify({'error': _friendly_ai_error(e)}), 502
 
 
 @curriculum_bp.route('/api/quiz/submit', methods=['POST'])
