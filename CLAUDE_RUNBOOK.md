@@ -3254,3 +3254,16 @@ that the 22.04 gen2 image is accepted by the chosen VM size.
   Grafana with `GF_SECURITY_ADMIN_PASSWORD=admin`. **Fix:** the workflow now takes a
   `grafana_password` secret input (generated when blank); a test forbids `PASSWORD=admin`
   in any starter workflow.
+
+## 2026-10-13: Workflow `cidr` inputs accepted near-world ranges — fixed (scheduled audit)
+
+`services/workflow_inputs.py`'s `_validate_cidr` refused only `prefixlen == 0`, so `0.0.0.0/1`
+and `::/1` (half the address space) passed validation and could be written into a security group
+by a workflow without `allow_world`. Now non-world fields require at least `/8` (IPv4) or `/16`
+(IPv6). Test: `test_cidr_refuses_near_world_ranges_unless_allow_world`.
+
+**Flagged, not fixed:** (1) `secret` workflow inputs (including generated ones) are interpolated
+into the prompt, so they reach `ChatMessage` and the LLM provider in plaintext; (2) the
+"visible-or-owned template" query is copy-pasted in `get_workflow` and `execute_workflow`
+(`routes/workflows.py`) — extract a helper; (3) a user-created template whose `inputs` spec lacks
+`key`/`label` raises `KeyError` (500) in `execute_workflow` instead of a 400.
