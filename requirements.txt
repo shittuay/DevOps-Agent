@@ -119,7 +119,7 @@ reportlab==5.0.0
 python-dotenv==1.2.2  # security floor: PYSEC-2026-2270 (symlink following)
 psutil==7.2.2
 PyYAML==6.0.2
-Werkzeug==3.1.6  # security floor: PYSEC-2026-2320 (safe_join device names)
+Werkzeug==3.1.9  # security floor: PYSEC-2026-2320 (safe_join device names)
 click==8.3.3  # security floor: PYSEC-2026-2132 (command injection)
 Jinja2==3.1.6
 MarkupSafe==3.0.2
