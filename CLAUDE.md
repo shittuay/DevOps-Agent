@@ -1869,6 +1869,31 @@ written by the SSE `done` handler in the page, so a closed tab would strand a ro
 (30), an assistant reply in the conversation means `completed`, none means `timed_out`.
 Any new status a client reports must have an equivalent server-derivable fallback.
 
+**Input forms (added 2026-10-13, `services/workflow_inputs.py`).** A workflow may declare
+`inputs` (field specs: `text|select|cidr|secret|number`) and reference them in its steps as
+`{key}` placeholders. Run opens a short prefilled form instead of the agent asking in chat;
+`execute_workflow` validates the submitted values **before** creating any row (400 with
+per-field `fields` errors), fills them into the steps, and lists them in the prompt with
+"do not ask me again". Rules that are load-bearing:
+- Only declared `{identifier}` tokens are replaced, so literal JSON braces in steps are safe.
+  Values may not contain braces, backticks or newlines (they land inside a prompt).
+- `cidr` refuses `/0` unless the spec sets `allow_world` — only the two public web-app
+  workflows do, and `test_workflow_inputs.py` pins that list. A `cidr` field with no default
+  is prefilled from `GET /api/workflows/client-ip` (CF-Connecting-IP, global addresses only).
+- `secret` left blank is generated (`secrets.token_urlsafe`). Never put a default password
+  in step text — the Prometheus workflow shipped `GF_SECURITY_ADMIN_PASSWORD=admin` until this.
+- `spec_problems()` (run over every starter workflow by the tests) fails on an input no step
+  uses or a placeholder no input declares.
+
+**Seeding now refreshes curated rows.** `seed_workflow_templates()` used to skip by name, so
+edits to an existing starter workflow never reached production. It now also updates
+`_SYNCED_FIELDS` on curated rows (`is_public` and `created_by IS NULL`); user-created
+templates are never touched.
+
+Categories as of 2026-10-13: Compute, Security, Monitoring, Storage, Database, Cost,
+Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC. The Incident Response
+and pod-troubleshooting workflows are read-only, and a test asserts they name no write tool.
+
 **AI/ML workflows (added 2026-10-12, extended 2026-10-13):** five self-hosted LLM
 workflows — AWS EC2, EKS, Azure GPU VM, GCP GPU VM, and on-prem Kubernetes. Steps
 are prose, so `tests/test_llm_workflows.py` pins what prose can't enforce: every tool

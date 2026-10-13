@@ -2704,6 +2704,9 @@ class WorkflowTemplate(db.Model):
     category = db.Column(db.String(100), nullable=False, index=True)
     # JSON list of step strings injected as a prompt
     steps = db.Column(db.JSON, nullable=False, default=list)
+    # JSON list of form-field specs (services/workflow_inputs.py); steps reference
+    # them as {key} placeholders, filled in before the prompt is sent.
+    inputs = db.Column(db.JSON, nullable=True)
     # Estimated runtime in minutes
     estimated_minutes = db.Column(db.Integer, default=5)
     is_public = db.Column(db.Boolean, default=True, nullable=False)
@@ -2724,6 +2727,7 @@ class WorkflowTemplate(db.Model):
             'description': self.description,
             'category': self.category,
             'steps': self.steps,
+            'inputs': self.inputs or [],
             'estimated_minutes': self.estimated_minutes,
             'is_public': self.is_public,
             'execution_count': self.execution_count,

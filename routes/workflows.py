@@ -1,4 +1,5 @@
 """Pre-built workflow templates — browse, execute, track."""
+import ipaddress
 import secrets
 from datetime import datetime, timedelta
 
@@ -6,9 +7,30 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from models import db, WorkflowTemplate, WorkflowExecution, Conversation, ChatMessage
+from services.workflow_inputs import render_steps, validate_inputs
 from src.utils.timeutils import utcnow
 
 workflows_bp = Blueprint('workflows', __name__)
+
+
+@workflows_bp.route('/api/workflows/client-ip', methods=['GET'])
+@login_required
+def client_ip():
+    """The caller's public IP as a CIDR, used to prefill "your IP" form fields.
+
+    Cloudflare sits in front of nginx, so request.remote_addr is a Cloudflare edge
+    address there; CF-Connecting-IP carries the real client. The value only prefills
+    the caller's own form and they confirm it, so a spoofed header can only
+    mislead the person who sent it.
+    """
+    raw = (request.headers.get('CF-Connecting-IP') or request.remote_addr or '').strip()
+    try:
+        address = ipaddress.ip_address(raw)
+    except ValueError:
+        return jsonify({'cidr': None})
+    if not address.is_global:
+        return jsonify({'cidr': None})
+    return jsonify({'cidr': f'{address}/{address.max_prefixlen}'})
 
 
 @workflows_bp.route('/api/workflows', methods=['GET'])
@@ -59,11 +81,32 @@ def execute_workflow(template_id: int):
         ((WorkflowTemplate.is_public == True) | (WorkflowTemplate.created_by == current_user.id))
     ).first_or_404()
 
+    # Fill the form values into the step text. Validation runs before anything is
+    # created, so a bad value never produces a conversation or an execution row.
+    specs = template.inputs or []
+    steps = list(template.steps or [])
+    values = {}
+    if specs:
+        body = request.get_json(silent=True) or {}
+        values, errors = validate_inputs(specs, body.get('inputs') or {})
+        if errors:
+            return jsonify({'error': 'Some inputs need attention.', 'fields': errors}), 400
+        steps = render_steps(steps, values)
+
     # Build the prompt from workflow steps
-    steps_text = '\n'.join(f'{i+1}. {step}' for i, step in enumerate(template.steps))
+    steps_text = '\n'.join(f'{i+1}. {step}' for i, step in enumerate(steps))
+    inputs_note = ''
+    if specs:
+        supplied = '\n'.join(f'- {s["label"]}: {values[s["key"]]}' for s in specs)
+        inputs_note = (
+            f"Inputs I supplied up front in the workflow form:\n{supplied}\n"
+            "These are already filled into the steps below. Do not ask me for them again; "
+            "only stop to ask if a step explicitly tells you to.\n\n"
+        )
     prompt = (
         f"Execute the following workflow: **{template.name}**\n\n"
         f"{template.description}\n\n"
+        f"{inputs_note}"
         f"Steps to complete:\n{steps_text}\n\n"
         "Please execute each step in order, reporting the result of each step before proceeding to the next."
     )

@@ -3242,3 +3242,15 @@ The default image is now Ubuntu 22.04 (`0001-com-ubuntu-server-jammy` / `22_04-l
 mocked network/compute clients; all 17 fail on the pre-fix code. **Not verified against a live
 Azure subscription** — the first real run should confirm the Standard IP + NSG create succeeds and
 that the 22.04 gen2 image is accepted by the chosen VM size.
+
+## 2026-10-13: Workflow edits never reached production; Grafana shipped admin/admin
+
+- **Symptom:** changes to an existing starter workflow's steps had no effect in production.
+  **Cause:** `seed_workflow_templates()` skipped any template whose name already existed, so
+  only brand-new workflows were ever written. **Fix:** curated rows (`is_public`,
+  `created_by IS NULL`) now have `_SYNCED_FIELDS` refreshed on every start; user-created
+  templates are untouched. Guarded by `tests/test_workflow_inputs.py::test_seed_refreshes_curated_rows_with_edited_steps`.
+- **Symptom:** the "Prometheus + Grafana Monitoring Stack" workflow told the agent to start
+  Grafana with `GF_SECURITY_ADMIN_PASSWORD=admin`. **Fix:** the workflow now takes a
+  `grafana_password` secret input (generated when blank); a test forbids `PASSWORD=admin`
+  in any starter workflow.

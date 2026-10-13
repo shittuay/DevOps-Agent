@@ -142,7 +142,7 @@ def test_all_workflows_end_with_teardown():
 
 def test_shared_setup_script_is_valid_shell():
     parts = [p.strip() for p in re.split(r'\(\d+\) ', _VLLM_PIP_SETUP_LINES) if p.strip()]
-    script = '\n'.join(parts).replace('MODEL_ID', 'm').replace('API_KEY', 'k').replace('EXTRA_ARGS', '')
+    script = '\n'.join(parts).replace('{model_id}', 'm').replace('{api_key}', 'k').replace('EXTRA_ARGS', '')
     assert script.startswith('#!/bin/bash')
     result = subprocess.run(['bash', '-n'], input=script, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

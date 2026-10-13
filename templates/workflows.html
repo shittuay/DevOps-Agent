@@ -236,6 +236,110 @@
         opacity: 1;
     }
 
+    .wf-inputs-badge {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .wf-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 9000;
+        padding: 16px;
+    }
+
+    .wf-modal-backdrop.open { display: flex; }
+
+    .wf-modal {
+        background: var(--bg-secondary, #14141c);
+        border: 1px solid var(--border-medium);
+        border-radius: 16px;
+        width: 100%;
+        max-width: 520px;
+        max-height: 90vh;
+        overflow-y: auto;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .wf-modal h3 {
+        font-family: 'Syne', sans-serif;
+        font-size: 18px;
+        margin: 0;
+    }
+
+    .wf-modal .wf-sub {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-top: -8px;
+    }
+
+    .wf-field label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: var(--text-primary);
+    }
+
+    .wf-field .wf-row { display: flex; gap: 8px; }
+
+    .wf-field input, .wf-field select {
+        flex: 1;
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border-subtle);
+        background: rgba(0,0,0,0.25);
+        color: var(--text-primary);
+        font-size: 14px;
+        font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .wf-field input:focus, .wf-field select:focus {
+        outline: none;
+        border-color: rgba(255,107,53,0.6);
+    }
+
+    .wf-field .wf-help {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 4px;
+        line-height: 1.4;
+    }
+
+    .wf-field .wf-error {
+        font-size: 12px;
+        color: #ef4444;
+        margin-top: 4px;
+    }
+
+    .wf-field.has-error input, .wf-field.has-error select { border-color: #ef4444; }
+
+    .wf-myip {
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border-subtle);
+        background: rgba(255,255,255,0.05);
+        color: var(--text-secondary);
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .wf-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    .wf-modal-actions .btn-run { flex: 0 0 auto; }
+
     @media (max-width: 768px) {
         .workflows-grid { grid-template-columns: 1fr; }
     }
@@ -256,6 +360,10 @@
     <button class="filter-chip" data-category="Cost" onclick="filterCategory(this, 'Cost')">Cost</button>
     <button class="filter-chip" data-category="Networking" onclick="filterCategory(this, 'Networking')">Networking</button>
     <button class="filter-chip" data-category="AI/ML" onclick="filterCategory(this, 'AI/ML')">AI/ML</button>
+    <button class="filter-chip" data-category="App Hosting" onclick="filterCategory(this, 'App Hosting')">App Hosting</button>
+    <button class="filter-chip" data-category="Kubernetes" onclick="filterCategory(this, 'Kubernetes')">Kubernetes</button>
+    <button class="filter-chip" data-category="Incident Response" onclick="filterCategory(this, 'Incident Response')">Incident Response</button>
+    <button class="filter-chip" data-category="IaC" onclick="filterCategory(this, 'IaC')">IaC</button>
 </div>
 
 <div class="workflows-grid" id="workflowsGrid">
@@ -273,6 +381,18 @@
 
 <div class="toast" id="toast"></div>
 
+<div class="wf-modal-backdrop" id="wfModal" onclick="if (event.target === this) closeInputForm()">
+    <form class="wf-modal" id="wfForm" onsubmit="submitInputForm(event)" novalidate>
+        <h3 id="wfModalTitle"></h3>
+        <div class="wf-sub">Check the values, then run. The agent starts with everything it needs.</div>
+        <div id="wfFields"></div>
+        <div class="wf-modal-actions">
+            <button type="button" class="btn-preview" onclick="closeInputForm()">Cancel</button>
+            <button type="submit" class="btn-run" id="wfSubmit"><i class="fas fa-play"></i> Run</button>
+        </div>
+    </form>
+</div>
+
 <script>
 const CATEGORY_ICONS = {
     'Compute': '💻',
@@ -283,6 +403,10 @@ const CATEGORY_ICONS = {
     'Cost': '💰',
     'Networking': '🌐',
     'AI/ML': '🧠',
+    'App Hosting': '🌐',
+    'Kubernetes': '☸️',
+    'Incident Response': '🚨',
+    'IaC': '📜',
 };
 
 let allWorkflows = [];
@@ -325,6 +449,7 @@ function renderWorkflows() {
                 <span class="workflow-category">${escHtml(w.category)}</span>
                 <span class="workflow-time"><i class="fas fa-clock"></i> ~${w.estimated_minutes}m</span>
                 <span class="workflow-runs"><i class="fas fa-play-circle"></i> ${w.execution_count} runs</span>
+                ${(w.inputs || []).length ? `<span class="wf-inputs-badge"><i class="fas fa-sliders-h"></i> ${w.inputs.length} quick inputs</span>` : ''}
             </div>
             <div class="workflow-desc">${escHtml(w.description)}</div>
             <div class="workflow-steps-preview" id="steps-${w.id}">
@@ -347,14 +472,34 @@ function toggleSteps(id) {
     el.classList.toggle('visible');
 }
 
-async function runWorkflow(templateId, btn) {
+let activeWorkflow = null;
+let clientCidr;  // undefined = not fetched yet, null = unavailable
+
+function runWorkflow(templateId, btn) {
+    const wf = allWorkflows.find(w => w.id === templateId);
+    if (wf && (wf.inputs || []).length) {
+        openInputForm(wf);
+        return;
+    }
+    startWorkflow(templateId, {}, btn, '<i class="fas fa-play"></i> Run Workflow');
+}
+
+async function startWorkflow(templateId, inputs, btn, idleHtml) {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
 
     try {
-        const res = await fetch(`/api/workflows/${templateId}/execute`, { method: 'POST' });
+        const res = await fetch(`/api/workflows/${templateId}/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inputs }),
+        });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to start workflow');
+        if (!res.ok) {
+            const err = new Error(data.error || 'Failed to start workflow');
+            err.fields = data.fields;
+            throw err;
+        }
 
         // Hand the prompt to the chat page, which sends it as a real message.
         // Keyed by execution so a later "View Chat" on a finished run doesn't re-run it.
@@ -364,12 +509,112 @@ async function runWorkflow(templateId, btn) {
 
         showToast('Workflow started — opening chat', '');
         setTimeout(() => window.location.href = data.redirect_url, 600);
+        return true;
     } catch (e) {
+        if (e.fields) showFieldErrors(e.fields);
         showToast(e.message, '');
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play"></i> Run Workflow';
+        btn.innerHTML = idleHtml;
+        return false;
     }
 }
+
+async function fetchClientCidr() {
+    if (clientCidr !== undefined) return clientCidr;
+    try {
+        const res = await fetch('/api/workflows/client-ip');
+        clientCidr = (await res.json()).cidr || null;
+    } catch (e) {
+        clientCidr = null;
+    }
+    return clientCidr;
+}
+
+function fieldHtml(spec) {
+    const id = `wf-in-${spec.key}`;
+    const value = spec.default != null ? String(spec.default) : '';
+    let control;
+    if (spec.type === 'select') {
+        control = `<select id="${id}" name="${spec.key}">${(spec.options || []).map(o =>
+            `<option value="${escHtml(o)}"${o === value ? ' selected' : ''}>${escHtml(o)}</option>`).join('')}</select>`;
+    } else {
+        const type = spec.type === 'number' ? 'number' : 'text';
+        const placeholder = spec.type === 'secret' ? 'Leave blank to generate a strong one'
+            : spec.type === 'cidr' ? '203.0.113.10/32' : '';
+        control = `<input id="${id}" name="${spec.key}" type="${type}" value="${escHtml(value)}"
+            placeholder="${escHtml(placeholder)}" autocomplete="off" spellcheck="false"
+            ${spec.min != null ? `min="${spec.min}"` : ''} ${spec.max != null ? `max="${spec.max}"` : ''}>`;
+        if (spec.type === 'cidr') {
+            control += `<button type="button" class="wf-myip" onclick="useMyIp('${spec.key}')">Use my IP</button>`;
+        }
+    }
+    return `<div class="wf-field" id="wf-field-${spec.key}">
+        <label for="${id}">${escHtml(spec.label)}${spec.required === false ? ' <span style="color:var(--text-secondary);font-weight:400">(optional)</span>' : ''}</label>
+        <div class="wf-row">${control}</div>
+        ${spec.help ? `<div class="wf-help">${escHtml(spec.help)}</div>` : ''}
+        <div class="wf-error" id="wf-err-${spec.key}"></div>
+    </div>`;
+}
+
+async function useMyIp(key) {
+    const cidr = await fetchClientCidr();
+    if (cidr) {
+        document.getElementById(`wf-in-${key}`).value = cidr;
+    } else {
+        showToast("Couldn't detect your IP. Search \"what is my IP\" and enter it as x.x.x.x/32.", '');
+    }
+}
+
+async function openInputForm(wf) {
+    activeWorkflow = wf;
+    document.getElementById('wfModalTitle').textContent = wf.name;
+    document.getElementById('wfFields').innerHTML = wf.inputs.map(fieldHtml).join('');
+    const submit = document.getElementById('wfSubmit');
+    submit.disabled = false;
+    submit.innerHTML = '<i class="fas fa-play"></i> Run';
+    document.getElementById('wfModal').classList.add('open');
+
+    // Prefill empty "your IP" fields so the common case really is one click.
+    const cidrFields = wf.inputs.filter(s => s.type === 'cidr' && !s.default);
+    if (cidrFields.length) {
+        const cidr = await fetchClientCidr();
+        if (cidr) cidrFields.forEach(s => {
+            const el = document.getElementById(`wf-in-${s.key}`);
+            if (el && !el.value) el.value = cidr;
+        });
+    }
+}
+
+function closeInputForm() {
+    document.getElementById('wfModal').classList.remove('open');
+    activeWorkflow = null;
+}
+
+function showFieldErrors(fields) {
+    document.querySelectorAll('.wf-field').forEach(f => f.classList.remove('has-error'));
+    document.querySelectorAll('.wf-error').forEach(e => e.textContent = '');
+    Object.entries(fields || {}).forEach(([key, msg]) => {
+        const field = document.getElementById(`wf-field-${key}`);
+        const err = document.getElementById(`wf-err-${key}`);
+        if (field) field.classList.add('has-error');
+        if (err) err.textContent = msg;
+    });
+}
+
+async function submitInputForm(event) {
+    event.preventDefault();
+    if (!activeWorkflow) return;
+    const inputs = {};
+    activeWorkflow.inputs.forEach(s => {
+        const el = document.getElementById(`wf-in-${s.key}`);
+        inputs[s.key] = el ? el.value.trim() : '';
+    });
+    showFieldErrors({});
+    await startWorkflow(activeWorkflow.id, inputs, document.getElementById('wfSubmit'),
+        '<i class="fas fa-play"></i> Run');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInputForm(); });
 
 function renderExecutions(execs) {
     const el = document.getElementById('executionsTable');
