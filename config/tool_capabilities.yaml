@@ -325,11 +325,13 @@ tools:
   terraform_destroy: { permission: destroy, mutating: true }
   terraform_force_unlock: { permission: modify, mutating: true }
   terraform_import: { permission: modify, mutating: true }
+  terraform_output: { permission: destroy, mutating: false }
   terraform_providers_lock: { permission: modify, mutating: true }
   terraform_state_move: { permission: modify, mutating: true }
   terraform_state_pull: { permission: destroy, mutating: true }
   terraform_state_push: { permission: modify, mutating: true }
   terraform_state_rm: { permission: destroy, mutating: true }
+  terraform_state_show: { permission: destroy, mutating: false }
   terraform_workspace_delete: { permission: modify, mutating: true }
   trigger_github_workflow: { permission: modify, mutating: true }
   trigger_gitlab_pipeline: { permission: modify, mutating: true }

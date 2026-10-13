@@ -183,6 +183,7 @@ def ansible_playbook_run(
         command = ['ansible-playbook', playbook_path]
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         if limit:
@@ -284,6 +285,7 @@ def ansible_adhoc_command(
             command.extend(['-a', module_args])
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         if become:
@@ -392,6 +394,7 @@ def ansible_playbook_syntax_check(
         command = ['ansible-playbook', '--syntax-check', playbook_path]
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)
@@ -740,6 +743,7 @@ def ansible_ping(
         command = ['ansible', host_pattern, '-m', 'ping']
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)
@@ -790,6 +794,7 @@ def ansible_facts(
             command.extend(['-a', module_args])
 
         if inventory:
+            _reject_flag_like(inventory, 'inventory')
             command.extend(['-i', inventory])
 
         result = _run_ansible_command(command, working_dir)
