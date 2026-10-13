@@ -113,3 +113,49 @@ def test_flag_like_value_is_rejected(call):
     result = call()
     assert result['success'] is False
     assert 'must not start with' in result['error'], result
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-24 scheduled audit: the guard's own docstring claimed it was
+# "applied to every caller-supplied value that reaches an argv list in this
+# module -- bare positionals ... and also values carried by an explicit
+# flag", but `vault_password_file` (the module's own docstring calls this
+# "the highest-value target", since ansible-vault executes it if marked
+# executable and reads the password from stdout), `inventory` (5 of 6 call
+# sites), `extra_vars_file`, `become_user`, `module_args`, `vault_id`, and
+# `roles_path`/`collections_path` were not actually guarded anywhere. Third
+# time this module-level guard has been applied incompletely on a given pass
+# -- see the comment above this block for the first two times.
+# ---------------------------------------------------------------------------
+
+FLAG2 = '--vault-password-file=/tmp/pwned2.sh'
+
+
+@pytest.mark.parametrize('call', [
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', inventory=FLAG2), id='playbook_run.inventory'),
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', extra_vars_file=FLAG2), id='playbook_run.extra_vars_file'),
+    pytest.param(lambda: ansible_playbook_run(playbook_path='site.yml', become_user=FLAG2), id='playbook_run.become_user'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='ping', inventory=FLAG2), id='adhoc_command.inventory'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='ping', module_args=FLAG2), id='adhoc_command.module_args'),
+    pytest.param(lambda: ansible_adhoc_command(host_pattern='all', module='ping', become_user=FLAG2), id='adhoc_command.become_user'),
+    pytest.param(lambda: ansible_playbook_syntax_check(playbook_path='site.yml', inventory=FLAG2), id='syntax_check.inventory'),
+    pytest.param(lambda: ansible_vault_encrypt(file_path='s.yml', vault_password_file=FLAG2), id='vault_encrypt.vault_password_file'),
+    pytest.param(lambda: ansible_vault_encrypt(file_path='s.yml', vault_id=FLAG2), id='vault_encrypt.vault_id'),
+    pytest.param(lambda: ansible_vault_decrypt(file_path='s.yml', vault_password_file=FLAG2), id='vault_decrypt.vault_password_file'),
+    pytest.param(lambda: ansible_vault_view(file_path='s.yml', vault_password_file=FLAG2), id='vault_view.vault_password_file'),
+    pytest.param(lambda: ansible_ping(host_pattern='all', inventory=FLAG2), id='ping.inventory'),
+    pytest.param(lambda: ansible_facts(host_pattern='all', inventory=FLAG2), id='facts.inventory'),
+    pytest.param(lambda: ansible_galaxy_install(collection_name='x', collections_path=FLAG2), id='galaxy_install.collections_path'),
+    pytest.param(lambda: ansible_galaxy_install(role_name='x', roles_path=FLAG2), id='galaxy_install.roles_path'),
+])
+def test_previously_unguarded_flag_carried_value_is_rejected(call):
+    result = call()
+    assert result['success'] is False
+    assert 'must not start with' in result['error'], result
+
+
+def test_galaxy_list_rejects_flag_like_roles_path():
+    from src.tools.ansible_tools import ansible_galaxy_list
+    result = ansible_galaxy_list(roles_path=FLAG2)
+    assert result['success'] is False
+    assert 'must not start with' in result['error']
