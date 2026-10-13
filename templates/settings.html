@@ -1238,10 +1238,10 @@
                         ' — these are not real IAM action prefixes, so the EFS and OpenSearch tools ' +
                         'fail with permission errors. The published policies were fixed on 2026-07-24.' +
                         '<br><br><strong>If you used the CloudFormation quick-create:</strong> update your stack ' +
-                        'with the same template URL (keeps your External ID and policy level):' +
+                        'with the same template URL (keeps your External ID, policy level and role name):' +
                         '<code>aws cloudformation update-stack --stack-name YOUR_STACK_NAME \\\n' +
                         '  --template-url ' + CF_TEMPLATE_URL + ' \\\n' +
-                        '  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true \\\n' +
+                        '  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true ParameterKey=RoleName,UsePreviousValue=true \\\n' +
                         '  --capabilities CAPABILITY_NAMED_IAM</code>' +
                         '<br><strong>If you created the role manually:</strong> replace the policy JSON with the current version from ' +
                         '<a href="/static/iam/devops-agent-readonly.json" target="_blank">devops-agent-readonly.json</a> or ' +

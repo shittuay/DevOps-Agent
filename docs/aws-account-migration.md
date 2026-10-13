@@ -1,8 +1,14 @@
 # Moving the platform to a new AWS account
 
 Old account: `188046727805` (instance `i-09af962714b13f9bc`, us-east-1).
-Placeholders below: `NEW_ACCOUNT` (12-digit id), `NEW_INSTANCE` (new EC2 id),
+New account: `621203631557`. Placeholders below: `NEW_INSTANCE` (new EC2 id),
 `NEW_IP` (new Elastic IP).
+
+The code defaults already point at the new account in the cutover PR
+(#236, branch `chore/aws-cutover-621203631557`, opened as a draft). **Merge that PR at
+step 7, not before**: it switches
+the onboarding trust snippet, the quick-create template URL and the deploy role to the new
+account, all of which must exist first.
 
 Do the steps in order. Nothing customer-facing changes until **Cutover** (step 7);
 everything before it can be built and tested while the old account keeps serving.
@@ -45,6 +51,19 @@ python scripts/count_role_arn_customers.py
 
 1. Launch an Ubuntu instance like the old one: same size, an Elastic IP (`NEW_IP`)
    and a security group that allows 80/443 from Cloudflare plus 22 from your IP only.
+
+   **If it's a Spot instance:** Postgres lives on this box, and AWS can reclaim Spot
+   capacity with about two minutes' notice. By default a reclaimed instance is
+   terminated and its root disk deleted, database included. Set up all of these:
+   - request type **persistent** with interruption behavior **Stop** (Stop requires a
+     persistent request), so a reclaim stops the box and the disk survives
+   - **Delete on termination off** for the root volume
+   - the Elastic IP attached, so the address is unchanged after a stop/start
+   - the nightly `pg_dump` to S3 working before any users move over
+
+   The site is down for as long as Spot capacity stays away. If that isn't acceptable for
+   the one box every user hits, use On-Demand with a Savings Plan or Reserved Instance, or
+   move the database to RDS so the box itself becomes disposable.
 2. Create an instance role. List what the old role has and recreate it:
 
    ```bash
@@ -83,7 +102,7 @@ python scripts/count_role_arn_customers.py
 
 2. Copy `/var/www/devops-agent/.env` to the new box over SSH; don't put it in git or
    chat. Then change:
-   - `PLATFORM_AWS_ACCOUNT_ID=NEW_ACCOUNT`
+   - `PLATFORM_AWS_ACCOUNT_ID=621203631557`
    - `CF_TEMPLATE_URL=` the new template URL (step 5)
    - `BACKUP_S3_BUCKET` / `BACKUP_S3_BUCKET_OWNER` for the new backup bucket
    - `PLATFORM_BRIDGE_ROLE_ARN` only if you use step 6
@@ -100,7 +119,7 @@ python scripts/count_role_arn_customers.py
      "Version": "2012-10-17",
      "Statement": [{
        "Effect": "Allow",
-       "Principal": {"Federated": "arn:aws:iam::NEW_ACCOUNT:oidc-provider/token.actions.githubusercontent.com"},
+       "Principal": {"Federated": "arn:aws:iam::621203631557:oidc-provider/token.actions.githubusercontent.com"},
        "Action": "sts:AssumeRoleWithWebIdentity",
        "Condition": {
          "StringEquals": {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com"},
@@ -122,17 +141,18 @@ account. Bucket names are global and the old bucket still holds the name, so use
 one:
 
 ```bash
-PLATFORM_AWS_ACCOUNT_ID=NEW_ACCOUNT python scripts/build_cf_template.py
-aws s3 mb s3://devopsagent-cf-templates-NEW_ACCOUNT
+# cloudformation/devops-agent-role.json in the cutover PR is already rebuilt for 621203631557;
+# check out that branch to get it.
+aws s3 mb s3://devopsagent-cf-templates-621203631557
 # New buckets block public access by default. Turn that off for this bucket only and
 # add a bucket policy allowing s3:GetObject on this one key (quick-create needs a
 # public S3 URL). Then:
-aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates-NEW_ACCOUNT/devops-agent-role.json
+aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates-621203631557/devops-agent-role.json
 ```
 
-Set `CF_TEMPLATE_URL` on the new box to that object's URL. Don't commit the rebuilt
-template yet. `tests/test_iam_policies.py` builds with the default account id, so the
-template and the default have to change together in the post-cutover PR (step 9).
+The cutover PR already defaults `CF_TEMPLATE_URL` to
+`https://devopsagent-cf-templates-621203631557.s3.amazonaws.com/devops-agent-role.json`. If
+you name the bucket differently, set `CF_TEMPLATE_URL` on the new box instead.
 
 ## 6. Migration bridge (only if step 0 found role customers)
 
@@ -141,7 +161,7 @@ update their trust policies in their own time.
 
 1. In the **old** account, create role `devops-agent-migration-bridge`:
    - Trust: the new instance role,
-     `{"Principal": {"AWS": "arn:aws:iam::NEW_ACCOUNT:role/<new-instance-role>"}, "Action": "sts:AssumeRole"}`
+     `{"Principal": {"AWS": "arn:aws:iam::621203631557:role/<new-instance-role>"}, "Action": "sts:AssumeRole"}`
    - Permission: `sts:AssumeRole` on `arn:aws:iam::*:role/*`
 2. On the new box, set
    `PLATFORM_BRIDGE_ROLE_ARN=arn:aws:iam::188046727805:role/devops-agent-migration-bridge`.
@@ -159,9 +179,23 @@ The old account must stay open while the bridge is in use.
 
 > We've moved DevOps Agent to a new AWS account. Your connection keeps working for now.
 > Before <date>, please update the trust policy on your DevOps Agent IAM role so the
-> `Principal` includes `arn:aws:iam::NEW_ACCOUNT:root` (keep or remove the old
-> `arn:aws:iam::188046727805:root`). Your External ID stays the same. You can also delete
-> the stack and re-run "Create role with CloudFormation" from Settings.
+> `Principal` includes `arn:aws:iam::621203631557:root` (keep or remove the old
+> `arn:aws:iam::188046727805:root`). Your External ID stays the same.
+>
+> If you created the role with our CloudFormation button, one command does it:
+>
+> ```
+> aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
+>   --template-url https://devopsagent-cf-templates-621203631557.s3.amazonaws.com/devops-agent-role.json \
+>   --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true ParameterKey=RoleName,UsePreviousValue=true \
+>   --capabilities CAPABILITY_NAMED_IAM
+> ```
+
+That updates the role's trust policy in place, so its ARN and External ID stay the same and
+nothing changes in DevOps Agent's settings. Deleting the stack and recreating it would give
+the role a new ARN, which the customer would then have to paste back into Settings.
+`RoleName,UsePreviousValue=true` matters: `RoleName` is a template parameter, and leaving
+it out resets a custom name to the default, which replaces the role (new ARN).
 
 ## 7. Cutover (short maintenance window)
 
@@ -191,10 +225,13 @@ The old account must stay open while the bridge is in use.
 6. Switch GitHub to the new account:
 
    ```bash
-   gh variable set AWS_DEPLOY_ROLE_ARN --body arn:aws:iam::NEW_ACCOUNT:role/github-actions-deploy
+   gh variable set AWS_DEPLOY_ROLE_ARN --body arn:aws:iam::621203631557:role/github-actions-deploy
    gh variable set AWS_REGION --body us-east-1
    gh secret set EC2_INSTANCE_ID --body NEW_INSTANCE
    ```
+
+   Then merge the cutover PR (`chore/aws-cutover-621203631557`). Its first deploy goes to
+   the new box.
 
 7. Delete the dump file from both boxes and your machine. It contains every user's
    encrypted credentials.
@@ -217,10 +254,8 @@ After that point, rolling back loses whatever was written on the new box.
 
 ## 9. After cutover
 
-- PR: change the defaults from `188046727805` to `NEW_ACCOUNT` in `app.py`,
-  `scripts/build_cf_template.py` and the workflow fallbacks; commit the rebuilt
-  `cloudformation/devops-agent-role.json` and update CLAUDE.md. The GitHub variables can
-  then stay as they are or be removed.
+- With the cutover PR merged, the code defaults match the new account, so the
+  `AWS_DEPLOY_ROLE_ARN` / `AWS_REGION` variables can stay or be removed.
 - Watch the bridge log line. When it has been quiet for a couple of weeks and the
   deadline has passed, unset `PLATFORM_BRIDGE_ROLE_ARN` and delete the bridge role.
 - Decommission the old account last: snapshot or export anything you want to keep,
