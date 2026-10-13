@@ -1894,8 +1894,33 @@ edits to an existing starter workflow never reached production. It now also upda
 templates are never touched.
 
 Categories as of 2026-10-13: Compute, Security, Monitoring, Storage, Database, Cost,
-Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC. The Incident Response
-and pod-troubleshooting workflows are read-only, and a test asserts they name no write tool.
+Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC. 39 starter workflows
+across AWS, Azure, GCP and Kubernetes. `tests/test_workflow_inputs.py` pins, per workflow:
+- every tool it names exists in the live catalog;
+- the read-only list (Incident Response, pod troubleshooting, IAM audit, compliance check,
+  cluster health check, multi-cloud snapshot) names no write tool;
+- provisioning workflows end with a teardown step;
+- the fix-offering audits (public S3 buckets, idle resources) change nothing until the user
+  names the items;
+- the new databases (RDS, Azure SQL, Cloud SQL) are private, encrypted and firewalled to one IP.
+
+Rules for new workflows:
+- When a dedicated tool can't express a safe default, use the `*_api_write` escape hatch.
+  `create_rds_instance` has no subnet group, security group, encryption or deletion-protection
+  parameters, so the RDS workflow calls `aws_api_write("rds", "create_db_instance", ...)` with
+  `ManageMasterUserPassword` (the password never enters chat).
+- **Do not build workflows on `docker_*` or `terraform_*` tools.** They run against the DevOps
+  Agent server's own Docker daemon and local filesystem, not the customer's machine or repo.
+- **Do not build CI/CD or on-call workflows on the GitHub Actions / GitLab / PagerDuty / OpsGenie
+  tools.** See the next paragraph.
+
+**Not yet fixed, flagged 2026-10-13: shared platform credentials in CI/CD and alerting
+tools.** `cicd_tools._get_github_token()` falls back to the server's `GITHUB_TOKEN`, and the
+PagerDuty/OpsGenie tools fall back to `PAGERDUTY_API_KEY` / `OPSGENIE_API_KEY` env vars. When
+a user doesn't pass their own token, any user's chat can read and act through the
+**platform's** credentials, against whatever repos and services those can reach. This is the
+same class of problem as the GCP ambient-credentials fix. These tools need per-user
+credentials (like `UserCloudCredential`) and a fail-closed path when none is linked.
 
 **AI/ML workflows (added 2026-10-12, extended 2026-10-13):** five self-hosted LLM
 workflows — AWS EC2, EKS, Azure GPU VM, GCP GPU VM, and on-prem Kubernetes. Steps

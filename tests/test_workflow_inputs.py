@@ -168,11 +168,66 @@ NEW_WORKFLOW_TOOLS = {
     'Terraform Remote State Backend on S3': {
         'aws_api_read', 'create_dynamodb_table', 'create_s3_bucket', 'get_s3_bucket_info',
         'put_s3_lifecycle_policy'},
+    'Production PostgreSQL on RDS': {
+        'authorize_security_group_ingress', 'aws_api_read', 'aws_api_write', 'create_db_subnet_group',
+        'create_security_group', 'delete_rds_instance', 'describe_rds_instance', 'list_subnets', 'list_vpcs',
+        'modify_rds_instance'},
+    'Database Restore Drill (RDS)': {
+        'aws_api_read', 'create_rds_snapshot', 'delete_rds_instance', 'delete_rds_snapshot',
+        'describe_rds_instance', 'list_rds_snapshots', 'restore_rds_from_snapshot'},
+    'CloudWatch Alarms + Email Alerts for an EC2 Instance': {
+        'create_cloudwatch_alarm', 'create_sns_topic', 'delete_cloudwatch_alarm', 'delete_sns_topic',
+        'get_ec2_instances', 'list_cloudwatch_alarms', 'subscribe_sns_topic'},
+    'HTTPS Certificate for Your Domain (ACM + Route 53)': {
+        'aws_api_read', 'create_route53_record', 'list_acm_certificates', 'list_route53_zones',
+        'request_acm_certificate'},
+    'Find Publicly Exposed S3 Buckets': {
+        'aws_api_read', 'get_s3_bucket_policy', 'list_s3_buckets', 'set_s3_public_access_block'},
+    'IAM Hygiene Audit': {
+        'generate_iam_credential_report', 'get_iam_account_summary', 'get_iam_credential_report',
+        'list_iam_roles', 'list_iam_services_last_accessed'},
+    'Compliance Readiness Check (SOC 2 / HIPAA / PCI DSS)': {'get_security_findings', 'run_compliance_check'},
+    'Find Idle Resources Wasting Money': {
+        'aws_api_read', 'create_ebs_snapshot', 'delete_ebs_snapshot', 'delete_ebs_volume', 'get_ec2_instances',
+        'list_ebs_volumes', 'list_elastic_ips', 'list_nat_gateways', 'release_elastic_ip'},
+    'Autoscale a Kubernetes Deployment': {'create_hpa', 'delete_hpa', 'describe_deployment', 'list_hpas',
+                                          'top_pods'},
+    'Safe Rollout with Automatic Rollback': {
+        'describe_deployment', 'get_pod_logs', 'get_pods', 'rollback_deployment', 'rollout_history',
+        'rollout_status', 'run_smoke_test', 'update_deployment_image'},
+    'Kubernetes Cluster Health Check': {'describe_node', 'get_cluster_events', 'get_nodes', 'k8s_api_read',
+                                        'list_pvcs', 'top_nodes'},
+    'Secure Linux VM on Azure': {'create_resource_group', 'create_virtual_machine', 'delete_resource_group',
+                                 'get_vm_details', 'tcp_check'},
+    'Azure SQL Database Locked to Your IP': {
+        'create_resource_group', 'create_sql_database', 'create_sql_firewall_rule', 'create_sql_server',
+        'delete_resource_group', 'delete_sql_server', 'tcp_check'},
+    'Deploy a Container to Google Cloud Run': {
+        'delete_cloud_run_service', 'deploy_cloud_run_service', 'http_check', 'list_cloud_run_services'},
+    'Cloud SQL Database on GCP': {'create_cloud_sql_instance', 'delete_cloud_sql_instance',
+                                  'list_cloud_sql_instances'},
+    'Multi-Cloud Inventory and Cost Snapshot': {
+        'get_cost_summary', 'get_ec2_instances', 'get_infrastructure_summary',
+        'get_optimization_recommendations', 'list_cloud_sql_instances', 'list_compute_instances',
+        'list_rds_instances', 'list_virtual_machines'},
 }
 
 # Read-only workflows: diagnosing must never change anything.
 READ_ONLY_WORKFLOWS = ('Troubleshoot Failing Kubernetes Pods', 'Diagnose a Website That Is Down',
-                       'Investigate an AWS Cost Spike')
+                       'Investigate an AWS Cost Spike', 'IAM Hygiene Audit',
+                       'Compliance Readiness Check (SOC 2 / HIPAA / PCI DSS)',
+                       'Kubernetes Cluster Health Check', 'Multi-Cloud Inventory and Cost Snapshot')
+
+# Workflows that leave billed resources running must tell the user how to remove them.
+PROVISIONING_WORKFLOWS = (
+    'Production PostgreSQL on RDS', 'Database Restore Drill (RDS)',
+    'CloudWatch Alarms + Email Alerts for an EC2 Instance', 'Secure Linux VM on Azure',
+    'Azure SQL Database Locked to Your IP', 'Deploy a Container to Google Cloud Run',
+    'Cloud SQL Database on GCP', 'Container App on ECS Fargate + Load Balancer',
+    'Static Website on S3 + CloudFront (HTTPS)', 'Create an EKS Cluster (Ready for kubectl)')
+
+# Audits that offer a fix must not apply it before the user names what to change.
+ASK_BEFORE_CHANGING = ('Find Publicly Exposed S3 Buckets', 'Find Idle Resources Wasting Money')
 
 
 def _catalog_names():
@@ -193,7 +248,34 @@ def test_new_workflows_name_only_real_tools():
         for tool in tools:
             assert tool in text, f'{tool} no longer referenced in {name}; update this test'
             assert tool in catalog, f'{name} tells the agent to call {tool}, which does not exist'
-        assert by_name[name].get('inputs'), f'{name} should open an input form'
+        # Declared explicitly; an account-wide audit may need none and starts on one click.
+        assert 'inputs' in by_name[name], f'{name} should declare its inputs'
+
+
+def test_provisioning_workflows_end_with_teardown():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name in PROVISIONING_WORKFLOWS:
+        assert 'teardown' in by_name[name]['steps'][-1].lower() or 'clean up' in \
+            by_name[name]['steps'][-1].lower(), f'{name} must end with how to remove what it created'
+
+
+def test_fix_offering_audits_ask_before_changing_anything():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name in ASK_BEFORE_CHANGING:
+        text = ' '.join(by_name[name]['steps'])
+        assert 'Do not' in text and 'only those' in text, f'{name} must wait for the user to pick items'
+
+
+def test_new_databases_are_never_public():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    rds = ' '.join(by_name['Production PostgreSQL on RDS']['steps'])
+    assert 'PubliclyAccessible false' in rds and 'StorageEncrypted true' in rds
+    assert 'ManageMasterUserPassword true' in rds and 'DeletionProtection true' in rds
+    azure_sql = ' '.join(by_name['Azure SQL Database Locked to Your IP']['steps'])
+    assert 'start_ip and end_ip both {client_ip}' in azure_sql
+    assert 'Do not add the 0.0.0.0' in azure_sql
+    cloud_sql = ' '.join(by_name['Cloud SQL Database on GCP']['steps'])
+    assert 'Add no authorized networks' in cloud_sql
 
 
 def test_read_only_workflows_never_call_a_write_tool():
