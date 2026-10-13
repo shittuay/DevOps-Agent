@@ -56,3 +56,23 @@ def test_deployments_command_allows_admin_app_user(app, test_user, db_session):
     # Must not be turned away by the admin gate; content is either the
     # "no deployments" message or a real listing, never the refusal text.
     assert 'admin-only' not in response.text.lower()
+
+
+def test_requires_auth_is_enforced_before_dispatch(app):
+    """A requires_auth command whose handler forgets _require_app_user() must
+    still be refused for an unlinked identity, without the handler running."""
+    from services.chatops_service import ChatCommand, ChatOpsService
+
+    called = []
+    service = ChatOpsService()
+    service.register_command(ChatCommand(
+        name='forgetful', description='test', usage='/forgetful',
+        handler=lambda args, **kw: called.append(kw) or None,
+    ))
+
+    response = service.process_message(
+        'forgetful', user_id='slack-U-unlinked-forgetful', platform=ChatPlatform.SLACK
+    )
+
+    assert called == []
+    assert 'link' in response.text.lower()

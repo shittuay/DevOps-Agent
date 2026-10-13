@@ -706,6 +706,11 @@ class SafetyValidator:
             # content to an external sink" the same as publish_sns_message /
             # publish_pubsub_message, and send_ isn't an auto-detected prefix either.
             'send_sqs_message',
+            # create_datadog_event posts caller-controlled title/text/tags to a
+            # team-visible Datadog event stream with no confirmation — same external-sink
+            # class as pagerduty_create_incident/opsgenie_create_alert, and the
+            # provider_verb_noun shape defeats prefix auto-detection (2026-09-27 audit).
+            'create_datadog_event',
         }
 
         # Check if tool is a pentest tool
