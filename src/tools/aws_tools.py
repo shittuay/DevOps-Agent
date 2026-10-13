@@ -11543,6 +11543,10 @@ _AMI_OWNERS: Dict[str, Dict[str, Any]] = {
     'rhel': {'owners': ['309956199498'], 'publisher': 'Red Hat'},
     'suse': {'owners': ['013907871322'], 'publisher': 'SUSE'},
     'windows': {'owners': ['amazon'], 'publisher': 'Amazon (Windows)'},
+    # AWS Deep Learning Base GPU AMI (Ubuntu): NVIDIA driver, Docker and the NVIDIA
+    # container toolkit preinstalled — the base for self-hosted LLM serving (vLLM).
+    # Owner alias per the AWS DLAMI docs' own describe-images query (--owners amazon).
+    'dlami-gpu': {'owners': ['amazon'], 'publisher': 'AWS Deep Learning AMI'},
 }
 
 # Default name patterns per distro. `{version}` is substituted from the caller's
@@ -11554,6 +11558,8 @@ _AMI_NAME_PATTERNS: Dict[str, str] = {
     'rhel': 'RHEL-{version}*_HVM-*-x86_64-*',
     'suse': 'suse-sles-{version}-v*-hvm-ssd-x86_64',
     'windows': 'Windows_Server-{version}-English-Full-Base-*',
+    # `version` is the Ubuntu release, e.g. '24.04' or '22.04'.
+    'dlami-gpu': 'Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu {version}) *',
 }
 
 
@@ -11573,8 +11579,10 @@ def find_ami(
     image with a lookalike name can never be returned.
 
     Args:
-        distro: One of ubuntu, amazon-linux, debian, rhel, suse, windows
-        version: Version to pin (e.g. '24.04', '12', '9'). Newest if omitted.
+        distro: One of ubuntu, amazon-linux, debian, rhel, suse, windows, dlami-gpu
+            (AWS Deep Learning Base GPU AMI on Ubuntu, for NVIDIA GPU instances)
+        version: Version to pin (e.g. '24.04', '12', '9'; for dlami-gpu the Ubuntu
+            release). Newest if omitted.
         architecture: x86_64 (default) or arm64
         region: AWS region (defaults to the caller's configured region)
         limit: How many matching AMIs to return, newest first
@@ -18016,7 +18024,10 @@ def get_tools() -> List[Dict[str, Any]]:
             'name': 'find_ami',
             'description': (
                 'Find the newest official AMI ID for a Linux/Windows distribution '
-                '(ubuntu, amazon-linux, debian, rhel, suse, windows). USE THIS FIRST '
+                '(ubuntu, amazon-linux, debian, rhel, suse, windows), or the AWS Deep '
+                'Learning Base GPU AMI (dlami-gpu: Ubuntu with NVIDIA driver, Docker and '
+                'the NVIDIA container toolkit — use it for g4dn/g5/g6/p4/p5 GPU instances '
+                'and self-hosted LLM serving). USE THIS FIRST '
                 'whenever the user asks for an instance by OS name rather than by AMI '
                 'ID — create_ec2_instance requires a concrete ami_id and cannot resolve '
                 '"ubuntu" on its own. Results are restricted to the distribution '
@@ -18027,8 +18038,8 @@ def get_tools() -> List[Dict[str, Any]]:
                 'properties': {
                     'distro': {
                         'type': 'string',
-                        'enum': ['ubuntu', 'amazon-linux', 'debian', 'rhel', 'suse', 'windows'],
-                        'description': 'Distribution to look up (default: ubuntu)'
+                        'enum': ['ubuntu', 'amazon-linux', 'debian', 'rhel', 'suse', 'windows', 'dlami-gpu'],
+                        'description': 'Distribution to look up (default: ubuntu). dlami-gpu = AWS Deep Learning Base GPU AMI (Ubuntu) for NVIDIA GPU instances.'
                     },
                     'version': {'type': 'string', 'description': 'Version to pin, e.g. "24.04" for Ubuntu, "12" for Debian. Newest available if omitted.'},
                     'architecture': {'type': 'string', 'enum': ['x86_64', 'arm64'], 'description': 'CPU architecture (default x86_64). Use x86_64 for t2/t3/m5; arm64 for Graviton (t4g/m6g).'},

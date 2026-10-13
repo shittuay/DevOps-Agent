@@ -466,6 +466,14 @@ class SafetyValidator:
             'git_stash_save',  # reverts the working tree to HEAD, discarding uncommitted changes from view
             'git_revert_commit',
             'git_rebase_branch',
+            # 2026-09-24 scheduled audit: these three are genuinely mutating (new branch/tag,
+            # fetching remote refs) and already call _reject_flag_like on their caller-supplied
+            # params (so the argument-injection RCE class is not open here) — but had no risk
+            # classification at all, unlike comparably-benign siblings (git_switch_branch,
+            # git_add_remote) already gated medium for the human-review/audit-trail layer.
+            'git_create_branch',
+            'git_fetch',
+            'git_create_tag',
             # Git flag-injection-guarded read tools (defense-in-depth: pattern/commit/file
             # params are validated by _reject_flag_like, but confirmation gives a human
             # review layer over the same class of git-flag primitive as the tools above)
@@ -482,6 +490,18 @@ class SafetyValidator:
             'docker_push_image',
             'docker_compose_up',
             'docker_build_image',
+            # 2026-09-24 scheduled audit: docker_pull_image was the one step in the
+            # pull/build/push chain that actually introduces untrusted code onto the host
+            # (an arbitrary caller-specified image:tag from a registry) and had zero risk
+            # classification, despite its build/push siblings both already being medium —
+            # same supply-chain shape as an unpinned dependency install.
+            'docker_pull_image',
+            # create_network/create_volume are low-severity relative to their remove_
+            # siblings (already high-risk via the remove_ auto-detect prefix), but the same
+            # "destructive op gated, its creating counterpart isn't" asymmetry already
+            # documented for create_route53_record/github_create_repo above.
+            'docker_create_network',
+            'docker_create_volume',
             # GitHub medium risk
             'github_trigger_workflow',
             'github_invite_collaborator',
