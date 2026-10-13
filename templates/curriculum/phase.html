@@ -749,32 +749,70 @@ function submitAIQuestion() {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ module_id: moduleId, question }),
-    }).then(res => {
+    }).then(async res => {
+        // Rate limits, blocked messages and crisis support come back as plain JSON, not a stream.
+        const type = res.headers.get('Content-Type') || '';
+        if (!type.includes('text/event-stream')) {
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            _streamHadError = !data.crisis_response;
+            if (data.crisis_response) {
+                const resources = Array.isArray(data.resources) ? data.resources : (data.resources ? [data.resources] : []);
+                const links = resources.map(r =>
+                    '<li>' + escHtml(r.name || '') + (r.phone ? ': ' + escHtml(r.phone) : '') +
+                    (r.url ? ' (' + escHtml(r.url) + ')' : '') + '</li>').join('');
+                output.innerHTML = '<p>' + escHtml(data.message || '') + '</p>' + (links ? '<ul>' + links + '</ul>' : '');
+            } else {
+                const msg = data.error || (res.status === 429
+                    ? 'You are asking questions faster than the limit allows. Please wait a minute.'
+                    : 'The AI Coach could not answer (HTTP ' + res.status + '). Please try again.');
+                output.innerHTML = '<p style="color:#ef4444">' + escHtml(msg) + '</p>';
+            }
+            finishStream(startTime);
+            return;
+        }
+
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
+        let buffer = '';
+        let finished = false;
+        const finishOnce = () => { if (!finished) { finished = true; finishStream(startTime); } };
+
+        function handleLine(line) {
+            if (!line.startsWith('data: ')) return;
+            const payload = line.slice(6);
+            if (payload === '[DONE]') { finishOnce(); return; }
+            let json;
+            try { json = JSON.parse(payload); } catch (_) { return; }
+            if (json.text) {
+                rawMarkdown += json.text;
+                output.innerHTML = renderMarkdown(rawMarkdown) + '<span class="cursor-blink"></span>';
+                output.scrollTop = output.scrollHeight;
+            }
+            if (json.error) {
+                _streamHadError = true;
+                output.innerHTML = '<p style="color:#ef4444">' + escHtml(json.error) + '</p>';
+            }
+        }
 
         function read() {
             reader.read().then(({ done, value }) => {
-                if (done) { finishStream(startTime); return; }
-                decoder.decode(value).split('\n').forEach(line => {
-                    if (!line.startsWith('data: ')) return;
-                    const payload = line.slice(6);
-                    if (payload === '[DONE]') { finishStream(startTime); return; }
-                    try {
-                        const json = JSON.parse(payload);
-                        if (json.text) {
-                            rawMarkdown += json.text;
-                            output.innerHTML = marked.parse(rawMarkdown) + '<span class="cursor-blink"></span>';
-                            output.scrollTop = output.scrollHeight;
-                        }
-                        if (json.error) {
-                            _streamHadError = true;
-                            output.innerHTML = '<p style="color:#ef4444">Error: ' + escHtml(json.error) + '</p>';
-                            finishStream(startTime);
-                        }
-                    } catch(_) {}
-                });
+                if (done) {
+                    buffer += decoder.decode();
+                    if (buffer) handleLine(buffer);
+                    finishOnce();
+                    return;
+                }
+                // A network chunk can end mid-line; keep the partial line until the rest arrives.
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                lines.forEach(handleLine);
                 read();
+            }).catch(e => {
+                _streamHadError = true;
+                output.innerHTML = '<p style="color:#ef4444">Connection lost: ' + escHtml(e.message) + '</p>';
+                finishOnce();
             });
         }
         read();
@@ -794,7 +832,12 @@ function finishStream(startTime) {
 
     // Only render markdown if there was actual content — don't wipe error messages
     if (!_streamHadError) {
-        output.innerHTML = rawMarkdown ? marked.parse(rawMarkdown) : output.innerHTML;
+        if (rawMarkdown) {
+            output.innerHTML = renderMarkdown(rawMarkdown);
+        } else if (output.querySelector('.cursor-blink')) {
+            _streamHadError = true;
+            output.innerHTML = '<p style="color:#ef4444">No answer came back. Please try again.</p>';
+        }
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -1001,6 +1044,15 @@ function updateQuizBadge(moduleId, pct, passed) {
 
 function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// marked loads from a CDN; if it is blocked or fails, show the answer as plain text instead of
+// throwing (which used to replace the whole answer with "marked is not defined").
+function renderMarkdown(text) {
+    if (window.marked && typeof window.marked.parse === 'function') {
+        try { return window.marked.parse(text); } catch (_) { /* fall through to plain text */ }
+    }
+    return '<div style="white-space:pre-wrap">' + escHtml(text) + '</div>';
 }
 
 // Quiz badges are rendered server-side on page load (no N+1 fetches needed).
