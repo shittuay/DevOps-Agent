@@ -8,6 +8,28 @@ from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
+# Setup script shared by the Azure and GCP LLM workflows. It needs only the NVIDIA
+# driver on the host: vLLM's pip wheels bundle the CUDA runtime and uv fetches the
+# Python version vLLM requires, so no Docker/container-toolkit setup is needed
+# (install commands follow the vLLM quickstart, docs.vllm.ai). It is idempotent and
+# runs vLLM as a systemd unit, so a driver-install reboot or a re-run of the script
+# cannot leave the server stopped or duplicated.
+_VLLM_PIP_SETUP_LINES = (
+    '(1) #!/bin/bash '
+    '(2) exec >> /var/log/llm-setup.log 2>&1 '
+    '(3) export HOME=/root '
+    '(4) for i in $(seq 1 90); do nvidia-smi && break; sleep 20; done '
+    '(5) if [ ! -x /opt/vllm/bin/vllm ]; then curl -LsSf https://astral.sh/uv/install.sh | '
+    'env UV_INSTALL_DIR=/usr/local/bin sh && uv venv --python 3.12 --seed /opt/vllm && '
+    'VIRTUAL_ENV=/opt/vllm uv pip install vllm --torch-backend=auto; fi '
+    "(6) printf '[Unit]\\nAfter=network-online.target\\n[Service]\\nEnvironment=HOME=/root\\n"
+    'ExecStart=/opt/vllm/bin/vllm serve MODEL_ID --host 0.0.0.0 --port 8000 --api-key API_KEY EXTRA_ARGS\\n'
+    "Restart=always\\nRestartSec=30\\n[Install]\\nWantedBy=multi-user.target\\n' > "
+    '/etc/systemd/system/vllm.service '
+    '(7) chmod 600 /etc/systemd/system/vllm.service '
+    '(8) systemctl daemon-reload && systemctl enable --now vllm'
+)
+
 STARTER_WORKFLOWS: List[Dict[str, Any]] = [
     {
         'name': 'EC2 + Nginx Web Server Setup',
@@ -220,6 +242,153 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
             'would add (pinned image tag, an Ingress or internal load balancer with TLS, autoscaling on '
             'queue depth, Prometheus scraping of vLLM /metrics), and the teardown: delete the llm namespace, '
             'then delete the gpu-llm node group, which bills hourly until removed.',
+        ],
+    },
+    {
+        'name': 'Self-Hosted LLM on Azure GPU VM (vLLM)',
+        'description': (
+            'Deploy an open-weight LLM on one Azure NC-series GPU VM (Standard_NC4as_T4_v3, NVIDIA T4) '
+            'with vLLM serving an OpenAI-compatible API behind an NSG locked to your IP, then verify it '
+            'and report teardown.'
+        ),
+        'category': 'AI/ML',
+        'estimated_minutes': 35,
+        'steps': [
+            'Before creating anything, ask me for: (a) my public IP in CIDR form — the API port must only '
+            'ever be opened to that address, never 0.0.0.0/0 or *; (b) a long random API key for the vLLM '
+            'server; (c) an SSH public key for the admin user (this VM uses key login only, never a '
+            'password); (d) the Azure region, defaulting to eastus; (e) the model, defaulting to '
+            'Qwen/Qwen2.5-1.5B-Instruct. Warn me that the VM bills hourly until it is deleted. Do NOT use '
+            'create_virtual_machine for this workflow: it creates a public IP with no NSG and password '
+            'login, which would expose the VM.',
+            'Check GPU capacity: call azure_api_read with client_type "compute", operation_path '
+            '"usage.list", params {"location": REGION}. Find the entry for the NCASv3_T4 family '
+            '(Standard_NC4as_T4_v3 needs 4 vCPUs). If limit minus current value is below 4, stop and tell '
+            'me how to request a quota increase in the Azure portal — do not create anything.',
+            'Resolve the image and GPU driver without guessing: azure_api_read("compute", '
+            '"virtual_machine_images.list", {"location": REGION, "publisher_name": "Canonical", "offer": '
+            '"0001-com-ubuntu-server-jammy", "skus": "22_04-lts-gen2"}) and azure_api_read("compute", '
+            '"virtual_machine_extension_images.list_versions", {"location": REGION, "publisher_name": '
+            '"Microsoft.HpcCompute", "type": "NvidiaGpuDriverLinux"}). Use the newest of each. If either '
+            'list is empty, stop and report exactly what came back.',
+            'Create the network with an explicit firewall: create_resource_group named llm-gpu-lab-rg in '
+            'REGION; create_virtual_network llm-gpu-lab-vnet with subnet default (10.0.0.0/24); '
+            'create_network_security_group llm-gpu-lab-nsg; then create_nsg_rule allowing TCP 8000 inbound '
+            'from my CIDR only, priority 100. Add no SSH rule. Then use azure_api_write with client_type '
+            '"network" to create a Standard-SKU static public IP llm-gpu-lab-ip and a NIC llm-gpu-lab-nic '
+            'on that subnet with the NSG and public IP attached.',
+            'Create the VM with azure_api_write("compute", "virtual_machines.begin_create_or_update", ...): '
+            'name llm-gpu-lab, size Standard_NC4as_T4_v3, the resolved Ubuntu image, a 128 GB Premium SSD OS '
+            'disk, the NIC above, admin user azureuser with my SSH key and password authentication '
+            'disabled, and tags {"Project": "llm-gpu-lab"}.',
+            'Install the GPU driver: azure_api_write("compute", "virtual_machine_extensions.'
+            'begin_create_or_update", ...) on llm-gpu-lab with publisher Microsoft.HpcCompute, type '
+            'NvidiaGpuDriverLinux, the version resolved earlier, and auto_upgrade_minor_version true. Wait '
+            'for the call to finish (the extension may reboot the VM) and confirm its provisioning state is '
+            'Succeeded before continuing.',
+            'Only after the driver is in place, install and start vLLM with azure_api_write("compute", '
+            '"virtual_machines.begin_run_command", {"resource_group_name": "llm-gpu-lab-rg", "vm_name": '
+            '"llm-gpu-lab", "parameters": {"command_id": "RunShellScript", "script": [...]}}), passing '
+            'this script one item per line, substituting MODEL_ID and API_KEY and replacing EXTRA_ARGS '
+            'with "--dtype half" (the T4 has no bfloat16): ' + _VLLM_PIP_SETUP_LINES,
+            'Read the public IP back, then verify readiness with http_check on http://<public_ip>:8000/health '
+            '(expected_status 200), retrying every 2 minutes for up to 30 minutes — the vLLM download and '
+            'first model load are slow. Then http_check http://<public_ip>:8000/v1/models with header '
+            'Authorization: Bearer <api key> and expected_status 200. A refused connection means it is still '
+            'installing; a 401 means the key is wrong; report anything else exactly.',
+            'Report the API base URL, model name and a sample curl to /v1/chat/completions, and flag the '
+            'lab-only shortcuts (plain HTTP, public IP). Finally, give me the teardown: delete the '
+            'llm-gpu-lab-rg resource group, which removes the VM, disk, IP, NIC, NSG and VNet together, and '
+            'remind me the VM bills until I do.',
+        ],
+    },
+    {
+        'name': 'Self-Hosted LLM on GCP GPU VM (vLLM)',
+        'description': (
+            'Deploy an open-weight LLM on one GCP g2-standard-4 VM (NVIDIA L4) from a Deep Learning VM '
+            'image, with vLLM serving an OpenAI-compatible API behind a firewall rule locked to your IP.'
+        ),
+        'category': 'AI/ML',
+        'estimated_minutes': 30,
+        'steps': [
+            'Before creating anything, ask me for: (a) my public IP in CIDR form — the API port must only '
+            'ever be opened to that address, never 0.0.0.0/0; (b) a long random API key for the vLLM '
+            'server; (c) the GCP project and zone, defaulting to us-central1-a; (d) the model, defaulting '
+            'to Qwen/Qwen2.5-1.5B-Instruct. Warn me the VM bills hourly until it is deleted.',
+            'Check GPU capacity: gcp_api_read("compute", "v1", "regions", "get", {"project": PROJECT, '
+            '"region": REGION}) and find the NVIDIA_L4_GPUS quota, and gcp_api_read("compute", "v1", '
+            '"projects", "get", {"project": PROJECT}) for GPUS_ALL_REGIONS. One g2-standard-4 needs 1 of '
+            'each. Also confirm the machine type exists in the zone with gcp_api_read("compute", "v1", '
+            '"machineTypes", "get", {"project": PROJECT, "zone": ZONE, "machineType": "g2-standard-4"}). '
+            'If any check fails, stop and explain how to request quota or pick another zone.',
+            'Resolve the image without guessing: gcp_api_read("compute", "v1", "images", "list", '
+            '{"project": "deeplearning-platform-release"}) and choose the newest non-deprecated image whose '
+            'family is a CUDA image (family contains "cu") for Ubuntu or Debian. Report the family you '
+            'picked. If none matches, stop and report what was listed.',
+            'Open the API port with create_firewall_rule: rule_name llm-gpu-lab-8000, ports ["8000"], '
+            'source_ranges [my CIDR] only, target_tags ["llm-gpu-lab"]. Do not open SSH.',
+            'Create the VM with gcp_api_write("compute", "v1", "instances", "insert", {"project": PROJECT, '
+            '"zone": ZONE, "body": ...}): name llm-gpu-lab, machine type zones/ZONE/machineTypes/'
+            'g2-standard-4, scheduling onHostMaintenance TERMINATE (required for GPU VMs), a 150 GB boot '
+            'disk from the resolved image, the default network with an external IP (ONE_TO_ONE_NAT), '
+            'network tag llm-gpu-lab, labels project=llm-gpu-lab, and metadata items install-nvidia-driver '
+            '= True plus startup-script set to this script, each item on its own line, substituting '
+            'MODEL_ID and API_KEY and removing EXTRA_ARGS (it waits for the driver, and is safe to re-run '
+            'on every boot): ' + _VLLM_PIP_SETUP_LINES,
+            'Read the instance back with gcp_api_read("compute", "v1", "instances", "get", ...) until it '
+            'is RUNNING and report its external IP. Then verify with http_check on '
+            'http://<external_ip>:8000/health (expected_status 200), retrying every 2 minutes for up to 30 '
+            'minutes, and http_check http://<external_ip>:8000/v1/models with header Authorization: Bearer '
+            '<api key> and expected_status 200. Report anything unexpected exactly.',
+            'Report the API base URL, model name and a sample curl to /v1/chat/completions, and flag the '
+            'lab-only shortcuts (plain HTTP, external IP). Finally, give me the teardown: '
+            'delete_compute_instance llm-gpu-lab, then delete_firewall_rule llm-gpu-lab-8000, and remind '
+            'me the VM bills until it is deleted.',
+        ],
+    },
+    {
+        'name': 'LLM Serving on On-Prem Kubernetes GPUs (vLLM)',
+        'description': (
+            'Deploy vLLM on your own Kubernetes cluster with NVIDIA GPU nodes: check GPU readiness, '
+            'install the NVIDIA device plugin if it is missing, and run vLLM as a Deployment and Service.'
+        ),
+        'category': 'AI/ML',
+        'estimated_minutes': 25,
+        'steps': [
+            'Ask me for: (a) which kubeconfig context is the on-prem cluster; (b) the model, defaulting to '
+            'Qwen/Qwen2.5-1.5B-Instruct; (c) a long random API key for the vLLM server; (d) whether the '
+            'cluster can reach Hugging Face to download weights, or is air-gapped. If it is air-gapped, '
+            'stop after the readiness check and explain that the weights must be pre-staged on a '
+            'PersistentVolume first.',
+            'Check GPU readiness with get_nodes and describe_node: report which nodes show allocatable '
+            'nvidia.com/gpu. GPU nodes must already have the NVIDIA driver and NVIDIA container toolkit '
+            'installed on the host by whoever runs the hardware — never attempt host-level installs from '
+            'Kubernetes.',
+            'If no node reports nvidia.com/gpu, check with k8s_api_read (api_group "apps", method '
+            '"list_daemon_set_for_all_namespaces") whether the NVIDIA device plugin or GPU Operator is '
+            'already deployed. Only if neither exists, apply_manifest a DaemonSet in kube-system named '
+            'nvidia-device-plugin-daemonset (selector label name=nvidia-device-plugin-ds, image '
+            'nvcr.io/nvidia/k8s-device-plugin:v0.17.1, toleration nvidia.com/gpu Exists NoSchedule, '
+            'priorityClassName system-node-critical, env FAIL_ON_INIT_ERROR=false, securityContext '
+            'allowPrivilegeEscalation false with all capabilities dropped, hostPath volume '
+            '/var/lib/kubelet/device-plugins mounted at the same path). If nodes still show no '
+            'nvidia.com/gpu: 1, stop: the host driver or container toolkit is missing, and say so plainly.',
+            'create_namespace llm, then create_k8s_secret vllm-api-key (key: api-key) in it. Never echo the '
+            'key back in your report.',
+            'apply_manifest a Deployment named vllm in namespace llm: 1 replica, image '
+            'vllm/vllm-openai:latest, args ["--model", MODEL_ID, "--api-key", "$(VLLM_API_KEY)"] with '
+            'VLLM_API_KEY from the vllm-api-key Secret, containerPort 8000, resources.limits '
+            'nvidia.com/gpu: 1, a toleration for nvidia.com/gpu, an emptyDir mounted at /dev/shm (medium '
+            'Memory), and a readinessProbe on GET /health port 8000 with initialDelaySeconds 120. Then '
+            'apply_manifest a ClusterIP Service named vllm on port 8000.',
+            'Watch the pod until Ready. If it stays Pending, read its events for an unsatisfied '
+            'nvidia.com/gpu request; if it crashes, read get_pod_logs and report the exact error (an older '
+            'GPU without bfloat16 needs "--dtype half" added to args).',
+            'Report: the in-cluster endpoint (http://vllm.llm.svc.cluster.local:8000/v1), how to test with '
+            'kubectl port-forward svc/vllm -n llm 8000:8000, what production would add (pinned image tag, '
+            'an Ingress with TLS, a PersistentVolume for model weights, the NVIDIA GPU Operator to manage '
+            'drivers, Prometheus scraping of /metrics), and the teardown: delete_namespace llm, and remove '
+            'the device plugin DaemonSet only if this run installed it.',
         ],
     },
 ]

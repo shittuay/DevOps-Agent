@@ -322,6 +322,77 @@ CURRICULUM = [
             },
         ],
     },
+    {
+        "phase": "07",
+        "title": "AI Infrastructure: Deploying LLMs",
+        "duration": "2-3 weeks",
+        "color": "#FFD700",
+        "description": "Run large language models yourself, on any cloud or your own hardware.",
+        "modules": [
+            {
+                "id": "llm-serving-fundamentals",
+                "title": "LLM Serving Fundamentals",
+                "topics": [
+                    "Hosted model APIs vs self-hosted open-weight models: when each makes sense",
+                    "Why teams self-host: data privacy, steady-volume cost, customization, control",
+                    "GPU memory math: roughly 2 bytes per parameter at 16-bit, plus KV cache",
+                    "Choosing a GPU: T4, A10G, L4 and larger cards; matching model size to VRAM",
+                    "Inference servers: vLLM's OpenAI-compatible API, batching and the KV cache",
+                    "Model sources and licensing: Hugging Face, gated models, access tokens",
+                ],
+                "project": "Size three open models (1.5B, 7B, 70B) against T4, L4 and A100 GPUs and justify which fits where",
+                "resources": [
+                    {"title": "vLLM Documentation", "url": "https://docs.vllm.ai/"},
+                ],
+            },
+            {
+                "id": "llm-cloud-gpu-deploy",
+                "title": "Deploying LLMs on AWS, Azure and GCP",
+                "topics": [
+                    "GPU quotas: why new accounts start at zero and how to request capacity",
+                    "GPU-ready images: AWS Deep Learning AMI, Azure NVIDIA driver extension, GCP Deep Learning VM",
+                    "Provision-then-configure in one step with user_data, custom scripts and startup scripts",
+                    "Locking down the API: security groups, NSGs and firewall rules scoped to one CIDR",
+                    "Verifying a deployment: health checks, the /v1/models endpoint, API keys",
+                    "Teardown discipline: GPUs bill by the hour whether or not anyone is using them",
+                ],
+                "project": "Deploy a small open model on one GPU VM in each of AWS, Azure and GCP using the DevOps Agent AI/ML workflows, then compare setup time and cost",
+                "resources": [
+                    {"title": "AWS Deep Learning AMIs", "url": "https://docs.aws.amazon.com/dlami/latest/devguide/"},
+                ],
+            },
+            {
+                "id": "llm-kubernetes-onprem",
+                "title": "LLMs on Kubernetes: Cloud and On-Prem",
+                "topics": [
+                    "GPU node groups and node pools on EKS, AKS and GKE",
+                    "The NVIDIA driver, container toolkit and device plugin: who installs what",
+                    "Requesting GPUs in a pod spec with resources.limits nvidia.com/gpu",
+                    "Shared memory, readiness probes and storing API keys in Secrets",
+                    "On-prem specifics: bare-metal GPU nodes, air-gapped clusters, pre-staged model weights",
+                    "The NVIDIA GPU Operator for managing drivers at fleet scale",
+                ],
+                "project": "Run vLLM on a Kubernetes cluster with one GPU node: install the device plugin, deploy, and reach the API through a port-forward",
+                "resources": [
+                    {"title": "NVIDIA k8s-device-plugin", "url": "https://github.com/NVIDIA/k8s-device-plugin"},
+                ],
+            },
+            {
+                "id": "llm-production-ops",
+                "title": "Operating LLMs at Scale",
+                "topics": [
+                    "AI economics: cost per million tokens for self-hosted vs API pricing",
+                    "Intelligent model routing: sending easy requests to small models",
+                    "Autoscaling GPU workloads on queue depth instead of CPU",
+                    "Observability: vLLM metrics, GPU utilization, latency and tokens per second",
+                    "Governance: access control, request logging, data residency and audit trails",
+                    "Production hardening: TLS, private networking, pinned images, rollouts",
+                ],
+                "project": "Measure tokens/sec under concurrent load on a self-hosted model and write a one-page cost comparison against a hosted API",
+                "resources": [],
+            },
+        ],
+    },
 ]
 
 CERTIFICATIONS = [
