@@ -17,21 +17,18 @@ def _get_sonar_client(base_url: str, token: Optional[str] = None):
     Returns:
         Tuple of (base_url, headers)
     """
-    import os
+    from .integration_auth import credentials
 
-    assert_safe_url(base_url)
-
-    if not token:
-        token = os.environ.get('SONAR_TOKEN')
-        if not token:
-            raise Exception("SONAR_TOKEN not found in environment variables")
+    creds = credentials('sonarqube', caller_url=base_url, token=token)
+    url = creds['url'].rstrip('/')
+    assert_safe_url(url)
 
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': f"Bearer {creds['token']}",
         'Content-Type': 'application/json'
     }
 
-    return base_url.rstrip('/'), headers
+    return url, headers
 
 
 def get_sonar_projects(
@@ -538,7 +535,7 @@ def get_tools() -> List[Dict[str, Any]]:
                 'type': 'object',
                 'properties': {
                     'base_url': {'type': 'string', 'description': 'SonarQube server URL (e.g. https://sonarqube.company.com)'},
-                    'token': {'type': 'string', 'description': 'SonarQube authentication token (falls back to SONAR_TOKEN env var)'},
+                    'token': {'type': 'string', 'description': "SonarQube token (omit to use the user's connected SonarQube)"},
                     'page_size': {'type': 'integer', 'description': 'Number of projects per page', 'default': 100}
                 },
                 'required': ['base_url']

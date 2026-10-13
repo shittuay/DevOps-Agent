@@ -1,9 +1,9 @@
 """PagerDuty and OpsGenie alerting tools for DevOps Agent."""
-import os
 import requests
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..utils import get_logger
+from .integration_auth import credentials
 
 logger = get_logger(__name__)
 
@@ -12,19 +12,17 @@ logger = get_logger(__name__)
 # PAGERDUTY TOOLS
 # ============================================================================
 
-def _get_pagerduty_headers(api_key: Optional[str] = None) -> Dict[str, str]:
-    """Get PagerDuty API headers."""
-    if not api_key:
-        api_key = os.environ.get('PAGERDUTY_API_KEY')
-
-    if not api_key:
-        raise Exception("PAGERDUTY_API_KEY not found. Set it in environment or pass as parameter.")
-
-    return {
-        'Authorization': f'Token token={api_key}',
+def _get_pagerduty_headers(api_key: Optional[str] = None, from_email: Optional[str] = None) -> Dict[str, str]:
+    """PagerDuty API headers from explicit args or the requesting user's saved PagerDuty."""
+    creds = credentials('pagerduty', api_key=api_key, from_email=from_email)
+    headers = {
+        'Authorization': f"Token token={creds['api_key']}",
         'Content-Type': 'application/json',
         'Accept': 'application/vnd.pagerduty+json;version=2'
     }
+    if creds.get('from_email'):
+        headers['From'] = creds['from_email']
+    return headers
 
 
 def pagerduty_create_incident(
@@ -54,12 +52,10 @@ def pagerduty_create_incident(
         Dictionary with incident details
     """
     try:
-        headers = _get_pagerduty_headers(api_key)
-
-        if not from_email:
-            from_email = os.environ.get('PAGERDUTY_FROM_EMAIL', 'devops-agent@example.com')
-
-        headers['From'] = from_email
+        headers = _get_pagerduty_headers(api_key, from_email)
+        if 'From' not in headers:
+            raise ValueError('PagerDuty needs a "from" email (a PagerDuty user) for this action. '
+                             'Add it to your PagerDuty connection in Settings > Integrations.')
 
         incident_data = {
             'incident': {
@@ -264,12 +260,10 @@ def pagerduty_update_incident(
         Dictionary with update result
     """
     try:
-        headers = _get_pagerduty_headers(api_key)
-
-        if not from_email:
-            from_email = os.environ.get('PAGERDUTY_FROM_EMAIL', 'devops-agent@example.com')
-
-        headers['From'] = from_email
+        headers = _get_pagerduty_headers(api_key, from_email)
+        if 'From' not in headers:
+            raise ValueError('PagerDuty needs a "from" email (a PagerDuty user) for this action. '
+                             'Add it to your PagerDuty connection in Settings > Integrations.')
 
         incident_data = {
             'incident': {
@@ -328,12 +322,10 @@ def pagerduty_add_note(
         Dictionary with note result
     """
     try:
-        headers = _get_pagerduty_headers(api_key)
-
-        if not from_email:
-            from_email = os.environ.get('PAGERDUTY_FROM_EMAIL', 'devops-agent@example.com')
-
-        headers['From'] = from_email
+        headers = _get_pagerduty_headers(api_key, from_email)
+        if 'From' not in headers:
+            raise ValueError('PagerDuty needs a "from" email (a PagerDuty user) for this action. '
+                             'Add it to your PagerDuty connection in Settings > Integrations.')
 
         note_data = {
             'note': {
@@ -467,26 +459,16 @@ def pagerduty_list_oncalls(
 # OPSGENIE TOOLS
 # ============================================================================
 
-def _get_opsgenie_headers(api_key: Optional[str] = None) -> Dict[str, str]:
-    """Get OpsGenie API headers."""
-    if not api_key:
-        api_key = os.environ.get('OPSGENIE_API_KEY')
-
-    if not api_key:
-        raise Exception("OPSGENIE_API_KEY not found. Set it in environment or pass as parameter.")
-
-    return {
-        'Authorization': f'GenieKey {api_key}',
+def _opsgenie_auth(api_key: Optional[str] = None):
+    """(headers, base_url) from explicit args or the requesting user's saved OpsGenie."""
+    creds = credentials('opsgenie', api_key=api_key)
+    headers = {
+        'Authorization': f"GenieKey {creds['api_key']}",
         'Content-Type': 'application/json'
     }
-
-
-def _get_opsgenie_base_url() -> str:
-    """Get OpsGenie base URL (supports EU region)."""
-    region = os.environ.get('OPSGENIE_REGION', 'us').lower()
-    if region == 'eu':
-        return 'https://api.eu.opsgenie.com/v2'
-    return 'https://api.opsgenie.com/v2'
+    if creds.get('region', 'us').lower() == 'eu':
+        return headers, 'https://api.eu.opsgenie.com/v2'
+    return headers, 'https://api.opsgenie.com/v2'
 
 
 def opsgenie_create_alert(
@@ -520,8 +502,7 @@ def opsgenie_create_alert(
         Dictionary with alert details
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
         alert_data = {
             'message': message,
@@ -543,7 +524,7 @@ def opsgenie_create_alert(
         if details:
             alert_data['details'] = details
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.post(
             f'{base_url}/alerts',
             headers=headers,
@@ -593,8 +574,7 @@ def opsgenie_list_alerts(
         Dictionary with alerts list
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
         params = {
             'limit': limit,
@@ -607,7 +587,7 @@ def opsgenie_list_alerts(
         elif status:
             params['query'] = f'status={status}'
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.get(
             f'{base_url}/alerts',
             headers=headers,
@@ -660,10 +640,9 @@ def opsgenie_get_alert(
         Dictionary with alert details
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.get(
             f'{base_url}/alerts/{alert_id}',
             headers=headers,
@@ -722,8 +701,7 @@ def opsgenie_acknowledge_alert(
         Dictionary with result
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
         ack_data = {}
         if user:
@@ -731,7 +709,7 @@ def opsgenie_acknowledge_alert(
         if note:
             ack_data['note'] = note
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/acknowledge',
             headers=headers,
@@ -775,8 +753,7 @@ def opsgenie_close_alert(
         Dictionary with result
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
         close_data = {}
         if user:
@@ -784,7 +761,7 @@ def opsgenie_close_alert(
         if note:
             close_data['note'] = note
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/close',
             headers=headers,
@@ -828,14 +805,13 @@ def opsgenie_add_note(
         Dictionary with result
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
         note_data = {'note': note}
         if user:
             note_data['user'] = user
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/notes',
             headers=headers,
@@ -871,10 +847,9 @@ def opsgenie_list_schedules(
         Dictionary with schedules list
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.get(
             f'{base_url}/schedules',
             headers=headers,
@@ -920,10 +895,9 @@ def opsgenie_get_oncall(
         Dictionary with on-call information
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.get(
             f'{base_url}/schedules/{schedule_id}/on-calls',
             headers=headers,
@@ -975,8 +949,7 @@ def opsgenie_escalate_alert(
         Dictionary with result
     """
     try:
-        headers = _get_opsgenie_headers(api_key)
-        base_url = _get_opsgenie_base_url()
+        headers, base_url = _opsgenie_auth(api_key)
 
         escalate_data = {
             'escalation': {'id': escalation_id}
@@ -986,7 +959,7 @@ def opsgenie_escalate_alert(
         if note:
             escalate_data['note'] = note
 
-        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _get_opsgenie_base_url()
+        # ssrf-safe: hardcoded api.opsgenie.com / api.eu.opsgenie.com via _opsgenie_auth()
         response = requests.post(
             f'{base_url}/alerts/{alert_id}/escalate',
             headers=headers,
@@ -1055,7 +1028,7 @@ def get_tools() -> List[Dict[str, Any]]:
                     },
                     'api_key': {
                         'type': 'string',
-                        'description': 'PagerDuty API key (uses env var if not provided)'
+                        'description': "PagerDuty API key (omit to use the user's connected PagerDuty)"
                     },
                     'from_email': {
                         'type': 'string',

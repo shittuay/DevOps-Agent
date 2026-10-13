@@ -74,6 +74,20 @@ _K8S_NAME = r'[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?'
 _K8S_NAME_HINT = 'Lowercase letters, digits and hyphens (a Kubernetes name).'
 _IMAGE_PATTERN = r'[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?'
 _IMAGE_HINT = 'A container image, e.g. nginx:1.27 or ghcr.io/acme/api:v2.'
+_GIT_REF = r'[A-Za-z0-9][A-Za-z0-9._/-]{0,199}'
+_GIT_REF_HINT = 'A branch name such as main or release/1.4.'
+_GH_OWNER = {'key': 'repo_owner', 'label': 'GitHub owner (user or org)', 'type': 'text', 'default': '',
+             'pattern': r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})', 'pattern_hint': 'A GitHub user or organization name.'}
+_GH_REPO = {'key': 'repo_name', 'label': 'Repository', 'type': 'text', 'default': '',
+            'pattern': r'[A-Za-z0-9._-]{1,100}', 'pattern_hint': 'The repository name, without the owner.'}
+_GH_WORKFLOW = {'key': 'workflow_name', 'label': 'Workflow name', 'type': 'text', 'required': False,
+                'default': '', 'pattern': r'[A-Za-z0-9][A-Za-z0-9 ._/-]{0,99}',
+                'pattern_hint': 'Part of the workflow name, e.g. CI or Deploy.',
+                'help': 'Leave blank to look at every workflow.'}
+# First step of every integration workflow: these tools use only the user's own connection.
+_NEEDS_INTEGRATION = (
+    'This uses my own {tool} connection from Settings > Integrations. If a {tool} call says it is not '
+    'connected, tell me to connect it there and stop; do not ask me to paste a token into the chat.')
 _SSH_KEY_INPUT = {'key': 'ssh_public_key', 'label': 'SSH public key', 'type': 'text', 'max_length': 2000,
                   'pattern': r'(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/=]+( [^\s]+)?',
                   'pattern_hint': 'Paste one public key line, e.g. the contents of ~/.ssh/id_ed25519.pub.',
@@ -1476,6 +1490,211 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
             'get_optimization_recommendations and list the top five by estimated saving.',
             'Finish with three actions for this week, pointing to the "Find Idle Resources Wasting Money" and '
             '"EC2 Cost Optimization Audit" workflows where they fit.',
+        ],
+    },
+
+    # ---------------------------------------------------------------------- CI/CD
+    {
+        'name': 'Fix a Failing GitHub Actions Run',
+        'description': (
+            'Find why the latest GitHub Actions run failed: the failing job and step, the decisive log lines, '
+            'what changed since the last green run, and the exact fix.'
+        ),
+        'category': 'CI/CD',
+        'estimated_minutes': 5,
+        'inputs': [_GH_OWNER, _GH_REPO, _GH_WORKFLOW],
+        'steps': [
+            _NEEDS_INTEGRATION.format(tool='GitHub'),
+            'Diagnose first and change nothing: do not re-run, cancel or trigger a workflow unless I say yes.',
+            'get_github_workflow_runs for {repo_owner}/{repo_name} with status failure, keeping runs whose '
+            'workflow name contains "{workflow_name}" (if that says "not specified", use every workflow). Take '
+            'the most recent failed run. Then get_github_workflow_runs with status success and find the last '
+            'green run of the same workflow; note the branch and commit of both.',
+            'get_github_run_jobs for the failed run. For each failed job, name the failed step and quote the '
+            'first real error from the log tail (not the cleanup lines after it).',
+            'Classify the failure: test failure, build or compile error, dependency install failure, a missing '
+            'secret or permission (compare the names from list_github_secrets with what the log expects; values '
+            'are never readable), a runner problem (list_github_runners shows a self-hosted runner offline or '
+            'busy), or a timeout or flaky step.',
+            'Report the failing job and step, the quoted evidence, the root cause, what changed between the '
+            'last green commit and the failed one, and the exact fix (file and line when the log shows them). '
+            'If it looks flaky or infrastructure-related, offer rerun_failed_github_jobs for that run and call '
+            'it only after I say yes.',
+        ],
+    },
+    {
+        'name': 'Debug a Failing GitLab Pipeline',
+        'description': (
+            'Read the failed jobs of the latest broken GitLab pipeline, quote the errors, and explain the fix. '
+            'Retries only when you say so.'
+        ),
+        'category': 'CI/CD',
+        'estimated_minutes': 5,
+        'inputs': [
+            {'key': 'project_id', 'label': 'GitLab project', 'type': 'text', 'default': '',
+             'pattern': r'[0-9]+|[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+',
+             'pattern_hint': 'A numeric project ID or a path like my-group/my-project.'},
+            {'key': 'ref', 'label': 'Branch', 'type': 'text', 'required': False, 'default': '',
+             'pattern': _GIT_REF, 'pattern_hint': _GIT_REF_HINT,
+             'help': 'Leave blank to look at every branch.'},
+        ],
+        'steps': [
+            _NEEDS_INTEGRATION.format(tool='GitLab'),
+            'Diagnose first and change nothing: do not retry, cancel or trigger a pipeline unless I say yes.',
+            'list_gitlab_pipelines for project {project_id} with status failed (ref {ref}; if that says "not '
+            'specified", leave ref out). Take the most recent one and get_gitlab_pipeline for its details. Also '
+            'list_gitlab_pipelines with status success to find the last green pipeline and its commit.',
+            'list_gitlab_jobs for the failed pipeline. For each failed job, get_gitlab_job_log and quote the '
+            'first real error near the end of the log.',
+            'Classify each failure: test, build, dependency, missing CI/CD variable or permission, runner or '
+            'executor problem, or timeout. Say whether a later stage was skipped because of it.',
+            'Report the failed jobs, the quoted evidence, the root cause and the exact fix. If it looks flaky or '
+            'infrastructure-related, offer retry_gitlab_pipeline and call it only after I say yes.',
+        ],
+    },
+    {
+        'name': 'Debug a Failing Jenkins Build',
+        'description': (
+            'Pull the console log of a broken Jenkins job, find the failing stage and error, check agents and '
+            'the queue, and recommend the fix.'
+        ),
+        'category': 'CI/CD',
+        'estimated_minutes': 5,
+        'inputs': [
+            {'key': 'job_name', 'label': 'Jenkins job', 'type': 'text', 'default': '',
+             'pattern': r'[A-Za-z0-9][A-Za-z0-9 ._/-]{0,199}',
+             'pattern_hint': 'The job name, or folder/job for jobs inside folders.'},
+        ],
+        'steps': [
+            _NEEDS_INTEGRATION.format(tool='Jenkins'),
+            'Diagnose first and change nothing: do not trigger, abort, disable or delete anything unless I say '
+            'yes.',
+            'get_jenkins_job_status for "{job_name}" to get the last build, its result and number, and the '
+            'last successful build number.',
+            'get_jenkins_build_logs for the last failed build. Find the failing stage and quote the first real '
+            'error (for example a failed test, a compile error, "No such file", a credentials error, or '
+            '"Cannot contact" an agent).',
+            'If the error points at the build environment, list_jenkins_nodes for offline agents or a full '
+            'disk and get_jenkins_queue for builds stuck waiting. If it points at configuration, read '
+            'get_jenkins_job_config and quote the relevant part.',
+            'Report the failing stage, the evidence, the root cause and the exact fix. If it looks flaky, offer '
+            'trigger_jenkins_job to rebuild and call it only after I say yes.',
+        ],
+    },
+    {
+        'name': 'CI/CD Pipeline Health Report',
+        'description': (
+            'A read-only scorecard for a GitHub repository: failure rate per workflow, slowest pipelines, '
+            'stuck or offline runners, and protected environments.'
+        ),
+        'category': 'CI/CD',
+        'estimated_minutes': 5,
+        'inputs': [_GH_OWNER, _GH_REPO],
+        'steps': [
+            _NEEDS_INTEGRATION.format(tool='GitHub'),
+            'Read-only: change nothing.',
+            'list_github_workflows for {repo_owner}/{repo_name}. Then get_github_workflow_runs (it returns the '
+            'latest runs) and, per workflow, count successes and failures and note the longest run time '
+            '(updated minus created). Flag any workflow whose last three runs all failed.',
+            'For the two busiest workflows, get_github_workflow_usage to report billable minutes per runner OS.',
+            'list_github_runners: report self-hosted runners that are offline or have been busy a long time. '
+            'Say so plainly if the repo uses only GitHub-hosted runners.',
+            'list_github_environments: list each environment and whether it has protection rules; flag a '
+            'production-looking environment without required reviewers.',
+            'Finish with a table (workflow, runs, failure rate, slowest run, last result) and the top three '
+            'fixes, pointing to the "Fix a Failing GitHub Actions Run" workflow for any red workflow.',
+        ],
+    },
+    {
+        'name': 'Release Readiness Check (SonarQube + CI)',
+        'description': (
+            'A go/no-go before you ship: the SonarQube quality gate, open blocker and critical issues, unreviewed '
+            'security hotspots, and whether CI is green on the release branch.'
+        ),
+        'category': 'CI/CD',
+        'estimated_minutes': 5,
+        'inputs': [
+            {'key': 'sonar_url', 'label': 'SonarQube URL', 'type': 'text', 'default': 'https://',
+             'pattern': r'https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s]*)?',
+             'pattern_hint': 'The same server URL you saved in Settings > Integrations.'},
+            {'key': 'project_key', 'label': 'SonarQube project key', 'type': 'text', 'default': '',
+             'pattern': r'[A-Za-z0-9_.:-]{1,400}', 'pattern_hint': 'Letters, digits, and . _ : -'},
+            _GH_OWNER, _GH_REPO,
+            {'key': 'branch', 'label': 'Release branch', 'type': 'text', 'default': 'main',
+             'pattern': _GIT_REF, 'pattern_hint': _GIT_REF_HINT},
+        ],
+        'steps': [
+            _NEEDS_INTEGRATION.format(tool='SonarQube and GitHub'),
+            'Read-only: change nothing.',
+            'get_sonar_project_quality with base_url {sonar_url} and project_key {project_key}: report the '
+            'quality gate status and every failing condition with its actual value and threshold.',
+            'get_sonar_issues for {project_key} with severities BLOCKER,CRITICAL and list the open ones (rule, '
+            'file, line). get_sonar_hotspots with status TO_REVIEW and list them.',
+            'get_github_workflow_runs for {repo_owner}/{repo_name}: find the latest run of each workflow on '
+            'branch {branch} and report any that did not succeed.',
+            'Verdict: GO only if the quality gate passed, there are no open blockers, and every workflow on '
+            '{branch} is green. Otherwise NO-GO, with the shortest list of things to fix first.',
+        ],
+    },
+
+    # -------------------------------------------------------------------- On-Call
+    {
+        'name': 'On-Call Shift Handoff Report',
+        'description': (
+            'Who is on call now, what fired during the last shift, what is still open, and what the next '
+            'person needs to watch. Read-only, for PagerDuty or OpsGenie.'
+        ),
+        'category': 'On-Call',
+        'estimated_minutes': 4,
+        'inputs': [
+            {'key': 'alerting_tool', 'label': 'On-call tool', 'type': 'select', 'default': 'PagerDuty',
+             'options': ['PagerDuty', 'OpsGenie']},
+            {'key': 'hours', 'label': 'Shift length (hours)', 'type': 'number', 'default': 12, 'min': 1, 'max': 168},
+        ],
+        'steps': [
+            _NEEDS_INTEGRATION.format(tool='{alerting_tool}'),
+            'Read-only: do not acknowledge, resolve, escalate or comment on anything.',
+            'If {alerting_tool} is PagerDuty: pagerduty_list_oncalls for who is on call now, then '
+            'pagerduty_list_incidents with since set to {hours} hours ago (ISO 8601), and pagerduty_get_incident '
+            'for each one still '
+            'triggered or acknowledged. If it is OpsGenie: opsgenie_list_schedules and opsgenie_get_oncall for '
+            'each schedule, then opsgenie_list_alerts with query createdAt within the last {hours} hours, and '
+            'opsgenie_get_alert for each alert still open.',
+            'Group what fired by service and count repeats: the same alert three or more times in one shift is '
+            'noise or an unfixed problem, so call it out.',
+            'Write the handoff: on call now; still open (title, age, urgency, who owns it); resolved this shift '
+            'in one line each; noisy alerts to tune; and anything the next person must watch.',
+        ],
+    },
+    {
+        'name': 'Page the On-Call Engineer (PagerDuty)',
+        'description': (
+            'Open a PagerDuty incident on the right service with a clear title and context, then confirm who '
+            'was paged. Nothing is sent until you approve the exact incident.'
+        ),
+        'category': 'On-Call',
+        'estimated_minutes': 2,
+        'inputs': [
+            {'key': 'service', 'label': 'PagerDuty service name', 'type': 'text', 'default': '',
+             'pattern': r'[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,99}', 'pattern_hint': 'The service name as it appears in PagerDuty.'},
+            {'key': 'title', 'label': 'Incident title', 'type': 'text', 'default': '',
+             'pattern': r'[^{}`]{5,200}', 'pattern_hint': '5-200 characters describing what is broken.'},
+            {'key': 'urgency', 'label': 'Urgency', 'type': 'select', 'default': 'high', 'options': ['high', 'low']},
+            {'key': 'details', 'label': 'Details for the responder', 'type': 'text', 'required': False,
+             'default': '', 'max_length': 1000},
+        ],
+        'steps': [
+            _NEEDS_INTEGRATION.format(tool='PagerDuty'),
+            'pagerduty_list_services and find the service whose name matches "{service}". If none or several '
+            'match, show me the closest names and stop until I pick one.',
+            'pagerduty_list_incidents with service_ids set to that service and status ["triggered", '
+            '"acknowledged"]. If an open incident '
+            'already covers this, show it and ask whether to add a note with pagerduty_add_note instead of '
+            'paging again.',
+            'Show me the exact incident you will create: service, title "{title}", urgency {urgency}, and body '
+            '"{details}". Do not create it until I say yes.',
+            'After I say yes, pagerduty_create_incident with those values. Then pagerduty_get_incident and '
+            'report the incident number, link, and who it is assigned to.',
         ],
     },
 ]

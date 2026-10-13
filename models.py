@@ -1551,6 +1551,52 @@ class UserCloudCredential(db.Model):
         return f'<UserCloudCredential user={self.user_id} provider={self.cloud_provider}>'
 
 
+class UserIntegrationCredential(db.Model):
+    """Per-user credentials for non-cloud tools (GitHub, GitLab, Jenkins, PagerDuty, ...).
+
+    Kept apart from UserCloudCredential so they never count as a cloud account, never
+    trigger a cloud resource sync, and never appear in connected_providers.
+    """
+    __tablename__ = 'user_integration_credentials'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    provider = db.Column(db.String(30), nullable=False, index=True)
+    credentials_encrypted = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
+
+    user = db.relationship('User', backref=db.backref('integration_credentials', lazy='dynamic',
+                                                      cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'provider', name='unique_user_integration_provider'),
+    )
+
+    def set_credentials(self, credentials_dict):
+        import json
+        from cryptography.fernet import Fernet
+        fernet = Fernet(UserCloudCredential._get_encryption_key())
+        self.credentials_encrypted = fernet.encrypt(json.dumps(credentials_dict).encode()).decode()
+
+    def get_credentials(self):
+        import json
+        from cryptography.fernet import Fernet
+        if not self.credentials_encrypted:
+            return {}
+        fernet = Fernet(UserCloudCredential._get_encryption_key())
+        try:
+            return json.loads(fernet.decrypt(self.credentials_encrypted.encode()).decode())
+        except Exception:
+            raise Exception(
+                f"Stored {self.provider} credentials could not be decrypted. "
+                "Please reconnect it in Settings > Integrations."
+            )
+
+    def __repr__(self):
+        return f'<UserIntegrationCredential user={self.user_id} provider={self.provider}>'
+
+
 class APIKey(db.Model):
     """API keys for programmatic access to the platform"""
     __tablename__ = 'api_keys'

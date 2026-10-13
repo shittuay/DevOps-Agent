@@ -75,7 +75,7 @@ templates/
     detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
-## Tool Inventory (748 total, 18 modules)
+## Tool Inventory (749 total, 18 modules)
 
 > Counts verified by `'handler':` occurrences across `src/tools/*_tools.py`
 > (`tests/test_tool_counts.py` guards this against the user-facing pages).
@@ -114,11 +114,12 @@ Compute (list, describe, start, stop, create, delete, snapshots), GCS (list buck
 
 ### CI/CD — Jenkins + GitHub Actions + GitLab (35 tools)
 `trigger_jenkins_job`, `get_jenkins_job_status`, `get_jenkins_build_logs`, `list_jenkins_jobs`, `get_jenkins_queue`, `abort_jenkins_build`, `enable_jenkins_job`, `disable_jenkins_job`, `get_jenkins_job_config`, `list_jenkins_nodes`, `delete_jenkins_build`.
-Credentials: `JENKINS_URL`, `JENKINS_USERNAME`, `JENKINS_TOKEN` env vars.
+Credentials: the user's Jenkins connection (Settings > Integrations) or explicit params; never env vars.
 
 ### CI/CD — GitHub Actions (10 tools)
 `trigger_github_workflow`, `get_github_workflow_runs`, `list_github_workflows`, `get_github_workflow_run`, `cancel_github_workflow_run`, `rerun_failed_github_jobs`, `list_github_runners`, `list_github_secrets`, `list_github_environments`, `get_github_workflow_usage`.
-Credentials: `GITHUB_TOKEN` env var.
+Plus `get_github_run_jobs` (jobs, failed steps, failed-job log tails).
+Credentials: the user's GitHub connection or an explicit `github_token`; never env vars.
 
 ### Terraform (26 tools)
 `terraform_init`, `terraform_plan`, `terraform_apply`, `terraform_destroy`, `terraform_show`, `terraform_output`, `terraform_validate`, `terraform_fmt`, `terraform_workspace_list`, `terraform_workspace_select`, `terraform_workspace_new`, `terraform_state_list`, `terraform_import`, `terraform_state_move`, `terraform_state_rm`, `terraform_refresh`.
@@ -126,11 +127,11 @@ All tools take `working_dir` as the primary param.
 
 ### SonarQube (12 tools)
 `get_sonar_projects`, `get_sonar_project_quality`, `get_sonar_measures`, `get_sonar_issues`, `trigger_sonar_analysis`, `get_sonar_hotspots`, `create_sonar_project`, `delete_sonar_project`, `update_sonar_issue`, `list_sonar_quality_gates`, `assign_sonar_quality_gate`, `get_sonar_analysis_history`.
-Credentials: `SONAR_TOKEN` env var + `base_url` per-call param.
+Credentials: the user's SonarQube connection (or explicit `token`) + `base_url`, which must match the saved server's origin.
 
 ### Nexus Repository Manager (12 tools)
 `nexus_get_system_status`, `nexus_list_repositories`, `nexus_get_repository`, `nexus_create_repository`, `nexus_delete_repository`, `nexus_search_components`, `nexus_get_component`, `nexus_delete_component`, `nexus_list_assets`, `nexus_delete_asset`, `nexus_list_users`, `nexus_run_cleanup_task`.
-Credentials: `NEXUS_USERNAME` / `NEXUS_PASSWORD` env vars + `base_url` per-call param.
+Credentials: the user's Nexus connection (or explicit username/password) + `base_url`, which must match the saved server's origin.
 
 ### Docker (22 tools)
 `docker_list_containers`, `docker_get_container_details`, `docker_manage_container`, `docker_get_container_logs`, `docker_list_images`, `docker_pull_image`, `docker_remove_image`, `docker_list_volumes`, `docker_list_networks`, `docker_get_stats`, `docker_compose_up`, `docker_compose_down`, `docker_build_image`, `docker_create_container`, `docker_create_network`, `docker_remove_network`, `docker_create_volume`, `docker_remove_volume`, `docker_exec`, `docker_tag_image`, `docker_push_image`, `docker_system_prune`.
@@ -1267,7 +1268,7 @@ work), CLAUDE_RUNBOOK.md (what was fixed), and WORKLOG.md (session state).
 8. Verify: `python -c "from src.tools.X import get_tools; print(len(get_tools()))"`
 
 ### Tool Registration Checklist (added for all 6 new modules — 2026-03-25)
-All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **748** across 18 modules (`verification_tools` added 2026-09-09). Tests: `tests/test_new_tools.py` (94 tests).
+All steps were completed and verified for: `cicd_tools`, `terraform_tools`, `sonarqube_tools`, `nexus_tools`, `docker_tools`, `ansible_tools`. Total tool count: **749** across 18 modules (`verification_tools` added 2026-09-09, `get_github_run_jobs` 2026-10-13). Tests: `tests/test_new_tools.py` (94 tests).
 
 ### Sandbox Mock Pattern
 Each new tool module needs routing in `services/learning_sandbox.py → generate_mock_result()`:
@@ -1502,6 +1503,13 @@ unit, not the deployed one, until this gap is closed.
 config; it's computed locally with `pyotp`. **Email codes require a delivery
 provider**, or login fails with "Failed to send verification email".
 
+2FA lives on the account (`User.mfa_method` / `two_factor_secret`), never on a device.
+The code screen stays valid for `_MFA_PENDING_MINUTES` (10, the email OTP lifetime).
+Keep these two equal, or emailed codes expire on the screen while still valid.
+`_check_mfa_code` strips whitespace and dashes before checking. The code box must not
+cap input at 6 characters: a pasted "123 456" would be cut to 5 digits. Both MFA
+screens show which account is signing in. Pinned by `tests/test_2fa_code_acceptance.py`.
+
 - Email (`services/email_service.py`): set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
   + `EMAIL_FROM`, then one of: `BREVO_API_KEY`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`; `SENDGRID_API_KEY`.
 
@@ -1680,6 +1688,12 @@ GitHub Actions workflows live in `.github/workflows/`:
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` after those secrets were deleted and
   broke with "Could not load credentials from any providers" on every run from
   2026-07-23 onward).
+
+- **`mcp-diagnose.yml`** — on-demand (`workflow_dispatch`). Run it right after a failed
+  claude.ai connector "Connect". It prints MCP/OAuth request lines with status codes (gunicorn
+  and nginx), the app's `MCP auth:` log lines (shows whether the Bearer header arrived and
+  whether the token was found), the `mcp_oauth_*` table schemas, and recent token
+  **metadata** (never token values). Same OIDC + SSM pattern as `check-errors.yml`.
 
 Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
 do). The scheduled scan is the only timer-based scan.
@@ -1900,8 +1914,9 @@ edits to an existing starter workflow never reached production. It now also upda
 templates are never touched.
 
 Categories as of 2026-10-13: Compute, Security, Monitoring, Storage, Database, Cost,
-Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC. 39 starter workflows
-across AWS, Azure, GCP and Kubernetes. `tests/test_workflow_inputs.py` pins, per workflow:
+Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC, CI/CD, On-Call. 46 starter
+workflows across AWS, Azure, GCP, Kubernetes, GitHub, GitLab, Jenkins, SonarQube, PagerDuty
+and OpsGenie. `tests/test_workflow_inputs.py` pins, per workflow:
 - every tool it names exists in the live catalog;
 - the read-only list (Incident Response, pod troubleshooting, IAM audit, compliance check,
   cluster health check, multi-cloud snapshot) names no write tool;
@@ -1917,16 +1932,36 @@ Rules for new workflows:
   `ManageMasterUserPassword` (the password never enters chat).
 - **Do not build workflows on `docker_*` or `terraform_*` tools.** They run against the DevOps
   Agent server's own Docker daemon and local filesystem, not the customer's machine or repo.
-- **Do not build CI/CD or on-call workflows on the GitHub Actions / GitLab / PagerDuty / OpsGenie
-  tools.** See the next paragraph.
+- CI/CD and On-Call workflows (added 2026-10-13) open with `_NEEDS_INTEGRATION`, which points
+  at Settings > Integrations and never asks for a pasted token. Their one write (re-run, retry,
+  rebuild, page) waits for "I say yes". `tests/test_workflow_inputs.py` pins both
+  (`INTEGRATION_WORKFLOWS`, `CONFIRM_BEFORE_WRITE`). `get_github_run_jobs` was added for them:
+  run details alone have no job, step or log data.
 
-**Not yet fixed, flagged 2026-10-13: shared platform credentials in CI/CD and alerting
-tools.** `cicd_tools._get_github_token()` falls back to the server's `GITHUB_TOKEN`, and the
-PagerDuty/OpsGenie tools fall back to `PAGERDUTY_API_KEY` / `OPSGENIE_API_KEY` env vars. When
-a user doesn't pass their own token, any user's chat can read and act through the
-**platform's** credentials, against whatever repos and services those can reach. This is the
-same class of problem as the GCP ambient-credentials fix. These tools need per-user
-credentials (like `UserCloudCredential`) and a fail-closed path when none is linked.
+**Integration credentials are per user (fixed 2026-10-13).** GitHub, GitLab, Jenkins, PagerDuty,
+OpsGenie, Datadog, SonarQube and Nexus tools used to fall back to the platform's env vars
+(`GITHUB_TOKEN`, `PAGERDUTY_API_KEY`, `SONAR_TOKEN`, ...), so any user's chat acted through the
+platform's accounts. The URL-taking ones (GitLab, Jenkins, SonarQube, Nexus) also sent that
+platform secret to whatever URL the chat supplied. Now:
+- Credentials live in `UserIntegrationCredential` (encrypted with the same key as
+  `UserCloudCredential`, but a separate table so they never count as a cloud account, trigger a
+  sync, or appear in `connected_providers`). `services/integration_credentials.py` holds the
+  provider specs (`INTEGRATIONS`), validation, save/load/status, and `resolve()`.
+- Tools call `src/tools/integration_auth.credentials(provider, caller_url=..., **explicit)`. It
+  uses values the caller passed explicitly, otherwise the requesting user's saved row, and
+  **never** env vars. With neither it raises `IntegrationNotConnected` ("connect it in Settings >
+  Integrations"). A saved secret is only sent to the saved URL's origin; a different host passed
+  by the chat is refused.
+- The requesting user comes from `integration_auth`'s thread-local, set and cleared by
+  `DevOpsAgent._set_cloud_user_context` / `_clear_cloud_user_context` with the cloud contexts.
+- Settings > Integrations (`#integrations`, `routes/integrations.py`: `GET/PUT/DELETE
+  /api/integrations[/<provider>]`) connects each tool. Secrets are write-only: never returned,
+  and a blank secret on update keeps the saved one. URLs go through `assert_safe_url` at save.
+- `tests/test_integration_credentials.py` fails if any of these tool modules mentions one of the
+  old env var names again, or if any integration works for a user with nothing saved.
+- The CLI (`main.py`) has no signed-in user, so these tools need explicit tokens there.
+- When adding a tool for a new third-party service, add an `IntegrationSpec` and resolve through
+  `credentials()`. Never read a credential from `os.environ` inside a tool.
 
 **AI/ML workflows (added 2026-10-12, extended 2026-10-13):** five self-hosted LLM
 workflows — AWS EC2, EKS, Azure GPU VM, GCP GPU VM, and on-prem Kubernetes. Steps

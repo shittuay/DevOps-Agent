@@ -1,5 +1,4 @@
 """Nexus Repository Manager tools for DevOps Agent."""
-import os
 import requests
 from typing import Dict, Any, Optional, List
 from ..utils import get_logger, assert_safe_url, safe_request
@@ -13,13 +12,14 @@ def _get_nexus_client(
     password: Optional[str] = None
 ) -> tuple:
     """
-    Returns (base_url, auth_tuple) using env vars as fallback.
+    Returns (base_url, auth_tuple) from explicit args or the requesting user's saved Nexus.
     Auth: Basic auth with username/password against Nexus REST API v1.
     """
-    assert_safe_url(base_url)
-    u = username or os.environ.get('NEXUS_USERNAME', 'admin')
-    p = password or os.environ.get('NEXUS_PASSWORD', '')
-    return base_url.rstrip('/'), (u, p)
+    from .integration_auth import credentials
+    creds = credentials('nexus', caller_url=base_url, username=username, password=password)
+    url = creds['url'].rstrip('/')
+    assert_safe_url(url)
+    return url, (creds['username'], creds['password'])
 
 
 def nexus_get_system_status(
@@ -444,8 +444,8 @@ def get_tools() -> List[Dict[str, Any]]:
                 'type': 'object',
                 'properties': {
                     'base_url': {'type': 'string', 'description': 'Nexus server URL (e.g. https://nexus.company.com)'},
-                    'username': {'type': 'string', 'description': 'Nexus username (falls back to NEXUS_USERNAME env var)'},
-                    'password': {'type': 'string', 'description': 'Nexus password (falls back to NEXUS_PASSWORD env var)'}
+                    'username': {'type': 'string', 'description': "Nexus username (omit to use the user's connected Nexus)"},
+                    'password': {'type': 'string', 'description': "Nexus password (omit to use the user's connected Nexus)"}
                 },
                 'required': ['base_url']
             },
