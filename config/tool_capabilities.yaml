@@ -50,6 +50,7 @@ tools:
   create_cloudformation_stack: { permission: modify, mutating: true }
   create_cloudwatch_alarm: { permission: modify, mutating: true }
   create_cronjob: { permission: modify, mutating: true }
+  create_datadog_event: { permission: modify, mutating: true }
   create_ec2_keypair: { permission: destroy, mutating: true }
   create_eks_access_entry: { permission: modify, mutating: true }
   create_eks_addon: { permission: modify, mutating: true }

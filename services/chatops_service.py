@@ -265,6 +265,12 @@ class ChatOpsService:
         if resolved_app_user_id is None and user_id:
             resolved_app_user_id = self._resolve_linked_app_user(platform, user_id)
 
+        # Enforce requires_auth centrally instead of trusting every handler to
+        # call _require_app_user(): _cmd_deployments skipped it and served a
+        # platform-wide feed to unlinked chat identities (2026-09-24 audit).
+        if command.requires_auth and resolved_app_user_id is None:
+            return ChatResponse(text=_UNLINKED_ACCOUNT_MESSAGE)
+
         try:
             response = command.handler(args, user_id=user_id, channel_id=channel_id,
                                        platform=platform, app_user_id=resolved_app_user_id)
