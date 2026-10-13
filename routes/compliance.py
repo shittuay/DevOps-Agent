@@ -178,11 +178,19 @@ def audit_log():
     if end_date:
         filters['end_date'] = datetime.fromisoformat(end_date)
 
-    limit = per_page * page  # fetch enough to cover current page
     logs = service.get_audit_logs(
         user_id=current_user.id,
         action=filters.get('action_type'),
-        limit=limit
+        start_date=filters.get('start_date'),
+        end_date=filters.get('end_date'),
+        limit=per_page,
+        offset=(page - 1) * per_page
+    )
+    total = service.count_audit_logs(
+        user_id=current_user.id,
+        action=filters.get('action_type'),
+        start_date=filters.get('start_date'),
+        end_date=filters.get('end_date')
     )
 
     action_types = ['create', 'read', 'update', 'delete', 'login', 'logout', 'config_change', 'access_grant', 'access_revoke']
@@ -192,7 +200,11 @@ def audit_log():
                          logs=logs,
                          action_types=action_types,
                          resource_types=resource_types,
-                         filters=filters)
+                         filters=filters,
+                         page=page,
+                         per_page=per_page,
+                         total=total,
+                         total_pages=max(1, -(-total // per_page)))
 
 
 @compliance_bp.route('/policies')
@@ -421,7 +433,14 @@ def api_audit_log():
         action=action_filter,
         start_date=start_date,
         end_date=end_date,
-        limit=per_page
+        limit=per_page,
+        offset=(page - 1) * per_page
+    )
+    total = service.count_audit_logs(
+        user_id=current_user.id,
+        action=action_filter,
+        start_date=start_date,
+        end_date=end_date
     )
 
     timestamp_attr = 'created_at'  # AuditLog uses created_at not timestamp
@@ -438,8 +457,8 @@ def api_audit_log():
             'status': 'success' if getattr(log, 'success', True) else 'failure',
             'timestamp': getattr(log, 'created_at', None).isoformat() if getattr(log, 'created_at', None) else None
         } for log in logs],
-        'total': len(logs),
-        'pages': 1,
+        'total': total,
+        'pages': max(1, -(-total // per_page)),
         'current_page': page
     })
 

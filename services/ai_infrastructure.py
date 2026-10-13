@@ -628,19 +628,42 @@ class AIInfrastructureService:
     # Recommendations
 
     def get_recommendations(self, user_id: int) -> List[Dict]:
-        """No live recommendation source exists yet, so return none.
+        """Get AI recommendations based on current infrastructure.
 
-        Never fabricate findings: a canned list reads as a real scan of the
-        user's account. Feed this from real resource data before returning rows.
+        Deliberately returns an empty list rather than fabricated data. This
+        method previously returned four hardcoded recommendations (ids
+        rec_1..rec_4, e.g. "Right-size underutilized EC2 instances" with an
+        invented $150 savings figure) unconditionally, ignoring `user_id`
+        entirely — every user saw the byte-identical list whether or not they
+        had a cloud account connected, the same "canned output indistinguishable
+        from a real query" bug fixed in services/performance_optimizer.py's
+        _get_user_recommendations() and documented in CLAUDE.md's "every
+        feature runs against a real cloud account" rule. Nothing in this
+        codebase feeds this service real resource data (no caller ever wires
+        in InfrastructureResource rows or a cost_explorer/CloudWatch query),
+        so it fails closed until a real analysis path is built — see
+        apply_recommendation() below for the matching fail-closed Apply.
         """
         return []
 
     def apply_recommendation(self, recommendation_id: str, user_id: int) -> Dict:
-        """Applying a recommendation is not implemented; never report success."""
+        """Apply an auto-applicable recommendation.
+
+        No cloud API call is ever made here — this must never report success
+        it didn't perform (see CLAUDE.md's "every feature runs against a real
+        cloud account" rule and the identical fix in routes/scaling.py's
+        api_apply_recommendation / app.py's apply_recommendation). Since
+        get_recommendations() now returns no fabricated rows to match against,
+        this is unreachable via the current UI, but stays explicit about why
+        rather than falling through to a generic "not found" that would imply
+        the recommendation might exist on a retry.
+        """
         return {
             'success': False,
-            'error': 'not_implemented',
-            'message': 'Applying recommendations is not implemented; no cloud change was made.',
+            'error': 'Applying this recommendation is not yet implemented — no cloud API '
+                     'call is made. Use the equivalent AWS/Azure/GCP tool in chat to make '
+                     'this change yourself.',
+            'recommendation_id': recommendation_id,
         }
 
     def dismiss_recommendation(self, recommendation_id: str, reason: str = None) -> bool:

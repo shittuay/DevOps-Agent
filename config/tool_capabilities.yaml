@@ -190,8 +190,11 @@ tools:
   docker_compose_down: { permission: destroy, mutating: true }
   docker_compose_up: { permission: modify, mutating: true }
   docker_create_container: { permission: destroy, mutating: true }
+  docker_create_network: { permission: modify, mutating: true }
+  docker_create_volume: { permission: modify, mutating: true }
   docker_exec: { permission: modify, mutating: true }
   docker_manage_container: { permission: destroy, mutating: true }
+  docker_pull_image: { permission: modify, mutating: true }
   docker_push_image: { permission: modify, mutating: true }
   docker_remove_image: { permission: destroy, mutating: true }
   docker_remove_network: { permission: destroy, mutating: true }
@@ -216,9 +219,12 @@ tools:
   git_cherry_pick: { permission: modify, mutating: true }
   git_clean_working_directory: { permission: destroy, mutating: true }
   git_clone_repository: { permission: modify, mutating: true }
+  git_create_branch: { permission: modify, mutating: true }
+  git_create_tag: { permission: modify, mutating: true }
   git_delete_branch: { permission: destroy, mutating: true }
   git_delete_tag: { permission: destroy, mutating: true }
   git_diff_stat: { permission: modify, mutating: false }
+  git_fetch: { permission: modify, mutating: true }
   git_force_push_branch: { permission: destroy, mutating: true }
   git_grep_search: { permission: modify, mutating: false }
   git_merge_branch: { permission: modify, mutating: true }
@@ -319,11 +325,13 @@ tools:
   terraform_destroy: { permission: destroy, mutating: true }
   terraform_force_unlock: { permission: modify, mutating: true }
   terraform_import: { permission: modify, mutating: true }
+  terraform_output: { permission: destroy, mutating: false }
   terraform_providers_lock: { permission: modify, mutating: true }
   terraform_state_move: { permission: modify, mutating: true }
   terraform_state_pull: { permission: destroy, mutating: true }
   terraform_state_push: { permission: modify, mutating: true }
   terraform_state_rm: { permission: destroy, mutating: true }
+  terraform_state_show: { permission: destroy, mutating: false }
   terraform_workspace_delete: { permission: modify, mutating: true }
   trigger_github_workflow: { permission: modify, mutating: true }
   trigger_gitlab_pipeline: { permission: modify, mutating: true }

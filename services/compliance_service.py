@@ -436,9 +436,8 @@ class ComplianceService:
         logger.info(f"Audit: {action} on {resource_type} by user {user_id}")
         return entry
 
-    def get_audit_logs(self, user_id: int = None, action: str = None,
-                       start_date: datetime = None, end_date: datetime = None,
-                       limit: int = 100) -> List[Any]:
+    def _filtered_audit_log_query(self, user_id: int = None, action: str = None,
+                                  start_date: datetime = None, end_date: datetime = None):
         AuditLog = self._get_audit_log_model()
         query = AuditLog.query
 
@@ -451,7 +450,18 @@ class ComplianceService:
         if end_date:
             query = query.filter(AuditLog.created_at <= end_date)
 
-        return query.order_by(AuditLog.created_at.desc()).limit(limit).all()
+        return query
+
+    def get_audit_logs(self, user_id: int = None, action: str = None,
+                       start_date: datetime = None, end_date: datetime = None,
+                       limit: int = 100, offset: int = 0) -> List[Any]:
+        AuditLog = self._get_audit_log_model()
+        query = self._filtered_audit_log_query(user_id, action, start_date, end_date)
+        return query.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
+
+    def count_audit_logs(self, user_id: int = None, action: str = None,
+                         start_date: datetime = None, end_date: datetime = None) -> int:
+        return self._filtered_audit_log_query(user_id, action, start_date, end_date).count()
 
     def export_audit_logs(self, user_id: int, start_date: datetime,
                           end_date: datetime, format: str = 'json') -> str:

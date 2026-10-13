@@ -623,8 +623,29 @@ class ChatOpsService:
         return ChatResponse(text="\n".join(lines))
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
-        """List recent deployments."""
+        """List recent deployments.
+
+        `WebhookEventRecord` has no `user_id` column at all — it's a single
+        platform-wide table, and every other reader of it
+        (`routes/webhooks.py`'s dashboard and `/api/events`) is gated
+        `@login_required` + `@admin_required`. This handler used to skip
+        `_require_app_user()` entirely, so any Slack/Teams user who could
+        message the bot — linked to an app account or not — could read every
+        tenant's CI/CD webhook history (repo, branch, commit SHA, actor).
+        Mirror the web dashboard's admin gate rather than inventing a
+        per-user view over data that was never partitioned per user.
+        """
+        from models import User
+        from services.rbac import user_is_admin
         from services.webhook_integrations import get_webhook_service, EventType
+
+        app_user_id = self._require_app_user(kwargs)
+        requester = User.query.get(app_user_id)
+        if not user_is_admin(requester):
+            return ChatResponse(
+                text="Deployment history is an admin-only view. Ask an admin "
+                     "to check it at /webhooks/, or link an admin account with `/link`."
+            )
 
         service = get_webhook_service()
         events = service.get_events(event_type='deployment', limit=5)
