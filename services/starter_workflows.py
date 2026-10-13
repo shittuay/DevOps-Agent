@@ -59,6 +59,26 @@ _MODEL_INPUT = {'key': 'model_id', 'label': 'Hugging Face model', 'type': 'text'
 _API_KEY_INPUT = {'key': 'api_key', 'label': 'API key for the endpoint', 'type': 'secret',
                   'help': 'Leave blank and a strong key is generated. Clients send it as a Bearer token.'}
 
+_AZURE_REGION = {'key': 'azure_region', 'label': 'Azure region', 'type': 'text', 'default': 'eastus',
+                 'pattern': r'[a-z]+[a-z0-9]*', 'pattern_hint': 'An Azure region name, e.g. eastus.'}
+_GCP_PROJECT = {'key': 'gcp_project', 'label': 'GCP project ID', 'type': 'text',
+                'pattern': r'[a-z][a-z0-9-]{4,28}[a-z0-9]',
+                'pattern_hint': 'A GCP project ID: 6-30 lowercase letters, digits and hyphens.'}
+_GCP_REGION = {'key': 'gcp_region', 'label': 'GCP region', 'type': 'text', 'default': 'us-central1',
+               'pattern': r'[a-z]+-[a-z]+\d', 'pattern_hint': 'A GCP region, e.g. us-central1.'}
+_KUBE_CONTEXT = {'key': 'kube_context', 'label': 'kubeconfig context', 'type': 'text', 'required': False,
+                 'pattern': r'[A-Za-z0-9@:/._-]{1,120}',
+                 'pattern_hint': 'A context name from kubectl config get-contexts.',
+                 'help': 'Leave blank to use the current context.'}
+_K8S_NAME = r'[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?'
+_K8S_NAME_HINT = 'Lowercase letters, digits and hyphens (a Kubernetes name).'
+_IMAGE_PATTERN = r'[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?'
+_IMAGE_HINT = 'A container image, e.g. nginx:1.27 or ghcr.io/acme/api:v2.'
+_SSH_KEY_INPUT = {'key': 'ssh_public_key', 'label': 'SSH public key', 'type': 'text', 'max_length': 2000,
+                  'pattern': r'(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/=]+( [^\s]+)?',
+                  'pattern_hint': 'Paste one public key line, e.g. the contents of ~/.ssh/id_ed25519.pub.',
+                  'help': 'Key login only, never a password. Never paste a private key.'}
+
 
 STARTER_WORKFLOWS: List[Dict[str, Any]] = [
     {
@@ -887,6 +907,575 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
             's3:GetObject, s3:PutObject and s3:DeleteObject on the key path; and the DynamoDB item actions if '
             'using a table). Teardown: warn that deleting this bucket destroys the state history; only empty '
             'and delete it once no Terraform project uses it.',
+        ],
+    },
+
+    # ------------------------------------------------------------- AWS: databases
+    {
+        'name': 'Production PostgreSQL on RDS',
+        'description': (
+            'A private, encrypted, backed-up PostgreSQL database: Multi-AZ optional, password managed '
+            'by AWS Secrets Manager, deletion protection on, reachable only from inside your VPC.'
+        ),
+        'category': 'Database',
+        'estimated_minutes': 25,
+        'inputs': [
+            _region(),
+            _name('db_identifier', 'Database instance name', 'app-db'),
+            {'key': 'db_name', 'label': 'Initial database name', 'type': 'text', 'default': 'app',
+             'pattern': r'[a-zA-Z][a-zA-Z0-9_]{0,62}',
+             'pattern_hint': 'Letters, digits and underscores, starting with a letter.'},
+            {'key': 'instance_class', 'label': 'Instance size', 'type': 'select', 'default': 'db.t4g.micro',
+             'options': ['db.t4g.micro', 'db.t4g.small', 'db.t4g.medium', 'db.m7g.large']},
+            {'key': 'multi_az', 'label': 'High availability (Multi-AZ standby)', 'type': 'select',
+             'default': 'No', 'options': ['No', 'Yes'],
+             'help': 'Yes roughly doubles the instance cost but survives an Availability Zone outage.'},
+            {'key': 'storage_gb', 'label': 'Storage (GB)', 'type': 'number', 'default': '20',
+             'min': 20, 'max': 1000},
+            {'key': 'app_security_group', 'label': 'App security group allowed to connect',
+             'type': 'text', 'required': False, 'pattern': r'sg-[0-9a-f]{8,17}',
+             'pattern_hint': 'A security group id such as sg-0123abcd.',
+             'help': 'Leave blank to allow connections from anywhere inside the VPC.'},
+        ],
+        'steps': [
+            'Work in {region}. Warn me that RDS bills hourly for the instance and per GB for storage and '
+            'backups until it is deleted, and that Multi-AZ ({multi_az}) roughly doubles the instance cost.',
+            'Pick the network: list_vpcs and use the default VPC unless I have exactly one other VPC (then '
+            'ask). list_subnets for that VPC; the database needs subnets in at least two Availability Zones. '
+            'Prefer private subnets (no route to an internet gateway) and say which you chose.',
+            'create_db_subnet_group named {db_identifier}-subnets with those subnet ids. Then '
+            'create_security_group {db_identifier}-sg in the VPC and allow TCP 5432 with '
+            'authorize_security_group_ingress: from source_security_group_id {app_security_group} if that is '
+            'set (it says "not specified" otherwise), else from the VPC CIDR only. Never 0.0.0.0/0.',
+            'Resolve the engine version without guessing: aws_api_read("rds", "describe_db_engine_versions", '
+            '{"Engine": "postgres", "DefaultOnly": true}) and use the returned version.',
+            'Create the database with aws_api_write("rds", "create_db_instance", {...}) using: '
+            'DBInstanceIdentifier {db_identifier}, Engine postgres, the resolved EngineVersion, '
+            'DBInstanceClass {instance_class}, AllocatedStorage {storage_gb}, StorageType gp3, '
+            'StorageEncrypted true, MultiAZ true only if {multi_az} is Yes, DBName {db_name}, '
+            'MasterUsername appadmin, ManageMasterUserPassword true (AWS generates the password and keeps '
+            'it in Secrets Manager, so it never appears in this chat), DBSubnetGroupName '
+            '{db_identifier}-subnets, VpcSecurityGroupIds [the new group id], PubliclyAccessible false, '
+            'BackupRetentionPeriod 7, DeletionProtection true, CopyTagsToSnapshot true, '
+            'AutoMinorVersionUpgrade true and Tags [{"Key": "ManagedBy", "Value": "DevOpsAgent"}].',
+            'Poll describe_rds_instance {db_identifier} every minute until DBInstanceStatus is "available" '
+            '(usually 5-15 minutes; longer with Multi-AZ). Say it is still creating rather than failing early.',
+            'Report: the endpoint and port, the database name, the master username, and the MasterUserSecret '
+            'ARN from describe_rds_instance (the password lives there; read it with Secrets Manager, never '
+            'paste it into chat). Explain that the database is private, so apps in the VPC connect directly '
+            'and people connect through a bastion, SSM port forwarding or a VPN.',
+            'Teardown, for when I no longer need it: first modify_rds_instance {db_identifier} with '
+            'deletion_protection false and apply_immediately true, then delete_rds_instance with a final '
+            'snapshot, then remove the {db_identifier}-sg security group and the {db_identifier}-subnets '
+            'subnet group. Remind me storage and backups bill until then.',
+        ],
+    },
+    {
+        'name': 'Database Restore Drill (RDS)',
+        'description': (
+            'Prove your backups actually work: snapshot a live RDS database, restore it to a temporary '
+            'copy, check the copy comes up, measure how long it took, then clean the copy up.'
+        ),
+        'category': 'Database',
+        'estimated_minutes': 40,
+        'inputs': [
+            _region(),
+            {'key': 'db_identifier', 'label': 'Existing RDS instance to test', 'type': 'text',
+             'pattern': r'[a-zA-Z][a-zA-Z0-9-]{0,62}', 'pattern_hint': 'An RDS instance identifier.'},
+            {'key': 'keep_snapshot', 'label': 'Keep the drill snapshot afterwards?', 'type': 'select',
+             'default': 'No', 'options': ['No', 'Yes']},
+        ],
+        'steps': [
+            'Work in {region}. describe_rds_instance {db_identifier}; stop if it does not exist or is not '
+            '"available". Record its instance class, DB subnet group, VPC security groups and Multi-AZ setting. '
+            'Warn me the temporary copy bills by the hour while the drill runs (usually under an hour).',
+            'Note the RPO baseline: list_rds_snapshots for {db_identifier} and report the newest automated '
+            'snapshot time and the instance LatestRestorableTime, i.e. how much data a restore right now would lose.',
+            'Note the start time, then create_rds_snapshot of {db_identifier} named {db_identifier}-drill-'
+            '<yyyymmddhhmm>. Poll list_rds_snapshots until it is "available".',
+            'restore_rds_from_snapshot that snapshot to a new instance {db_identifier}-drill with the same '
+            'instance class, the same DB subnet group and security groups as the source, publicly_accessible '
+            'false and multi_az false. Never touch the source instance.',
+            'Poll describe_rds_instance {db_identifier}-drill every minute until "available". Record the end '
+            'time and its endpoint. Read recent events with aws_api_read("rds", "describe_events", '
+            '{"SourceIdentifier": "{db_identifier}-drill", "SourceType": "db-instance", "Duration": 120}) '
+            'and report any warnings.',
+            'Report: total restore time (that is your measured RTO for this database size), the data-loss '
+            'window from step 2 (RPO), and a pass/fail. Note that this proves the snapshot restores and the '
+            'instance starts; it does not check application data, so suggest a row-count query I can run on '
+            'the copy before it is deleted.',
+            'Clean up: delete_rds_instance {db_identifier}-drill with skip_final_snapshot true (it is a '
+            'throwaway copy). Keep the drill snapshot: {keep_snapshot}; if No, delete_rds_snapshot it after '
+            'the instance is gone. Confirm the source {db_identifier} is still "available".',
+        ],
+    },
+
+    # --------------------------------------------------------- AWS: observability
+    {
+        'name': 'CloudWatch Alarms + Email Alerts for an EC2 Instance',
+        'description': (
+            'Get an email when a server is overloaded or fails its health checks: an SNS topic, your '
+            'email subscribed, and CPU plus status-check alarms wired to it.'
+        ),
+        'category': 'Monitoring',
+        'estimated_minutes': 10,
+        'inputs': [
+            _region(),
+            {'key': 'instance_id', 'label': 'EC2 instance ID', 'type': 'text',
+             'pattern': r'i-[0-9a-f]{8,17}', 'pattern_hint': 'An instance id such as i-0123456789abcdef0.'},
+            {'key': 'alert_email', 'label': 'Email for alerts', 'type': 'text',
+             'pattern': r'[^@\s]+@[^@\s]+\.[A-Za-z]{2,}', 'pattern_hint': 'An email address.'},
+            {'key': 'cpu_threshold', 'label': 'CPU alert threshold (%)', 'type': 'number', 'default': '80',
+             'min': 50, 'max': 95},
+        ],
+        'steps': [
+            'Work in {region}. Confirm {instance_id} exists with get_ec2_instances (filter by instance id) and '
+            'report its Name tag; stop if it is not found.',
+            'create_sns_topic named ec2-alerts-{instance_id}, then subscribe_sns_topic with protocol email '
+            'and endpoint {alert_email}. Tell me plainly: AWS emails a confirmation link and no alert is '
+            'delivered until I click it.',
+            'create_cloudwatch_alarm {instance_id}-cpu-high: namespace AWS/EC2, metric_name CPUUtilization, '
+            'statistic Average, period 300, evaluation_periods 2, comparison_operator GreaterThanThreshold, '
+            'threshold {cpu_threshold}, dimensions [{"Name": "InstanceId", "Value": "{instance_id}"}], '
+            'alarm_actions and ok_actions [the topic ARN].',
+            'create_cloudwatch_alarm {instance_id}-status-check: namespace AWS/EC2, metric_name '
+            'StatusCheckFailed, statistic Maximum, period 60, evaluation_periods 2, comparison_operator '
+            'GreaterThanOrEqualToThreshold, threshold 1, the same dimensions and actions.',
+            'Verify with list_cloudwatch_alarms that both exist. INSUFFICIENT_DATA for the first few minutes is '
+            'normal; say so rather than calling it a failure.',
+            'Report the alarm names, the topic ARN and the subscription status. Teardown: '
+            'delete_cloudwatch_alarm both alarms, then delete_sns_topic. Alarms cost a small monthly fee each '
+            '(check current CloudWatch pricing).',
+        ],
+    },
+
+    # ------------------------------------------------------------ AWS: networking
+    {
+        'name': 'HTTPS Certificate for Your Domain (ACM + Route 53)',
+        'description': (
+            'Request a free AWS certificate for your domain, validate it through DNS automatically when '
+            'the domain is in Route 53, and get it ready for a load balancer or CloudFront.'
+        ),
+        'category': 'Networking',
+        'estimated_minutes': 15,
+        'inputs': [
+            _region(),
+            {'key': 'domain', 'label': 'Domain', 'type': 'text',
+             'pattern': r'([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}',
+             'pattern_hint': 'A domain such as app.example.com (lowercase, no https://).'},
+            {'key': 'include_www', 'label': 'Also cover www.<domain>?', 'type': 'select', 'default': 'No',
+             'options': ['No', 'Yes']},
+        ],
+        'steps': [
+            'Region note first: a certificate for CloudFront must live in us-east-1; one for a load balancer '
+            'must be in the load balancer\'s region. I chose {region}; if I mention CloudFront and that is not '
+            'us-east-1, stop and tell me.',
+            'list_acm_certificates in {region}; if a certificate for {domain} is already ISSUED, report its ARN '
+            'and stop, since there is nothing to do.',
+            'Find the hosted zone: list_route53_zones and pick the zone whose name is the longest suffix of '
+            '{domain}. If none exists, continue anyway; validation records will be handed to me to add at my '
+            'DNS provider.',
+            'request_acm_certificate for {domain} with validation_method DNS, adding subject_alternative_names '
+            '["www.{domain}"] only if {include_www} is Yes.',
+            'Read the validation records with aws_api_read("acm", "describe_certificate", {"CertificateArn": '
+            '<arn>}); they can take a few seconds to appear, so retry briefly. If the zone is in Route 53, '
+            'create_route53_record each CNAME (action CREATE; if it already exists with the same value, carry '
+            'on). If not, list each record name and value for me to add myself.',
+            'Poll describe_certificate every minute for up to 30 minutes until Status is ISSUED. If it stays '
+            'PENDING_VALIDATION, re-check the CNAMEs with aws_api_read("route53", "list_resource_record_sets", ...) '
+            'and report what is wrong.',
+            'Report the certificate ARN and where to use it (an HTTPS listener on an ALB, or a CloudFront '
+            'distribution if in us-east-1). Keep the validation CNAMEs: ACM uses them for automatic renewal.',
+        ],
+    },
+
+    # -------------------------------------------------------------- AWS: security
+    {
+        'name': 'Find Publicly Exposed S3 Buckets',
+        'description': (
+            'Check every S3 bucket for public access through bucket policies, ACLs or missing public-access '
+            'blocks, explain the risk of each, and lock down only the ones you choose.'
+        ),
+        'category': 'Security',
+        'estimated_minutes': 10,
+        'inputs': [],
+        'steps': [
+            'Account-wide setting first: get my account id with aws_api_read("sts", "get_caller_identity", {}), '
+            'then aws_api_read("s3control", "get_public_access_block", {"AccountId": <id>}). If all four '
+            'settings are true, say that public access is blocked account-wide and buckets cannot be public.',
+            'list_s3_buckets. For each bucket, read: aws_api_read("s3", "get_public_access_block", {"Bucket": '
+            '<name>}) (a NoSuchPublicAccessBlockConfiguration error means none is set), get_s3_bucket_policy '
+            '(look for a "Principal": "*" statement without a restricting Condition), '
+            'aws_api_read("s3", "get_bucket_acl", {"Bucket": <name>}) (look for AllUsers or AuthenticatedUsers '
+            'grants), and aws_api_read("s3", "get_bucket_policy_status", {"Bucket": <name>}) for AWS\'s own '
+            'IsPublic verdict.',
+            'Report a table: bucket, public yes/no, why (policy, ACL, no block), and whether it looks like a '
+            'website bucket (get_bucket_website set, or names like www/static/assets). A website bucket may be '
+            'public on purpose; serving it through CloudFront with Origin Access Control is the safer pattern.',
+            'Do not change anything yet. Ask me which buckets to lock down. For each bucket I name, and only '
+            'those, call set_s3_public_access_block with all four settings true, then re-run '
+            'get_bucket_policy_status to confirm IsPublic is false. Warn me first if a named bucket serves a '
+            'website, because locking it will take the site down.',
+            'Finish with the account-wide recommendation: once no bucket needs to be public, turn on the '
+            'account-level block in the S3 console (or via s3control put_public_access_block) so new buckets '
+            'cannot become public by mistake.',
+        ],
+    },
+    {
+        'name': 'IAM Hygiene Audit',
+        'description': (
+            'A read-only review of who can get into your AWS account: users without MFA, old and unused '
+            'access keys, root account risks, and roles nobody has used in months.'
+        ),
+        'category': 'Security',
+        'estimated_minutes': 10,
+        'inputs': [
+            {'key': 'key_age_days', 'label': 'Flag access keys older than (days)', 'type': 'number',
+             'default': '90', 'min': 30, 'max': 365},
+        ],
+        'steps': [
+            'This audit is read-only: change nothing. Root account first: get_iam_account_summary and report '
+            'whether the root user has MFA (AccountMFAEnabled) and whether root access keys exist '
+            '(AccountAccessKeysPresent). Root keys present is the most urgent finding of all.',
+            'generate_iam_credential_report, then get_iam_credential_report (retry for a few seconds while it '
+            'generates). For each user report: console password without MFA; active access keys older than '
+            '{key_age_days} days; active keys never used or unused for over {key_age_days} days; and users '
+            'with no activity at all for {key_age_days} days.',
+            'Roles: list_iam_roles and, for up to 20 roles that are not AWS service-linked (path does not start '
+            'with /aws-service-role/), call list_iam_services_last_accessed with the role ARN. Flag roles with '
+            'no service access in the last {key_age_days} days as candidates for removal.',
+            'Report findings ranked: critical (root keys, root without MFA), high (console users without MFA, '
+            'keys older than {key_age_days} days), medium (unused keys, idle users), low (idle roles). For '
+            'each, give the exact fix and point to the "IAM Access Key Rotation" workflow for key rotation.',
+        ],
+    },
+    {
+        'name': 'Compliance Readiness Check (SOC 2 / HIPAA / PCI DSS)',
+        'description': (
+            'Check your connected cloud against the controls a SOC 2, HIPAA or PCI DSS auditor will look '
+            'at, and get a prioritised gap list with the workflow that fixes each gap.'
+        ),
+        'category': 'Security',
+        'estimated_minutes': 10,
+        'inputs': [
+            {'key': 'framework', 'label': 'Framework', 'type': 'select', 'default': 'soc2',
+             'options': ['soc2', 'hipaa', 'pci_dss']},
+        ],
+        'steps': [
+            'This check is read-only. Say up front that it measures technical controls in the connected '
+            'account only; it is not an audit or a certification, and policies, people and process controls '
+            'are out of its reach.',
+            'run_compliance_check with framework {framework}. Then get_security_findings with severity '
+            'critical and again with severity high.',
+            'Report: overall pass rate, then each failed control with what it requires, what was found, and '
+            'the fix. Group the fixes by effort (quick config change versus project).',
+            'Map gaps to one-click workflows where they exist: logging and threat detection to "AWS Security '
+            'Baseline (CloudTrail + GuardDuty)", public data to "Find Publicly Exposed S3 Buckets", identity to '
+            '"IAM Hygiene Audit", backups to "Database Restore Drill (RDS)" and "S3 Backup Lifecycle Policy".',
+        ],
+    },
+    {
+        'name': 'Find Idle Resources Wasting Money',
+        'description': (
+            'Find what you are paying for but not using: unattached disks, unused Elastic IPs, idle NAT '
+            'gateways, old snapshots and long-stopped servers. Nothing is deleted unless you pick it.'
+        ),
+        'category': 'Cost',
+        'estimated_minutes': 10,
+        'inputs': [
+            _region(),
+            {'key': 'snapshot_age_days', 'label': 'Flag snapshots older than (days)', 'type': 'number',
+             'default': '180', 'min': 30, 'max': 1095},
+        ],
+        'steps': [
+            'Work in {region}. Collect, without changing anything: list_ebs_volumes with state "available" '
+            '(attached to nothing); list_elastic_ips not associated with an instance or network interface; '
+            'list_nat_gateways, and for each the last 7 days of BytesOutToDestination via '
+            'aws_api_read("cloudwatch", "get_metric_statistics", ...) to spot ones carrying almost no traffic; '
+            'aws_api_read("ec2", "describe_snapshots", {"OwnerIds": ["self"]}) older than {snapshot_age_days} '
+            'days; and get_ec2_instances stopped for more than 30 days (their disks still bill).',
+            'Skip anything tagged as a backup or with "keep", "prod" or "dr" in its name, and list those '
+            'separately as excluded. A snapshot that backs a registered AMI cannot be deleted; check with '
+            'aws_api_read("ec2", "describe_images", {"Owners": ["self"]}) and exclude those too.',
+            'Report a table per type with id, size or age, and an approximate monthly cost from current AWS '
+            'pricing for {region} (say these are estimates), plus the total. Lead with the biggest savings.',
+            'Do not delete anything yet. Ask me which items to remove. For each one I name, and only those: '
+            'delete_ebs_volume (offer to create_ebs_snapshot first if I want a safety copy), '
+            'release_elastic_ip, or delete_ebs_snapshot, one at a time, confirming each result. Idle NAT '
+            'gateways and stopped instances need a human decision about the network or server, so only '
+            'recommend; do not remove them in this workflow.',
+        ],
+    },
+
+    # ------------------------------------------------------------------ Kubernetes
+    {
+        'name': 'Autoscale a Kubernetes Deployment',
+        'description': (
+            'Add a Horizontal Pod Autoscaler so a deployment adds pods under load and removes them when quiet, '
+            'after checking the two things autoscaling silently depends on.'
+        ),
+        'category': 'Kubernetes',
+        'estimated_minutes': 8,
+        'inputs': [
+            _KUBE_CONTEXT,
+            {'key': 'namespace', 'label': 'Namespace', 'type': 'text', 'default': 'default',
+             'pattern': _K8S_NAME, 'pattern_hint': _K8S_NAME_HINT},
+            {'key': 'deployment', 'label': 'Deployment', 'type': 'text', 'pattern': _K8S_NAME,
+             'pattern_hint': _K8S_NAME_HINT},
+            {'key': 'min_replicas', 'label': 'Minimum pods', 'type': 'number', 'default': '2', 'min': 1, 'max': 20},
+            {'key': 'max_replicas', 'label': 'Maximum pods', 'type': 'number', 'default': '10', 'min': 2, 'max': 100},
+            {'key': 'cpu_target', 'label': 'Target CPU utilisation (%)', 'type': 'number', 'default': '70',
+             'min': 20, 'max': 90},
+        ],
+        'steps': [
+            'Use kubeconfig context "{kube_context}" ("not specified" means the current context). If '
+            '{min_replicas} is not below {max_replicas}, stop and ask me to fix the numbers.',
+            'describe_deployment {deployment} in {namespace}. Every container must set resources.requests.cpu: '
+            'the autoscaler measures CPU as a percentage of the request, and without one it can never act. If '
+            'any container lacks it, stop and show me what to add (a realistic starting value from top_pods).',
+            'Check metrics are available: top_pods in {namespace}. If it errors, metrics-server is not '
+            'installed; stop and explain how to install it (most managed clusters offer it as an add-on). Do '
+            'not install it yourself.',
+            'list_hpas in {namespace}; if one already targets {deployment}, show it and ask before changing '
+            'anything. Otherwise create_hpa named {deployment}-hpa targeting {deployment} with min_replicas '
+            '{min_replicas}, max_replicas {max_replicas} and cpu_target_percent {cpu_target}.',
+            'Wait about a minute, then list_hpas again. TARGETS must show a real percentage; "<unknown>" means '
+            'metrics are not flowing, so report that rather than success.',
+            'Report the current versus target CPU and replica count, how to load-test it, and the rollback: '
+            'delete_hpa {deployment}-hpa (the deployment keeps its current replica count).',
+        ],
+    },
+    {
+        'name': 'Safe Rollout with Automatic Rollback',
+        'description': (
+            'Ship a new image to a Kubernetes deployment, watch the rollout, health-check it, and roll back '
+            'to the previous version automatically if anything fails.'
+        ),
+        'category': 'Kubernetes',
+        'estimated_minutes': 10,
+        'inputs': [
+            _KUBE_CONTEXT,
+            {'key': 'namespace', 'label': 'Namespace', 'type': 'text', 'default': 'default',
+             'pattern': _K8S_NAME, 'pattern_hint': _K8S_NAME_HINT},
+            {'key': 'deployment', 'label': 'Deployment', 'type': 'text', 'pattern': _K8S_NAME,
+             'pattern_hint': _K8S_NAME_HINT},
+            {'key': 'new_image', 'label': 'New image', 'type': 'text', 'pattern': _IMAGE_PATTERN,
+             'pattern_hint': _IMAGE_HINT},
+            {'key': 'health_url', 'label': 'Health check URL (optional)', 'type': 'text', 'required': False,
+             'pattern': r'https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s]*)?',
+             'pattern_hint': 'A full URL such as https://api.example.com/health.'},
+        ],
+        'steps': [
+            'Use kubeconfig context "{kube_context}" ("not specified" means the current context). '
+            'describe_deployment {deployment} in {namespace} and rollout_history. Record the current image and '
+            'revision; that is what a rollback returns to.',
+            'Pre-flight: if the strategy is not RollingUpdate, or the containers have no readinessProbe, warn '
+            'me that Kubernetes cannot tell a broken pod from a healthy one, so a bad release could take all '
+            'traffic. Ask whether to continue. If {new_image} equals the current image, stop: nothing to do.',
+            'update_deployment_image {deployment} to {new_image} (if there are several containers, ask which '
+            'one). Then rollout_status, waiting up to 10 minutes.',
+            'If the rollout does not complete, read get_pods and get_pod_logs for the new pods, report the '
+            'exact error (image pull failure, crash loop, failing probe), then rollback_deployment {deployment} '
+            'and confirm with rollout_status that the previous revision is serving again.',
+            'If it completed and a health URL was given ({health_url}; "not specified" means none), '
+            'run_smoke_test it expecting 200. On failure, rollback_deployment and confirm as above.',
+            'Report: old image to new image, rollout duration, health-check result, and whether a rollback '
+            'happened and why. Any rollback is a finding to fix before retrying, not a retry signal.',
+        ],
+    },
+    {
+        'name': 'Kubernetes Cluster Health Check',
+        'description': (
+            'A read-only check-up of a cluster: node health and pressure, pods that are not running, warning '
+            'events, stuck rollouts and pending volumes, summarised as a traffic light.'
+        ),
+        'category': 'Kubernetes',
+        'estimated_minutes': 5,
+        'inputs': [_KUBE_CONTEXT],
+        'steps': [
+            'Read-only: change nothing. Use kubeconfig context "{kube_context}" ("not specified" means the '
+            'current context) and say which cluster that is.',
+            'Nodes: get_nodes and top_nodes. Flag NotReady nodes, MemoryPressure/DiskPressure/PIDPressure '
+            'conditions (describe_node), cordoned nodes, and any node above 85% CPU or memory.',
+            'Workloads: k8s_api_read (method "list_pod_for_all_namespaces") and flag pods not Running/Succeeded, '
+            'pods with more than 5 restarts, and CrashLoopBackOff or ImagePullBackOff states. Then '
+            'k8s_api_read (api_group "apps", method "list_deployment_for_all_namespaces") for deployments with '
+            'fewer available replicas than desired.',
+            'Events and storage: get_cluster_events with event_type Warning across namespaces I care about '
+            '(start with default and kube-system), and list_pvcs for claims stuck in Pending.',
+            'Report a traffic light per area (nodes, workloads, events, storage) with the specific objects at '
+            'fault, then the top three things to fix first. Point failing pods to the "Troubleshoot Failing '
+            'Kubernetes Pods" workflow.',
+        ],
+    },
+
+    # ------------------------------------------------------------------------ Azure
+    {
+        'name': 'Secure Linux VM on Azure',
+        'description': (
+            'An Ubuntu VM in its own resource group: SSH-key login only, a network security group open only '
+            'to your IP, and a one-step teardown.'
+        ),
+        'category': 'Compute',
+        'estimated_minutes': 10,
+        'inputs': [
+            _AZURE_REGION,
+            _name('vm_name', 'VM name', 'web-vm'),
+            {'key': 'vm_size', 'label': 'VM size', 'type': 'select', 'default': 'Standard_B2s',
+             'options': ['Standard_B1s', 'Standard_B2s', 'Standard_B2ms', 'Standard_D2s_v5']},
+            _my_cidr(),
+            _SSH_KEY_INPUT,
+            {'key': 'open_ports', 'label': 'Ports to open to your IP', 'type': 'text', 'default': '22',
+             'pattern': r'\d{1,5}(,\d{1,5}){0,9}', 'pattern_hint': 'Comma-separated ports, e.g. 22,80,443.'},
+        ],
+        'steps': [
+            'Work in {azure_region}. Warn me the VM bills hourly until deleted. Access is only ever opened to '
+            'my CIDR ({allowed_cidr}), never 0.0.0.0/0 or *.',
+            'create_resource_group {vm_name}-rg in {azure_region} with tags {"ManagedBy": "DevOpsAgent"}.',
+            'create_virtual_machine: resource_group {vm_name}-rg, vm_name {vm_name}, location {azure_region}, '
+            'vm_size {vm_size}, admin_username azureuser, ssh_public_key "{ssh_public_key}" (this disables '
+            'password login), allowed_source_cidr {allowed_cidr}, open_ports [{open_ports}], public_ip true, '
+            'and the default Ubuntu 22.04 image.',
+            'get_vm_details {vm_name} in {vm_name}-rg for its public IP and provisioning state. Then tcp_check '
+            'port 22 on that IP; a refused or timed-out connection right after creation can mean it is still '
+            'booting, so retry for up to 3 minutes.',
+            'Report the IP, the command ssh azureuser@<ip>, and the open ports. Teardown: delete_resource_group '
+            '{vm_name}-rg removes the VM, disk, IP, network card, NSG and network together.',
+        ],
+    },
+    {
+        'name': 'Azure SQL Database Locked to Your IP',
+        'description': (
+            'An Azure SQL server and database whose firewall admits only your IP address, with no blanket '
+            '"allow Azure services" rule.'
+        ),
+        'category': 'Database',
+        'estimated_minutes': 10,
+        'inputs': [
+            _AZURE_REGION,
+            {'key': 'server_name', 'label': 'Server name (globally unique)', 'type': 'text',
+             'pattern': r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]',
+             'pattern_hint': '3-63 lowercase letters, digits and hyphens.'},
+            {'key': 'database_name', 'label': 'Database name', 'type': 'text', 'default': 'appdb',
+             'pattern': r'[A-Za-z][A-Za-z0-9_-]{0,63}', 'pattern_hint': 'Letters, digits, _ and -.'},
+            {'key': 'client_ip', 'label': 'Your public IP address', 'type': 'text',
+             'pattern': r'((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)',
+             'pattern_hint': 'An IPv4 address such as 203.0.113.10.',
+             'help': 'Search "what is my IP" if unsure. Only this address can connect.'},
+            {'key': 'sku', 'label': 'Tier', 'type': 'select', 'default': 'Basic', 'options': ['Basic', 'S0']},
+            {'key': 'admin_password', 'label': 'SQL admin password', 'type': 'secret',
+             'help': 'Leave blank to generate one. You will need it to connect, so keep the run page.'},
+        ],
+        'steps': [
+            'Work in {azure_region}. Warn me the database bills monthly at the {sku} tier until deleted.',
+            'create_resource_group {server_name}-rg in {azure_region}. Then create_sql_server {server_name} '
+            'with admin_username sqladminuser and admin_password {admin_password}. Never echo the password back.',
+            'create_sql_database {database_name} on {server_name} with sku_name {sku} and sku_tier Basic if '
+            '{sku} is Basic, otherwise Standard.',
+            'create_sql_firewall_rule named allow-my-ip with start_ip and end_ip both {client_ip}. Do not add '
+            'the 0.0.0.0 "Allow Azure services" rule: it admits every Azure customer\'s traffic, not just mine.',
+            'Verify with tcp_check on {server_name}.database.windows.net port 1433 (a refused or timed-out '
+            'result from this platform is expected, since only my IP is allowed; say so).',
+            'Report the server host {server_name}.database.windows.net, the database name, the username, and '
+            'an example connection string with the password left as a placeholder. Teardown: delete_sql_server '
+            '{server_name}, then delete_resource_group {server_name}-rg.',
+        ],
+    },
+
+    # -------------------------------------------------------------------------- GCP
+    {
+        'name': 'Deploy a Container to Google Cloud Run',
+        'description': (
+            'Run any container image as an HTTPS service on Cloud Run: scales to zero when idle, public or '
+            'private, verified with a live request.'
+        ),
+        'category': 'App Hosting',
+        'estimated_minutes': 8,
+        'inputs': [
+            _GCP_PROJECT,
+            _GCP_REGION,
+            _name('service_name', 'Service name', 'hello-app'),
+            {'key': 'image', 'label': 'Container image', 'type': 'text',
+             'default': 'us-docker.pkg.dev/cloudrun/container/hello', 'pattern': _IMAGE_PATTERN,
+             'pattern_hint': _IMAGE_HINT, 'help': "Defaults to Google's public sample image."},
+            {'key': 'port', 'label': 'Container port', 'type': 'number', 'default': '8080',
+             'min': 1, 'max': 65535},
+            {'key': 'public', 'label': 'Allow public (unauthenticated) access?', 'type': 'select',
+             'default': 'No', 'options': ['No', 'Yes']},
+        ],
+        'steps': [
+            'Work in project {gcp_project}, region {gcp_region}. Cloud Run bills per request and CPU time and '
+            'scales to zero, so an idle service costs little; say so.',
+            'list_cloud_run_services; if {service_name} already exists, ask before replacing it.',
+            'deploy_cloud_run_service {service_name} with image {image}, region {gcp_region}, port {port}, '
+            'memory 512Mi, cpu 1, max_instances 10, project_id {gcp_project}, and allow_unauthenticated true '
+            'only if {public} is Yes.',
+            'Read the service URL from list_cloud_run_services. http_check it: expect 200 if public; if '
+            'private, a 403 is the correct result (it proves authentication is enforced), so report it as such.',
+            'Report the URL, how to call a private service (an identity token: curl -H "Authorization: Bearer '
+            '$(gcloud auth print-identity-token)" <url>), and how to map a custom domain. Teardown: '
+            'delete_cloud_run_service {service_name} in {gcp_region}.',
+        ],
+    },
+    {
+        'name': 'Cloud SQL Database on GCP',
+        'description': (
+            'A managed PostgreSQL or MySQL instance on Cloud SQL with no open network access, reachable '
+            'through the Cloud SQL Auth Proxy.'
+        ),
+        'category': 'Database',
+        'estimated_minutes': 15,
+        'inputs': [
+            _GCP_PROJECT,
+            _GCP_REGION,
+            _name('instance_name', 'Instance name', 'app-sql'),
+            {'key': 'database_version', 'label': 'Engine', 'type': 'select', 'default': 'POSTGRES_16',
+             'options': ['POSTGRES_16', 'POSTGRES_15', 'MYSQL_8_0']},
+            {'key': 'tier', 'label': 'Machine tier', 'type': 'select', 'default': 'db-g1-small',
+             'options': ['db-f1-micro', 'db-g1-small', 'db-custom-2-7680'],
+             'help': 'The first two are shared-core tiers, suited to dev and test.'},
+            {'key': 'root_password', 'label': 'Default user password', 'type': 'secret',
+             'help': 'Leave blank to generate one. Keep it: you need it to connect.'},
+        ],
+        'steps': [
+            'Work in project {gcp_project}, region {gcp_region}. Warn me Cloud SQL bills hourly while the '
+            'instance exists, even when idle.',
+            'list_cloud_sql_instances; if {instance_name} exists, stop and report it. Note that a deleted '
+            'instance name cannot be reused for some days.',
+            'create_cloud_sql_instance {instance_name} with database_version {database_version}, tier {tier}, '
+            'region {gcp_region}, root_password {root_password} and project_id {gcp_project}. Add no authorized '
+            'networks: nothing on the internet can reach it directly. Never echo the password back.',
+            'Poll list_cloud_sql_instances every minute until the state is RUNNABLE (often 5-10 minutes); say '
+            'it is still creating rather than failing early.',
+            'Report the connection name (project:region:instance), the default user (postgres for PostgreSQL, '
+            'root for MySQL), and how to connect: the Cloud SQL Auth Proxy, or gcloud sql connect '
+            '{instance_name} for a quick session. Teardown: delete_cloud_sql_instance {instance_name}.',
+        ],
+    },
+
+    # ------------------------------------------------------------------ Multi-cloud
+    {
+        'name': 'Multi-Cloud Inventory and Cost Snapshot',
+        'description': (
+            'One read-only page across every cloud you have connected: what is running, what it costs, and '
+            'the top savings opportunities.'
+        ),
+        'category': 'Cost',
+        'estimated_minutes': 8,
+        'inputs': [
+            {'key': 'days', 'label': 'Cost period (days)', 'type': 'number', 'default': '30', 'min': 7, 'max': 90},
+        ],
+        'steps': [
+            'Read-only: change nothing. Clouds I have not connected are skipped with a one-line note, never '
+            'reported as empty.',
+            'get_infrastructure_summary for the overall picture. Then per cloud: get_ec2_instances and '
+            'list_rds_instances (AWS), list_virtual_machines (Azure), list_compute_instances and '
+            'list_cloud_sql_instances (GCP). Count running versus stopped.',
+            'get_cost_summary for the last {days} days and report spend by service, top five first. Cost data '
+            'comes from AWS Cost Explorer; for Azure and GCP say that billing data is not read here.',
+            'get_optimization_recommendations and list the top five by estimated saving.',
+            'Finish with three actions for this week, pointing to the "Find Idle Resources Wasting Money" and '
+            '"EC2 Cost Optimization Audit" workflows where they fit.',
         ],
     },
 ]
