@@ -4,6 +4,7 @@ Provides functions to get user-specific cloud clients (AWS, Azure, GCP).
 """
 import os
 import json
+import logging
 import tempfile
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
@@ -12,6 +13,7 @@ import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 from src.utils.timeutils import utcnow
 
+logger = logging.getLogger(__name__)
 
 def get_user_aws_credentials(user_id: int) -> Optional[Dict[str, str]]:
     """
@@ -145,16 +147,17 @@ def _assume_role(role_arn: str, external_id: str = '', session_name: str = 'devo
     Raises:
         Exception if AssumeRole fails
     """
+    params = {
+        'RoleArn': role_arn,
+        'RoleSessionName': session_name,
+        # 3600s is also the hard ceiling for a chained session (bridge path below).
+        'DurationSeconds': 3600,
+    }
+    if external_id:
+        params['ExternalId'] = external_id
+
     try:
-        sts = boto3.client('sts')
-        params = {
-            'RoleArn': role_arn,
-            'RoleSessionName': session_name,
-            'DurationSeconds': 3600,
-        }
-        if external_id:
-            params['ExternalId'] = external_id
-        response = sts.assume_role(**params)
+        response = boto3.client('sts').assume_role(**params)
         return response['Credentials']
     except NoCredentialsError:
         raise Exception(
@@ -163,12 +166,48 @@ def _assume_role(role_arn: str, external_id: str = '', session_name: str = 'devo
         )
     except ClientError as e:
         code = e.response['Error']['Code']
-        if code == 'AccessDenied':
-            raise Exception(
-                f"Access denied when assuming role {role_arn}. Verify the role's trust policy "
-                "allows this platform to assume it, and the External ID matches if required."
-            )
-        raise Exception(f"Failed to assume role: {e.response['Error']['Message']}")
+        if code != 'AccessDenied':
+            raise Exception(f"Failed to assume role: {e.response['Error']['Message']}")
+        bridged = _assume_role_via_bridge(params)
+        if bridged is not None:
+            return bridged
+        raise Exception(
+            f"Access denied when assuming role {role_arn}. Verify the role's trust policy "
+            "allows this platform to assume it, and the External ID matches if required."
+        )
+
+
+def _assume_role_via_bridge(params: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Retry a denied AssumeRole through the previous platform account (migration only).
+
+    Customer roles trust the platform account by id. After the platform moves to a new
+    AWS account, roles that still trust the old one deny the direct call. When
+    PLATFORM_BRIDGE_ROLE_ARN names a role in the old account that trusts the new
+    platform role, assume it first and call the customer role from there (role
+    chaining). The customer's External ID is still sent and still enforced by their
+    trust policy. Unset (the default), this is a no-op. Remove the setting once every
+    customer role trusts the new account.
+    """
+    bridge_arn = os.environ.get('PLATFORM_BRIDGE_ROLE_ARN', '').strip()
+    if not bridge_arn:
+        return None
+    try:
+        bridge = boto3.client('sts').assume_role(
+            RoleArn=bridge_arn, RoleSessionName='devops-agent-bridge', DurationSeconds=3600,
+        )['Credentials']
+        chained = boto3.client(
+            'sts',
+            aws_access_key_id=bridge['AccessKeyId'],
+            aws_secret_access_key=bridge['SecretAccessKey'],
+            aws_session_token=bridge['SessionToken'],
+        ).assume_role(**params)
+    except (ClientError, NoCredentialsError) as e:
+        logger.warning('Bridge AssumeRole failed for %s: %s', params['RoleArn'], e)
+        return None
+    # Each hit is a customer role that still trusts only the old account.
+    logger.warning('Customer role %s assumed via migration bridge; its trust policy '
+                   'still names the old platform account', params['RoleArn'])
+    return chained['Credentials']
 
 
 def _get_boto_kwargs(creds: Dict[str, str], region: Optional[str] = None) -> Dict[str, str]:

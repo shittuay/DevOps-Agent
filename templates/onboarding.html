@@ -774,7 +774,7 @@
                         </button>
                         <p class="field-hint" style="margin-bottom:16px;">
                             One click sets up the role, trust policy, and least-privilege permissions in your AWS account
-                            (<a href="https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json" target="_blank">auditable template</a>).
+                            (<a href="{{ cf_template_url }}" target="_blank">auditable template</a>).
                             When the stack finishes, copy the <code>RoleArn</code> from its Outputs tab into the field below.
                         </p>
                         <div class="form-group">
@@ -970,7 +970,7 @@
         // ── AWS auth mode switching ─────────────────────────────────
         let awsAuthMode = 'role_arn';
 
-        const CF_TEMPLATE_URL = 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json';
+        const CF_TEMPLATE_URL = {{ cf_template_url|tojson }};
 
         function openCfQuickCreate() {
             const eidInput = document.getElementById('aws-external-id');

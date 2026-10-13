@@ -300,7 +300,8 @@ instance is found.
   - `auth_mode='role_arn'`: IAM Role ARN + optional External ID → STS AssumeRole for temp creds (enterprise, cross-account)
   - `get_user_boto_client()` / `get_user_boto_resource()` handle both modes transparently
   - Settings UI (`templates/settings.html`) and onboarding wizard (`templates/onboarding.html`) both have a mode toggle; **role ARN is the recommended default** (access keys demoted to fallback for self-hosted setups)
-  - Trust policy instructions in both UIs render the platform account ID from `PLATFORM_AWS_ACCOUNT_ID` env var (default `188046727805`), exposed via the `/settings` and `/onboarding` routes in `app.py`
+  - Trust policy instructions in both UIs render the platform account ID from `PLATFORM_AWS_ACCOUNT_ID` env var (default `188046727805`), exposed via the `/settings` and `/onboarding` routes in `app.py`; the quick-create template link comes from `CF_TEMPLATE_URL` (same routes). The two must move together — the template's trust policy names that account.
+  - **Migration bridge** (`PLATFORM_BRIDGE_ROLE_ARN`, unset by default): when a direct `AssumeRole` into a customer role is **denied**, `_assume_role()` retries by first assuming that bridge role in the *previous* platform account and chaining from it (External ID still sent; chained sessions max 3600s). Exists only so role-based customers keep working while they update trust policies after a platform account move — each bridged call logs `assumed via migration bridge`. Unset it once that log goes quiet. Full procedure: `docs/aws-account-migration.md`; `scripts/count_role_arn_customers.py` lists who is affected (and reports undecryptable credentials, a check that the encryption key carried over).
   - **Published least-privilege IAM policies** (`static/iam/devops-agent-readonly.json` + `devops-agent-management.json`, docs in `docs/iam-policies.md`): read-only = metadata never data (no `s3:GetObject`, `secretsmanager:GetSecretValue`, `ssm:GetParameter`, `lambda:GetFunction`); management = service writes but IAM read-only + `iam:PassRole` conditioned to AWS service principals, secret values still excluded. Guarded by `tests/test_iam_policies.py` — update the tests if you change the policy guarantees.
   - **CloudFormation quick-create**: `cloudformation/devops-agent-role.json` is generated from the policy files by `scripts/build_cf_template.py` and hosted at `s3://devopsagent-cf-templates/devops-agent-role.json` (public read — quick-create requires an S3 URL). "Create role with CloudFormation" buttons in settings + onboarding auto-generate an External ID and open the console quick-create page. **After editing a policy file: re-run the build script and re-upload to S3** (command in `docs/iam-policies.md`); a sync test fails if the committed template drifts.
   - **Public `/security` trust page** (`templates/security.html`, route `security_page` in `app.py`): credential handling, auditable policy links, sandbox pitch, guardrails stack, vulnerability contact (`security@devopsagent.io`). Linked from landing + about footers. Onboarding step 1 has a "Start in sandbox" callout that PUTs `{sandbox_mode: true}` to `/api/preferences` and completes onboarding without credentials.
@@ -1690,6 +1691,12 @@ do). The scheduled scan is the only timer-based scan.
 | `AWS_SECRET_ACCESS_KEY` | ~~none~~ | No longer needed — deploys authenticate via GitHub OIDC (2026-07-18) |
 | `EC2_INSTANCE_ID` | `ci.yml`, `deploy.yml` | EC2 instance ID for SSM targeting |
 
+Every AWS-touching workflow (`ci.yml`, `deploy.yml`, `check-errors.yml`,
+`run-migration.yml`) reads the role from the repo **variable** `AWS_DEPLOY_ROLE_ARN`
+and the region from `AWS_REGION`, falling back to the values below — so moving
+accounts is `gh variable set`, not a code change (`tests/test_aws_account_migration.py`
+fails on a hardcoded role or long-lived keys). `run-migration.yml` still used the
+deleted access-key secrets until 2026-10-13 and could not authenticate at all.
 Deploy jobs assume `arn:aws:iam::188046727805:role/github-actions-deploy` via
 GitHub OIDC (`token.actions.githubusercontent.com` provider; trust scoped to
 `repo:shittuay/DevOps-Agent:*`; permissions = SSM SendCommand on the app
