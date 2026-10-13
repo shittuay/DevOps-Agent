@@ -3255,3 +3255,14 @@ that the 22.04 gen2 image is accepted by the chosen VM size.
   Grafana with `GF_SECURITY_ADMIN_PASSWORD=admin`. **Fix:** the workflow now takes a
   `grafana_password` secret input (generated when blank); a test forbids `PASSWORD=admin`
   in any starter workflow.
+
+## 2026-10-13: "Update your stack" command could replace a customer's IAM role
+
+The `update-stack` command shown in Settings (policy-freshness banner) and in
+`docs/iam-policies.md` kept `ExternalId` and `PolicyLevel` but not `RoleName`, which is also
+a template parameter. CloudFormation resets an omitted parameter to its default, so a
+customer who had chosen a custom role name would have had the role **replaced** (new ARN),
+breaking their saved connection. Both now pass `ParameterKey=RoleName,UsePreviousValue=true`;
+`tests/test_aws_account_migration.py::test_update_stack_instructions_keep_every_template_parameter`
+reads the parameter list from the template, so a parameter added later is checked too.
+Found while writing the customer message for the AWS account move.

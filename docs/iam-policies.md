@@ -87,12 +87,14 @@ with fix instructions when the role is outdated (role-ARN mode only;
 AWS-managed attached policies are skipped; roles that can't read their own
 policies report `outdated: null` rather than failing).
 
-To fix an outdated quick-create stack (preserves External ID and policy level):
+To fix an outdated quick-create stack (preserves External ID, policy level and role
+name — leaving `RoleName` out would reset a custom name to the default, replacing the role
+and changing its ARN):
 
 ```bash
 aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
   --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \
-  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true \
+  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true ParameterKey=RoleName,UsePreviousValue=true \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 

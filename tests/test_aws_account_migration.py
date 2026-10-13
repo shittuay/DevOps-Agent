@@ -140,3 +140,21 @@ def test_aws_workflows_use_oidc_with_a_configurable_role():
         assert 'id-token: write' in text, f'{wf.name} cannot request an OIDC token'
         for line in re.findall(r'role-to-assume:.*', text):
             assert 'vars.AWS_DEPLOY_ROLE_ARN' in line, f'{wf.name}: {line}'
+
+
+def test_update_stack_instructions_keep_every_template_parameter():
+    """An update-stack that omits a parameter resets it to the template default.
+
+    For RoleName that replaces the role, giving it a new ARN, so the customer's saved
+    connection breaks. Every update-stack command we hand out must keep them all.
+    """
+    import json
+
+    params = json.loads((ROOT / 'cloudformation' / 'devops-agent-role.json').read_text())['Parameters']
+    sources = [ROOT / 'templates' / 'settings.html', ROOT / 'docs' / 'iam-policies.md',
+               ROOT / 'docs' / 'aws-account-migration.md']
+    for path in sources:
+        text = path.read_text()
+        assert 'update-stack' in text, f'{path.name} no longer shows update-stack; update this test'
+        for name in params:
+            assert f'ParameterKey={name},UsePreviousValue=true' in text, f'{path.name} omits {name}'
