@@ -430,6 +430,12 @@ unrelated hallucination-check reasons and was never affected. `routes/curriculum
 `/curriculum/api/ai-guide` is a plain curriculum Q&A completion with no tool execution, so it has no
 path to disclose a live cloud secret and doesn't need this.
 
+**Learning-page AI (Coach + quiz, `routes/curriculum.py`) must never hardcode a model id.** Both use
+`DEFAULT_KIMI_MODEL` via `_create_completion()`, which falls back to it if an override
+(`CURRICULUM_MODEL`/`KIMI_MODEL`) is unavailable. Provider errors go through
+`_friendly_ai_error()`; never echo `str(e)` to the page. Hardcoded `moonshot-v1-*` ids that Moonshot
+had retired broke both features until 2026-10-13 (see CLAUDE_RUNBOOK.md).
+
 ## Safety System (`src/agent/safety.py`)
 
 `SafetyValidator.validate_tool_call()` classifies every tool into risk levels:
