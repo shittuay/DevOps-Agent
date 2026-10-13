@@ -2,7 +2,7 @@
 Scheduled Infrastructure Checks Service
 
 Runs periodic background tasks: infrastructure sync, security scans,
-cost anomaly detection, health checks, and proactive monitoring ticks.
+cost anomaly detection, and health checks.
 
 Multi-worker safety: uses a PID file lock so only one gunicorn worker
 starts the scheduler thread. Other workers skip silently.
@@ -109,7 +109,6 @@ def _scheduler_loop(app, db):
     """Main scheduler loop. Runs checks on intervals."""
     intervals = {
         'health_check':      timedelta(minutes=5),
-        'monitoring_tick':   timedelta(seconds=60),
         'infra_sync':        timedelta(hours=1),
         'cost_check':        timedelta(hours=6),
         'security_scan':     timedelta(hours=12),
@@ -148,8 +147,6 @@ def _run_task(task_name: str, app, db):
 
     if task_name == 'health_check':
         _run_health_check(app, db)
-    elif task_name == 'monitoring_tick':
-        _run_monitoring_tick(db)
     elif task_name == 'infra_sync':
         _run_infra_sync(app, db)
     elif task_name == 'cost_check':
@@ -191,7 +188,7 @@ def _users_with_credentials_query(db):
     Postgres can't apply DISTINCT to a row containing a `json` column (e.g.
     users.backup_codes), which raised
     `could not identify an equality operator for type json` and failed the
-    monitoring/infra-sync/digest tasks every tick. Returns a query so callers
+    infra-sync/digest tasks every tick. Returns a query so callers
     can chain extra filters. Portable across Postgres and SQLite.
     """
     from sqlalchemy import select
@@ -207,37 +204,6 @@ def _users_with_credentials_query(db):
         .distinct()
     )
     return db.session.query(User).filter(User.id.in_(cred_user_ids))
-
-
-def _run_monitoring_tick(db):
-    """
-    Fire a proactive monitoring evaluation for every active user.
-
-    ProactiveMonitoringService has its own internal loop, but that loop only
-    fires for users whose rules are already loaded in memory. This tick
-    ensures every active user with cloud credentials gets evaluated at least
-    once per minute, even if they haven't sent a chat message recently.
-
-    Alert → incident wiring happens inside ProactiveMonitoringService via
-    set_incident_engine(), which is called during app startup in app.py.
-    """
-    from models import User, UserCloudCredential
-    from services.proactive_monitoring import get_monitoring_service
-    monitoring_service = get_monitoring_service()
-
-    # Only process users who have at least one cloud credential configured
-    users_with_creds = _users_with_credentials_query(db).all()
-
-    if not users_with_creds:
-        return
-
-    logger.debug(f"Monitoring tick: evaluating {len(users_with_creds)} users")
-
-    for user in users_with_creds:
-        try:
-            monitoring_service.check_now(user.id)
-        except Exception as e:
-            logger.debug(f"Monitoring tick skipped for user {user.id}: {e}")
 
 
 def _run_infra_sync(app, db):

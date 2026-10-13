@@ -6,7 +6,6 @@ from .auth import auth_bp
 from .billing import billing_bp
 from .admin import admin_bp
 from .incidents import incidents_bp
-from .monitoring import monitoring_bp
 from .notifications import notifications_bp
 from .analysis import analysis_bp
 from .webhooks import webhooks_bp
@@ -20,7 +19,7 @@ from .compliance import compliance_bp
 from .organizations import organizations_bp
 
 __all__ = [
-    'auth_bp', 'billing_bp', 'admin_bp', 'incidents_bp', 'monitoring_bp', 'notifications_bp',
+    'auth_bp', 'billing_bp', 'admin_bp', 'incidents_bp', 'notifications_bp',
     'analysis_bp', 'webhooks_bp', 'chatops_bp',
     'drift_bp', 'scaling_bp', 'ai_infrastructure_bp', 'analytics_bp',
     'api_gateway_bp', 'compliance_bp', 'organizations_bp'

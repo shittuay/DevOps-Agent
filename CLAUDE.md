@@ -254,7 +254,7 @@ instance is found.
   touched again, not just the ones a bug report happens to point at.
 - **A non-Flask-session entry point (a bot, webhook, or CLI) that calls a per-user service still
   needs a real app `user_id` from somewhere — it doesn't get one for free.** Every method on
-  `IncidentResponseEngine`/`ProactiveMonitoringService`/`RootCauseAnalyzer` requires `user_id` as
+  `IncidentResponseEngine`/`RootCauseAnalyzer` (and the since-removed `ProactiveMonitoringService`) requires `user_id` as
   its first positional arg, same as any other per-user service in this app. `services/chatops_service.py`
   (Slack/Teams bot commands) called all of them with no `user_id` at all, or with the Slack-typed
   incident-id string landing in the `user_id` slot, because there was no mechanism to map a
@@ -1969,6 +1969,22 @@ and change notifications now link to `/dashboard`. The `ProactiveRecommendation`
 in place, unused. `tests/test_optimize_removed.py` guards against a dangling link or a
 `url_for('optimization.…')` (one in `scaling/dashboard.html` would otherwise 500 `/scaling`).
 
+### Monitoring (`/monitoring`) — removed 2026-10-13
+
+The Monitoring page (`routes/monitoring.py`, `templates/monitoring/`) and the engine behind it
+(`services/proactive_monitoring.py`) were deleted at the owner's request. That engine seeded
+default alert rules for every user with a cloud account, evaluated them on a 60s scheduler tick
+(`monitoring_tick`, also removed from `services/scheduler.py`), and **auto-opened incidents** and
+sent Slack/Teams/status-page notifications when an alert fired. **Incidents are no longer created
+from metric alerts** — manual and webhook-created incidents, RCA, and incident notifications are
+unaffected. ChatOps `/alerts` and `/metrics` were removed; `/status` now reports incident stats
+only. The dead `notification_service.notify_alert()` (it linked to `/monitoring`) was deleted;
+`status_service.broadcast_incident()` is now unused but kept. The agent's Prometheus/Datadog/Grafana
+tools (`src/tools/monitoring_tools.py`) are a separate feature and remain. `MonitoringRuleModel` /
+`MonitoringAlertModel` tables are left in place, unused. `tests/test_monitoring_removed.py` guards
+the route, the engine import, the scheduler tick, the ChatOps commands, and every page that used to
+`url_for('monitoring.…')` (six did — each would 500 without the fix).
+
 ---
 
 ### Skills System
@@ -2050,7 +2066,7 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 
 **Header layout (3 zones):**
 - Left: sidebar toggle (☰)
-- Center: primary nav (Dashboard / Monitoring / Incidents) | secondary nav (Map / Analysis / Learn) — orange underline on hover
+- Center: primary nav (Dashboard / Incidents) | secondary nav (Map / Analysis / Learn) — orange underline on hover
 - Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.

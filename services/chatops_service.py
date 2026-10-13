@@ -66,7 +66,7 @@ class ChatOpsService:
     Features:
     - Natural language command parsing
     - Incident queries and management
-    - Status checks and health monitoring
+    - Status checks
     - Deployment and action triggers
     """
 
@@ -128,14 +128,6 @@ class ChatOpsService:
         ))
 
         self.register_command(ChatCommand(
-            name="alerts",
-            description="List active alerts",
-            usage="/alerts [severity]",
-            handler=self._cmd_alerts,
-            aliases=["a"]
-        ))
-
-        self.register_command(ChatCommand(
             name="playbooks",
             description="List available playbooks",
             usage="/playbooks",
@@ -157,14 +149,6 @@ class ChatOpsService:
             usage="/analyze <incident_id>",
             handler=self._cmd_analyze,
             aliases=["rca"]
-        ))
-
-        self.register_command(ChatCommand(
-            name="metrics",
-            description="Get current metrics summary",
-            usage="/metrics [service]",
-            handler=self._cmd_metrics,
-            aliases=["m"]
         ))
 
         self.register_command(ChatCommand(
@@ -229,7 +213,7 @@ class ChatOpsService:
 
         `user_id` is the *chat platform* identity (a Slack/Teams id such as
         "U01ABC123"). `app_user_id` is this application's `User.id`. They are
-        NOT interchangeable: the incident engine and monitoring service key all
+        NOT interchangeable: the incident engine keys all
         per-user state on `User.id`, so passing a platform id through would read
         another user's namespace or none at all. Commands that need per-user
         data resolve it through `_require_app_user()` and refuse politely when
@@ -343,14 +327,11 @@ class ChatOpsService:
     def _cmd_status(self, args: list, **kwargs) -> ChatResponse:
         """Get system status."""
         from services.incident_response import get_incident_engine
-        from services.proactive_monitoring import get_monitoring_service
 
         app_user_id = self._require_app_user(kwargs)
         engine = get_incident_engine()
-        monitoring = get_monitoring_service()
 
         stats = engine.get_stats(app_user_id)
-        mon_status = monitoring.get_status(app_user_id)
 
         active_incidents = stats.get('active', 0)
         critical = stats.get('by_severity', {}).get('critical', 0)
@@ -371,11 +352,6 @@ class ChatOpsService:
 • Active: {active_incidents}
 • Critical: {critical}
 • Resolved (24h): {stats.get('resolved_last_24h', 0)}
-
-📡 *Monitoring*
-• Status: {'Running' if mon_status.get('running') else 'Stopped'}
-• Active Rules: {mon_status.get('rules_enabled', 0)}
-• Active Alerts: {mon_status.get('alerts_active', 0)}
 """
         return ChatResponse(text=text)
 
@@ -481,28 +457,6 @@ class ChatOpsService:
             return ChatResponse(text=f"✅ Incident `{incident_id}` resolved.")
         return ChatResponse(text=f"❌ Failed to resolve: {result.get('error')}")
 
-    def _cmd_alerts(self, args: list, **kwargs) -> ChatResponse:
-        """List active alerts."""
-        from services.proactive_monitoring import get_monitoring_service
-
-        service = get_monitoring_service()
-        alerts = service.get_active_alerts(self._require_app_user(kwargs))
-
-        if not alerts:
-            return ChatResponse(text="✅ No active alerts.")
-
-        severity_filter = args[0].lower() if args else None
-
-        lines = ["*Active Alerts:*\n"]
-        # get_active_alerts returns dicts (Alert.to_dict()), not Alert objects.
-        for alert in alerts[:10]:
-            severity = str(alert.get('severity', '')).lower()
-            if severity_filter and severity != severity_filter:
-                continue
-            lines.append(f"• [{severity.upper()}] {alert.get('name', 'unnamed')}\n  {str(alert.get('message', ''))[:100]}")
-
-        return ChatResponse(text="\n".join(lines))
-
     def _cmd_playbooks(self, args: list, **kwargs) -> ChatResponse:
         """List playbooks."""
         from services.incident_response import get_incident_engine
@@ -590,43 +544,6 @@ class ChatOpsService:
             return ChatResponse(text=text)
 
         return ChatResponse(text=f"Analysis completed but no root causes identified. See full report: /analysis/{result.id}")
-
-    def _cmd_metrics(self, args: list, **kwargs) -> ChatResponse:
-        """Get metrics summary from the user's own configured monitoring rules."""
-        from services.proactive_monitoring import get_monitoring_service
-
-        app_user_id = self._require_app_user(kwargs)
-        service_filter = args[0].lower() if args else None
-
-        monitoring = get_monitoring_service()
-        rules = monitoring.get_rules(app_user_id)
-
-        if service_filter:
-            rules = [
-                r for r in rules
-                if service_filter in r['name'].lower()
-                or service_filter in str(r.get('labels', {}).get('service', '')).lower()
-            ]
-
-        if not rules:
-            return ChatResponse(
-                text="No monitoring rules are configured, so there are no real metrics "
-                     "to show. Set one up in Settings › Monitoring to see live values here."
-            )
-
-        state_emoji = {'firing': '\U0001F534', 'pending': '\U0001F7E1', 'ok': '\U0001F7E2'}
-        lines = ["*Metrics Summary*\n"]
-        for rule in sorted(rules, key=lambda r: r['name']):
-            emoji = state_emoji.get(rule.get('state'), '⚪')
-            value = rule.get('last_value')
-            value_text = str(value) if value is not None else "no data yet"
-            checked = rule.get('last_check') or "never"
-            lines.append(
-                f"{emoji} *{rule['name']}* ({rule['source']}): {value_text} "
-                f"(threshold {rule['condition']} {rule['threshold']}) — last checked {checked}"
-            )
-
-        return ChatResponse(text="\n".join(lines))
 
     def _cmd_deployments(self, args: list, **kwargs) -> ChatResponse:
         """List recent deployments.
@@ -729,7 +646,7 @@ class ChatOpsService:
         link_code.used_at = utcnow()
         db.session.commit()
 
-        return ChatResponse(text="✅ Account linked! You can now use incident and monitoring commands here.")
+        return ChatResponse(text="✅ Account linked! You can now use incident commands here.")
 
     def format_slack_blocks(self, response: ChatResponse) -> list:
         """Format response as Slack blocks."""
