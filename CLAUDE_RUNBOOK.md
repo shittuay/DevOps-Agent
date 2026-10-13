@@ -3092,3 +3092,56 @@ unfixed. Recommend a dedicated pass that also considers the structural fix CLAUD
 for: a shared "no live account → fail closed" helper for recommendation generation, and a
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
+
+## Scheduled audit (2026-09-21): `services/ai_infrastructure.py` was the eighth instance of the fabricated-recommendation/fake-Apply bug — fixed
+
+Routine code review (vulnerabilities/smells/duplicates). `python3 scripts/check_security_invariants.py`
+was clean. Verified the tool-risk-classification sweep (every `delete_`/`terminate_`/`remove_`/
+`destroy_`/`drop_`/`update_` tool whose verb isn't a leading prefix — the `provider_verb_noun` shape
+that has repeatedly defeated `safety.py`'s auto-detection in past audits) against all 746 registered
+tool names: no new gaps found, everything in that shape is already classified. Also re-walked the
+`InfrastructureTemplate`/`AnalyticsWidget`/`WebhookEndpoint`/`Organization` service getters that do a
+bare `Model.query.get(id)` (the same shape that caused the `compliance_service.py` and
+`organizations.py` `view_team` IDOR fixes documented elsewhere in this file) — all of them already
+either filter by `self.user_id`/an explicit `user_id` param, or are only ever reached from a route
+already gated by `@org_admin_required`/an equivalent membership check. No new instance found there.
+
+**Fixed — `services/ai_infrastructure.py`'s `get_recommendations()`/`apply_recommendation()`**, the
+eighth known instance of the "canned output indistinguishable from a real query" bug class CLAUDE.md
+tracks (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the dashboard
+cost-recommendation Apply endpoint, `routes/scaling.py`'s Apply endpoint, and now this one).
+`get_recommendations(user_id)` returned four hardcoded recommendations (`rec_1`..`rec_4` — "Right-size
+underutilized EC2 instances" with an invented $150/mo savings figure, an S3-encryption tip, an RDS
+read-replica tip, a Multi-AZ tip) completely unconditionally, ignoring the `user_id` argument
+entirely — every free/starter/pro/business user with or without a connected cloud account saw the
+byte-identical list. `apply_recommendation()` then reported `success: True` with an `actions_taken`
+list for the two "auto_applicable" ones with no cloud API call of any kind. Confirmed via grep that
+nothing in the file (or anywhere importing it) ever feeds this service real `InfrastructureResource`/
+`cost_explorer` data — unlike `performance_optimizer.py`'s `analyze_resource()`, this class never had
+even an unwired real-data entry point. Reachable at `/ai/recommendations` (rendered page) and
+`/ai/api/recommendations` + `/ai/api/recommendations/<id>/apply` (JSON API), both in
+`routes/ai_infrastructure.py`.
+
+Fixed the same way the seven prior instances were: `get_recommendations()` now returns `[]`
+unconditionally (matching `performance_optimizer.py`'s `_get_user_recommendations()` fail-closed
+shape) and `apply_recommendation()` now always returns `{success: false, error: "...not yet
+implemented — no cloud API call is made..."}`, matching `routes/scaling.py`'s
+`api_apply_recommendation` / `app.py`'s `apply_recommendation` wording exactly. `routes/ai_infrastructure.py`'s
+`api_apply_recommendation` now returns HTTP 501 on that failure response instead of a bare 200, same
+as the other two Apply endpoints. `templates/ai_infrastructure/recommendations.html` already renders
+a clean "No recommendations available" empty state client-side, so no template change was needed.
+No test covered this path (`grep` for `rec_1`/`apply_recommendation`/`ai_infrastructure` under
+`tests/` found only an unrelated templates test file), so there was no regression risk. Verified
+the new behavior directly (pytest isn't fully installable in this sandbox — missing `flask` and other
+app deps, a pre-existing environment gap noted elsewhere in this file) by importing
+`AIInfrastructureService` standalone and asserting `get_recommendations()` returns `[]`,
+`apply_recommendation()` returns the fail-closed shape, and `dismiss_recommendation()`/
+`get_optimization_suggestions()` (which both call `get_recommendations()` internally) degrade
+correctly to empty results.
+
+**Still open, not touched by this pass:** the structural fix CLAUDE.md has called for since the
+2026-09-20 entry above — a shared "no live account → fail closed" helper for recommendation
+generation and a shared "apply" helper that refuses to report success without an actual tool call —
+remains undone. Eight independent instances of the identical bug shape across seven separate audits
+is a strong signal this needs the structural fix rather than a ninth one-off patch next time a new
+recommendation surface is added.
