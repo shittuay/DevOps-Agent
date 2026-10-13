@@ -1503,6 +1503,13 @@ unit, not the deployed one, until this gap is closed.
 config; it's computed locally with `pyotp`. **Email codes require a delivery
 provider**, or login fails with "Failed to send verification email".
 
+2FA lives on the account (`User.mfa_method` / `two_factor_secret`), never on a device.
+The code screen stays valid for `_MFA_PENDING_MINUTES` (10, the email OTP lifetime).
+Keep these two equal, or emailed codes expire on the screen while still valid.
+`_check_mfa_code` strips whitespace and dashes before checking. The code box must not
+cap input at 6 characters: a pasted "123 456" would be cut to 5 digits. Both MFA
+screens show which account is signing in. Pinned by `tests/test_2fa_code_acceptance.py`.
+
 - Email (`services/email_service.py`): set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
   + `EMAIL_FROM`, then one of: `BREVO_API_KEY`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`; `SENDGRID_API_KEY`.
 

@@ -27,6 +27,11 @@ from src.utils.timeutils import utcnow
 _LOGIN_TEMPLATE = 'login.html'
 _VERIFY_2FA_TEMPLATE = 'verify_2fa.html'
 _EMAIL_SEND_FAILED = 'Failed to send verification email. Please try again.'
+# How long the code screen stays valid after the password step. Matches the email
+# OTP lifetime (User.set_mfa_otp, 10 minutes): a shorter window bounced users back to
+# /login while their emailed code was still valid, which looked like a rejected code.
+_MFA_PENDING_MINUTES = 10
+_MFA_TIMED_OUT = 'Your sign-in timed out before the code was entered. Please sign in again.'
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -569,10 +574,13 @@ def _check_mfa_code(user, mfa_method, code):
     """Verify a TOTP/email code, falling back to a single-use backup code."""
     from services.two_factor_service import two_factor_service
 
+    # Authenticator apps and email clients often show or copy "123 456" (sometimes with
+    # a non-breaking space); only the digits matter for a 6-digit code.
+    digits = re.sub(r'[\s\-]', '', code)
     if mfa_method == 'totp':
-        verified = two_factor_service.verify_totp(user.two_factor_secret, code)
+        verified = two_factor_service.verify_totp(user.two_factor_secret, digits)
     elif mfa_method == 'email':
-        verified = user.verify_mfa_otp(code)
+        verified = user.verify_mfa_otp(digits)
     else:
         verified = False
 
@@ -617,7 +625,13 @@ def _record_failed_mfa(user, mfa_method, ip_address):
         error = 'Too many failed attempts. Account locked for 15 minutes.'
     else:
         error = f'Invalid code. {attempts_remaining} attempts remaining.'
-    return render_template(_VERIFY_2FA_TEMPLATE, mfa_method=mfa_method, error=error)
+    return _render_verify(user, mfa_method, error)
+
+
+def _render_verify(user, mfa_method, error=None):
+    """The code screen, naming the account so a stale or wrong account is obvious."""
+    return render_template(_VERIFY_2FA_TEMPLATE, mfa_method=mfa_method, error=error,
+                           account_email=user.email)
 
 
 @auth_bp.route('/verify-2fa', methods=['GET', 'POST'])
@@ -631,23 +645,25 @@ def verify_2fa():
         return redirect(url_for('.login'))
 
     user = User.query.get(pending_user_id)
-    if not user or utcnow() - datetime.fromisoformat(pending_time) > timedelta(minutes=5):
+    if not user:
         _clear_pending_mfa()
         return redirect(url_for('.login'))
+    if utcnow() - datetime.fromisoformat(pending_time) > timedelta(minutes=_MFA_PENDING_MINUTES):
+        _clear_pending_mfa()
+        return render_template(_LOGIN_TEMPLATE, error=_MFA_TIMED_OUT)
 
     mfa_method = session.get('2fa_method', user.mfa_method or 'totp')
 
     if request.method == 'GET':
-        return render_template(_VERIFY_2FA_TEMPLATE, mfa_method=mfa_method)
+        return _render_verify(user, mfa_method)
 
     code = request.form.get('code', '').strip()
     if not code:
-        return render_template(_VERIFY_2FA_TEMPLATE, mfa_method=mfa_method,
-                               error='Please enter a verification code.')
+        return _render_verify(user, mfa_method, 'Please enter a verification code.')
 
     lockout = _mfa_lockout_message(user)
     if lockout:
-        return render_template(_VERIFY_2FA_TEMPLATE, mfa_method=mfa_method, error=lockout)
+        return _render_verify(user, mfa_method, lockout)
 
     ip_address = request.remote_addr
     if _check_mfa_code(user, mfa_method, code):
@@ -866,8 +882,9 @@ def api_mfa_set_method():
         return jsonify({'success': True, 'method': 'totp', 'action': 'totp_setup'})
 
     if method == 'email':
-        if not current_user.email_verified:
-            return jsonify({'error': 'Please verify your email address first (check Settings).'}), 400
+        # No "verify your email first" gate: confirming the code sent here proves the
+        # user receives mail at this address, and api_mfa_verify_method marks it
+        # verified. The old gate pointed at Settings, which is locked until MFA exists.
         code = two_factor_service.generate_otp()
         current_user.set_mfa_otp(code)
         db.session.commit()
