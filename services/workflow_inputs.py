@@ -27,6 +27,9 @@ from typing import Any, Dict, List, Tuple
 INPUT_TYPES = {'text', 'select', 'cidr', 'secret', 'number'}
 MAX_TEXT_LENGTH = 200
 MIN_SECRET_LENGTH = 16
+# Narrowest-allowed breadth for a non-world CIDR: /0 alone is not "the internet" —
+# 0.0.0.0/1 or ::/1 cover half of it and slipped past a prefixlen == 0 check.
+_MIN_PREFIXLEN = {4: 8, 6: 16}
 _KEY_RE = re.compile(r'^[a-z][a-z0-9_]*$')
 _PLACEHOLDER_RE = re.compile(r'\{([a-z][a-z0-9_]*)\}')
 _WORLD_OPEN = {'*', 'internet', 'any', 'anywhere'}
@@ -43,8 +46,8 @@ def _validate_cidr(raw: str, allow_world: bool) -> Tuple[str, str]:
         network = ipaddress.ip_network(raw, strict=False)
     except ValueError:
         return '', 'Enter an IP address or CIDR, e.g. 203.0.113.10/32.'
-    if network.prefixlen == 0 and not allow_world:
-        return '', 'This would open access to the whole internet. Enter your own IP, e.g. 203.0.113.10/32.'
+    if network.prefixlen < _MIN_PREFIXLEN[network.version] and not allow_world:
+        return '', 'This range is far too broad and would open access to much of the internet. Enter your own IP, e.g. 203.0.113.10/32.'
     return str(network), ''
 
 

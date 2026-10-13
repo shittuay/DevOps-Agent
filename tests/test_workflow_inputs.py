@@ -417,3 +417,15 @@ def test_seed_refreshes_curated_rows_with_edited_steps(app):
         row = WorkflowTemplate.query.filter_by(name=target['name'], created_by=None).first()
         assert row.steps == target['steps']
         assert (row.inputs or []) == target.get('inputs', [])
+
+
+def test_cidr_refuses_near_world_ranges_unless_allow_world():
+    from services.workflow_inputs import validate_inputs
+    spec = [{'key': 'c', 'type': 'cidr', 'label': 'x'}]
+    for broad in ('0.0.0.0/0', '0.0.0.0/1', '128.0.0.0/2', '::/1'):
+        _, errors = validate_inputs(spec, {'c': broad})
+        assert 'c' in errors, broad
+    values, errors = validate_inputs(spec, {'c': '10.0.0.0/8'})
+    assert not errors and values['c'] == '10.0.0.0/8'
+    values, errors = validate_inputs([dict(spec[0], allow_world=True)], {'c': '0.0.0.0/1'})
+    assert not errors
