@@ -258,9 +258,7 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
             'ever be opened to that address, never 0.0.0.0/0 or *; (b) a long random API key for the vLLM '
             'server; (c) an SSH public key for the admin user (this VM uses key login only, never a '
             'password); (d) the Azure region, defaulting to eastus; (e) the model, defaulting to '
-            'Qwen/Qwen2.5-1.5B-Instruct. Warn me that the VM bills hourly until it is deleted. Do NOT use '
-            'create_virtual_machine for this workflow: it creates a public IP with no NSG and password '
-            'login, which would expose the VM.',
+            'Qwen/Qwen2.5-1.5B-Instruct. Warn me that the VM bills hourly until it is deleted.',
             'Check GPU capacity: call azure_api_read with client_type "compute", operation_path '
             '"usage.list", params {"location": REGION}. Find the entry for the NCASv3_T4 family '
             '(Standard_NC4as_T4_v3 needs 4 vCPUs). If limit minus current value is below 4, stop and tell '
@@ -271,16 +269,13 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
             '"virtual_machine_extension_images.list_versions", {"location": REGION, "publisher_name": '
             '"Microsoft.HpcCompute", "type": "NvidiaGpuDriverLinux"}). Use the newest of each. If either '
             'list is empty, stop and report exactly what came back.',
-            'Create the network with an explicit firewall: create_resource_group named llm-gpu-lab-rg in '
-            'REGION; create_virtual_network llm-gpu-lab-vnet with subnet default (10.0.0.0/24); '
-            'create_network_security_group llm-gpu-lab-nsg; then create_nsg_rule allowing TCP 8000 inbound '
-            'from my CIDR only, priority 100. Add no SSH rule. Then use azure_api_write with client_type '
-            '"network" to create a Standard-SKU static public IP llm-gpu-lab-ip and a NIC llm-gpu-lab-nic '
-            'on that subnet with the NSG and public IP attached.',
-            'Create the VM with azure_api_write("compute", "virtual_machines.begin_create_or_update", ...): '
-            'name llm-gpu-lab, size Standard_NC4as_T4_v3, the resolved Ubuntu image, a 128 GB Premium SSD OS '
-            'disk, the NIC above, admin user azureuser with my SSH key and password authentication '
-            'disabled, and tags {"Project": "llm-gpu-lab"}.',
+            'create_resource_group named llm-gpu-lab-rg in REGION. Then create the VM with '
+            'create_virtual_machine: resource_group llm-gpu-lab-rg, vm_name llm-gpu-lab, location REGION, '
+            'vm_size Standard_NC4as_T4_v3, admin_username azureuser, ssh_public_key set to my key (this '
+            'disables password login), allowed_source_cidr set to my CIDR, open_ports [8000] (no SSH), '
+            'image_publisher Canonical with the image offer and sku resolved above, os_disk_size_gb 128, '
+            'and tags {"Project": "llm-gpu-lab"}. The tool builds its own VNet, an NSG allowing only TCP '
+            '8000 from my CIDR, and a Standard static public IP.',
             'Install the GPU driver: azure_api_write("compute", "virtual_machine_extensions.'
             'begin_create_or_update", ...) on llm-gpu-lab with publisher Microsoft.HpcCompute, type '
             'NvidiaGpuDriverLinux, the version resolved earlier, and auto_upgrade_minor_version true. Wait '

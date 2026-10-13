@@ -273,20 +273,13 @@ instance is found.
   Since 2026-10-13 `process_message()` also refuses a `requires_auth` command with no resolved
   identity *before* dispatch, so a handler that forgets `_require_app_user()` (as
   `_cmd_deployments` once did) still fails closed.
-  **That description overstates what the code actually enforces, though: `ChatCommand.requires_auth`
-  is declarative only — `process_message()` never reads it.** Enforcement is entirely per-handler
-  discipline (each handler calls `self._require_app_user(kwargs)` itself), and nothing structurally
-  catches a handler that forgets. The 2026-09-24 scheduled audit found exactly that:
-  `_cmd_deployments` never called `_require_app_user()` at all and read `WebhookEventRecord` (a
-  platform-wide table with no `user_id` column, gated `@admin_required` everywhere else it's read —
-  `routes/webhooks.py`) directly, so any Slack/Teams user who could message the bot — linked to an
-  app account or not, any platform role — could read every tenant's CI/CD deployment history with
-  zero authentication. Fixed by requiring a resolved app user and gating on
-  `services.rbac.user_is_admin()`, mirroring the web dashboard's own gate rather than inventing a
-  per-user view over data that was never partitioned per user. See CLAUDE_RUNBOOK.md's 2026-09-24
-  entry. Still open: making `requires_auth` load-bearing at dispatch time instead of trusting every
-  handler to remember — the same "duplicated pipeline, no shared enforcement point" shape as the
-  guardrails pipeline and CSRF/login-timing checks elsewhere in this file.
+  History: until then `ChatCommand.requires_auth` was declarative only and enforcement was
+  per-handler discipline. The 2026-09-24 scheduled audit found `_cmd_deployments` never called
+  `_require_app_user()` and served `WebhookEventRecord` (a platform-wide table with no `user_id`,
+  `@admin_required` everywhere else it's read) to any Slack/Teams user, linked or not. It is now
+  gated on a resolved app user plus `services.rbac.user_is_admin()` (see CLAUDE_RUNBOOK.md's
+  2026-09-24 entry), and the central dispatch check above backstops any future handler that
+  forgets; `tests/test_chatops_deployments_access_control.py` registers such a handler to prove it.
 - **A route rendering another entity's nested child (team, resource, sub-object) must check the
   parent-membership guard itself — checking the child's `parent_id` foreign key is not the same
   as checking access.** `routes/organizations.py`'s `view_team` fetched `membership =
@@ -1887,11 +1880,17 @@ installs, and every workflow ends with teardown. The Azure and GCP workflows sha
 `_VLLM_PIP_SETUP_LINES` (pip/uv install, vLLM as a systemd unit — idempotent, so a
 driver-extension reboot or a re-run can't leave it stopped); its rendered form is
 `bash -n`-checked by the test. Images, driver-extension versions and quota entries are
-resolved **at run time** through `*_api_read`, never hardcoded. **The Azure workflow
-deliberately avoids `create_virtual_machine`:** that tool creates a Basic,
-dynamic public IP with no NSG and password-only login, i.e. a VM open to the internet
-— flagged 2026-10-13, not yet fixed (Basic public IPs are also retired by Azure, so the
-tool may simply fail on new deployments). The EKS workflow pins
+resolved **at run time** through `*_api_read`, never hardcoded.
+**`create_virtual_machine` (Azure) is secure by default since 2026-10-13:** it used to
+create a Basic dynamic public IP and a NIC with no NSG and password-only login, i.e. a VM
+open to the whole internet, from a low-risk `create_` tool with no confirmation prompt.
+It now always attaches an NSG, uses a Standard static public IP (closed unless an NSG rule
+allows traffic), opens only `open_ports` (default 22) from one `allowed_source_cidr`,
+refuses world-open sources (`0.0.0.0/0`, `*`, `Internet`, `::/0`) before creating anything —
+internet exposure must go through the confirmation-gated `create_nsg_rule` — and
+`ssh_public_key` disables password login. Default image moved from EOL Ubuntu 18.04 to
+22.04 (`0001-com-ubuntu-server-jammy` / `22_04-lts-gen2`). Guarded by
+`tests/test_azure_vm_secure_defaults.py`; the Azure LLM workflow now uses this tool. The EKS workflow pins
 `nvcr.io/nvidia/k8s-device-plugin:v0.17.1` (the AL2023 NVIDIA AMI ships drivers but
 not the device plugin) — bump it deliberately. **A new workflow category needs a
 matching `filter-chip` in `templates/workflows.html`**; `test_workflow_seeding.py`

@@ -32,8 +32,7 @@ REFERENCED_TOOLS = {
                      'authorize_security_group_ingress', 'create_ec2_instance', 'http_check'},
     EKS_WF['name']: {'aws_api_read', 'create_eks_node_group', 'apply_manifest'},
     AZURE_WF['name']: {'azure_api_read', 'azure_api_write', 'create_resource_group',
-                       'create_virtual_network', 'create_network_security_group',
-                       'create_nsg_rule', 'http_check'},
+                       'create_virtual_machine', 'http_check'},
     GCP_WF['name']: {'gcp_api_read', 'gcp_api_write', 'create_firewall_rule',
                      'delete_compute_instance', 'delete_firewall_rule', 'http_check'},
     ONPREM_WF['name']: {'get_nodes', 'describe_node', 'k8s_api_read', 'apply_manifest',
@@ -47,7 +46,7 @@ PUBLIC_VM_WORKFLOWS = [EC2_WF, AZURE_WF, GCP_WF]
 LAUNCH_MARKERS = {
     EC2_WF['name']: 'create_ec2_instance',
     EKS_WF['name']: 'create_eks_node_group',
-    AZURE_WF['name']: 'virtual_machines.begin_create_or_update',
+    AZURE_WF['name']: 'create_virtual_machine',
     GCP_WF['name']: '"instances", "insert"',
 }
 
@@ -89,11 +88,13 @@ def test_api_port_is_never_opened_to_the_internet():
         assert 'my CIDR' in text, wf['name']
 
 
-def test_azure_workflow_refuses_the_exposed_vm_tool():
-    # create_virtual_machine builds a public IP with no NSG and password login.
+def test_azure_workflow_uses_the_locked_down_vm_parameters():
+    # create_virtual_machine is only safe with a key and a scoped CIDR; see
+    # tests/test_azure_vm_secure_defaults.py for the tool-level guarantees.
     text = _text(AZURE_WF)
-    assert 'Do NOT use create_virtual_machine' in text
-    assert 'password authentication disabled' in text
+    assert 'ssh_public_key set to my key' in text
+    assert 'allowed_source_cidr set to my CIDR' in text
+    assert 'open_ports [8000] (no SSH)' in text
 
 
 def test_azure_runs_setup_only_after_the_driver_extension():
