@@ -9,4 +9,4 @@ def test_recommendations_are_never_fabricated():
 def test_apply_never_reports_success():
     result = AIInfrastructureService(1).apply_recommendation('rec_1', 1)
     assert result['success'] is False
-    assert result['error'] == 'not_implemented'
+    assert 'not yet implemented' in result['error']
