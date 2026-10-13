@@ -81,7 +81,11 @@ def test_seeded_workflows_are_public_and_listable(authenticated_client, app):
 
     # every category chip in templates/workflows.html must match >= 1 workflow,
     # otherwise that filter renders the empty state
-    chips = {'Compute', 'Security', 'Monitoring', 'Storage', 'Database', 'Cost', 'Networking'}
+    # (read from the template itself, so adding a category means adding its chip)
+    import re
+    from pathlib import Path
+    html = (Path(__file__).resolve().parent.parent / 'templates' / 'workflows.html').read_text()
+    chips = set(re.findall(r'class="filter-chip[^"]*" data-category="([^"]+)"', html)) - {'all'}
     assert chips == {w['category'] for w in workflows}
 
     for w in workflows:
