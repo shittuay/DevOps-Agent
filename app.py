@@ -354,10 +354,6 @@ app.register_blueprint(monitoring_bp)
 from routes.notifications import notifications_bp
 app.register_blueprint(notifications_bp)
 
-# Register optimization blueprint
-from routes.optimization import optimization_bp
-app.register_blueprint(optimization_bp)
-
 # Register analysis blueprint for AI-powered root cause analysis
 from routes.analysis import analysis_bp
 app.register_blueprint(analysis_bp)

@@ -54,14 +54,12 @@ services/
   credential_encryption.py # Fernet encryption for credentials
   input_sanitizer.py       # sanitize_input() + validate_message() (injection blocking)
   learning_sandbox.py      # Mock tool results for sandbox/learning mode
-  prevention_engine.py     # ProactiveRecommendation: SQL pattern analysis + Claude spec generation
   skills_engine.py         # Skills: frontmatter parsing, trigger matching, learned infra context
   starter_templates.py     # Curated public infrastructure templates (data only)
   starter_workflows.py     # Curated pre-built workflow templates + seed_workflow_templates()
 routes/
   incidents.py             # Incident dashboard, journal, correlation group APIs
   artifacts.py             # Chat artifact CRUD + markdown export
-  optimization.py          # Cost + proactive prevention endpoints
   skills.py                # Skills activate/deactivate/list/learned endpoints
 skills/                    # Built-in skill *.md files (loaded at startup, cached in memory)
   aws_cost_optimization.md
@@ -71,8 +69,6 @@ skills/                    # Built-in skill *.md files (loaded at startup, cache
   terraform_best_practices.md
 templates/
   index.html               # Main chat UI (dark terminal aesthetic, centered nav, artifacts panel)
-  optimization/
-    prevention.html        # Proactive prevention — 4-category card UI with spec generation
   settings/
     skills.html            # Skills toggle grid + learned infrastructure summary
   incidents/
@@ -193,7 +189,7 @@ that entry was already stale when written). `services/performance_optimizer.py`'
 same id from the 2026-08-12 drift incident above) plus four other hardcoded resources
 (`prod-db`, `default/api-service`, `vol-0xyz789`, `data-archive`) for every user with no cloud
 account, rendered at `/optimization/` and `/optimization/recommendations` — **fixed by the
-2026-09-20 scheduled audit**: `_get_user_recommendations()` now returns an empty dict until a
+2026-09-20 scheduled audit** (the whole Optimize area was later removed, 2026-10-13): `_get_user_recommendations()` now returns an empty dict until a
 real caller feeds it live resource data via the existing (previously unused)
 `analyze_resource()` entry point, same fail-closed shape as `predictive_scaling.py`'s fix. The
 same audit found the identical fake-Apply shape one call site over: `app.py`'s
@@ -1922,35 +1918,18 @@ matching `filter-chip` in `templates/workflows.html`**; `test_workflow_seeding.p
 now reads the chips from the template and fails if they drift. Teaching notes for
 this domain live in `LEARNING_MODE_CONTEXT` ("Self-hosted LLMs").
 
-### Proactive Prevention Engine
-**Access:** `/optimization/prevention` — click "Run Analysis" to scan
+### Optimize (`/optimization`) — removed 2026-10-13
 
-**What it does:** Analyzes your synced infrastructure using pure SQL (no AI cost) to surface four categories of recommendations. "Generate Spec" calls Claude to write a detailed implementation plan for any recommendation.
-
-**New model:** `ProactiveRecommendation`
-
-**Recommendation categories:**
-
-| Category | Example types |
-|---|---|
-| Observability | `missing_alert`, `no_log_aggregation`, `no_uptime_check` |
-| Infrastructure | `single_az`, `no_auto_scaling`, `unencrypted_storage`, `unused_resource` |
-| Governance | `untagged_resources`, `overpermissive_iam`, `missing_backup` |
-| Code Optimization | `recurring_pod_crash`, `high_restart_count`, `deploy_without_healthcheck` |
-
-**API endpoints (in `routes/optimization.py`):**
-```
-GET  /optimization/api/recommendations/proactive                    → list (filter: category, status)
-POST /optimization/api/recommendations/proactive/analyze            → trigger analysis, save new recs
-POST /optimization/api/recommendations/<id>/agent-spec              → generate Claude impl spec (costs 1 credit)
-PUT  /optimization/api/recommendations/<id>/status                  → update status (resolved/dismissed/pending)
-```
-
-**Service (`services/prevention_engine.py`):**
-- `analyze_incident_patterns()` — groups incidents by title prefix, count > 2 = recommendation
-- `generate_observability_recommendations()` — resources with no matching monitoring rule
-- `generate_governance_recommendations()` — untagged resources, unattached EBS > 30 days
-- `generate_agent_spec()` — single Claude API call; deducts 1 credit; saves to `ProactiveRecommendation.agent_spec`
+The Optimize area (`routes/optimization.py`, `templates/optimization/`,
+`services/performance_optimizer.py`, `services/prevention_engine.py`) was deleted at the
+owner's request. Its fabricated sample data had already been stripped by the 2026-09-20 audit
+(see the real-cloud-account section above), which left the page rendering an empty list —
+nothing ever fed `analyze_resource()` live data. Real cost data lives elsewhere and is
+unaffected: `services/cost_explorer.py` backs `/api/dashboard/costs` and the
+`get_cost_summary`/`get_optimization_recommendations` agent tools. Slack/Teams cost, security,
+and change notifications now link to `/dashboard`. The `ProactiveRecommendation` table is left
+in place, unused. `tests/test_optimize_removed.py` guards against a dangling link or a
+`url_for('optimization.…')` (one in `scaling/dashboard.html` would otherwise 500 `/scaling`).
 
 ---
 
@@ -2033,7 +2012,7 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 
 **Header layout (3 zones):**
 - Left: sidebar toggle (☰)
-- Center: primary nav (Dashboard / Monitoring / Incidents / Optimize) | secondary nav (Map / Analysis / Learn) — orange underline on hover
+- Center: primary nav (Dashboard / Monitoring / Incidents) | secondary nav (Map / Analysis / Learn) — orange underline on hover
 - Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.

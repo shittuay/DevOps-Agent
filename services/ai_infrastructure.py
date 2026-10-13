@@ -636,8 +636,8 @@ class AIInfrastructureService:
         invented $150 savings figure) unconditionally, ignoring `user_id`
         entirely — every user saw the byte-identical list whether or not they
         had a cloud account connected, the same "canned output indistinguishable
-        from a real query" bug fixed in services/performance_optimizer.py's
-        _get_user_recommendations() and documented in CLAUDE.md's "every
+        from a real query" bug found in the since-removed Optimize area
+        (services/performance_optimizer.py) and documented in CLAUDE.md's "every
         feature runs against a real cloud account" rule. Nothing in this
         codebase feeds this service real resource data (no caller ever wires
         in InfrastructureResource rows or a cost_explorer/CloudWatch query),
