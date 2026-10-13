@@ -102,6 +102,10 @@ newest matching AMI and **pins the distribution vendor's own owner account**
 (`_AMI_OWNERS`) — never match an AMI by name alone, since anyone can publish a
 public image with a lookalike name. Add new distros to `_AMI_OWNERS` /
 `_AMI_NAME_PATTERNS` together, and only with a verified owner id.
+`distro='dlami-gpu'` (added 2026-10-12) resolves the AWS Deep Learning Base GPU
+AMI on Ubuntu (`version` = Ubuntu release, e.g. `24.04`) — NVIDIA driver, Docker
+and the NVIDIA container toolkit preinstalled, owner alias `amazon` per the AWS
+DLAMI docs. It backs the AI/ML workflows below.
 
 ### Kubernetes (76 tools)
 Pods (list, describe, logs, delete, exec), Deployments (list, describe, create, update image, delete), Services (list, create, delete), Namespaces (list, get, create, delete), ConfigMaps (create, delete), Secrets (create, delete), Ingress (create, delete), Nodes (list, cordon, uncordon), Jobs (create, delete).
@@ -1837,6 +1841,18 @@ written by the SSE `done` handler in the page, so a closed tab would strand a ro
 `running` forever. `list_executions` reconciles on read: past `STALE_EXECUTION_MINUTES`
 (30), an assistant reply in the conversation means `completed`, none means `timed_out`.
 Any new status a client reports must have an equivalent server-derivable fallback.
+
+**AI/ML workflows (added 2026-10-12):** "Self-Hosted LLM on AWS GPU (EC2 + vLLM)"
+and "LLM Serving on EKS GPU Nodes (vLLM)". Steps are prose, so
+`tests/test_llm_workflows.py` pins what prose can't enforce: every tool a step names
+exists in the live catalog, the vLLM port is only ever opened to the user's CIDR
+(never `0.0.0.0/0`), the GPU quota (`L-DB2E81BA`, G and VT vCPUs) is checked before
+any launch, and each workflow ends with teardown. The EKS workflow pins
+`nvcr.io/nvidia/k8s-device-plugin:v0.17.1` (the AL2023 NVIDIA AMI ships drivers but
+not the device plugin) — bump it deliberately. **A new workflow category needs a
+matching `filter-chip` in `templates/workflows.html`**; `test_workflow_seeding.py`
+now reads the chips from the template and fails if they drift. Teaching notes for
+this domain live in `LEARNING_MODE_CONTEXT` ("Self-hosted LLMs").
 
 ### Proactive Prevention Engine
 **Access:** `/optimization/prevention` — click "Run Analysis" to scan

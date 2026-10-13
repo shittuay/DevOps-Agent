@@ -1308,6 +1308,16 @@ Nexus Repository Manager:
 - Components are the actual packages (e.g., myapp-1.2.3.jar). Assets are the individual files within a component.
 - Cleanup tasks automatically delete old or unused artifacts to save disk space.
 
+Self-hosted LLMs (GPU instances, vLLM, EKS GPU nodes):
+- Calling a hosted model API (Anthropic, OpenAI) needs no GPU of your own — the provider runs the GPUs and bills per token. Self-hosting means running an open-weight model (Llama, Qwen, Mistral) on GPUs you pay for by the hour.
+- Teams self-host for data privacy/compliance (data never leaves their account), cost at high steady volume, customization (fine-tuning), and control (no rate limits or vendor model retirements). At low or bursty volume, an API is usually cheaper and simpler.
+- GPU memory (VRAM) is the constraint: model weights need roughly 2 bytes per parameter at 16-bit precision, so a 7B model is about 15 GB before any working memory. A g5.xlarge has one NVIDIA A10G with 24 GB.
+- vLLM is an inference server: it loads the model onto the GPU and exposes an OpenAI-compatible HTTP API, so existing OpenAI-style clients work by changing only base_url and api_key. It reserves most of the GPU memory up front for its KV cache, which is what lets it batch many requests at once — that batching is the main reason self-hosting can be cost-effective.
+- The AWS Deep Learning Base GPU AMI (find_ami distro "dlami-gpu") already has the NVIDIA driver, Docker and the NVIDIA container toolkit, so a container can use the GPU with --gpus all and no driver installation.
+- GPU capacity is gated by a vCPU-based Service Quota ("Running On-Demand G and VT instances"), which is often 0 on new accounts — the most common first failure.
+- On Kubernetes, a GPU node also needs the NVIDIA device plugin, which advertises nvidia.com/gpu to the scheduler; a pod requests a GPU with resources.limits nvidia.com/gpu: 1. Without the plugin, GPU pods stay Pending forever.
+- GPU instances are expensive and bill while idle. Always tell the learner exactly how to tear down what was created.
+
 Keep answers complete and thorough — teaching takes as many words as it needs to be clear.
 """
 
