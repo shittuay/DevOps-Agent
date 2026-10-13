@@ -762,7 +762,7 @@ def notify_security(user_id: int, results: dict, base_url: str = _BASE_URL) -> N
         },
         actions=[{
             'text': 'View Findings',
-            'url':  f"{base_url}/optimization",
+            'url':  f"{base_url}/dashboard",
             'primary': True,
         }],
     )
@@ -784,7 +784,7 @@ def notify_cost(user_id: int, new_count: int, total_savings: float,
         },
         actions=[{
             'text': 'View Recommendations',
-            'url':  f"{base_url}/optimization",
+            'url':  f"{base_url}/dashboard",
             'primary': True,
         }],
     )
@@ -802,7 +802,7 @@ def notify_changes(user_id: int, rec_count: int, base_url: str = _BASE_URL) -> N
         fields={'New Findings': str(rec_count)},
         actions=[{
             'text': 'View Analysis',
-            'url':  f"{base_url}/optimization/prevention",
+            'url':  f"{base_url}/dashboard",
             'primary': True,
         }],
     )

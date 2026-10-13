@@ -580,7 +580,6 @@
                 <a href="/workflows" class="header-button{% if request.path.startswith('/workflows') %} active{% endif %}"><i class="fa-solid fa-diagram-project"></i> Workflows</a>
                 <a href="/monitoring" class="header-button{% if request.path.startswith('/monitoring') %} active{% endif %}"><i class="fa-solid fa-wave-square"></i> Monitoring</a>
                 <a href="/incidents" class="header-button{% if request.path.startswith('/incidents') %} active{% endif %}"><i class="fa-solid fa-triangle-exclamation"></i> Incidents</a>
-                <a href="/optimization" class="header-button{% if request.path.startswith('/optimization') %} active{% endif %}"><i class="fa-solid fa-bolt"></i> Optimize</a>
                 <a href="/settings" class="header-button{% if request.path.startswith('/settings') %} active{% endif %}"><i class="fa-solid fa-gear"></i> Settings</a>
                 {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
                 <a href="/approvals" class="header-button" id="approvalsNavBtn" style="position:relative;">
