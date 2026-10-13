@@ -102,6 +102,10 @@ newest matching AMI and **pins the distribution vendor's own owner account**
 (`_AMI_OWNERS`) — never match an AMI by name alone, since anyone can publish a
 public image with a lookalike name. Add new distros to `_AMI_OWNERS` /
 `_AMI_NAME_PATTERNS` together, and only with a verified owner id.
+`distro='dlami-gpu'` (added 2026-10-12) resolves the AWS Deep Learning Base GPU
+AMI on Ubuntu (`version` = Ubuntu release, e.g. `24.04`) — NVIDIA driver, Docker
+and the NVIDIA container toolkit preinstalled, owner alias `amazon` per the AWS
+DLAMI docs. It backs the AI/ML workflows below.
 
 ### Kubernetes (76 tools)
 Pods (list, describe, logs, delete, exec), Deployments (list, describe, create, update image, delete), Services (list, create, delete), Namespaces (list, get, create, delete), ConfigMaps (create, delete), Secrets (create, delete), Ingress (create, delete), Nodes (list, cordon, uncordon), Jobs (create, delete).
@@ -198,18 +202,21 @@ operating on the real, CloudWatch-derived `CostOptimization` rows from
 `services/infrastructure_sync.py`) set `status='applied'` and returned a success toast
 ("Optimization applied — saving $X/mo") without calling any cloud API to stop/resize/reconfigure
 anything — fixed the same way `routes/scaling.py`'s `api_apply_recommendation` was: an honest
-501 `not_implemented` response, never a fabricated `applied` status. **Not yet fixed:**
-`services/ai_infrastructure.py`'s `get_recommendations()` still returns a hardcoded list
-ignoring `user_id`, and its `apply_recommendation()` still reports `success: True` without
-calling any cloud API — same fake-Apply shape, not touched by this pass. See CLAUDE_RUNBOOK.md's
-2026-09-15 and 2026-09-20 entries for exact line numbers. This is now seven known instances of
-the same bug class (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the
-dashboard cost-recommendation Apply endpoint, and still-open AI Infrastructure) found
-independently across six separate audits — the recurrence itself, not just any one instance, is
-the signal that this needs a structural fix (e.g. a shared "no live account → fail closed"
-helper every new recommendation/analytics feature is required to call, and a shared "apply"
-helper that refuses to report success without an actual tool call) rather than another one-off
-patch next time it's found again.
+501 `not_implemented` response, never a fabricated `applied` status. **Fixed by the 2026-09-21
+scheduled audit:** `services/ai_infrastructure.py`'s `get_recommendations()` had the identical
+hardcoded-list-ignoring-`user_id` shape (four fake recommendations, `rec_1`..`rec_4`, including an
+invented "$150/mo savings" figure) and its `apply_recommendation()` reported `success: True` with
+no cloud API call — fixed the same fail-closed way as every instance above (`get_recommendations`
+now returns `[]`, `apply_recommendation` always returns the same "not yet implemented" 501 shape).
+See CLAUDE_RUNBOOK.md's 2026-09-15, 2026-09-20, and 2026-09-21 entries for exact line numbers.
+This was the eighth known instance of the same bug class (Drift, Predictive Scaling, Analytics,
+ChatOps, Performance Optimizer, the dashboard cost-recommendation Apply endpoint,
+`routes/scaling.py`'s Apply endpoint, and AI Infrastructure) found independently across seven
+separate audits — the recurrence itself, not just any one instance, is the signal that this needs
+a structural fix (e.g. a shared "no live account → fail closed" helper every new
+recommendation/analytics feature is required to call, and a shared "apply" helper that refuses to
+report success without an actual tool call) rather than another one-off patch next time a ninth
+instance is found.
 
 **When building or reviewing a feature:**
 - Trace where its data comes from. If the answer is a literal in the source, it isn't done
@@ -306,6 +313,7 @@ patch next time it's found again.
 - `@login_required` decorator on all API routes
 - Email verification required for new accounts
 - Account lockout after 5 failed attempts
+- **Email lookups are case-insensitive everywhere** (`/login` matches `func.lower(User.email)`; every other entry point lowercases input). A case-sensitive email match rejects phone logins, because mobile keyboards auto-capitalize the first letter. Usernames are exact-match.
 - `routes/auth.py`'s `login()` always runs a bcrypt comparison before returning, even for an
   unknown email/username — `_run_timing_safe_password_check()` checks against a fixed dummy hash
   (`_DUMMY_PASSWORD_HASH`) when no account is found, so response time can't be used to enumerate
@@ -382,6 +390,7 @@ The enforcement now lives in a single `@app.before_request` hook, `_enforce_csrf
 **When adding a form-rendering template, it must include
 `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`** — the hook will otherwise
 reject the submission at runtime with no compile-time warning.
+Check **each `<form>`** individually, not the template as a whole: `verify_2fa.html` had a token in its secondary form but not in its main code form, and that locked every 2FA user out until 2026-10-02 (see CLAUDE_RUNBOOK.md).
 
 ### Guardrails (Jailbreak / Prompt Injection Defense)
 Three-layer stack applied at `/api/chat`, `/api/chat/stream`, and the developer REST API
@@ -1488,22 +1497,28 @@ unit (this one included) must be applied to the box manually via SSM, same as
 this feature's initial rollout — the repo copy is documentation of the intended
 unit, not the deployed one, until this gap is closed.
 
-### Email / SMS MFA delivery (`email`/`sms` mfa_method)
+### Email MFA delivery (`email` mfa_method)
 
-TOTP (authenticator app) needs no config — it's computed locally with `pyotp`.
-**Email and SMS verification codes require a delivery provider**, or login fails
-with "Failed to send verification email/SMS code" (`routes/auth.py:120-142`).
+2FA methods are **email code** and **authenticator app (TOTP)**. TOTP needs no
+config; it's computed locally with `pyotp`. **Email codes require a delivery
+provider**, or login fails with "Failed to send verification email".
 
-- Email (`services/email_service.py`) — set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
+- Email (`services/email_service.py`): set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
   + `EMAIL_FROM`, then one of: `BREVO_API_KEY`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`; `SENDGRID_API_KEY`.
-- SMS (`services/email_service.py`'s sibling `sms_service.py`) — Brevo only, so it
-  **requires `BREVO_API_KEY`** (optional `SMS_SENDER_NAME`).
+
+**SMS codes were removed on 2026-10-03.** They were never delivered, because
+Brevo SMS needs prepaid credits plus a registered sender ID per country.
+`services/sms_service.py` and `/api/mfa/phone/*` are gone, and
+`/api/mfa/set-method` rejects `sms`. A user still stored as `mfa_method='sms'` is
+migrated to `email` by `login()` on their next sign-in, so nobody is locked out. The
+`phone_number`/`phone_verified` columns are kept. Don't reintroduce SMS without
+first proving delivery end-to-end.
 
 **Secrets Manager:** all of these are in `MANAGED_SECRET_KEYS`
 (`services/secrets_manager.py`), so in production (`FLASK_ENV=production` or
 `USE_AWS_SECRETS=true`) `init_secrets()` loads them from the
 `devops-agent/production` JSON secret into the environment at startup. Add the
-email/SMS keys to that secret — `SMTP_USER`/`SMTP_PASS` alone are insufficient
+email keys to that secret — `SMTP_USER`/`SMTP_PASS` alone are insufficient
 (without `SMTP_HOST` the app defaults to Brevo's relay and a non-Brevo SMTP
 credential fails to authenticate).
 
@@ -1858,6 +1873,18 @@ written by the SSE `done` handler in the page, so a closed tab would strand a ro
 (30), an assistant reply in the conversation means `completed`, none means `timed_out`.
 Any new status a client reports must have an equivalent server-derivable fallback.
 
+**AI/ML workflows (added 2026-10-12):** "Self-Hosted LLM on AWS GPU (EC2 + vLLM)"
+and "LLM Serving on EKS GPU Nodes (vLLM)". Steps are prose, so
+`tests/test_llm_workflows.py` pins what prose can't enforce: every tool a step names
+exists in the live catalog, the vLLM port is only ever opened to the user's CIDR
+(never `0.0.0.0/0`), the GPU quota (`L-DB2E81BA`, G and VT vCPUs) is checked before
+any launch, and each workflow ends with teardown. The EKS workflow pins
+`nvcr.io/nvidia/k8s-device-plugin:v0.17.1` (the AL2023 NVIDIA AMI ships drivers but
+not the device plugin) — bump it deliberately. **A new workflow category needs a
+matching `filter-chip` in `templates/workflows.html`**; `test_workflow_seeding.py`
+now reads the chips from the template and fails if they drift. Teaching notes for
+this domain live in `LEARNING_MODE_CONTEXT` ("Self-hosted LLMs").
+
 ### Proactive Prevention Engine
 **Access:** `/optimization/prevention` — click "Run Analysis" to scan
 
@@ -2054,6 +2081,15 @@ Use `/skill-name` or mention the skill:
 - `/memory` - Maintain WORKLOG.md as persistent session memory across resets
 - `/security-scan` - Run security scans (infrastructure, compliance, secrets, vulnerabilities, audit)
 - `/integration-testing` - Pre-production gate: env preflight, full pytest, smoke tests, regression checks, security gate → ship/no-ship verdict
+
+## Subagents (`.claude/agents/`)
+
+- `executive-assistant` — owner-facing briefings, next-work ranking, PR/CI triage, TODOS.md/WORKLOG.md
+  hygiene, and email/status drafts. Reads TODOS.md, CLAUDE.md "Not yet fixed" items, git log, GitHub,
+  and Calendar/Gmail when connected. Proposes only: it never sends email, creates drafts, merges,
+  pushes, or touches production itself — it returns proposed actions to the main session, which
+  confirms with the owner and carries them out (a subagent cannot see the owner's conversation, so
+  it cannot verify an approval).
 
 ## Code Style
 

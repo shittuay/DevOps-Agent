@@ -122,6 +122,106 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
             'Produce a prioritized security hardening report with specific remediation commands for each finding.',
         ],
     },
+    {
+        'name': 'Self-Hosted LLM on AWS GPU (EC2 + vLLM)',
+        'description': (
+            'Deploy an open-weight LLM on a single AWS GPU instance (g5.xlarge, NVIDIA A10G) '
+            'with vLLM serving an OpenAI-compatible API, verify it end to end, and report '
+            'cost and teardown steps.'
+        ),
+        'category': 'AI/ML',
+        'estimated_minutes': 20,
+        'steps': [
+            'Before creating anything, ask me for: (a) my public IP in CIDR form (e.g. 203.0.113.10/32) — '
+            'the API port must only ever be opened to that address, never 0.0.0.0/0; (b) a long random API '
+            'key that clients must send as a Bearer token; (c) the model to serve, defaulting to '
+            'Qwen/Qwen2.5-1.5B-Instruct (small, ungated, no Hugging Face token needed). Warn me that a '
+            'g5.xlarge is billed hourly (check current EC2 pricing for my region) until it is terminated.',
+            'Check GPU capacity: call aws_api_read with service "service-quotas", operation '
+            '"get_service_quota", params {"ServiceCode": "ec2", "QuotaCode": "L-DB2E81BA"} '
+            '(Running On-Demand G and VT instances, measured in vCPUs). A g5.xlarge needs 4. If the value '
+            'is below 4, stop and tell me how to request an increase in Service Quotas — do not launch.',
+            'Resolve the AMI with find_ami(distro="dlami-gpu", version="24.04"). This is the AWS Deep '
+            'Learning Base GPU AMI, which ships with the NVIDIA driver, Docker and the NVIDIA container '
+            'toolkit. Use the returned ami_id; never guess one.',
+            'Create a security group named llm-gpu-lab in the default VPC with create_security_group, then '
+            'add one inbound rule with authorize_security_group_ingress: TCP 8000 from my CIDR only. Do not '
+            'open SSH; this workflow verifies over HTTP.',
+            'Launch ONE instance with create_ec2_instance: the resolved ami_id, instance_type g5.xlarge, '
+            'the llm-gpu-lab security group, tags {"Name": "llm-gpu-lab", "Project": "llm-gpu-lab"}, and '
+            'a user_data script so the instance configures itself on first boot. Write it as these five '
+            'lines, each on its own line, substituting MODEL_ID and API_KEY: '
+            '(1) #!/bin/bash '
+            '(2) exec > /var/log/llm-setup.log 2>&1 '
+            '(3) for i in $(seq 1 30); do nvidia-smi && break; sleep 10; done '
+            '(4) mkdir -p /opt/hf-cache '
+            '(5) docker run -d --name vllm --restart unless-stopped --runtime nvidia --gpus all '
+            '-v /opt/hf-cache:/root/.cache/huggingface -p 8000:8000 --ipc=host '
+            'vllm/vllm-openai:latest --model MODEL_ID --api-key API_KEY',
+            'Wait for the instance to reach running state and report its public IP. The image pull and '
+            'model download take roughly 5-15 minutes — say so rather than reporting failure early.',
+            'Verify readiness with http_check on http://<public_ip>:8000/health (expected_status 200), '
+            'retrying every minute for up to 15 minutes. Then confirm the model is actually served: '
+            'http_check http://<public_ip>:8000/v1/models with header Authorization: Bearer <api key> and '
+            'expected_status 200. A connection refusal means vLLM is still starting; a 401 means the key '
+            'is wrong; anything else, report exactly what came back.',
+            'Report: the API base URL (http://<public_ip>:8000/v1), the model name, a sample curl to '
+            '/v1/chat/completions, and that any OpenAI-compatible client works by changing only base_url '
+            'and api_key. Flag the lab-only shortcuts: plain HTTP, a public IP, and the latest image tag. '
+            'Finally, give me the teardown: terminate the llm-gpu-lab instance, then delete the '
+            'llm-gpu-lab security group — and remind me the instance keeps billing until I do.',
+        ],
+    },
+    {
+        'name': 'LLM Serving on EKS GPU Nodes (vLLM)',
+        'description': (
+            'Add an NVIDIA GPU node group to an existing EKS cluster, install the NVIDIA device '
+            'plugin, and deploy vLLM as a Kubernetes Deployment and Service.'
+        ),
+        'category': 'AI/ML',
+        'estimated_minutes': 30,
+        'steps': [
+            'List my EKS clusters and ask which one to use. If there are none, stop: creating a cluster is '
+            'out of scope for this workflow. Ask me for the model to serve (default '
+            'Qwen/Qwen2.5-1.5B-Instruct) and a long random API key for the vLLM server.',
+            'Check GPU capacity with aws_api_read (service "service-quotas", operation "get_service_quota", '
+            'params {"ServiceCode": "ec2", "QuotaCode": "L-DB2E81BA"}). One g5.xlarge node needs 4 vCPUs; '
+            'stop and explain how to request an increase if the quota is lower.',
+            'Find the node IAM role and subnets to reuse: describe the cluster, list its node groups, and '
+            'read an existing node group with aws_api_read (service "eks", operation "describe_nodegroup"). '
+            'If no node group exists to copy the role from, stop and tell me which IAM role is needed '
+            '(AmazonEKSWorkerNodePolicy, AmazonEKS_CNI_Policy, AmazonEC2ContainerRegistryReadOnly).',
+            'Create a node group named gpu-llm with create_eks_node_group: instance_types ["g5.xlarge"], '
+            'ami_type "AL2023_x86_64_NVIDIA" (NVIDIA driver and container toolkit included), '
+            'scaling min 1 / max 1 / desired 1, disk_size 100, the same subnets and node role. Wait until it '
+            'is ACTIVE and its node is Ready.',
+            'Install the NVIDIA device plugin — the AL2023 NVIDIA AMI does not include it, and without it '
+            'Kubernetes cannot schedule nvidia.com/gpu. First check whether the node already reports '
+            'allocatable nvidia.com/gpu; if not, apply_manifest a DaemonSet in kube-system named '
+            'nvidia-device-plugin-daemonset (selector label name=nvidia-device-plugin-ds, image '
+            'nvcr.io/nvidia/k8s-device-plugin:v0.17.1, toleration nvidia.com/gpu Exists NoSchedule, '
+            'priorityClassName system-node-critical, env FAIL_ON_INIT_ERROR=false, securityContext '
+            'allowPrivilegeEscalation false with all capabilities dropped, hostPath volume '
+            '/var/lib/kubelet/device-plugins mounted at the same path). Confirm the node then shows '
+            'nvidia.com/gpu: 1 allocatable.',
+            'Store the API key in a Kubernetes Secret named vllm-api-key (key: api-key) in a new namespace '
+            'llm. Never echo the key back in your report.',
+            'apply_manifest a Deployment named vllm in namespace llm: 1 replica, image '
+            'vllm/vllm-openai:latest, args ["--model", MODEL_ID, "--api-key", "$(VLLM_API_KEY)"] with '
+            'VLLM_API_KEY from the vllm-api-key Secret, containerPort 8000, resources.limits '
+            'nvidia.com/gpu: 1, a toleration for nvidia.com/gpu, an emptyDir mounted at /dev/shm (medium '
+            'Memory) for shared memory, and a readinessProbe on GET /health port 8000 with '
+            'initialDelaySeconds 120. Then apply_manifest a ClusterIP Service named vllm on port 8000.',
+            'Watch the pod until Ready (the first image pull and model download can take 10+ minutes). If it '
+            'stays Pending, check events for an unsatisfied nvidia.com/gpu request; if it crashes, read its '
+            'logs and report the exact error.',
+            'Report: the in-cluster endpoint (http://vllm.llm.svc.cluster.local:8000/v1), how to test it '
+            'from my machine with kubectl port-forward svc/vllm -n llm 8000:8000, what a production rollout '
+            'would add (pinned image tag, an Ingress or internal load balancer with TLS, autoscaling on '
+            'queue depth, Prometheus scraping of vLLM /metrics), and the teardown: delete the llm namespace, '
+            'then delete the gpu-llm node group, which bills hourly until removed.',
+        ],
+    },
 ]
 
 

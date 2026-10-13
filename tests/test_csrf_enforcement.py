@@ -117,3 +117,35 @@ def test_rejection_returns_to_same_origin_referrer(csrf_app, client):
     )
     assert resp.status_code == CSRF_REJECTED
     assert resp.headers['Location'].endswith('/login')
+
+
+def test_verify_2fa_form_submits_with_rendered_token(csrf_app, client, test_user, db_session):
+    """The MFA code form shipped without a token, so once this hook landed every
+    MFA user's code submission was bounced with a 303 and nobody with 2FA could
+    log in. Pull the token from verifyForm itself: the page's separate
+    'Lost access' form carries one too and would mask the bug."""
+    import pyotp
+    from models import db
+
+    secret = pyotp.random_base32()
+    test_user.mfa_method = 'totp'
+    test_user.two_factor_secret = secret
+    db.session.commit()
+
+    page = client.post('/login', data={
+        'email': 'test@example.com', 'password': 'TestPassword123!',
+        'csrf_token': _token_from(client.get('/login').get_data(as_text=True)),
+    })
+    assert '/verify-2fa' in page.headers['Location']
+
+    html = client.get('/verify-2fa').get_data(as_text=True)
+    form = re.search(r'<form[^>]*id="verifyForm".*?</form>', html, re.S)
+    assert form, 'verify page rendered no verifyForm'
+    token = _token_from(form.group(0))
+
+    resp = client.post('/verify-2fa', data={
+        'code': pyotp.TOTP(secret).now(), 'csrf_token': token,
+    })
+    assert resp.status_code == 302
+    assert '/verify-2fa' not in resp.headers['Location']
+    assert '/login' not in resp.headers['Location']

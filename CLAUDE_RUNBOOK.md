@@ -8,6 +8,9 @@ This document archives fixed issues and their solutions for reference. Most issu
 
 | Issue | Solution |
 |-------|----------|
+| **SMS 2FA codes never arrived; SMS users could not log in (REMOVED 2026-10-03)** | Choosing SMS in 2FA setup, or logging in as an SMS user, failed with "Failed to send SMS verification code". The code path (`services/sms_service.py` → Brevo `/v3/transactionalSMS/sms`) was plausible. The blocker was account-side: Brevo SMS needs prepaid credits and per-country sender-ID registration (US and Nigeria both enforce it). It was removed rather than fixed: it costs money per message, SMS is the weakest factor (SIM swap), and email and TOTP already cover it. `login()` now migrates `mfa_method='sms'` → `email` before sending the code, so existing SMS users get an email code instead of being locked out. `/api/mfa/set-method` rejects `sms`; the phone add/verify endpoints, the setup-page SMS card and `sms_service.py` were deleted. Tests: `tests/test_auth.py::TestSmsMfaRemoved`. |
+| **Nobody with 2FA could log in: the code was rejected and the verify page silently reloaded (FIXED 2026-10-02)** | The 2026-09-19 CSRF hook (`app.py`'s `_enforce_csrf_on_form_submissions`) began rejecting every form POST without a token. `templates/verify_2fa.html`'s `verifyForm` never rendered one; only the page's separate "Lost access" form did. Every MFA code submission therefore got the hook's 303 redirect back to `/verify-2fa`, and since that page renders no flashes, the user saw the page reload with no error, from 2026-09-19 until this fix. A sweep at the time missed it because the page *did* contain a `csrf_token` input, just in the other form. Fixed by adding the hidden input to `verifyForm`. Guarded by `tests/test_csrf_enforcement.py::test_verify_2fa_form_submits_with_rendered_token`, which pulls the token from `verifyForm` specifically. A whole-template sweep found no other POST form without a token. |
+| **Login rejected valid credentials on a second device, usually a phone: "Invalid email/username or password" (FIXED 2026-10-01)** | `routes/auth.py`'s `login()` matched `User.email == <input>` case-sensitively, while signup, forgot-password, MCP OAuth login and SSO all `.strip().lower()` the email. The login email field (`templates/login.html`) had no `autocapitalize` attribute, so mobile keyboards submitted `You@gmail.com`, which matched no row. Desktop autofill hid the bug. Fixed by matching `func.lower(User.email) == input.lower()`. This also covers any older account stored with a mixed-case email. Usernames stay exact-match because their unique constraint is case-sensitive. Also added `autocapitalize="none" autocorrect="off" autocomplete="username"` / `autocomplete="current-password"` to the login inputs. Tests: `tests/test_auth.py::TestLogin::test_login_email_is_case_insensitive` + 2 siblings. |
 | **Scheduled MCP OAuth audit found a DCR client with empty `redirect_uris` bypassed the redirect allowlist entirely, plus `/mcp/oauth/authorize` had no account lockout on password guessing (FOUND & FIXED 2026-09-18)** | Routine rotating security audit (day-of-month mod 6 landed on `routes/mcp.py` OAuth flows). **Bug 1 — redirect_uri allowlist bypass, critical.** `oauth_authorize()` computed `allowed_redirect_uris = client_record.get('redirect_uris') or None`, then only enforced membership with `if allowed_redirect_uris and redirect_uri not in allowed_redirect_uris`. A DCR client registered via the fully open, unauthenticated `POST /mcp/oauth/register` with `redirect_uris: []` (or the key omitted, or `null`) collapsed to `None`, which made the whole check a no-op — that client could then send an authorization code to *any* `redirect_uri`, https-scheme only. This is the exact same bug class the 2026-08-30 fix closed for the *built-in* `claude-connector` client (see that entry below); the DCR path had an independent copy of it. Exploit: register a client with an empty array, get a `client_id` with zero restrictions, then phish a victim with a link on the real `devopsagent.io` domain (`/mcp/oauth/authorize?client_id=<id>&redirect_uri=https://attacker.tld/cb&...`) — the victim sees a legitimate host and a plausible `client_name` (also attacker-supplied), logs in, clicks Authorize, and their auth code — redeemable for a full-scope MCP access token covering all 746 cloud/infra tools — is sent straight to the attacker. **Fixed at both ends:** `oauth_register()` now rejects registration outright (`400 invalid_client_metadata`) unless `redirect_uris` contains at least one non-empty string (RFC 7591 §2 requires it for the `authorization_code` grant anyway); and `oauth_authorize()` now always keeps `allowed_redirect_uris` as a real (possibly empty) set and always enforces membership — an empty allowlist now means "reject every redirect_uri", never "skip the check" — so even a pre-existing DB row with an empty list (from before this fix, or written directly rather than through the now-validating registration endpoint) fails closed. `redirect_uri` was also made mandatory (previously validated only `if redirect_uri:`, so omitting it entirely skipped both the https check and the allowlist check). **Bug 2 — no account lockout, high.** The same POST handler correctly used `_run_timing_safe_password_check()` (no timing side-channel — see the entry above) but never called `User.is_locked()`/`record_failed_login()`, and carried no `@limiter.limit` of its own (falling back to the blueprint-wide default: 500/day, 100/hour per IP — no per-account limit at all, and ~10x weaker than `/login`'s explicit `10 per minute`). A known email could be brute-forced through this endpoint indefinitely, regardless of how many attempts `/login` itself would already have locked out. Fixed by wiring in the same `is_locked()` (checked before the password comparison)/`record_failed_login()` (on failure)/`update_last_login()` (on success, resetting the counter) calls `/login` uses, plus a matching `@limiter.limit("10 per minute")` on both `/mcp/oauth/authorize` and its `/authorize` alias. Regression tests added to `tests/test_mcp_oauth.py` (`TestEmptyRedirectUrisBypass`, `TestOAuthAuthorizeAccountLockout` — 7 new tests); full suite re-run clean (999/1000 passing, the one failure being a pre-existing environment-only test unrelated to this file that needs a real `ANTHROPIC_API_KEY` exported). **Lesson:** a secondary authentication entry point that reimplements a primary route's password check has to reimplement *every* security invariant that check enforces, not just the ones that already have a name and a prior incident attached — this is the second time `oauth_authorize()` specifically has been the copy that only got half the fix (see the 2026-08-30 and login-timing entries), and the general pattern (a fix applied to one call site not reaching a duplicate in a sibling file) is the same one CLAUDE.md's guardrails-pipeline and SSRF-guard sections already call out. |
 | **`list_storage_account_keys` had no risk classification at all — any user could disclose a live Azure storage account key with zero confirmation prompt (FOUND & FIXED 2026-09-16 scheduled audit)** | Routine code-vulnerability/smell/duplicate scan. Cross-referenced every one of the 744 registered tool names against `src/agent/safety.py`'s `high_risk_tools`/`medium_risk_tools` sets and its auto-detection prefixes, looking for the same disclosure-class gap already fixed three times before (`get_secret_value`, `create_ec2_keypair`, `generate_s3_presigned_url` — see the 2026-08-23 entry). Found it a fourth time: `azure_tools.list_storage_account_keys()` returns `k.value` — the raw plaintext storage account access key, a live bearer credential granting full read/write/delete over every blob/queue/table/file in the account until manually regenerated — directly in the tool result. `list_` isn't a monitored prefix in either direction, and the tool wasn't in either explicit set, so it defaulted to low risk: no confirmation, straight into the chat/tool-trace/LLM-provider path, same exposure class as the three prior fixes. Its sibling `regenerate_storage_key` has the identical disclosure shape (returns the newly-generated key's `value`) but was only medium-risk, presumably classified for the *mutation* (rotating a key breaks anything still using the old one) without anyone separately reasoning about the *disclosure*. **Fixed by adding `list_storage_account_keys` to `high_risk_tools` and moving `regenerate_storage_key` there from `medium_risk_tools`**, both with an inline comment naming the precedent. No sandbox mock or test referenced either tool name, so nothing else needed updating. **Verified:** `scripts/check_security_invariants.py`'s two AST checks still pass; `py_compile`/AST-parse on the edited file; confirmed by source read that `list_secrets_manager_secrets` (AWS), `list_secrets` (GCP), `list_k8s_secrets`, and `list_iam_access_keys` are all metadata-only (names/ARNs/dates, never values) so none of them have the same gap. Full `pytest` wasn't possible in this sandbox (`pip install -r requirements.txt` fails on the same pre-existing `multi-key-dict` wheel-build error noted in earlier scheduled-audit entries). **Lesson:** the "does this tool return decrypted/raw credential material" question has to be asked per-tool, not inferred from the verb — `list_`/`get_`/`regenerate_` all read as ordinary read/update operations, and three of the four tools now carrying this exact justification comment have names that don't contain the word "secret" at all. |
 | **Every form endpoint except four in `routes/auth.py` accepted a cross-origin POST (FOUND & FIXED 2026-09-19)** | `app.py` set `WTF_CSRF_CHECK_DEFAULT = False` to exempt the JSON API surfaces, with the comment "CSRF enforced on form endpoints via `@csrf.protect`" — but **no `@csrf.protect` decorator was ever added to any route**. Only four auth routes (`/login`, `/signup`, `/forgot-password`, `/reset-password`) validated by hand, through `routes/auth.py`'s `_check_csrf()`. The result was a codebase that *looked* CSRF-protected from three directions at once (an initialized `CSRFProtect(app)`, a helper function, and templates emitting `csrf_token` inputs) while every cookie-authenticated form POST outside those four — `/profile`, organization invites and settings, compliance policy forms, API-key creation — accepted a cross-origin submission. The tell was that the config comment described a mechanism that did not exist; nothing fails when the second half of a two-part design is never written. Fixed with a single `@app.before_request` hook, `_enforce_csrf_on_form_submissions()`, that gates on **MIME type rather than route**: only `application/x-www-form-urlencoded` and `multipart/form-data` are checked, because those two are CORS "simple requests" a cross-origin page can send with the victim's cookies, while `application/json` requires a preflight an attacker cannot satisfy. That inversion is what makes it safe by default — a new JSON endpoint needs no exemption and a new form endpoint is covered automatically, so this cannot rot the way a per-route decorator list does. The hook mirrors Flask-WTF's own `csrf_protect` and reads its private `_exempt_blueprints`/`_exempt_views` sets so `csrf.exempt(...)` still works, **which makes the exact `flask-wtf` pin load-bearing** — re-verify against `flask_wtf/csrf.py` if it moves. Rejections return a **303 redirect with a flash**, not a bare 400, since a failure here is far more often a stale session than a forgery; the referrer is passed through `_is_safe_redirect()` first, because on a genuinely forged request it points at the attacker's page and bouncing the victim back to it would turn the error handler into an open redirect. 8 tests in `tests/test_csrf_enforcement.py` assert **both** halves (form-without-token rejected, JSON-without-token still allowed) — a regression here is silent, as the forms keep working and merely stop being checked. |
@@ -3090,66 +3093,55 @@ for: a shared "no live account → fail closed" helper for recommendation genera
 shared "apply" helper that refuses to report success without an actual tool call, so this stops
 recurring one service at a time.
 
-## Scheduled audit (2026-09-24): ChatOps `/deployments` disclosed platform-wide webhook data with no auth check at all — fixed
+## Scheduled audit (2026-09-21): `services/ai_infrastructure.py` was the eighth instance of the fabricated-recommendation/fake-Apply bug — fixed
 
-Routine review of `src/tools/`, `services/`, and `routes/` for vulnerabilities, smells, and
-duplication, run in four parallel passes: git/ansible argument-injection guards, the ChatOps
-identity-linking and fabricated-action-claim wiring merged 2026-09-21 (PRs #193/#172), a grep
-sweep for raw `requests.*`/`.check_password(`/fabricated-data/leaked-secret patterns, and
-tool-capability staleness for newer tools. Three of the four passes came back clean (see below);
-the ChatOps re-check of PR #193 found a real gap the PR's own description overstated.
+Routine code review (vulnerabilities/smells/duplicates). `python3 scripts/check_security_invariants.py`
+was clean. Verified the tool-risk-classification sweep (every `delete_`/`terminate_`/`remove_`/
+`destroy_`/`drop_`/`update_` tool whose verb isn't a leading prefix — the `provider_verb_noun` shape
+that has repeatedly defeated `safety.py`'s auto-detection in past audits) against all 746 registered
+tool names: no new gaps found, everything in that shape is already classified. Also re-walked the
+`InfrastructureTemplate`/`AnalyticsWidget`/`WebhookEndpoint`/`Organization` service getters that do a
+bare `Model.query.get(id)` (the same shape that caused the `compliance_service.py` and
+`organizations.py` `view_team` IDOR fixes documented elsewhere in this file) — all of them already
+either filter by `self.user_id`/an explicit `user_id` param, or are only ever reached from a route
+already gated by `@org_admin_required`/an equivalent membership check. No new instance found there.
 
-**The bug.** `services/chatops_service.py`'s `_cmd_deployments` — unlike every other per-user
-command in the file (`_cmd_status`, `_cmd_incidents`, `_cmd_metrics`, `_cmd_alerts`, ...) — never
-called `_require_app_user()` at all. It called `get_webhook_service().get_events(event_type=
-'deployment', limit=5)` directly, with no identity check of any kind. `WebhookEventRecord`
-(models.py) has **no `user_id` column** — it's a single platform-wide table of CI/CD webhook
-events (repository, branch, commit SHA, actor, title, description, URL), and every other reader
-of it (`routes/webhooks.py`'s `webhooks_dashboard()` and `api_list_events()`) is correctly gated
-`@login_required` + `@admin_required`. `_cmd_deployments` was the one path that skipped this
-entirely: any Slack/Teams user who could message the bot — linked to an app account or not, and
-regardless of platform role — could run `/deployments` and read every tenant's CI/CD history
-platform-wide.
+**Fixed — `services/ai_infrastructure.py`'s `get_recommendations()`/`apply_recommendation()`**, the
+eighth known instance of the "canned output indistinguishable from a real query" bug class CLAUDE.md
+tracks (Drift, Predictive Scaling, Analytics, ChatOps, Performance Optimizer, the dashboard
+cost-recommendation Apply endpoint, `routes/scaling.py`'s Apply endpoint, and now this one).
+`get_recommendations(user_id)` returned four hardcoded recommendations (`rec_1`..`rec_4` — "Right-size
+underutilized EC2 instances" with an invented $150/mo savings figure, an S3-encryption tip, an RDS
+read-replica tip, a Multi-AZ tip) completely unconditionally, ignoring the `user_id` argument
+entirely — every free/starter/pro/business user with or without a connected cloud account saw the
+byte-identical list. `apply_recommendation()` then reported `success: True` with an `actions_taken`
+list for the two "auto_applicable" ones with no cloud API call of any kind. Confirmed via grep that
+nothing in the file (or anywhere importing it) ever feeds this service real `InfrastructureResource`/
+`cost_explorer` data — unlike `performance_optimizer.py`'s `analyze_resource()`, this class never had
+even an unwired real-data entry point. Reachable at `/ai/recommendations` (rendered page) and
+`/ai/api/recommendations` + `/ai/api/recommendations/<id>/apply` (JSON API), both in
+`routes/ai_infrastructure.py`.
 
-This also exposed a design gap PR #193's own CLAUDE.md description overstated: `ChatCommand`'s
-`requires_auth` field (default `True`) is declarative only — `process_message()` never reads it.
-Enforcement is entirely per-handler discipline (`_require_app_user(kwargs)` called at the top of
-each handler that needs it), and nothing structurally catches a handler that forgets. This is the
-same "duplicated pipeline, no shared enforcement point" shape already called out elsewhere in
-CLAUDE.md for the guardrails pipeline and the CSRF/login-timing checks — a real fix would make
-`requires_auth` load-bearing at dispatch time instead of trusting every handler to remember; not
-done in this pass since it touches every command's calling convention at once.
+Fixed the same way the seven prior instances were: `get_recommendations()` now returns `[]`
+unconditionally (matching `performance_optimizer.py`'s `_get_user_recommendations()` fail-closed
+shape) and `apply_recommendation()` now always returns `{success: false, error: "...not yet
+implemented — no cloud API call is made..."}`, matching `routes/scaling.py`'s
+`api_apply_recommendation` / `app.py`'s `apply_recommendation` wording exactly. `routes/ai_infrastructure.py`'s
+`api_apply_recommendation` now returns HTTP 501 on that failure response instead of a bare 200, same
+as the other two Apply endpoints. `templates/ai_infrastructure/recommendations.html` already renders
+a clean "No recommendations available" empty state client-side, so no template change was needed.
+No test covered this path (`grep` for `rec_1`/`apply_recommendation`/`ai_infrastructure` under
+`tests/` found only an unrelated templates test file), so there was no regression risk. Verified
+the new behavior directly (pytest isn't fully installable in this sandbox — missing `flask` and other
+app deps, a pre-existing environment gap noted elsewhere in this file) by importing
+`AIInfrastructureService` standalone and asserting `get_recommendations()` returns `[]`,
+`apply_recommendation()` returns the fail-closed shape, and `dismiss_recommendation()`/
+`get_optimization_suggestions()` (which both call `get_recommendations()` internally) degrade
+correctly to empty results.
 
-**Verified as sound in the same pass:** the `/link <code>` redemption flow itself (8-char
-alphanumeric code, 10-minute TTL, single-use via `used_at`, keyed to a platform identity that's
-already authenticated upstream by Slack HMAC or Teams Bot Framework JWT before it ever reaches
-`_cmd_link` — no way to link an arbitrary platform id without controlling that account); the
-`_fabricated_action_claim()` wiring from PR #172 (`_UNIVERSAL_WRITE_TOOLS` names all still live
-against the registry, both Kimi paths still call it before `_hallucination_severity`, no negation
-bypass found — the only gap is a known coverage limit: verbs like "run the playbook"/"rotate the
-key"/"cordon the node" match no `_ACTION_FAMILIES` request or claim regex, so a fabricated claim
-phrased that way isn't checked; a pre-existing "known gap," not a regression); the git/ansible
-argument-injection guards (every bare-positional caller-controlled parameter in `git_tools.py`
-still calls `_reject_flag_like()`, and `ansible_tools.py`'s subprocess calls use list-form argv
-with no shell=True and no unguarded flag-injectable parameter found); and the grep sweep (all 36
-raw `requests.*` call sites are either `# ssrf-safe:`-exempted hardcoded hosts or already route
-through `safe_request()`, zero `.check_password(` calls outside `routes/auth.py`, no new
-fabricated-data patterns, and the AWS key removed by PR #208 has not recurred anywhere in the repo
-including docs/).
-
-**Fix (`services/chatops_service.py`):** `_cmd_deployments` now calls `_require_app_user()` like
-every sibling handler, then loads the resolved user and requires `services.rbac.user_is_admin()`
-before returning any webhook data — mirroring the web dashboard's own gate rather than inventing a
-per-user view over data that was never partitioned per user. A non-admin (linked or not) gets a
-plain refusal pointing at `/webhooks/` and the `/link` command; an unlinked identity is turned away
-by `_require_app_user()` before the admin check ever runs, same as every other command.
-
-**Tests:** new `tests/test_chatops_deployments_access_control.py` — unlinked identity refused
-before dispatch; a linked non-admin `test_user` gets the admin-only refusal text and no webhook
-data; calling the handler with no `app_user_id` raises `_UnresolvedAppUser` like every sibling
-handler; a linked admin user is not turned away by the gate. Could not run the full suite in this
-audit environment (dependency install was still in progress when this entry was written — see the
-2026-09-11/2026-09-13 entries above for the same environment gap); the new test file follows the
-same direct-handler-call pattern already used by `tests/test_chatops_fixes.py` and
-`tests/test_chatops_fabricated_data.py`, both of which pass in isolation without the full app
-context.
+**Still open, not touched by this pass:** the structural fix CLAUDE.md has called for since the
+2026-09-20 entry above — a shared "no live account → fail closed" helper for recommendation
+generation and a shared "apply" helper that refuses to report success without an actual tool call —
+remains undone. Eight independent instances of the identical bug shape across seven separate audits
+is a strong signal this needs the structural fix rather than a ninth one-off patch next time a new
+recommendation surface is added.
