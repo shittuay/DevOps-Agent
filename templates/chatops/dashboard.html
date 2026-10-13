@@ -185,7 +185,6 @@
         <h1>ChatOps</h1>
         <nav>
             <a href="{{ url_for('incidents.incidents_dashboard') }}">Incidents</a>
-            <a href="{{ url_for('monitoring.monitoring_dashboard') }}">Monitoring</a>
             <a href="{{ url_for('dashboard') }}">Dashboard</a>
         </nav>
     </header>
@@ -235,9 +234,9 @@
             </div>
             <div class="section-content">
                 <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Incident and monitoring commands (<code>/status</code>, <code>/incidents</code>,
+                    Incident commands (<code>/status</code>, <code>/incidents</code>,
                     <code>/ack</code>, <code>/resolve</code>, <code>/playbooks</code>, <code>/execute</code>,
-                    <code>/analyze</code>, <code>/alerts</code>, <code>/metrics</code>, <code>/oncall</code>)
+                    <code>/analyze</code>, <code>/oncall</code>)
                     read your account's data, so Slack/Teams must first be linked to your DevOps Agent
                     account. Generate a code below, then run <code>/link &lt;code&gt;</code> in Slack or Teams.
                 </p>
