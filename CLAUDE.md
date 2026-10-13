@@ -1689,6 +1689,12 @@ GitHub Actions workflows live in `.github/workflows/`:
   broke with "Could not load credentials from any providers" on every run from
   2026-07-23 onward).
 
+- **`mcp-diagnose.yml`** — on-demand (`workflow_dispatch`). Run it right after a failed
+  claude.ai connector "Connect". It prints MCP/OAuth request lines with status codes (gunicorn
+  and nginx), the app's `MCP auth:` log lines (shows whether the Bearer header arrived and
+  whether the token was found), the `mcp_oauth_*` table schemas, and recent token
+  **metadata** (never token values). Same OIDC + SSM pattern as `check-errors.yml`.
+
 Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
 do). The scheduled scan is the only timer-based scan.
 
