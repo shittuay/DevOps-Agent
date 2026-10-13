@@ -1716,11 +1716,12 @@ def doctor_page():
     return render_template('doctor.html', results=results, user=current_user)
 
 
-PLATFORM_AWS_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '188046727805')
+PLATFORM_AWS_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '621203631557')
 # Public quick-create template; its trust policy names PLATFORM_AWS_ACCOUNT_ID, so the
 # two must move together (docs/aws-account-migration.md).
 CF_TEMPLATE_URL = os.environ.get(
-    'CF_TEMPLATE_URL', 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json')
+    'CF_TEMPLATE_URL',
+    'https://devopsagent-cf-templates-621203631557.s3.amazonaws.com/devops-agent-role.json')
 
 
 @app.route('/onboarding', methods=['GET'])

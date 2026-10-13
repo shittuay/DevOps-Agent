@@ -16,7 +16,7 @@ jobs:
     - name: Configure AWS credentials (OIDC)
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::188046727805:role/github-actions-deploy' }}
+        role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::621203631557:role/github-actions-deploy' }}
         aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
     - name: Query errors via SSM

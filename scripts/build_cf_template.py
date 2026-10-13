@@ -5,7 +5,7 @@ devops-agent-management.json so customers get exactly the audited policies.
 Re-run after changing either policy file, then upload:
 
     python scripts/build_cf_template.py
-    aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates/devops-agent-role.json
+    aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates-621203631557/devops-agent-role.json
 
 tests/test_iam_policies.py verifies the committed template matches the policy files.
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 IAM_DIR = ROOT / 'static' / 'iam'
 OUTPUT = ROOT / 'cloudformation' / 'devops-agent-role.json'
-PLATFORM_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '188046727805')
+PLATFORM_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '621203631557')
 
 
 def build_template() -> dict:

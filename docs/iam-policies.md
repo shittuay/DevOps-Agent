@@ -66,12 +66,12 @@ the app when the stack completes.
   generated from the policy files by `scripts/build_cf_template.py` (a test
   fails if they drift).
 - Hosted publicly at
-  `https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json`
-  (S3 bucket `devopsagent-cf-templates` in the platform account; quick-create
-  links require an S3 template URL).
+  `https://devopsagent-cf-templates-621203631557.s3.amazonaws.com/devops-agent-role.json`
+  (S3 bucket `devopsagent-cf-templates-621203631557` in the platform account; quick-create
+  links require an S3 template URL; the app reads it from `CF_TEMPLATE_URL`).
 - The `PolicyLevel` parameter selects ReadOnly (default) or Management.
 - After editing a policy file: re-run the build script, then
-  `aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates/devops-agent-role.json --content-type application/json`.
+  `aws s3 cp cloudformation/devops-agent-role.json s3://devopsagent-cf-templates-621203631557/devops-agent-role.json --content-type application/json`.
 
 ### Updating an existing role (policy freshness check)
 
@@ -93,7 +93,7 @@ and changing its ARN):
 
 ```bash
 aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
-  --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \
+  --template-url https://devopsagent-cf-templates-621203631557.s3.amazonaws.com/devops-agent-role.json \
   --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true ParameterKey=RoleName,UsePreviousValue=true \
   --capabilities CAPABILITY_NAMED_IAM
 ```
