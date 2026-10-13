@@ -1701,6 +1701,9 @@ class DevOpsAgent:
         except Exception as e:
             self.logger.warning(f"Failed to set GCP user context: {str(e)}")
 
+        from ..tools.integration_auth import set_user_context as set_integration_context
+        set_integration_context(user_id)
+
     def _clear_cloud_user_context(self):
         """Clear user context for cloud operations."""
         try:
@@ -1742,6 +1745,9 @@ class DevOpsAgent:
             self.logger.warning("Failed to import GCP user context clearer")
         except Exception as e:
             self.logger.warning(f"Failed to clear GCP user context: {str(e)}")
+
+        from ..tools.integration_auth import clear_user_context as clear_integration_context
+        clear_integration_context()
 
     @log_operation("process_user_message")
     def process_message(self, user_message: str, user_preferences_context: Optional[str] = None) -> str:

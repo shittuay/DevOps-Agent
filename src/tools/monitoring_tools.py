@@ -204,20 +204,13 @@ def get_prometheus_alerts(prometheus_url: str) -> Dict[str, Any]:
 # ============================================================================
 
 def _get_datadog_headers(api_key: Optional[str] = None, app_key: Optional[str] = None):
-    """Get Datadog API headers."""
-    import os
-
-    if not api_key:
-        api_key = os.environ.get('DATADOG_API_KEY')
-    if not app_key:
-        app_key = os.environ.get('DATADOG_APP_KEY')
-
-    if not api_key or not app_key:
-        raise Exception("DATADOG_API_KEY and DATADOG_APP_KEY required")
+    """Datadog API headers from explicit args or the requesting user's saved Datadog."""
+    from .integration_auth import credentials
+    creds = credentials('datadog', api_key=api_key, app_key=app_key)
 
     return {
-        'DD-API-KEY': api_key,
-        'DD-APPLICATION-KEY': app_key,
+        'DD-API-KEY': creds['api_key'],
+        'DD-APPLICATION-KEY': creds['app_key'],
         'Content-Type': 'application/json'
     }
 
@@ -724,11 +717,11 @@ def get_tools() -> List[Dict[str, Any]]:
                     },
                     'api_key': {
                         'type': 'string',
-                        'description': 'Datadog API key (optional, uses DATADOG_API_KEY env var if not provided)'
+                        'description': "Datadog API key (omit to use the user's connected Datadog)"
                     },
                     'app_key': {
                         'type': 'string',
-                        'description': 'Datadog application key (optional, uses DATADOG_APP_KEY env var if not provided)'
+                        'description': "Datadog application key (omit to use the user's connected Datadog)"
                     }
                 },
                 'required': ['query', 'start', 'end']
@@ -743,11 +736,11 @@ def get_tools() -> List[Dict[str, Any]]:
                 'properties': {
                     'api_key': {
                         'type': 'string',
-                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                        'description': "Datadog API key (omit to use the user's connected Datadog)"
                     },
                     'app_key': {
                         'type': 'string',
-                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                        'description': "Datadog application key (omit to use the user's connected Datadog)"
                     },
                     'tags': {
                         'type': 'array',
@@ -766,11 +759,11 @@ def get_tools() -> List[Dict[str, Any]]:
                 'properties': {
                     'api_key': {
                         'type': 'string',
-                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                        'description': "Datadog API key (omit to use the user's connected Datadog)"
                     },
                     'app_key': {
                         'type': 'string',
-                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                        'description': "Datadog application key (omit to use the user's connected Datadog)"
                     },
                     'filter': {
                         'type': 'string',
@@ -796,11 +789,11 @@ def get_tools() -> List[Dict[str, Any]]:
                     },
                     'api_key': {
                         'type': 'string',
-                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                        'description': "Datadog API key (omit to use the user's connected Datadog)"
                     },
                     'app_key': {
                         'type': 'string',
-                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                        'description': "Datadog application key (omit to use the user's connected Datadog)"
                     },
                     'priority': {
                         'type': 'string',
@@ -833,11 +826,11 @@ def get_tools() -> List[Dict[str, Any]]:
                     },
                     'api_key': {
                         'type': 'string',
-                        'description': 'Datadog API key (optional, uses env var if not provided)'
+                        'description': "Datadog API key (omit to use the user's connected Datadog)"
                     },
                     'app_key': {
                         'type': 'string',
-                        'description': 'Datadog application key (optional, uses env var if not provided)'
+                        'description': "Datadog application key (omit to use the user's connected Datadog)"
                     },
                     'alert_type': {
                         'type': 'string',

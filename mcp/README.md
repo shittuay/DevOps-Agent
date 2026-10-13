@@ -1,6 +1,6 @@
 # DevOps Agent MCP Server
 
-Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more from any MCP-compatible AI client. **703 tools across 13 modules** — all accessible via a single connection.
+Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more from any MCP-compatible AI client. **704 tools across 13 modules** — all accessible via a single connection.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ Manage AWS, Azure, GCP, Kubernetes, Terraform, CI/CD, Docker, Ansible, and more 
 
 **Step 4:** Fully quit and restart Claude Desktop.
 
-All 703 tools will appear automatically under the tools (hammer) icon in the chat input.
+All 704 tools will appear automatically under the tools (hammer) icon in the chat input.
 
 > The `npx` command downloads and runs the bridge automatically on first use — nothing else to install.
 
@@ -52,7 +52,7 @@ No Node.js needed for this method — Claude.ai connects directly to the hosted 
 1. Go to **Claude.ai → Settings → Connectors → Add Integration**
 2. Enter the Integration URL: `https://devopsagent.io/mcp/`
 3. Claude.ai will trigger OAuth automatically — log in with your devopsagent.io account to authorize
-4. All 703 tools become available immediately
+4. All 704 tools become available immediately
 
 ## Verifying the Connection
 
@@ -117,7 +117,7 @@ You should see the JSON response above. Press `Ctrl+C` to exit.
 - Keys are per-user — make sure you're logged into the right account when generating
 
 **`tools_loaded` shows an unexpected number**
-- The server exposes 703 tools across 13 modules — this is the correct count
+- The server exposes 704 tools across 13 modules — this is the correct count
 - If you see a different number, the server may be mid-deploy; retry after a minute
 
 ## Tools

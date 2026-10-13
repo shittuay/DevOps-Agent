@@ -1,5 +1,4 @@
 """GitHub tools for DevOps Agent — comprehensive repository, issue, PR, and Actions management."""
-import os
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
 
@@ -9,10 +8,8 @@ logger = get_logger(__name__)
 def _get_github_client(token: Optional[str] = None):
     """Get authenticated PyGithub client."""
     from github import Github
-    tok = token or os.environ.get('GITHUB_TOKEN', '')
-    if not tok:
-        raise Exception("GitHub token not provided. Set GITHUB_TOKEN or pass github_token parameter.")
-    return Github(tok)
+    from .integration_auth import credentials
+    return Github(credentials('github', token=token)['token'])
 
 
 # ============================================
@@ -476,7 +473,7 @@ def get_tools() -> List[Dict[str, Any]]:
                     'type': {'type': 'string', 'enum': ['all', 'owner', 'public', 'private', 'member'], 'default': 'all'},
                     'sort': {'type': 'string', 'enum': ['created', 'updated', 'pushed', 'full_name'], 'default': 'updated'},
                     'limit': {'type': 'integer', 'description': 'Max repos to return', 'default': 20},
-                    'github_token': {'type': 'string', 'description': 'GitHub token (uses env GITHUB_TOKEN if omitted)'},
+                    'github_token': {'type': 'string', 'description': "GitHub token (omit to use the user's connected GitHub)"},
                 },
                 'required': []
             },

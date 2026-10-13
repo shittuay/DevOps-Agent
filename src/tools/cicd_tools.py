@@ -1,5 +1,4 @@
 """CI/CD pipeline integration tools for DevOps Agent."""
-import os
 import requests
 import jenkins
 from github import Github, GithubException
@@ -43,14 +42,7 @@ def trigger_jenkins_job(
         Dictionary with trigger result
     """
     try:
-        if not all([jenkins_url, username, token]):
-            return {
-                'success': False,
-                'error': 'Jenkins credentials not provided'
-            }
-
-        assert_safe_url(jenkins_url)
-        server = _disable_jenkins_redirects(jenkins.Jenkins(jenkins_url, username=username, password=token))
+        server = _get_jenkins_server(jenkins_url, username, token)
 
         # Trigger build
         if parameters:
@@ -63,7 +55,7 @@ def trigger_jenkins_job(
             'job_name': job_name,
             'queue_number': queue_number,
             'message': f'Successfully triggered Jenkins job: {job_name}',
-            'jenkins_url': jenkins_url
+            'jenkins_url': server.server
         }
 
     except jenkins.JenkinsException as e:
@@ -101,14 +93,7 @@ def get_jenkins_job_status(
         Dictionary with job status
     """
     try:
-        if not all([jenkins_url, username, token]):
-            return {
-                'success': False,
-                'error': 'Jenkins credentials not provided'
-            }
-
-        assert_safe_url(jenkins_url)
-        server = _disable_jenkins_redirects(jenkins.Jenkins(jenkins_url, username=username, password=token))
+        server = _get_jenkins_server(jenkins_url, username, token)
 
         # Get build info
         if build_number:
@@ -170,14 +155,7 @@ def get_jenkins_build_logs(
         Dictionary with build logs
     """
     try:
-        if not all([jenkins_url, username, token]):
-            return {
-                'success': False,
-                'error': 'Jenkins credentials not provided'
-            }
-
-        assert_safe_url(jenkins_url)
-        server = _disable_jenkins_redirects(jenkins.Jenkins(jenkins_url, username=username, password=token))
+        server = _get_jenkins_server(jenkins_url, username, token)
 
         # Get console output
         logs = server.get_build_console_output(job_name, build_number)
@@ -213,14 +191,12 @@ def _get_jenkins_server(
     username: Optional[str],
     token: Optional[str]
 ):
-    """Build a python-jenkins server instance using args or env var fallbacks."""
-    url = jenkins_url or os.environ.get('JENKINS_URL', '')
-    user = username or os.environ.get('JENKINS_USERNAME', '')
-    tok = token or os.environ.get('JENKINS_TOKEN', '')
-    if not all([url, user, tok]):
-        raise ValueError('Jenkins credentials not provided and not found in environment (JENKINS_URL, JENKINS_USERNAME, JENKINS_TOKEN)')
+    """Build a python-jenkins server from explicit args or the requesting user's saved Jenkins."""
+    from .integration_auth import credentials
+    creds = credentials('jenkins', caller_url=jenkins_url, username=username, token=token)
+    url = creds['url']
     assert_safe_url(url)
-    return _disable_jenkins_redirects(jenkins.Jenkins(url, username=user, password=tok))
+    return _disable_jenkins_redirects(jenkins.Jenkins(url, username=creds['username'], password=creds['token']))
 
 
 def list_jenkins_jobs(
@@ -452,13 +428,7 @@ def trigger_github_workflow(
         Dictionary with trigger result
     """
     try:
-        if not github_token:
-            return {
-                'success': False,
-                'error': 'GitHub token not provided'
-            }
-
-        g = Github(github_token)
+        g = Github(_get_github_token(github_token))
         repo = g.get_repo(f"{repo_owner}/{repo_name}")
 
         # Get workflow
@@ -522,13 +492,7 @@ def get_github_workflow_runs(
         Dictionary with workflow runs
     """
     try:
-        if not github_token:
-            return {
-                'success': False,
-                'error': 'GitHub token not provided'
-            }
-
-        g = Github(github_token)
+        g = Github(_get_github_token(github_token))
         repo = g.get_repo(f"{repo_owner}/{repo_name}")
 
         # Get workflow runs
@@ -576,10 +540,8 @@ def get_github_workflow_runs(
 
 
 def _get_github_token(github_token: Optional[str] = None) -> str:
-    tok = github_token or os.environ.get('GITHUB_TOKEN', '')
-    if not tok:
-        raise ValueError('GitHub token not provided and GITHUB_TOKEN env var not set')
-    return tok
+    from .integration_auth import credentials
+    return credentials('github', token=github_token)['token']
 
 
 def list_github_workflows(
@@ -650,6 +612,55 @@ def get_github_workflow_run(
         return {'success': False, 'error': str(e), 'status_code': e.status}
     except Exception as e:
         logger.error(f"Error getting workflow run: {str(e)}", exc_info=True)
+        return {'success': False, 'error': str(e)}
+
+
+def get_github_run_jobs(
+    repo_owner: str,
+    repo_name: str,
+    run_id: int,
+    log_tail_lines: int = 60,
+    github_token: Optional[str] = None
+) -> Dict[str, Any]:
+    """Jobs and steps of a GitHub Actions run, with the log tail of each failed job."""
+    try:
+        tail = max(10, min(int(log_tail_lines or 60), 200))
+        g = Github(_get_github_token(github_token))
+        run = g.get_repo(f"{repo_owner}/{repo_name}").get_workflow_run(run_id)
+        jobs = []
+        for job in list(run.jobs())[:30]:
+            entry = {
+                'id': job.id,
+                'name': job.name,
+                'status': job.status,
+                'conclusion': job.conclusion,
+                'runner': job.runner_name,
+                'started_at': job.started_at.isoformat() if job.started_at else None,
+                'completed_at': job.completed_at.isoformat() if job.completed_at else None,
+                'failed_steps': [{'number': s.number, 'name': s.name, 'conclusion': s.conclusion}
+                                 for s in (job.steps or []) if s.conclusion == 'failure'],
+            }
+            if job.conclusion == 'failure':
+                try:
+                    # Short-lived signed URL on GitHub's log storage host; needs no auth header.
+                    response = safe_request('GET', job.logs_url(), timeout=30)
+                    response.raise_for_status()
+                    entry['log_tail'] = '\n'.join(response.text.splitlines()[-tail:])
+                except Exception as log_error:
+                    entry['log_tail_error'] = f'Could not read the job log: {log_error}'
+            jobs.append(entry)
+        return {
+            'success': True,
+            'run_id': run_id,
+            'conclusion': run.conclusion,
+            'jobs': jobs,
+            'failed_jobs': [j['name'] for j in jobs if j['conclusion'] == 'failure'],
+        }
+    except GithubException as e:
+        logger.error(f"GitHub API error: {str(e)}")
+        return {'success': False, 'error': str(e), 'status_code': e.status}
+    except Exception as e:
+        logger.error(f"Error getting workflow run jobs: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 
 
@@ -830,17 +841,13 @@ def get_github_workflow_usage(
 
 # ==================== GITLAB CI ====================
 
-def _get_gitlab_token(gitlab_token: Optional[str] = None) -> str:
-    token = gitlab_token or os.environ.get('GITLAB_TOKEN', '')
-    if not token:
-        raise ValueError('GitLab token not provided. Set GITLAB_TOKEN env var or pass gitlab_token parameter.')
-    return token
-
-
-def _get_gitlab_base_url(gitlab_url: Optional[str] = None) -> str:
-    base = (gitlab_url or os.environ.get('GITLAB_URL', 'https://gitlab.com')).rstrip('/')
+def _gitlab_auth(gitlab_token: Optional[str] = None, gitlab_url: Optional[str] = None):
+    """(token, base_url) from explicit args or the requesting user's saved GitLab."""
+    from .integration_auth import credentials
+    creds = credentials('gitlab', caller_url=gitlab_url, token=gitlab_token)
+    base = creds['url'].rstrip('/')
     assert_safe_url(base)
-    return base
+    return creds['token'], base
 
 
 def list_gitlab_pipelines(
@@ -853,8 +860,7 @@ def list_gitlab_pipelines(
 ) -> Dict[str, Any]:
     """List CI/CD pipelines for a GitLab project."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         params: Dict[str, Any] = {'per_page': per_page}
         if ref:
@@ -889,8 +895,7 @@ def get_gitlab_pipeline(
 ) -> Dict[str, Any]:
     """Get details of a specific GitLab pipeline."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         response = safe_request('GET', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}',
@@ -925,8 +930,7 @@ def trigger_gitlab_pipeline(
 ) -> Dict[str, Any]:
     """Trigger a GitLab CI/CD pipeline on a branch or tag."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         payload: Dict[str, Any] = {'ref': ref}
         if variables:
@@ -960,8 +964,7 @@ def retry_gitlab_pipeline(
 ) -> Dict[str, Any]:
     """Retry a failed GitLab pipeline."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/retry',
@@ -989,8 +992,7 @@ def cancel_gitlab_pipeline(
 ) -> Dict[str, Any]:
     """Cancel a running GitLab pipeline."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/cancel',
@@ -1016,8 +1018,7 @@ def list_gitlab_jobs(
 ) -> Dict[str, Any]:
     """List all jobs in a GitLab pipeline."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         response = safe_request('GET', 
             f'{base}/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs',
@@ -1047,8 +1048,7 @@ def get_gitlab_job_log(
 ) -> Dict[str, Any]:
     """Get the log output of a specific GitLab job."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         response = safe_request('GET', 
             f'{base}/api/v4/projects/{pid}/jobs/{job_id}/trace',
@@ -1077,8 +1077,7 @@ def approve_gitlab_deployment(
 ) -> Dict[str, Any]:
     """Approve or reject a GitLab deployment that requires manual approval."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         payload: Dict[str, Any] = {'status': status}
         if comment:
@@ -1109,8 +1108,7 @@ def create_gitlab_pipeline_trigger(
 ) -> Dict[str, Any]:
     """Create a pipeline trigger token for external integrations."""
     try:
-        token = _get_gitlab_token(gitlab_token)
-        base = _get_gitlab_base_url(gitlab_url)
+        token, base = _gitlab_auth(gitlab_token, gitlab_url)
         pid = quote(str(project_id), safe='')
         response = safe_request('POST', 
             f'{base}/api/v4/projects/{pid}/triggers',
@@ -1329,14 +1327,14 @@ def get_tools() -> List[Dict[str, Any]]:
         List of tool definitions
     """
     jenkins_creds = {
-        'jenkins_url': {'type': 'string', 'description': 'Jenkins server URL (overrides JENKINS_URL env var)'},
-        'username': {'type': 'string', 'description': 'Jenkins username (overrides JENKINS_USERNAME env var)'},
-        'token': {'type': 'string', 'description': 'Jenkins API token (overrides JENKINS_TOKEN env var)'},
+        'jenkins_url': {'type': 'string', 'description': "Jenkins server URL (omit to use the user's connected Jenkins)"},
+        'username': {'type': 'string', 'description': 'Jenkins username (omit to use the connected Jenkins)'},
+        'token': {'type': 'string', 'description': 'Jenkins API token (omit to use the connected Jenkins)'},
     }
     gh_creds = {
         'repo_owner': {'type': 'string', 'description': 'Repository owner (user or org)'},
         'repo_name': {'type': 'string', 'description': 'Repository name'},
-        'github_token': {'type': 'string', 'description': 'GitHub personal access token (overrides GITHUB_TOKEN env var)'},
+        'github_token': {'type': 'string', 'description': "GitHub token (omit to use the user's connected GitHub)"},
     }
     return [
         {
@@ -1589,6 +1587,21 @@ def get_tools() -> List[Dict[str, Any]]:
             'handler': get_github_workflow_run
         },
         {
+            'name': 'get_github_run_jobs',
+            'description': ('Jobs and steps of a GitHub Actions run, including which steps failed and the '
+                            'last lines of each failed job log. Read-only; use it to find why a run failed.'),
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    **gh_creds,
+                    'run_id': {'type': 'integer', 'description': 'Workflow run ID'},
+                    'log_tail_lines': {'type': 'integer', 'description': 'Log lines per failed job (10-200, default 60)'},
+                },
+                'required': ['repo_owner', 'repo_name', 'run_id']
+            },
+            'handler': get_github_run_jobs
+        },
+        {
             'name': 'cancel_github_workflow_run',
             'description': 'Cancel an in-progress GitHub Actions workflow run',
             'input_schema': {
@@ -1656,7 +1669,7 @@ def get_tools() -> List[Dict[str, Any]]:
                     'ref': {'type': 'string', 'description': 'Filter by branch or tag'},
                     'status': {'type': 'string', 'enum': ['running', 'pending', 'success', 'failed', 'canceled', 'skipped'], 'description': 'Filter by status'},
                     'per_page': {'type': 'integer', 'description': 'Max results (default: 20)', 'default': 20},
-                    'gitlab_token': {'type': 'string', 'description': 'GitLab personal/project access token (or set GITLAB_TOKEN env var)'},
+                    'gitlab_token': {'type': 'string', 'description': "GitLab access token (omit to use the user's connected GitLab)"},
                     'gitlab_url': {'type': 'string', 'description': 'GitLab instance URL (default: https://gitlab.com)'}
                 },
                 'required': ['project_id']
