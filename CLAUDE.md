@@ -1876,12 +1876,22 @@ written by the SSE `done` handler in the page, so a closed tab would strand a ro
 (30), an assistant reply in the conversation means `completed`, none means `timed_out`.
 Any new status a client reports must have an equivalent server-derivable fallback.
 
-**AI/ML workflows (added 2026-10-12):** "Self-Hosted LLM on AWS GPU (EC2 + vLLM)"
-and "LLM Serving on EKS GPU Nodes (vLLM)". Steps are prose, so
-`tests/test_llm_workflows.py` pins what prose can't enforce: every tool a step names
-exists in the live catalog, the vLLM port is only ever opened to the user's CIDR
-(never `0.0.0.0/0`), the GPU quota (`L-DB2E81BA`, G and VT vCPUs) is checked before
-any launch, and each workflow ends with teardown. The EKS workflow pins
+**AI/ML workflows (added 2026-10-12, extended 2026-10-13):** five self-hosted LLM
+workflows — AWS EC2, EKS, Azure GPU VM, GCP GPU VM, and on-prem Kubernetes. Steps
+are prose, so `tests/test_llm_workflows.py` pins what prose can't enforce: every tool
+a step names exists in the live catalog, single-VM workflows only ever open the vLLM
+port to the user's CIDR (never `0.0.0.0/0`), each cloud workflow checks its GPU quota
+before any launch (AWS `L-DB2E81BA`; Azure compute `usage.list`; GCP `NVIDIA_L4_GPUS` /
+`GPUS_ALL_REGIONS`), the on-prem workflow never calls a cloud API or attempts host-level
+installs, and every workflow ends with teardown. The Azure and GCP workflows share
+`_VLLM_PIP_SETUP_LINES` (pip/uv install, vLLM as a systemd unit — idempotent, so a
+driver-extension reboot or a re-run can't leave it stopped); its rendered form is
+`bash -n`-checked by the test. Images, driver-extension versions and quota entries are
+resolved **at run time** through `*_api_read`, never hardcoded. **The Azure workflow
+deliberately avoids `create_virtual_machine`:** that tool creates a Basic,
+dynamic public IP with no NSG and password-only login, i.e. a VM open to the internet
+— flagged 2026-10-13, not yet fixed (Basic public IPs are also retired by Azure, so the
+tool may simply fail on new deployments). The EKS workflow pins
 `nvcr.io/nvidia/k8s-device-plugin:v0.17.1` (the AL2023 NVIDIA AMI ships drivers but
 not the device plugin) — bump it deliberately. **A new workflow category needs a
 matching `filter-chip` in `templates/workflows.html`**; `test_workflow_seeding.py`

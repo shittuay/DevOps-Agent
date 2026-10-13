@@ -1316,6 +1316,10 @@ Self-hosted LLMs (GPU instances, vLLM, EKS GPU nodes):
 - The AWS Deep Learning Base GPU AMI (find_ami distro "dlami-gpu") already has the NVIDIA driver, Docker and the NVIDIA container toolkit, so a container can use the GPU with --gpus all and no driver installation.
 - GPU capacity is gated by a vCPU-based Service Quota ("Running On-Demand G and VT instances"), which is often 0 on new accounts — the most common first failure.
 - On Kubernetes, a GPU node also needs the NVIDIA device plugin, which advertises nvidia.com/gpu to the scheduler; a pod requests a GPU with resources.limits nvidia.com/gpu: 1. Without the plugin, GPU pods stay Pending forever.
+- Each cloud gates GPUs differently: AWS uses a vCPU quota per instance family, Azure a vCPU quota per VM family (e.g. NCASv3_T4) shown by compute usage, and GCP a GPU-count quota per region plus a global one (NVIDIA_L4_GPUS, GPUS_ALL_REGIONS).
+- Drivers arrive differently too: AWS's Deep Learning AMI ships them, Azure installs them with the NvidiaGpuDriverLinux VM extension, and GCP's Deep Learning VM installs them on first boot when metadata install-nvidia-driver is True.
+- On-prem, the NVIDIA driver and container toolkit are installed on each GPU host by whoever runs the hardware; Kubernetes only sees GPUs once the device plugin (or the NVIDIA GPU Operator) is running. Air-gapped clusters must pre-stage model weights because they cannot download from Hugging Face.
+- Older GPUs such as the T4 lack bfloat16, so vLLM needs --dtype half on them.
 - GPU instances are expensive and bill while idle. Always tell the learner exactly how to tear down what was created.
 
 Keep answers complete and thorough — teaching takes as many words as it needs to be clear.
