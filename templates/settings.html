@@ -585,7 +585,7 @@
 
                     <!-- Info boxes for each mode -->
                     <div id="roleArnInfo" class="info-box">
-                        <p style="margin:0 0 12px;font-size:0.85em;color:#666;">The quick-create button above fills in your External ID automatically and opens the AWS console. The template is <a href="https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json" target="_blank">public and auditable</a>.</p>
+                        <p style="margin:0 0 12px;font-size:0.85em;color:#666;">The quick-create button above fills in your External ID automatically and opens the AWS console. The template is <a href="{{ cf_template_url }}" target="_blank">public and auditable</a>.</p>
                         <h4>Or set up manually:</h4>
                         <ol>
                             <li>In your AWS account, go to <strong>IAM &rarr; Roles &rarr; Create Role</strong></li>
@@ -1148,7 +1148,7 @@
         // AWS Functions
         var currentAwsMode = 'role_arn';
 
-        var CF_TEMPLATE_URL = 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json';
+        var CF_TEMPLATE_URL = {{ cf_template_url|tojson }};
 
         function buildCfQuickCreateUrl(externalId) {
             return 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate'
@@ -1240,7 +1240,7 @@
                         '<br><br><strong>If you used the CloudFormation quick-create:</strong> update your stack ' +
                         'with the same template URL (keeps your External ID and policy level):' +
                         '<code>aws cloudformation update-stack --stack-name YOUR_STACK_NAME \\\n' +
-                        '  --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \\\n' +
+                        '  --template-url ' + CF_TEMPLATE_URL + ' \\\n' +
                         '  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true \\\n' +
                         '  --capabilities CAPABILITY_NAMED_IAM</code>' +
                         '<br><strong>If you created the role manually:</strong> replace the policy JSON with the current version from ' +

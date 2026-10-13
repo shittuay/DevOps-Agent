@@ -1717,6 +1717,10 @@ def doctor_page():
 
 
 PLATFORM_AWS_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '188046727805')
+# Public quick-create template; its trust policy names PLATFORM_AWS_ACCOUNT_ID, so the
+# two must move together (docs/aws-account-migration.md).
+CF_TEMPLATE_URL = os.environ.get(
+    'CF_TEMPLATE_URL', 'https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json')
 
 
 @app.route('/onboarding', methods=['GET'])
@@ -1724,7 +1728,8 @@ PLATFORM_AWS_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '18804672780
 def onboarding_page():
     """Onboarding wizard for new users."""
     return render_template('onboarding.html', user=current_user,
-                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID)
+                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID,
+                           cf_template_url=CF_TEMPLATE_URL)
 
 
 @app.route('/api/onboarding/complete', methods=['POST'])
@@ -1857,7 +1862,8 @@ def setup():
 def settings():
     """Settings page for AWS and other configurations."""
     return render_template('settings.html', user=current_user,
-                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID)
+                           platform_aws_account_id=PLATFORM_AWS_ACCOUNT_ID,
+                           cf_template_url=CF_TEMPLATE_URL)
 
 
 @app.route('/settings/skills')
