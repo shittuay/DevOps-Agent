@@ -210,13 +210,49 @@ NEW_WORKFLOW_TOOLS = {
         'get_cost_summary', 'get_ec2_instances', 'get_infrastructure_summary',
         'get_optimization_recommendations', 'list_cloud_sql_instances', 'list_compute_instances',
         'list_rds_instances', 'list_virtual_machines'},
+    'Fix a Failing GitHub Actions Run': {
+        'get_github_run_jobs', 'get_github_workflow_runs', 'list_github_runners', 'list_github_secrets',
+        'rerun_failed_github_jobs'},
+    'Debug a Failing GitLab Pipeline': {
+        'get_gitlab_job_log', 'get_gitlab_pipeline', 'list_gitlab_jobs', 'list_gitlab_pipelines',
+        'retry_gitlab_pipeline'},
+    'Debug a Failing Jenkins Build': {
+        'get_jenkins_build_logs', 'get_jenkins_job_config', 'get_jenkins_job_status', 'get_jenkins_queue',
+        'list_jenkins_nodes', 'trigger_jenkins_job'},
+    'CI/CD Pipeline Health Report': {
+        'get_github_workflow_runs', 'get_github_workflow_usage', 'list_github_environments',
+        'list_github_runners', 'list_github_workflows'},
+    'Release Readiness Check (SonarQube + CI)': {
+        'get_github_workflow_runs', 'get_sonar_hotspots', 'get_sonar_issues', 'get_sonar_project_quality'},
+    'On-Call Shift Handoff Report': {
+        'opsgenie_get_alert', 'opsgenie_get_oncall', 'opsgenie_list_alerts', 'opsgenie_list_schedules',
+        'pagerduty_get_incident', 'pagerduty_list_incidents', 'pagerduty_list_oncalls'},
+    'Page the On-Call Engineer (PagerDuty)': {
+        'pagerduty_add_note', 'pagerduty_create_incident', 'pagerduty_get_incident',
+        'pagerduty_list_incidents', 'pagerduty_list_services'},
+}
+
+# Integration workflows run only on the user's own connection; none may ask for a pasted token.
+INTEGRATION_WORKFLOWS = (
+    'Fix a Failing GitHub Actions Run', 'Debug a Failing GitLab Pipeline', 'Debug a Failing Jenkins Build',
+    'CI/CD Pipeline Health Report', 'Release Readiness Check (SonarQube + CI)',
+    'On-Call Shift Handoff Report', 'Page the On-Call Engineer (PagerDuty)')
+
+# Diagnose-then-offer workflows: the one write they may make waits for an explicit yes.
+CONFIRM_BEFORE_WRITE = {
+    'Fix a Failing GitHub Actions Run': 'rerun_failed_github_jobs',
+    'Debug a Failing GitLab Pipeline': 'retry_gitlab_pipeline',
+    'Debug a Failing Jenkins Build': 'trigger_jenkins_job',
+    'Page the On-Call Engineer (PagerDuty)': 'pagerduty_create_incident',
 }
 
 # Read-only workflows: diagnosing must never change anything.
 READ_ONLY_WORKFLOWS = ('Troubleshoot Failing Kubernetes Pods', 'Diagnose a Website That Is Down',
                        'Investigate an AWS Cost Spike', 'IAM Hygiene Audit',
                        'Compliance Readiness Check (SOC 2 / HIPAA / PCI DSS)',
-                       'Kubernetes Cluster Health Check', 'Multi-Cloud Inventory and Cost Snapshot')
+                       'Kubernetes Cluster Health Check', 'Multi-Cloud Inventory and Cost Snapshot',
+                       'CI/CD Pipeline Health Report', 'Release Readiness Check (SonarQube + CI)',
+                       'On-Call Shift Handoff Report')
 
 # Workflows that leave billed resources running must tell the user how to remove them.
 PROVISIONING_WORKFLOWS = (
@@ -233,7 +269,8 @@ ASK_BEFORE_CHANGING = ('Find Publicly Exposed S3 Buckets', 'Find Idle Resources 
 def _catalog_names():
     names = set()
     for mod_name in ('aws_tools', 'azure_tools', 'gcp_tools', 'kubernetes_tools',
-                     'verification_tools', 'devops_operations_tools', 'cicd_tools'):
+                     'verification_tools', 'devops_operations_tools', 'cicd_tools',
+                     'alerting_tools', 'sonarqube_tools'):
         mod = importlib.import_module('src.tools.' + mod_name)
         names.update(t['name'] for t in mod.get_tools())
     return names
@@ -276,6 +313,22 @@ def test_new_databases_are_never_public():
     assert 'Do not add the 0.0.0.0' in azure_sql
     cloud_sql = ' '.join(by_name['Cloud SQL Database on GCP']['steps'])
     assert 'Add no authorized networks' in cloud_sql
+
+
+def test_integration_workflows_use_the_users_own_connection():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name in INTEGRATION_WORKFLOWS:
+        steps = by_name[name]['steps']
+        assert 'Settings > Integrations' in steps[0], f'{name} must start by pointing at the user connection'
+        assert 'do not ask me to paste a token' in steps[0]
+        assert not any(i['type'] == 'secret' for i in by_name[name]['inputs']), f'{name} asks for a secret'
+
+
+def test_diagnose_then_offer_workflows_wait_for_a_yes():
+    by_name = {wf['name']: wf for wf in STARTER_WORKFLOWS}
+    for name, write_tool in CONFIRM_BEFORE_WRITE.items():
+        step = next(s for s in by_name[name]['steps'] if write_tool in s)
+        assert 'I say yes' in step, f'{name} must not call {write_tool} before the user agrees'
 
 
 def test_read_only_workflows_never_call_a_write_tool():

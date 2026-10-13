@@ -421,6 +421,9 @@ csrf.exempt(artifacts_bp)
 from routes.skills import skills_bp
 app.register_blueprint(skills_bp)
 
+from routes.integrations import integrations_bp
+app.register_blueprint(integrations_bp)
+
 # Load built-in skills at import time — gunicorn never runs the __main__ block,
 # so loading there left the Skills feature empty in production. Passing `app`
 # is required: the engine's list/context methods no-op without an app handle.
