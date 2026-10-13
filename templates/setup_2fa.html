@@ -400,6 +400,10 @@
         </div>
 
         <div class="container">
+            <p id="signedInAs" style="margin:0 0 16px; font-size:14px; color:var(--text-secondary); overflow-wrap:anywhere;">
+                Signed in as <strong>{{ user.email }}</strong> &middot;
+                <a href="/logout" style="color:var(--accent-primary);">Not you? Sign out</a>
+            </p>
             <!-- Already enabled message -->
             {% if user.has_mfa_enabled() %}
             <div class="step-card">
