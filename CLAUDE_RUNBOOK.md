@@ -3218,3 +3218,27 @@ entry while the PR's actual code changes merged fine. Restored here, verbatim, o
 noticed (`CLAUDE.md` pointed at an entry that didn't exist). **When a merge conflict spans two
 independent dated runbook entries that both append after the same anchor line, keep both** — don't
 resolve by picking one side's whole file.
+
+## 2026-10-13: Azure `create_virtual_machine` built internet-exposed VMs — fixed
+
+**Found while** writing the Azure self-hosted LLM workflow. `src/tools/azure_tools.py`'s
+`create_virtual_machine` created a **Basic, dynamic public IP** and a NIC with **no network
+security group**, and only supported **password login**. A Basic public IP with no NSG passes
+all inbound traffic, so every port on the VM was reachable from the whole internet, guarded only
+by a password. The tool's `create_` prefix makes it low risk in `safety.py`, so it ran with no
+confirmation prompt. Its default image was also Ubuntu 18.04, which is past end of standard support.
+
+**Fix.** The NIC always gets an NSG (`<vm>-nsg`); with no `allowed_source_cidr` it has no allow
+rules, so Azure's default rules deny inbound internet traffic. The public IP is now **Standard,
+static** (closed unless an NSG rule allows traffic; Basic is retired). Inbound rules are only
+created for `open_ports` (default `[22]`) from one validated `allowed_source_cidr`; world-open
+values (`0.0.0.0/0`, `*`, `Internet`, `any`, `::/0`, any `/0`) and `open_ports` without a CIDR
+are refused **before anything is created**. Deliberate internet exposure has to go through
+`create_nsg_rule`, a separately classified, confirmation-gated tool. `ssh_public_key` sets
+`disable_password_authentication`; `admin_password` is no longer required when a key is given.
+The default image is now Ubuntu 22.04 (`0001-com-ubuntu-server-jammy` / `22_04-lts-gen2`).
+
+**Tests.** `tests/test_azure_vm_secure_defaults.py` (17 tests) drives the real function against
+mocked network/compute clients; all 17 fail on the pre-fix code. **Not verified against a live
+Azure subscription** — the first real run should confirm the Standard IP + NSG create succeeds and
+that the 22.04 gen2 image is accepted by the chosen VM size.

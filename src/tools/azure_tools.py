@@ -1,4 +1,5 @@
 """Azure tools for DevOps Agent."""
+import ipaddress
 import re
 import threading
 from typing import Dict, Any, List, Optional
@@ -607,42 +608,93 @@ def create_resource_group(
         return {'success': False, 'error': _friendly_azure_error(e)}
 
 
+# Source values that mean "the whole internet" in an NSG rule. create_virtual_machine
+# refuses them: opening a port to everyone must go through create_nsg_rule, which is
+# a separately classified, confirmation-gated tool.
+_WORLD_OPEN_SOURCES = {'*', 'internet', 'any', '0.0.0.0/0', '::/0'}
+
+
+def _validate_vm_source_cidr(source: str) -> Optional[str]:
+    """Return an error message if `source` is not a usable, non-world-open CIDR."""
+    if source.strip().lower() in _WORLD_OPEN_SOURCES:
+        return (f'allowed_source_cidr "{source}" would open the VM to the whole internet. '
+                'Pass your own IP as a CIDR (e.g. 203.0.113.10/32), or create the VM first and '
+                'add a deliberate rule with create_nsg_rule.')
+    try:
+        network = ipaddress.ip_network(source.strip(), strict=False)
+    except ValueError:
+        return f'allowed_source_cidr "{source}" is not a valid IP address or CIDR.'
+    if network.prefixlen == 0:
+        return f'allowed_source_cidr "{source}" would open the VM to the whole internet.'
+    return None
+
+
 def create_virtual_machine(
     resource_group: str,
     vm_name: str,
     location: str,
     vm_size: str,
     admin_username: str,
-    admin_password: str,
+    admin_password: Optional[str] = None,
+    ssh_public_key: Optional[str] = None,
+    allowed_source_cidr: Optional[str] = None,
+    open_ports: Optional[List[int]] = None,
+    public_ip: bool = True,
     image_publisher: str = 'Canonical',
-    image_offer: str = 'UbuntuServer',
-    image_sku: str = '18.04-LTS',
+    image_offer: str = '0001-com-ubuntu-server-jammy',
+    image_sku: str = '22_04-lts-gen2',
     os_disk_size_gb: int = 30,
     tags: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """
-    Create a new Azure Virtual Machine.
+    Create a new Azure Linux Virtual Machine with its own VNet, NSG and NIC.
+
+    Secure by default: the NIC always gets a network security group, the public IP
+    is Standard SKU (closed unless an NSG rule allows traffic), and inbound access
+    is only opened to `allowed_source_cidr`, never to the whole internet. Supplying
+    `ssh_public_key` enables key login and disables password authentication.
 
     Args:
-        resource_group: Resource group name
+        resource_group: Resource group name (must exist)
         vm_name: Name for the virtual machine
         location: Azure region
         vm_size: VM size (e.g., Standard_B1s, Standard_D2s_v3)
         admin_username: Administrator username
-        admin_password: Administrator password
+        admin_password: Administrator password (used only when no ssh_public_key)
+        ssh_public_key: SSH public key; when set, password authentication is disabled
+        allowed_source_cidr: The one CIDR allowed inbound (e.g. 203.0.113.10/32)
+        open_ports: TCP ports to allow from allowed_source_cidr (default [22])
+        public_ip: Attach a Standard static public IP (default True)
         image_publisher: Image publisher (default: Canonical)
-        image_offer: Image offer (default: UbuntuServer)
-        image_sku: Image SKU (default: 18.04-LTS)
+        image_offer: Image offer (default: Ubuntu 22.04 LTS)
+        image_sku: Image SKU (default: 22_04-lts-gen2)
         os_disk_size_gb: OS disk size in GB (default: 30)
         tags: Optional tags
 
     Returns:
         Dictionary with operation result
     """
-    try:
-        from azure.mgmt.network.models import NetworkInterface, NetworkInterfaceIPConfiguration, Subnet, VirtualNetwork, PublicIPAddress
-        from azure.mgmt.compute.models import VirtualMachine, HardwareProfile, StorageProfile, OSProfile, NetworkProfile, OSDisk, ImageReference, VirtualMachineSizeTypes
+    if not ssh_public_key and not admin_password:
+        return {
+            'success': False,
+            'error': 'Provide ssh_public_key (recommended) or admin_password for the admin user.',
+        }
+    if open_ports and not allowed_source_cidr:
+        return {
+            'success': False,
+            'error': ('open_ports was given without allowed_source_cidr. Ports are only opened to '
+                      'one specific CIDR (e.g. your IP as 203.0.113.10/32), never to the whole internet.'),
+        }
+    if allowed_source_cidr:
+        cidr_error = _validate_vm_source_cidr(allowed_source_cidr)
+        if cidr_error:
+            return {'success': False, 'error': cidr_error}
+        open_ports = list(open_ports) if open_ports else [22]
+        for port in open_ports:
+            if not isinstance(port, int) or not 1 <= port <= 65535:
+                return {'success': False, 'error': f'Invalid port {port!r}; ports must be integers 1-65535.'}
 
+    try:
         compute_client = _get_azure_client('compute')
         network_client = _get_azure_client('network')
 
@@ -663,29 +715,73 @@ def create_virtual_machine(
             resource_group, vnet_name, subnet_name, subnet_params
         ).result()
 
-        # Create Public IP
-        public_ip_name = f'{vm_name}-ip'
-        public_ip_params = {
-            'location': location,
-            'public_ip_allocation_method': 'Dynamic'
-        }
-        public_ip_result = network_client.public_ip_addresses.begin_create_or_update(
-            resource_group, public_ip_name, public_ip_params
+        # Network security group: Azure's default rules deny inbound internet
+        # traffic, so the VM is closed unless a rule below opens a port to the one
+        # allowed CIDR.
+        nsg_name = f'{vm_name}-nsg'
+        security_rules = []
+        if allowed_source_cidr:
+            for index, port in enumerate(open_ports):
+                security_rules.append({
+                    'name': f'allow-tcp-{port}',
+                    'priority': 100 + index * 10,
+                    'direction': 'Inbound',
+                    'access': 'Allow',
+                    'protocol': 'Tcp',
+                    'source_address_prefix': allowed_source_cidr.strip(),
+                    'source_port_range': '*',
+                    'destination_address_prefix': '*',
+                    'destination_port_range': str(port),
+                })
+        nsg_result = network_client.network_security_groups.begin_create_or_update(
+            resource_group, nsg_name, {'location': location, 'security_rules': security_rules}
         ).result()
+
+        # Standard SKU (Basic public IPs are retired) is closed by default and
+        # only passes traffic an NSG rule allows.
+        public_ip_result = None
+        if public_ip:
+            public_ip_name = f'{vm_name}-ip'
+            public_ip_params = {
+                'location': location,
+                'sku': {'name': 'Standard'},
+                'public_ip_allocation_method': 'Static',
+            }
+            public_ip_result = network_client.public_ip_addresses.begin_create_or_update(
+                resource_group, public_ip_name, public_ip_params
+            ).result()
 
         # Create NIC
         nic_name = f'{vm_name}-nic'
+        ip_configuration = {
+            'name': 'ipconfig1',
+            'subnet': {'id': subnet_result.id},
+        }
+        if public_ip_result is not None:
+            ip_configuration['public_ip_address'] = {'id': public_ip_result.id}
         nic_params = {
             'location': location,
-            'ip_configurations': [{
-                'name': 'ipconfig1',
-                'subnet': {'id': subnet_result.id},
-                'public_ip_address': {'id': public_ip_result.id}
-            }]
+            'ip_configurations': [ip_configuration],
+            'network_security_group': {'id': nsg_result.id},
         }
         nic_result = network_client.network_interfaces.begin_create_or_update(
             resource_group, nic_name, nic_params
         ).result()
+
+        os_profile = {
+            'computer_name': vm_name,
+            'admin_username': admin_username,
+        }
+        if ssh_public_key:
+            os_profile['linux_configuration'] = {
+                'disable_password_authentication': True,
+                'ssh': {'public_keys': [{
+                    'path': f'/home/{admin_username}/.ssh/authorized_keys',
+                    'key_data': ssh_public_key.strip(),
+                }]},
+            }
+        else:
+            os_profile['admin_password'] = admin_password
 
         # Create VM
         vm_params = {
@@ -705,11 +801,7 @@ def create_virtual_machine(
                     'disk_size_gb': os_disk_size_gb
                 }
             },
-            'os_profile': {
-                'computer_name': vm_name,
-                'admin_username': admin_username,
-                'admin_password': admin_password
-            },
+            'os_profile': os_profile,
             'network_profile': {
                 'network_interfaces': [{'id': nic_result.id}]
             }
@@ -722,13 +814,23 @@ def create_virtual_machine(
             resource_group, vm_name, vm_params
         ).result()
 
+        if allowed_source_cidr:
+            access = (f'Inbound TCP {", ".join(str(p) for p in open_ports)} is allowed from '
+                      f'{allowed_source_cidr.strip()} only.')
+        else:
+            access = ('No inbound ports are open. To allow access, add a rule to '
+                      f'{nsg_name} with create_nsg_rule, scoped to a specific source CIDR.')
+        public_address = getattr(public_ip_result, 'ip_address', None) if public_ip_result else None
         return {
             'success': True,
             'vm_name': vm_result.name,
             'location': vm_result.location,
             'vm_size': vm_result.hardware_profile.vm_size,
             'provisioning_state': vm_result.provisioning_state,
-            'message': f'Successfully created VM {vm_result.name}. This process may take several minutes to complete.'
+            'public_ip_address': public_address,
+            'network_security_group': nsg_name,
+            'authentication': 'ssh_key' if ssh_public_key else 'password',
+            'message': f'Successfully created VM {vm_result.name}. {access}'
         }
     except Exception as e:
         logger.error(f"Error creating Azure VM: {str(e)}")
@@ -1699,7 +1801,12 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'create_virtual_machine',
-            'description': 'Create a new Azure Virtual Machine with networking components',
+            'description': (
+                'Create a new Azure Linux VM with its own VNet, network security group and NIC. '
+                'Secure by default: no inbound ports are open unless allowed_source_cidr is given, '
+                'and then only open_ports (default 22) from that one CIDR — never the whole internet. '
+                'Prefer ssh_public_key, which disables password login.'
+            ),
             'input_schema': {
                 'type': 'object',
                 'properties': {
@@ -1725,7 +1832,25 @@ def get_tools() -> List[Dict[str, Any]]:
                     },
                     'admin_password': {
                         'type': 'string',
-                        'description': 'Administrator password (must be 12-72 characters)'
+                        'description': 'Administrator password (12-72 characters). Only used when ssh_public_key is not given.'
+                    },
+                    'ssh_public_key': {
+                        'type': 'string',
+                        'description': 'SSH public key for the admin user (recommended). Disables password login.'
+                    },
+                    'allowed_source_cidr': {
+                        'type': 'string',
+                        'description': 'The single source CIDR allowed inbound, e.g. the user\'s IP as 203.0.113.10/32. World-open values (0.0.0.0/0, *, Internet) are refused. Omit to open no ports.'
+                    },
+                    'open_ports': {
+                        'type': 'array',
+                        'items': {'type': 'integer'},
+                        'description': 'TCP ports to allow from allowed_source_cidr (default [22])'
+                    },
+                    'public_ip': {
+                        'type': 'boolean',
+                        'description': 'Attach a Standard static public IP (default true)',
+                        'default': True
                     },
                     'image_publisher': {
                         'type': 'string',
@@ -1734,13 +1859,13 @@ def get_tools() -> List[Dict[str, Any]]:
                     },
                     'image_offer': {
                         'type': 'string',
-                        'description': 'Image offer (default: UbuntuServer)',
-                        'default': 'UbuntuServer'
+                        'description': 'Image offer (default: 0001-com-ubuntu-server-jammy, Ubuntu 22.04 LTS)',
+                        'default': '0001-com-ubuntu-server-jammy'
                     },
                     'image_sku': {
                         'type': 'string',
-                        'description': 'Image SKU (default: 18.04-LTS)',
-                        'default': '18.04-LTS'
+                        'description': 'Image SKU (default: 22_04-lts-gen2)',
+                        'default': '22_04-lts-gen2'
                     },
                     'os_disk_size_gb': {
                         'type': 'integer',
@@ -1752,7 +1877,7 @@ def get_tools() -> List[Dict[str, Any]]:
                         'description': 'Optional tags'
                     }
                 },
-                'required': ['resource_group', 'vm_name', 'location', 'vm_size', 'admin_username', 'admin_password']
+                'required': ['resource_group', 'vm_name', 'location', 'vm_size', 'admin_username']
             },
             'handler': create_virtual_machine
         },
