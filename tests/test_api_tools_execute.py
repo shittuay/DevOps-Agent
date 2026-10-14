@@ -77,39 +77,43 @@ def _post(client, headers, tool, params=None, confirm=None):
 
 
 class TestExecuteToolSafetyGate:
+    """Risky calls follow the chat approval rules: the first call files an
+    approval request (202) and nothing runs. The old '"confirm": true' flag let
+    any write-scope key skip approval and no longer does anything."""
+
+    def _assert_pending(self, resp, calls):
+        assert resp.status_code == 202, resp.get_json()
+        body = resp.get_json()
+        assert body['status'] == 'pending_approval'
+        assert isinstance(body['approval_id'], int)
+        assert [c for c in calls if not c[0].startswith('_')] == []
+        return body
+
     def test_execute_command_blocked_without_confirm(self, client, api_headers, agent_with_tools):
         """The core gap: execute_command must NOT run unconfirmed via a write key."""
         resp = _post(client, api_headers, 'execute_command', {'command': 'whoami'})
-        assert resp.status_code == 409
-        body = resp.get_json()
-        assert body['requires_confirm'] is True
+        body = self._assert_pending(resp, agent_with_tools)
         assert body['risk_level'] in ('high', 'critical')
-        # Handler must not have executed
-        assert agent_with_tools == []
 
-    def test_execute_command_runs_with_confirm(self, client, api_headers, agent_with_tools):
+    def test_confirm_flag_no_longer_skips_approval(self, client, api_headers, agent_with_tools):
         resp = _post(client, api_headers, 'execute_command', {'command': 'whoami'}, confirm=True)
-        assert resp.status_code == 200
-        assert ('execute_command', {'command': 'whoami'}) in agent_with_tools
+        self._assert_pending(resp, agent_with_tools)
 
     def test_generic_write_passthrough_requires_confirm(self, client, api_headers, agent_with_tools):
         resp = _post(client, api_headers, 'aws_api_write', {'action': 'anything'})
-        assert resp.status_code in (403, 409)
-        assert agent_with_tools == []
+        assert resp.status_code in (202, 403)
+        assert [c for c in agent_with_tools if not c[0].startswith('_')] == []
 
     def test_ec2_terminate_requires_confirm(self, client, api_headers, agent_with_tools):
         resp = _post(client, api_headers, 'manage_ec2_instance',
                      {'action': 'terminate', 'instance_id': 'i-123'})
-        assert resp.status_code == 409
-        assert resp.get_json()['requires_confirm'] is True
-        assert agent_with_tools == []
+        self._assert_pending(resp, agent_with_tools)
 
     def test_ec2_stop_is_medium_and_requires_confirm(self, client, api_headers, agent_with_tools):
         """Medium-risk (stop/reboot) was not checked at all by the old code."""
         resp = _post(client, api_headers, 'manage_ec2_instance',
                      {'action': 'stop', 'instance_id': 'i-123'})
-        assert resp.status_code == 409
-        assert agent_with_tools == []
+        self._assert_pending(resp, agent_with_tools)
 
     def test_ec2_start_is_low_and_runs(self, client, api_headers, agent_with_tools):
         resp = _post(client, api_headers, 'manage_ec2_instance',
@@ -124,8 +128,7 @@ class TestExecuteToolSafetyGate:
 
     def test_delete_prefix_still_requires_confirm(self, client, api_headers, agent_with_tools):
         resp = _post(client, api_headers, 'delete_vpc', {'vpc_id': 'vpc-1'})
-        assert resp.status_code == 409
-        assert agent_with_tools == []
+        self._assert_pending(resp, agent_with_tools)
 
     def test_unknown_tool_404(self, client, api_headers, agent_with_tools):
         resp = _post(client, api_headers, 'not_a_real_tool', {})

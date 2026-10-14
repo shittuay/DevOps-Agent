@@ -173,8 +173,12 @@ Every tool call is classified by risk before it runs:
   also where you confirm actions asked for through the Claude.ai connector.
 - **If the request can't be recorded** (a database error, say), the action is blocked rather
   than run.
-- **If your role is Approver or Admin:** your own risky actions run without a separate approval
-  step.
+- **If your role is Approver or Admin:** your own medium-risk actions run directly. Your own
+  high-risk actions (delete, terminate, destroy, anything that reveals a secret) still wait for
+  you to click **Confirm & run**: one message shouldn't be enough to delete production. Nobody
+  else approves those for you.
+- **Through the APIs:** the developer API and `/api/v1` apply the same rules; see the
+  [API reference](API_REFERENCE.md#risky-tools-and-approvals).
 - **Sandbox mode:** never creates approval requests; everything is simulated.
 
 **My requests** (`/approvals/mine`, everyone): your own pending requests, with Confirm & run
@@ -269,8 +273,9 @@ requests are checked with an HMAC signature and GitLab with a secret token.
 
 **Developer API** (`/api-gateway/`, Professional and Business): API keys, outgoing webhooks,
 usage, and docs. Calls go to `/api-gateway/v1/*` with an `X-API-Key` header. Each key has a
-daily request limit (1,000 by default). Risky tools return a `confirm_token` that must be sent
-back before they run. Full reference: [/developers](https://devopsagent.io/developers) and
+daily request limit (1,000 by default). Risky tools follow the same approval rules as chat: the
+first call returns an `approval_id`, which you send back to confirm (or which waits for your
+organization's approval). Full reference: [/developers](https://devopsagent.io/developers) and
 [API_REFERENCE.md](API_REFERENCE.md).
 
 **Claude.ai connector:** add `https://devopsagent.io/mcp` as a custom connector in Claude.ai and

@@ -29,9 +29,15 @@ def execute_tool():
     Execute a DevOps tool directly.
 
     Request body:
-        tool   (string, required): Tool name (e.g. "list_ec2_instances")
-        params (object, optional): Tool input parameters
-        confirm (bool, optional): Required for high-risk tools (default: false)
+        tool        (string, required): Tool name (e.g. "list_ec2_instances")
+        params      (object, optional): Tool input parameters
+        approval_id (int, optional): Confirm, or check, a pending approval request
+
+    Medium- and high-risk tools follow the same approval rules as chat: the first
+    call files an approval request and returns 202 with an approval_id. If the
+    caller may confirm it themselves, re-sending the same call with that
+    approval_id runs it; otherwise an owner, admin or approver of their
+    organization approves it on /approvals.
 
     Returns:
         result: Tool output
@@ -40,7 +46,7 @@ def execute_tool():
     body = request.get_json(silent=True) or {}
     tool_name = body.get('tool', '').strip()
     params = body.get('params') or {}
-    confirmed = bool(body.get('confirm', False))
+    approval_id = body.get('approval_id')
 
     if not tool_name:
         return jsonify({'error': 'Missing required field: tool'}), 400
@@ -67,22 +73,26 @@ def execute_tool():
             'risk_level': verdict.risk_level,
         }), 403
 
-    # High- and medium-risk tools both require confirmation in the UI; enforce
-    # the same here so a write-scope key can't run them silently.
-    if verdict.requires_confirmation and not confirmed:
-        return jsonify({
-            'error': 'This tool requires confirmation. Re-send with "confirm": true to proceed.',
-            'tool': tool_name,
-            'risk_level': verdict.risk_level,
-            'requires_confirm': True,
-        }), 409
+    api_user = getattr(g, 'api_user', None)
+    if verdict.requires_confirmation:
+        # Same approval rules as chat and the Claude.ai connector
+        # (services/approval_service.py); the run itself goes through the
+        # approval service, which verifies and audits it. The old
+        # '"confirm": true' flag let any write-scope key skip approval.
+        from services.approval_service import needs_approval, gate_api_call
+        if api_user is None:
+            return jsonify({'error': 'Authentication required', 'tool': tool_name}), 401
+        if needs_approval(api_user, verdict.risk_level) or approval_id is not None:
+            status, payload = gate_api_call(api_user, tool_name, params,
+                                            verdict.risk_level, approval_id)
+            payload.pop('ran_now', None)
+            return jsonify(payload), status
 
     # process_message_isolated/process_message_streaming are the only two entry
     # points that set this automatically. Direct tool execution here bypasses
     # both, so without this call aws_tools._get_boto_client (and the Azure/GCP
     # equivalents) has no per-user credential context to look up — same gap
     # fixed for services/approval_service.py's _execute_tool.
-    api_user = getattr(g, 'api_user', None)
     if api_user:
         agent._set_cloud_user_context(api_user.id)
     try:

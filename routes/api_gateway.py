@@ -415,42 +415,6 @@ def api_list_tools():
     return jsonify({'tools': all_tools, 'total': len(all_tools)})
 
 
-def _make_confirm_token(api_key_id: int, tool_name: str, params: dict) -> str:
-    """Generate a stateless HMAC confirmation token for destructive tool calls.
-
-    Token is deterministic for the same (api_key_id, tool_name, params, hour) tuple,
-    valid for 1 hour. No server-side storage required.
-    """
-    import hashlib
-    import hmac
-    import json
-    import os
-    import time
-
-    hour_bucket = str(int(time.time()) // 3600)
-    payload = f"{api_key_id}:{tool_name}:{json.dumps(params, sort_keys=True)}:{hour_bucket}"
-    secret = os.environ.get('SECRET_KEY', 'devops-agent-secret').encode()
-    return hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
-
-
-def _verify_confirm_token(api_key_id: int, tool_name: str, params: dict, token: str) -> bool:
-    """Verify a confirm token — accepts tokens from the current or previous hour."""
-    import hashlib
-    import hmac
-    import json
-    import os
-    import time
-
-    secret = os.environ.get('SECRET_KEY', 'devops-agent-secret').encode()
-    for hour_offset in (0, -1):  # current hour or previous hour
-        hour_bucket = str(int(time.time()) // 3600 + hour_offset)
-        payload = f"{api_key_id}:{tool_name}:{json.dumps(params, sort_keys=True)}:{hour_bucket}"
-        expected = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
-        if hmac.compare_digest(expected, token):
-            return True
-    return False
-
-
 @api_gateway_bp.route('/v1/execute', methods=['POST'])
 @api_key_required
 def api_execute_tool():
@@ -462,11 +426,14 @@ def api_execute_tool():
       {
         "tool": "list_ec2_instances",
         "params": { "region": "us-east-1" },
-        "confirm_token": "<token>"   // required for high/medium risk tools
+        "approval_id": 123          // only when confirming a pending request
       }
 
-    For destructive tools, the first call returns 403 with a confirm_token.
-    Re-send the same request with that token included to execute.
+    Medium- and high-risk tools follow the same approval rules as chat: the
+    first call files an approval request and returns 202 with an approval_id.
+    If the caller may confirm it themselves, re-sending the same call with that
+    approval_id runs it; otherwise an owner, admin or approver of their
+    organization approves it on /approvals, and re-sending reports its status.
 
     Response:
       { "result": { ... }, "tool": "list_ec2_instances", "credits_remaining": N }
@@ -492,7 +459,7 @@ def api_execute_tool():
     data = request.get_json(silent=True) or {}
     tool_name = (data.get('tool') or '').strip()
     params = data.get('params') or {}
-    confirm_token = (data.get('confirm_token') or '').strip()
+    approval_id = data.get('approval_id')
 
     if not tool_name:
         return jsonify({'error': 'tool is required'}), 400
@@ -512,37 +479,43 @@ def api_execute_tool():
     if tool_name not in all_tools:
         return jsonify({'error': f'Unknown tool: {tool_name}. See GET /v1/tools for available tools.'}), 404
 
-    # Safety gate — run SafetyValidator before any execution
+    # Safety gate — run SafetyValidator before any execution. Fails closed: a
+    # broken validator must not turn every risky call into an unchecked one.
     try:
         from src.agent.safety import SafetyValidator
         validation = SafetyValidator().validate_tool_call(tool_name, params)
     except Exception as e:
-        # Deliberate fail-open (matches routes/mcp.py and the Haiku
-        # guardrail screen), but log it — a silently-broken validator would
-        # otherwise disable confirmation gating for every high-risk tool
-        # call indefinitely with zero operational visibility.
-        current_app.logger.error(f"Safety validator raised for tool '{tool_name}', executing without a safety gate: {e}")
-        validation = None
+        current_app.logger.error(f"Safety validator raised for tool '{tool_name}', refusing to run it: {e}")
+        return jsonify({'error': 'safety_check_unavailable',
+                        'message': 'The safety check failed, so the tool was not run. Try again later.'}), 503
 
-    if validation and validation.requires_confirmation:
-        # High/medium risk tool — require explicit confirmation token
-        if not confirm_token or not _verify_confirm_token(api_key_record.id, tool_name, params, confirm_token):
-            token = _make_confirm_token(api_key_record.id, tool_name, params)
-            return jsonify({
-                'error': 'tool_requires_confirmation',
-                'risk': validation.risk_level,
-                'reason': validation.reason,
-                'confirm_token': token,
-                'message': (
-                    f"'{tool_name}' is a {validation.risk_level}-risk operation. "
-                    "Re-send this request with the confirm_token field to proceed. "
-                    "Token expires in ~1 hour."
-                ),
-            }), 403
+    if not validation.is_safe:
+        return jsonify({'error': 'tool_blocked', 'risk': validation.risk_level,
+                        'reason': validation.reason}), 403
+
+    if validation.requires_confirmation:
+        # Same approval rules as chat and the Claude.ai connector
+        # (services/approval_service.py). The request runs through the approval
+        # service, which verifies and audits it.
+        from models import User
+        from services.approval_service import needs_approval, gate_api_call
+        api_user = User.query.get(user_id)
+        if needs_approval(api_user, validation.risk_level) or approval_id is not None:
+            status, payload = gate_api_call(api_user, tool_name, params,
+                                            validation.risk_level, approval_id)
+            ran_now = payload.pop('ran_now', False)
+            if ran_now:
+                db.session.add(UsageLog(
+                    user_id=user_id, action_type='api_tool_use',
+                    tool_name=tool_name, credits_used=1, success=True,
+                ))
+                payload['credits_remaining'] = CreditService.deduct(user_id, commit=False)
+                db.session.commit()
+            return jsonify(payload), status
 
         current_app.logger.warning(
-            f"API confirmed destructive tool execution: user={user_id} "
-            f"key={api_key_record.id} tool={tool_name} risk={validation.risk_level} params={params}"
+            f"API medium-risk tool run by approver/admin: user={user_id} "
+            f"key={api_key_record.id} tool={tool_name} risk={validation.risk_level}"
         )
 
     # Set the requester's cloud credential context before running the tool —
