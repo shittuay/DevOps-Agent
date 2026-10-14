@@ -35,3 +35,15 @@ def test_landscape_block_keeps_the_message_box_on_screen():
 def test_page_height_uses_the_visible_viewport():
     assert '100dvh' in _css_block('        body {')
     assert '100dvh' in _css_block('        .sidebar {')
+
+
+def test_tabs_stay_visible_on_narrow_portrait_screens():
+    """The 480px block used to hide .header-nav, and nothing else on the chat page links to
+    Dashboard, Workflows, Approvals or Map, so a phone held upright could not reach them."""
+    blocks = re.findall(r'@media \(max-width: 480px\) \{(.*?)\n        \}', HTML, re.S)
+    nav_rules = [b for b in blocks if '.header-nav {' in b]
+    assert nav_rules, 'the narrow-screen block must style the tab row'
+    rule = nav_rules[0].split('.header-nav {', 1)[1].split('}', 1)[0]
+    assert 'display: none' not in rule
+    assert 'overflow-x: auto' in rule
+    assert 'flex-wrap: wrap' in nav_rules[0]
