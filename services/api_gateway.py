@@ -67,8 +67,6 @@ class WebhookEvent(Enum):
     RESOURCE_CREATED = 'resource.created'
     RESOURCE_UPDATED = 'resource.updated'
     RESOURCE_DELETED = 'resource.deleted'
-    INCIDENT_CREATED = 'incident.created'
-    INCIDENT_RESOLVED = 'incident.resolved'
     ALERT_TRIGGERED = 'alert.triggered'
     DEPLOYMENT_STARTED = 'deployment.started'
     DEPLOYMENT_COMPLETED = 'deployment.completed'

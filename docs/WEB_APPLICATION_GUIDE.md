@@ -11,8 +11,6 @@ A comprehensive guide to using the DevOps Agent web interface and all its featur
 3. [Chat Interface](#chat-interface)
 4. [Cloud Configuration](#cloud-configuration)
 5. [Monitoring & Alerts](#monitoring--alerts)
-6. [Incident Management](#incident-management)
-7. [Root Cause Analysis](#root-cause-analysis)
 8. [Optimization](#optimization)
 9. [Predictive Scaling](#predictive-scaling)
 10. [Drift Detection](#drift-detection)
@@ -257,116 +255,6 @@ Access via **Monitoring** (`/monitoring`).
 - **Start Monitoring**: Begin rule evaluation
 - **Stop Monitoring**: Pause all monitoring
 - **Status**: Current monitoring state
-
----
-
-## Incident Management
-
-Access via **Incidents** (`/incidents`).
-
-### Incident Dashboard
-
-**Statistics:**
-- Total incidents
-- By status (Open, Acknowledged, Resolved)
-- By severity (Critical, High, Medium, Low)
-
-**Filters:**
-- Status
-- Severity
-- Date range
-- Source
-
-### Incident Lifecycle
-
-```
-Unacknowledged -> Acknowledged -> Resolved
-```
-
-**Acknowledge:**
-1. Click on incident
-2. Click **Acknowledge**
-3. Optionally add notes
-
-**Resolve:**
-1. Open incident details
-2. Click **Resolve**
-3. Document resolution
-
-### Incident Details
-
-Each incident shows:
-- Title and description
-- Severity and status
-- Source system
-- Timeline of events
-- Actions taken
-- Related alerts
-
-### Playbooks
-
-Playbooks automate incident response.
-
-**Creating a Playbook:**
-
-1. Go to **Playbooks** tab
-2. Click **Create Playbook**
-3. Configure:
-
-| Field | Description |
-|-------|-------------|
-| Name | Playbook identifier |
-| Description | What it handles |
-| Trigger Conditions | When to activate |
-| Actions | Steps to execute |
-| Auto-Execute | Run automatically |
-| Require Approval | Need human approval |
-| Notifications | Where to send alerts |
-
-**Built-in Playbooks:**
-- High CPU Usage Response
-- Memory Pressure Handling
-- Disk Full Remediation
-- Pod Crash Loop Recovery
-- High Error Rate Response
-- Latency Spike Resolution
-
-### Receiving External Alerts
-
-Configure webhooks to receive alerts from:
-- Prometheus/Alertmanager
-- Datadog
-- PagerDuty
-- OpsGenie
-- Grafana
-
----
-
-## Root Cause Analysis
-
-Access via **Analysis** (`/analysis`).
-
-### Running Analysis
-
-1. Select an incident to analyze
-2. Click **Analyze**
-3. Wait for AI analysis
-
-### Analysis Components
-
-| Component | Description |
-|-----------|-------------|
-| Root Cause | Primary cause identified |
-| Contributing Factors | Secondary issues |
-| Evidence | Supporting logs/metrics |
-| Recommendations | Suggested fixes |
-| Prevention | How to avoid recurrence |
-
-### Analysis History
-
-- View past analyses
-- Compare similar incidents
-- Track recurring issues
 
 ---
 
@@ -961,9 +849,7 @@ Configure:
 | / | Main chat interface |
 | /dashboard | Infrastructure dashboard |
 | /monitoring | Alert rules and metrics |
-| /incidents | Incident management |
 | /optimization | Recommendations |
-| /analysis | Root cause analysis |
 | /scaling | Predictive scaling |
 | /drift | Drift detection |
 | /ai | AI infrastructure |

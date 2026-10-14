@@ -15,8 +15,6 @@ _WEBHOOK_EVENTS = [
     {'id': 'resource.created', 'name': 'Resource Created'},
     {'id': 'resource.updated', 'name': 'Resource Updated'},
     {'id': 'resource.deleted', 'name': 'Resource Deleted'},
-    {'id': 'incident.created', 'name': 'Incident Created'},
-    {'id': 'incident.resolved', 'name': 'Incident Resolved'},
     {'id': 'alert.triggered', 'name': 'Alert Triggered'},
     {'id': 'deployment.started', 'name': 'Deployment Started'},
     {'id': 'deployment.completed', 'name': 'Deployment Completed'},
@@ -318,72 +316,6 @@ def api_get_costs():
 
     data = service.get_cost_analytics(start_date, end_date)
     return jsonify(data)
-
-
-@api_gateway_bp.route('/v1/incidents', methods=['GET'])
-@api_key_required
-def api_list_incidents():
-    """External API: List incidents"""
-    from models import Incident
-
-    status = request.args.get('status')
-    query = Incident.query.filter_by(user_id=request.api_key.user_id)
-
-    if status:
-        query = query.filter_by(status=status)
-
-    incidents = query.order_by(Incident.created_at.desc()).limit(100).all()
-
-    return jsonify({
-        'incidents': [{
-            'id': i.id,
-            'title': i.title,
-            'severity': i.severity,
-            'status': i.status,
-            'created_at': i.created_at.isoformat() if i.created_at else None,
-            'resolved_at': i.resolved_at.isoformat() if i.resolved_at else None
-        } for i in incidents]
-    })
-
-
-@api_gateway_bp.route('/v1/incidents', methods=['POST'])
-@api_key_required
-def api_create_incident():
-    """External API: Create incident"""
-    from models import db, Incident
-    from datetime import datetime
-
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'Invalid JSON'}), 400
-
-    incident = Incident(
-        user_id=request.api_key.user_id,
-        title=data.get('title'),
-        description=data.get('description'),
-        severity=data.get('severity', 'medium'),
-        status='open',
-        created_at=utcnow()
-    )
-
-    db.session.add(incident)
-    db.session.commit()
-
-    from services.api_gateway import APIGatewayService
-    gateway = APIGatewayService()
-    gateway.trigger_webhooks(request.api_key.user_id, 'incident.created', {
-        'incident_id': incident.id,
-        'title': incident.title,
-        'severity': incident.severity
-    })
-
-    return jsonify({
-        'incident': {
-            'id': incident.id,
-            'title': incident.title,
-            'status': incident.status
-        }
-    }), 201
 
 
 @api_gateway_bp.route('/v1/health', methods=['GET'])

@@ -615,9 +615,6 @@
             <a href="#resources" class="sidebar-link">
                 <span class="method-badge method-get">GET</span> /v1/resources
             </a>
-            <a href="#incidents" class="sidebar-link">
-                <span class="method-badge method-get">GET</span> /v1/incidents
-            </a>
             <a href="#costs" class="sidebar-link">
                 <span class="method-badge method-get">GET</span> /v1/analytics/costs
             </a>
@@ -1130,43 +1127,6 @@ Retry-After: 3600</pre>
             </div>
         </section>
 
-        <!-- Incidents -->
-        <section class="section" id="incidents">
-            <h2 class="section-title">Incidents</h2>
-
-            <div class="endpoint">
-                <div class="endpoint-header" onclick="toggleEndpoint(this)">
-                    <span class="method-badge method-get">GET</span>
-                    <span class="endpoint-path">/api-gateway/v1/incidents</span>
-                    <span class="endpoint-title">List incidents</span>
-                    <span class="auth-required">API key required</span>
-                </div>
-                <div class="endpoint-body">
-                    <p style="color:var(--text-secondary);font-size:14px;margin-bottom:12px;">Filter by <code>?status=open</code> or <code>?status=resolved</code>. Returns up to 100 incidents, newest first.</p>
-                </div>
-            </div>
-
-            <div class="endpoint" style="margin-top:12px;">
-                <div class="endpoint-header" onclick="toggleEndpoint(this)">
-                    <span class="method-badge method-post">POST</span>
-                    <span class="endpoint-path">/api-gateway/v1/incidents</span>
-                    <span class="endpoint-title">Create an incident</span>
-                    <span class="auth-required">API key required</span>
-                </div>
-                <div class="endpoint-body">
-                    <table class="param-table">
-                        <thead><tr><th>Field</th><th>Type</th><th>Required</th></tr></thead>
-                        <tbody>
-                            <tr><td><span class="param-name">title</span></td><td><span class="param-type">string</span></td><td><span class="param-required">required</span></td></tr>
-                            <tr><td><span class="param-name">description</span></td><td><span class="param-type">string</span></td><td style="color:var(--text-tertiary);font-size:12px;">optional</span></td></tr>
-                            <tr><td><span class="param-name">severity</span></td><td><span class="param-type">string</span></td><td style="color:var(--text-tertiary);font-size:12px;">optional (default: medium)</td></tr>
-                        </tbody>
-                    </table>
-                    <p style="color:var(--text-secondary);font-size:13px;">Fires a <code>incident.created</code> webhook event to all registered webhooks.</p>
-                </div>
-            </div>
-        </section>
-
         <!-- Costs -->
         <section class="section" id="costs">
             <h2 class="section-title">Cost Analytics</h2>
@@ -1337,12 +1297,6 @@ result = httpx.post(
   -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> \
   -H <span class="hl-string">"Content-Type: application/json"</span> \
   -d <span class="hl-string">'{"tool":"list_pods","params":{"namespace":"production"}}'</span> | jq .
-
-<span class="hl-comment"># Create an incident (alert on your own infra events)</span>
-<span class="hl-func">curl</span> -s -X POST https://devopsagent.io/api-gateway/v1/incidents \
-  -H <span class="hl-string">"X-API-Key: doa_live_xxxx"</span> \
-  -H <span class="hl-string">"Content-Type: application/json"</span> \
-  -d <span class="hl-string">'{"title":"High CPU on web-1","severity":"high"}'</span> | jq .
 
 <span class="hl-comment"># Stream the agent response</span>
 <span class="hl-func">curl</span> -s -N -X POST https://devopsagent.io/api-gateway/v1/agent/stream \

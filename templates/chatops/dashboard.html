@@ -184,7 +184,6 @@
     <header class="header">
         <h1>ChatOps</h1>
         <nav>
-            <a href="{{ url_for('incidents.incidents_dashboard') }}">Incidents</a>
             <a href="{{ url_for('dashboard') }}">Dashboard</a>
         </nav>
     </header>
@@ -192,7 +191,7 @@
     <div class="container">
         <div class="hero">
             <h2>ChatOps Integration</h2>
-            <p>Interact with DevOps Agent directly from Slack or Microsoft Teams. Query incidents, acknowledge alerts, trigger playbooks, and more.</p>
+            <p>Interact with DevOps Agent directly from Slack or Microsoft Teams. Check recent deployments and link your account.</p>
 
             <div class="integration-cards">
                 <div class="integration-card">
@@ -234,11 +233,8 @@
             </div>
             <div class="section-content">
                 <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Incident commands (<code>/status</code>, <code>/incidents</code>,
-                    <code>/ack</code>, <code>/resolve</code>, <code>/playbooks</code>, <code>/execute</code>,
-                    <code>/analyze</code>, <code>/oncall</code>)
-                    read your account's data, so Slack/Teams must first be linked to your DevOps Agent
-                    account. Generate a code below, then run <code>/link &lt;code&gt;</code> in Slack or Teams.
+                    Commands that read your account's data (<code>/deployments</code>, <code>/oncall</code>)
+                    need Slack/Teams to be linked to your DevOps Agent account first. Generate a code below, then run <code>/link &lt;code&gt;</code> in Slack or Teams.
                 </p>
                 <div class="test-section">
                     <button class="btn btn-primary" onclick="generateLinkCode()">Generate Link Code</button>
@@ -254,7 +250,7 @@
             <div class="section-content">
                 <div class="test-section">
                     <div class="test-input">
-                        <input type="text" id="testCommand" placeholder="Enter command (e.g., /status, /incidents)" onkeypress="if(event.key==='Enter')testCommand()">
+                        <input type="text" id="testCommand" placeholder="Enter command (e.g., /help, /deployments)" onkeypress="if(event.key==='Enter')testCommand()">
                         <button class="btn btn-primary" onclick="testCommand()">Run</button>
                     </div>
                     <div class="test-output" id="testOutput">Response will appear here...</div>

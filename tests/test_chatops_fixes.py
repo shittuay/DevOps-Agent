@@ -6,7 +6,7 @@ none previously covered by any test:
 1. `_cmd_metrics`/`_cmd_oncall` returned hardcoded fake numbers/roster as if
    real, with no `[Sandbox]` label — the fabricated-data pattern CLAUDE.md's
    "every feature runs against a real cloud account" rule exists to prevent.
-2. Every incident/monitoring command called IncidentResponseEngine /
+2. Every incident/monitoring command (since removed) called IncidentResponseEngine /
    ProactiveMonitoringService methods without the `user_id` those methods
    require, so they either raised TypeError or silently mis-bound a Slack
    string into the user_id slot. There was also no way to map a Slack/Teams
@@ -94,12 +94,12 @@ def test_oncall_fails_closed_without_any_integration_configured(monkeypatch):
 
 # ==================== Identity linking + per-user wiring ====================
 
-def test_status_command_without_linked_identity_asks_to_link():
+def test_user_scoped_command_without_linked_identity_asks_to_link():
     service = get_chatops_service()
-    response = service.process_message('status', user_id='slack-U-unlinked', platform=ChatPlatform.SLACK)
+    response = service.process_message('deployments', user_id='slack-U-unlinked', platform=ChatPlatform.SLACK)
 
     assert 'link' in response.text.lower()
-    assert 'system status' not in response.text.lower()
+    assert 'admin-only' not in response.text.lower()
 
 
 def test_help_command_does_not_require_linking():
@@ -140,10 +140,12 @@ def test_link_code_flow_unlocks_user_scoped_commands(app, test_user, db_session)
     assert link_code.used_at is not None
 
     # Now a requires_auth command should resolve the identity and actually run.
-    status_response = service.process_message(
-        'status', user_id=platform_user_id, platform=ChatPlatform.SLACK
+    # test_user is not an admin, so reaching the admin check proves the
+    # identity resolved and the handler ran.
+    deployments_response = service.process_message(
+        'deployments', user_id=platform_user_id, platform=ChatPlatform.SLACK
     )
-    assert 'system status' in status_response.text.lower()
+    assert 'admin-only' in deployments_response.text.lower()
 
     db.session.delete(identity)
     db.session.delete(link_code)
@@ -196,53 +198,3 @@ def test_link_code_rejects_expired_code(app, test_user, db_session):
 
     db.session.delete(link_code)
     db.session.commit()
-
-
-# ==================== Direct handler regressions (no more TypeError/AttributeError) ====================
-
-def test_playbooks_command_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_playbooks([], app_user_id=test_user.id)
-    assert response.text
-
-
-def test_incident_detail_not_found_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_incident_detail(['does-not-exist'], app_user_id=test_user.id)
-    assert 'not found' in response.text.lower()
-
-
-def test_execute_incident_not_found_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_execute(['does-not-exist'], app_user_id=test_user.id)
-    assert 'not found' in response.text.lower()
-
-
-def test_analyze_incident_not_found_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_analyze(['does-not-exist'], app_user_id=test_user.id)
-    assert 'not found' in response.text.lower()
-
-
-def test_acknowledge_incident_not_found_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_acknowledge(['does-not-exist'], app_user_id=test_user.id)
-    assert 'failed to acknowledge' in response.text.lower()
-
-
-def test_resolve_incident_not_found_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_resolve(['does-not-exist'], app_user_id=test_user.id)
-    assert 'failed to resolve' in response.text.lower()
-
-
-def test_status_command_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_status([], app_user_id=test_user.id)
-    assert 'system status' in response.text.lower()
-
-
-def test_incidents_list_command_runs_without_error(app, test_user):
-    service = get_chatops_service()
-    response = service._cmd_incidents([], app_user_id=test_user.id)
-    assert response.text

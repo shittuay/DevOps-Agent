@@ -4,7 +4,7 @@ Advanced Analytics Service for DevOps Agent.
 Provides charts, trends, cost forecasting, and usage analytics — all sourced from
 the user's real connected cloud account (AWS Cost Explorer / CloudWatch via
 services/cost_explorer.py) and this app's own per-user tables
-(InfrastructureResource, IncidentModel, UsageLog). No metric here may be
+(InfrastructureResource, UsageLog). No metric here may be
 fabricated: a user with no cloud account connected and no synced resources sees
 zeros/empty series, never invented numbers. See CLAUDE.md's "every feature runs
 against a real cloud account" rule.
@@ -32,7 +32,6 @@ class MetricType(Enum):
     """Types of metrics tracked."""
     COST = 'cost'
     RESOURCES = 'resources'
-    INCIDENTS = 'incidents'
     DEPLOYMENTS = 'deployments'
     API_CALLS = 'api_calls'
     USERS = 'users'
@@ -327,7 +326,6 @@ class AnalyticsService:
         builders = {
             'daily_cost': self._series_daily_cost,
             'resource_count': self._series_resource_count,
-            'incidents': self._series_incidents,
             'deployments': self._series_deployments,
             'api_calls': self._series_api_calls,
         }
@@ -376,30 +374,6 @@ class AnalyticsService:
 
         if not series.data_points:
             series.add_point(utcnow(), len(resources))
-        return series
-
-    def _series_incidents(self, days: int) -> TimeSeries:
-        series = TimeSeries('incidents', MetricType.INCIDENTS)
-        series.unit = 'count'
-        if self.user_id is None:
-            return series
-
-        from models import IncidentModel
-        cutoff = utcnow() - timedelta(days=days)
-        incidents = IncidentModel.query.filter(
-            IncidentModel.user_id == self.user_id,
-            IncidentModel.triggered_at >= cutoff,
-        ).all()
-
-        by_day: Dict[str, int] = {}
-        for i in incidents:
-            if not i.triggered_at:
-                continue
-            key = i.triggered_at.strftime('%Y-%m-%d')
-            by_day[key] = by_day.get(key, 0) + 1
-
-        for key in sorted(by_day.keys()):
-            series.add_point(datetime.strptime(key, '%Y-%m-%d'), by_day[key])
         return series
 
     def _series_deployments(self, days: int) -> TimeSeries:
@@ -516,7 +490,6 @@ class AnalyticsService:
         """Get key metrics for dashboard — all real, per-user."""
         cost_series = self.get_time_series('daily_cost', TimeRange.MONTH)
         resource_series = self.get_time_series('resource_count', TimeRange.MONTH)
-        incident_series = self.get_time_series('incidents', TimeRange.MONTH)
         deploy_series = self.get_time_series('deployments', TimeRange.MONTH)
 
         cost_total = self._real_cost_breakdown(days=days).get('total', 0)
@@ -530,10 +503,6 @@ class AnalyticsService:
             'resources': {
                 'total': self._resource_query().count(),
                 'trend': resource_series.get_trend() if resource_series else 'stable'
-            },
-            'incidents': {
-                'this_month': sum(p.value for p in incident_series.data_points) if incident_series else 0,
-                'trend': incident_series.get_trend() if incident_series else 'stable'
             },
             'deployments': {
                 'this_month': sum(p.value for p in deploy_series.data_points) if deploy_series else 0,
@@ -595,56 +564,6 @@ class AnalyticsService:
         if not samples:
             return 0.0
         return round(sum(samples) / len(samples), 1)
-
-    # ---- Alerts / incidents ---------------------------------------------
-
-    def get_alerts_summary(self, days: int = 7) -> Dict:
-        """Get alerts summary for the given number of days — real IncidentModel rows."""
-        if self.user_id is None:
-            return {'total': 0, 'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
-                    'resolved': 0, 'open': 0, 'trend': 'stable'}
-
-        from models import IncidentModel
-        cutoff = utcnow() - timedelta(days=days)
-        incidents = IncidentModel.query.filter(
-            IncidentModel.user_id == self.user_id,
-            IncidentModel.triggered_at >= cutoff,
-        ).all()
-
-        total = len(incidents)
-        critical = sum(1 for i in incidents if i.severity == 'critical')
-        high = sum(1 for i in incidents if i.severity == 'high')
-        medium = sum(1 for i in incidents if i.severity == 'medium')
-        low = sum(1 for i in incidents if i.severity == 'low')
-        resolved = sum(1 for i in incidents if i.status in ('resolved', 'closed'))
-        open_count = total - resolved
-
-        prior_cutoff = cutoff - timedelta(days=days)
-        prior_total = IncidentModel.query.filter(
-            IncidentModel.user_id == self.user_id,
-            IncidentModel.triggered_at >= prior_cutoff,
-            IncidentModel.triggered_at < cutoff,
-        ).count()
-        if prior_total == 0:
-            trend = 'up' if total > 0 else 'stable'
-        else:
-            change = (total - prior_total) / prior_total
-            trend = 'up' if change > 0.05 else 'down' if change < -0.05 else 'stable'
-
-        return {
-            'total': total,
-            'critical': critical,
-            'high': high,
-            'medium': medium,
-            'low': low,
-            'resolved': resolved,
-            'open': open_count,
-            'trend': trend,
-        }
-
-    def get_incident_stats(self, days: int = 30) -> Dict:
-        """Get incident statistics for the given number of days."""
-        return self.get_alerts_summary(days=days)
 
     # ---- Deployments ------------------------------------------------------
 

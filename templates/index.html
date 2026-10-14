@@ -2209,12 +2209,10 @@
                     <a href="/chat" class="header-button active-nav"><i class="fa-solid fa-terminal"></i> Chat</a>
                     <a href="/dashboard" class="header-button"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
                     <a href="/workflows" class="header-button"><i class="fa-solid fa-diagram-project"></i> Workflows</a>
-                    <a href="/incidents" class="header-button"><i class="fa-solid fa-triangle-exclamation"></i> Incidents</a>
                     <a href="/settings" class="header-button"><i class="fa-solid fa-gear"></i> Settings</a>
                     <a href="/approvals" class="header-button" id="approvalsNavLink" style="display:none">Approvals<span id="approvalsNavBadge" style="display:none; background:rgba(239,68,68,0.8); color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; margin-left:5px; font-family:'IBM Plex Mono',monospace; vertical-align:middle;"></span></a>
                     <div class="nav-sep"></div>
                     <a href="/infrastructure/map" class="header-button"><i class="fa-solid fa-map"></i> Map</a>
-                    <a href="/analysis" class="header-button"><i class="fa-solid fa-magnifying-glass-chart"></i> Analysis</a>
                     <a href="/curriculum" class="header-button"><i class="fa-solid fa-graduation-cap"></i> Learn</a>
                 </nav>
 
@@ -2275,12 +2273,6 @@
                                 <i class="fa-solid fa-users"></i> Teams
                             </div>
                             <div class="dropdown-divider"></div>
-                            <div class="dropdown-item" onclick="window.location.href='/incidents'">
-                                <i class="fa-solid fa-triangle-exclamation"></i> Incidents
-                            </div>
-                            <div class="dropdown-item" onclick="window.location.href='/analysis'">
-                                <i class="fa-solid fa-magnifying-glass-chart"></i> Root Cause Analysis
-                            </div>
                             {% if current_user.is_authenticated and current_user.role == 'admin' %}
                             <div class="dropdown-item" onclick="window.location.href='/webhooks'">
                                 <i class="fa-solid fa-link"></i> Webhooks

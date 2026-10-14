@@ -50,14 +50,6 @@
                 <span class="metric-change positive" id="deploymentSuccess">0% success</span>
             </div>
         </div>
-        <div class="metric-card">
-            <div class="metric-icon incidents"><i class="fas fa-exclamation-triangle"></i></div>
-            <div class="metric-content">
-                <span class="metric-label">Incidents</span>
-                <span class="metric-value" id="incidents">0</span>
-                <span class="metric-change" id="mttr">MTTR: 0h</span>
-            </div>
-        </div>
     </div>
 
     <div class="charts-grid">
@@ -217,10 +209,6 @@
     color: #8b5cf6;
 }
 
-.metric-icon.incidents {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-}
 
 .metric-content {
     display: flex;
@@ -411,7 +399,6 @@ function updateMetrics(data) {
     document.getElementById('totalCost').textContent = `$${(data.cost?.current_month || 0).toFixed(2)}`;
     document.getElementById('activeResources').textContent = data.resources?.total || 0;
     document.getElementById('deployments').textContent = data.deployments?.this_month || 0;
-    document.getElementById('incidents').textContent = data.incidents?.this_month || 0;
 
     const costTrend = data.cost?.trend;
     if (costTrend) {
@@ -423,11 +410,6 @@ function updateMetrics(data) {
     const depTrend = data.deployments?.trend;
     if (depTrend) {
         document.getElementById('deploymentSuccess').textContent = depTrend;
-    }
-
-    const mttr = data.incidents?.trend;
-    if (mttr) {
-        document.getElementById('mttr').textContent = `Trend: ${mttr}`;
     }
 }
 

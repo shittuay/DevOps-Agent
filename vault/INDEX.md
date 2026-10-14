@@ -16,6 +16,7 @@ Read this index first, then follow only the links relevant to the current task.
 - [[tool-capability-metadata]] — risk lives on the tool, not a name-set in safety.py (2026-09-06, governance refactor Phase 1)
 - [[remove-optimize-area]] — why the Optimize area was deleted rather than rebuilt (2026-10-13)
 - [[remove-monitoring-engine]] — why Monitoring (page + alert→incident engine) was removed (2026-10-13)
+- [[remove-incidents-and-analysis]] — why Incidents and Analysis were removed, and what kept incident handling (2026-10-13)
 
 ## Debugging / Postmortems
 - [[coverage-7-15-1-ci-outage]] — loose `coverage>=` pin took CI down Jul 13–15, 2026
