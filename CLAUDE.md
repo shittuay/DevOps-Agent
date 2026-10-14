@@ -58,7 +58,6 @@ services/
   starter_templates.py     # Curated public infrastructure templates (data only)
   starter_workflows.py     # Curated pre-built workflow templates + seed_workflow_templates()
 routes/
-  incidents.py             # Incident dashboard, journal, correlation group APIs
   artifacts.py             # Chat artifact CRUD + markdown export
   skills.py                # Skills activate/deactivate/list/learned endpoints
 skills/                    # Built-in skill *.md files (loaded at startup, cached in memory)
@@ -71,8 +70,6 @@ templates/
   index.html               # Main chat UI (dark terminal aesthetic, centered nav, artifacts panel)
   settings/
     skills.html            # Skills toggle grid + learned infrastructure summary
-  incidents/
-    detail.html            # Incident detail with Investigation Journal timeline panel
 ```
 
 ## Tool Inventory (749 total, 18 modules)
@@ -255,7 +252,7 @@ instance is found.
   touched again, not just the ones a bug report happens to point at.
 - **A non-Flask-session entry point (a bot, webhook, or CLI) that calls a per-user service still
   needs a real app `user_id` from somewhere — it doesn't get one for free.** Every method on
-  `IncidentResponseEngine`/`RootCauseAnalyzer` (and the since-removed `ProactiveMonitoringService`) requires `user_id` as
+  `IncidentResponseEngine`/`RootCauseAnalyzer`/`ProactiveMonitoringService` (all since removed) required `user_id` as
   its first positional arg, same as any other per-user service in this app. `services/chatops_service.py`
   (Slack/Teams bot commands) called all of them with no `user_id` at all, or with the Slack-typed
   incident-id string landing in the `user_id` slot, because there was no mechanism to map a
@@ -1795,33 +1792,11 @@ Each user has isolated:
 - Infrastructure resources
 - Cost optimizations and alerts
 - Subscriptions and credits
-- Proactive recommendations, artifacts, skill activations, incident journal entries
+- Proactive recommendations, artifacts, skill activations
 
 ---
 
 ## Feature Reference
-
-### Incident Intelligence
-**Access:** `/incidents/` dashboard → click any incident → right-side "Investigation Journal" panel
-
-**What it does:** Groups cascading alerts into a single correlation group (same resource type or severity tier within a 20-minute window). Every tool call, finding, status change, and agent action is logged as an immutable journal entry on the incident.
-
-**New models:** `IncidentCorrelationGroup`, `InvestigationJournalEntry`
-**New column:** `IncidentModel.correlation_group_key`
-
-**API endpoints:**
-```
-GET  /api/incidents/groups               → list all correlation groups for user
-GET  /api/incidents/<id>/journal         → list journal entries (chronological)
-POST /api/incidents/<id>/journal         → add manual note (author='user')
-GET  /api/incidents/<id>/related         → incidents sharing same correlation_group_key
-```
-
-**Key logic (`services/incident_response.py`):**
-- `find_or_create_correlation_group()` — called on every new incident; matches open groups within 20-min window by resource type or severity
-- Journal writes fire automatically on `create_incident()`, `acknowledge_incident()`, `resolve_incident()`, and `_execute_action()`
-
----
 
 ### Context-Aware Chat + Artifacts
 **Access:** Chat page → 📄 button in header toggles Artifacts slide-out panel (right side)
@@ -2025,14 +2000,40 @@ The Monitoring page (`routes/monitoring.py`, `templates/monitoring/`) and the en
 default alert rules for every user with a cloud account, evaluated them on a 60s scheduler tick
 (`monitoring_tick`, also removed from `services/scheduler.py`), and **auto-opened incidents** and
 sent Slack/Teams/status-page notifications when an alert fired. **Incidents are no longer created
-from metric alerts** — manual and webhook-created incidents, RCA, and incident notifications are
-unaffected. ChatOps `/alerts` and `/metrics` were removed; `/status` now reports incident stats
-only. The dead `notification_service.notify_alert()` (it linked to `/monitoring`) was deleted;
+from metric alerts**. (Incidents themselves were removed later that day; see below.) ChatOps
+`/alerts` and `/metrics` were removed. The dead `notification_service.notify_alert()` (it linked to `/monitoring`) was deleted;
 `status_service.broadcast_incident()` is now unused but kept. The agent's Prometheus/Datadog/Grafana
 tools (`src/tools/monitoring_tools.py`) are a separate feature and remain. `MonitoringRuleModel` /
 `MonitoringAlertModel` tables are left in place, unused. `tests/test_monitoring_removed.py` guards
 the route, the engine import, the scheduler tick, the ChatOps commands, and every page that used to
 `url_for('monitoring.…')` (six did — each would 500 without the fix).
+
+### Incidents (`/incidents`) and Analysis (`/analysis`) — removed 2026-10-13
+
+Removed at the owner's request, the same day as Monitoring and with nothing left feeding them
+(Monitoring had been the main source of incidents). Deleted: `routes/incidents.py`,
+`services/incident_response.py` (incidents, playbooks, correlation groups, investigation journal),
+`routes/analysis.py`, `services/root_cause_analyzer.py`, `templates/incidents/`,
+`templates/analysis/`, and the unused old `templates/dashboard.html`. Also removed because they
+only read or wrote incidents:
+- ChatOps `/status`, `/incidents`, `/incident`, `/ack`, `/resolve`, `/playbooks`, `/execute`,
+  `/analyze`. What's left is `/help`, `/deployments` (admins), `/oncall` and `/link`.
+- The developer API's `/api-gateway/v1/incidents` GET/POST (already broken: they imported a
+  nonexistent `models.Incident`) and the `incident.created`/`incident.resolved` webhook events.
+- The public `/status` page's incident list. It queried every user's incidents with no
+  `user_id` filter, onto an unauthenticated page. Health checks and subscriptions stay.
+- CI/CD webhook failures no longer create incidents (`_handle_failure_event`, and the
+  `app_user_id` argument it needed on `process_webhook`).
+- `notify_incident()` / `send_incident_notification()` and the Incidents notification toggle
+  (the `notify_incidents` column and API field are kept, unused).
+- Incident counts in the health score, Analytics dashboard (`/analytics/api/alerts/summary`,
+  `/analytics/api/incidents/stats`) and the weekly digest email.
+
+Kept: the agent's PagerDuty/OpsGenie tools, the "Incident Response" workflows (chat
+diagnostics), the `incident_runbooks` skill, and `CrisisIncident` (guardrail crisis logging,
+unrelated). The `incidents`, `playbooks` and `incident_correlation_groups` tables stay in place,
+unused. `tests/test_incidents_removed.py` guards the routes, modules, ChatOps commands, API
+endpoints and every page that linked to them.
 
 ---
 
@@ -2087,7 +2088,7 @@ card/btn/badge/form components, Syne/IBM Plex Mono/Outfit type system). Pattern:
 `{% extends "base.html" %}` + `{% block title %}` + `{% block content %}` with
 page-specific `<style>` inside the content block. Do NOT build bespoke headers or
 load other fonts (JetBrains Mono/Comfortaa are legacy — replace on sight).
-Migrated 2026-07-16: `dashboard_live.html`, `incidents/dashboard.html`,
+Migrated 2026-07-16: `dashboard_live.html`, `incidents/dashboard.html` (since removed),
 `optimization/prevention.html`, `settings/skills.html`, `settings.html` (hash-tab
 sections: #cloud/#notifications/#budgets/#learning/#api-keys),
 `infrastructure/map.html`. Full-bleed pages (canvas/app-frame) override
@@ -2115,7 +2116,7 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 
 **Header layout (3 zones):**
 - Left: sidebar toggle (☰)
-- Center: primary nav (Dashboard / Incidents) | secondary nav (Map / Analysis / Learn) — orange underline on hover
+- Center: primary nav (Dashboard / Workflows / Settings) | secondary nav (Map / Learn) — orange underline on hover
 - Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.

@@ -1,8 +1,8 @@
 """
 Notification Service for DevOps Agent.
 
-Provides integrations for Slack and Microsoft Teams to send alerts,
-incident notifications, and status updates.
+Provides integrations for Slack and Microsoft Teams to send cost, security
+and change notifications.
 """
 
 import json
@@ -445,47 +445,6 @@ class NotificationService:
             }
         )
 
-        if alert_data.get("incident_id"):
-            notification.fields["Incident"] = f"#{alert_data['incident_id']}"
-
-        return self.send(user_id, notification, channels)
-
-    def send_incident_notification(self, user_id: int, incident_data: dict,
-                                   event: str = "created",
-                                   channels: list[str] = None) -> dict[str, bool]:
-        """Send an incident lifecycle notification."""
-        event_titles = {
-            "created": "New Incident Created",
-            "acknowledged": "Incident Acknowledged",
-            "resolved": "Incident Resolved",
-            "escalated": "Incident Escalated",
-        }
-
-        severity = incident_data.get("severity", "medium")
-        priority_map = {
-            "low": NotificationPriority.LOW,
-            "medium": NotificationPriority.NORMAL,
-            "high": NotificationPriority.HIGH,
-            "critical": NotificationPriority.CRITICAL,
-        }
-
-        notification = Notification(
-            title=f"{event_titles.get(event, 'Incident Update')}: #{incident_data.get('id', 'N/A')}",
-            message=incident_data.get("title", "Incident notification"),
-            priority=priority_map.get(severity, NotificationPriority.NORMAL),
-            fields={
-                "Status": incident_data.get("status", "unknown").upper(),
-                "Severity": severity.upper(),
-                "Source": incident_data.get("source", "N/A"),
-            }
-        )
-
-        if incident_data.get("assigned_to"):
-            notification.fields["Assigned To"] = incident_data["assigned_to"]
-
-        if incident_data.get("playbook"):
-            notification.fields["Playbook"] = incident_data["playbook"]
-
         return self.send(user_id, notification, channels)
 
     def send_deployment_notification(self, user_id: int, deployment_data: dict,
@@ -668,7 +627,7 @@ except ImportError:
 def _send_async(user_id: int, event_type: str, notification: 'Notification') -> None:
     """Load matching channels from DB and send notification in a daemon thread.
 
-    event_type must be one of: 'incidents', 'cost', 'security', 'changes'.
+    event_type must be one of: 'cost', 'security', 'changes', 'alerts'.
     Requires Flask app context at call site. Silently no-ops if no app context.
     """
     import services.notification_service as _self
@@ -685,7 +644,6 @@ def _send_async(user_id: int, event_type: str, notification: 'Notification') -> 
         return
 
     flag_map = {
-        'incidents': _UserNotificationChannel.notify_incidents,
         'cost':      _UserNotificationChannel.notify_cost,
         'security':  _UserNotificationChannel.notify_security,
         'changes':   _UserNotificationChannel.notify_changes,
@@ -712,35 +670,6 @@ def _send_async(user_id: int, event_type: str, notification: 'Notification') -> 
                 logger.exception(f"Error sending {event_type} notification for user {user_id}")
 
     threading.Thread(target=_run, daemon=True).start()
-
-
-def notify_incident(user_id: int, incident: dict, event: str, base_url: str = _BASE_URL) -> None:
-    """Fire a Slack notification for an incident lifecycle event."""
-    event_label = {'created': 'New Incident', 'acknowledged': 'Incident Acknowledged',
-                   'resolved': 'Incident Resolved'}.get(event, 'Incident Update')
-    severity = incident.get('severity', 'medium')
-    priority_map = {
-        'low':      NotificationPriority.LOW,
-        'medium':   NotificationPriority.NORMAL,
-        'high':     NotificationPriority.HIGH,
-        'critical': NotificationPriority.CRITICAL,
-    }
-    notification = Notification(
-        title=f"{event_label}: #{incident.get('id', 'N/A')}",
-        message=incident.get('title', 'Incident notification'),
-        priority=priority_map.get(severity, NotificationPriority.NORMAL),
-        fields={
-            'Severity': severity.upper(),
-            'Status':   incident.get('status', 'unknown').upper(),
-            'Source':   incident.get('source', 'N/A'),
-        },
-        actions=[{
-            'text': 'View Incident',
-            'url':  f"{base_url}/incidents/{incident.get('id', '')}",
-            'primary': True,
-        }],
-    )
-    _send_async(user_id, 'incidents', notification)
 
 
 def notify_security(user_id: int, results: dict, base_url: str = _BASE_URL) -> None:

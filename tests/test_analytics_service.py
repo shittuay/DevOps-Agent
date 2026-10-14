@@ -27,7 +27,7 @@ def test_empty_account_returns_zeros_not_fabricated_data(app, db_session, test_u
     metrics = service.get_dashboard_metrics()
     assert metrics['cost']['current_month'] == 0
     assert metrics['resources']['total'] == 0
-    assert metrics['incidents']['this_month'] == 0
+    assert 'incidents' not in metrics
     assert metrics['deployments']['this_month'] == 0
 
     breakdown = service.get_cost_breakdown()
@@ -38,9 +38,6 @@ def test_empty_account_returns_zeros_not_fabricated_data(app, db_session, test_u
     assert util['total_resources'] == 0
     assert util['utilization_avg'] == 0.0
 
-    alerts = service.get_alerts_summary()
-    assert alerts['total'] == 0
-
     deploy = service.get_deployment_stats()
     assert deploy['total'] == 0
     assert deploy['success_rate'] == 0.0
@@ -50,9 +47,9 @@ def test_empty_account_returns_zeros_not_fabricated_data(app, db_session, test_u
 
 
 def test_dashboard_metrics_reflect_real_synced_resources_only(app, db_session, test_user):
-    """Cost/resource/incident/deployment metrics must come from this user's
+    """Cost/resource/deployment metrics must come from this user's
     real rows, and never another user's."""
-    from models import User, InfrastructureResource, IncidentModel, UsageLog
+    from models import User, InfrastructureResource, UsageLog
 
     # Reuse test_user's already-hashed password rather than introducing a new
     # literal credential-shaped string in test code.
@@ -79,14 +76,6 @@ def test_dashboard_metrics_reflect_real_synced_resources_only(app, db_session, t
             resource_id='i-other', status='running', monthly_cost=999.0,
             created_at=now,
         ),
-        IncidentModel(
-            user_id=test_user.id, incident_key='analytics-test-inc-1', title='t',
-            severity='critical', status='resolved', triggered_at=now - timedelta(days=1),
-        ),
-        IncidentModel(
-            user_id=test_user.id, incident_key='analytics-test-inc-2', title='t2',
-            severity='low', status='detected', triggered_at=now - timedelta(days=2),
-        ),
         UsageLog(
             user_id=test_user.id, action_type='tool_use', tool_name='terraform_apply',
             success=True, created_at=now - timedelta(days=1),
@@ -106,7 +95,6 @@ def test_dashboard_metrics_reflect_real_synced_resources_only(app, db_session, t
 
     metrics = service.get_dashboard_metrics()
     assert metrics['resources']['total'] == 2
-    assert metrics['incidents']['this_month'] == 2
     assert metrics['deployments']['this_month'] == 2
 
     breakdown = service.get_cost_breakdown()
@@ -120,12 +108,6 @@ def test_dashboard_metrics_reflect_real_synced_resources_only(app, db_session, t
     util = service.get_resource_utilization()
     assert util['total_resources'] == 2
     assert util['by_type'] == {'ec2': 1, 'rds': 1}
-
-    alerts = service.get_alerts_summary(days=7)
-    assert alerts['total'] == 2
-    assert alerts['critical'] == 1
-    assert alerts['resolved'] == 1
-    assert alerts['open'] == 1
 
     deploy = service.get_deployment_stats(days=7)
     assert deploy['total'] == 2

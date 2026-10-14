@@ -48,56 +48,6 @@ Complete reference of all features and capabilities.
 
 ---
 
-## Incident Management
-
-### Incident Tracking (`/incidents`)
-
-| Feature | Description |
-|---------|-------------|
-| Incident Creation | Manual or automatic from alerts |
-| Status Workflow | Unacknowledged > Acknowledged > Resolved |
-| Severity Levels | Critical, High, Medium, Low, Info |
-| Timeline | Chronological event history |
-| Actions | Document remediation steps |
-| Assignment | Track ownership |
-
-### Playbooks
-
-| Feature | Description |
-|---------|-------------|
-| Automated Response | Execute actions on incident |
-| Trigger Conditions | Define when playbook runs |
-| Action Steps | Configurable remediation |
-| Auto-Execute | Run without approval |
-| Approval Workflow | Require human confirmation |
-| Notifications | Alert stakeholders |
-
-### Built-in Playbooks
-
-1. High CPU Usage Response
-2. Memory Pressure Handling
-3. Disk Full Remediation
-4. Pod Crash Loop Recovery
-5. High Error Rate Response
-6. Latency Spike Resolution
-
----
-
-## Root Cause Analysis
-
-### AI Analysis (`/analysis`)
-
-| Feature | Description |
-|---------|-------------|
-| Automatic Investigation | AI analyzes incident data |
-| Log Correlation | Relate logs to incidents |
-| Metric Analysis | Identify anomalies |
-| Pattern Detection | Find recurring issues |
-| Recommendations | Suggested fixes |
-| Prevention | Avoid future incidents |
-
----
-
 ## Optimization
 
 ### Recommendations (`/optimization`)

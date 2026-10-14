@@ -179,7 +179,6 @@
     <header class="header">
         <h1>Notification Settings</h1>
         <nav>
-            <a href="{{ url_for('incidents.incidents_dashboard') }}">Incidents</a>
             <a href="{{ url_for('dashboard') }}">Dashboard</a>
         </nav>
     </header>
@@ -303,10 +302,9 @@
                     <h4>When will you receive notifications?</h4>
                     <p>
                         Notifications are sent for:<br>
-                        - Critical and high severity alerts from proactive monitoring<br>
-                        - New incidents that require attention<br>
-                        - Incident status changes (acknowledged, resolved, escalated)<br>
-                        - Deployment events and failures
+                        - New cost-saving findings<br>
+                        - Security scan results<br>
+                        - Infrastructure change recommendations
                     </p>
                 </div>
             </div>

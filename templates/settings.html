@@ -938,9 +938,6 @@
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary);">
                             <input type="checkbox" id="notifCost" checked style="accent-color: var(--accent-primary);"> Cost alerts
                         </label>
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary);">
-                            <input type="checkbox" id="notifIncidents" checked style="accent-color: var(--accent-primary);"> Incidents
-                        </label>
                     </div>
 
                     <div id="notifSuccessMessage" class="success-message" style="display:none;"></div>
@@ -1651,7 +1648,6 @@
                     notify_changes: document.getElementById('notifChanges').checked,
                     notify_security: document.getElementById('notifSecurity').checked,
                     notify_cost: document.getElementById('notifCost').checked,
-                    notify_incidents: document.getElementById('notifIncidents').checked,
                 })
             })
             .then(r => r.json())

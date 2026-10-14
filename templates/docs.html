@@ -563,7 +563,6 @@
       <a href="#tools-overview" class="sidebar-link">Tools Overview</a>
       <a href="#monitoring" class="sidebar-link">Monitoring & Alerts</a>
       <a href="#alerting" class="sidebar-link">Alerting (PD / OpsGenie)</a>
-      <a href="#incidents" class="sidebar-link">Incident Response</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-heading">Developer API</div>
@@ -1192,32 +1191,6 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
       </div>
     </section>
 
-    <!-- Incidents -->
-    <section id="incidents">
-      <h2 class="section-title">Incident Response</h2>
-      <p>The Incidents tab provides automated runbook execution. When an alert fires, you can trigger a playbook that diagnoses and remediates the issue automatically.</p>
-
-      <h3 class="subsection-title">Built-in playbooks</h3>
-      <table class="docs-table">
-        <thead><tr><th>Playbook</th><th>What it does</th></tr></thead>
-        <tbody>
-          <tr><td>high-cpu-usage</td><td>Identifies the top CPU-consuming processes, optionally restarts the service or scales the deployment</td></tr>
-          <tr><td>memory-pressure</td><td>Checks for memory leaks, triggers a restart or node cordon if critical</td></tr>
-          <tr><td>disk-space-low</td><td>Lists large files and stale logs, creates a cleanup plan</td></tr>
-          <tr><td>pod-crashloop</td><td>Fetches pod logs, identifies the crash reason, applies a fix or rolls back</td></tr>
-          <tr><td>service-down</td><td>Runs connectivity checks, restarts the service, escalates if unresolved</td></tr>
-          <tr><td>security-alert</td><td>Blocks the offending IP via security group rule, notifies the team</td></tr>
-        </tbody>
-      </table>
-
-      <div class="alert alert-info">
-        <span class="alert-icon">ℹ️</span>
-        <span>You can also trigger any playbook manually from the Incidents tab → <strong>Run Playbook</strong>, without waiting for an alert to fire.</span>
-      </div>
-    </section>
-
-    <div class="divider"></div>
-
     <!-- Developer API -->
     <section id="developer-api">
       <div class="section-badge">Developer</div>
@@ -1240,8 +1213,6 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
           <tr><td><span class="badge badge-green">GET</span></td><td><code>/resources</code></td><td>List all synced infrastructure resources</td></tr>
           <tr><td><span class="badge badge-green">GET</span></td><td><code>/resources/:id</code></td><td>Get a specific resource by ID</td></tr>
           <tr><td><span class="badge badge-green">GET</span></td><td><code>/analytics/costs</code></td><td>Cost analytics for the current billing period</td></tr>
-          <tr><td><span class="badge badge-green">GET</span></td><td><code>/incidents</code></td><td>List all incidents</td></tr>
-          <tr><td><span class="badge badge-cyan">POST</span></td><td><code>/incidents</code></td><td>Create a new incident manually</td></tr>
           <tr><td><span class="badge badge-green">GET</span></td><td><code>/health</code></td><td>Health check — no auth required, for load balancers</td></tr>
         </tbody>
       </table>

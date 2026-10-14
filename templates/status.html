@@ -361,33 +361,6 @@
     {% endfor %}
   </div>
 
-  <!-- Incident history -->
-  <div class="section-label">Recent Incidents</div>
-  {% if incidents %}
-  <div class="incident-list">
-    {% for inc in incidents %}
-    <div class="incident-card">
-      <div class="incident-meta">
-        {% if inc.get('status') == 'resolved' %}
-          <span class="incident-badge ib-resolved">RESOLVED</span>
-        {% elif inc.get('status') == 'firing' %}
-          <span class="incident-badge ib-firing">ACTIVE</span>
-        {% else %}
-          <span class="incident-badge ib-open">OPEN</span>
-        {% endif %}
-        <span class="incident-time">{{ inc.get('created_at', '')[:16] | replace('T',' ') }} UTC</span>
-      </div>
-      <div class="incident-title">{{ inc.get('title') or inc.get('name') or 'Incident' }}</div>
-      {% if inc.get('description') %}
-      <div class="incident-time" style="margin-top:4px;">{{ inc.get('description') }}</div>
-      {% endif %}
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="no-incidents">No incidents in the last 30 days.</div>
-  {% endif %}
-
   <!-- Subscribe -->
   <div class="subscribe-box">
     <div class="subscribe-title">Get Notified</div>

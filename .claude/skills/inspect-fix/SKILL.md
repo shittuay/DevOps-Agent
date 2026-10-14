@@ -80,8 +80,6 @@ services = [
     ('ai_infrastructure', 'services.ai_infrastructure'),
     ('learning_sandbox', 'services.learning_sandbox'),
     ('notification_service', 'services.notification_service'),
-    ('incident_response', 'services.incident_response'),
-    ('root_cause_analyzer', 'services.root_cause_analyzer'),
     ('scheduler', 'services.scheduler'),
     ('webhook_handler', 'services.webhook_handler'),
     ('cost_explorer', 'services.cost_explorer'),
@@ -128,11 +126,7 @@ else:
 python -c "
 routes = [
     ('admin', 'routes.admin'),
-    ('incidents', 'routes.incidents'),
-    ('monitoring', 'routes.monitoring'),
     ('notifications', 'routes.notifications'),
-    ('optimization', 'routes.optimization'),
-    ('analysis', 'routes.analysis'),
     ('webhooks', 'routes.webhooks'),
     ('chatops', 'routes.chatops'),
     ('drift', 'routes.drift'),
@@ -191,10 +185,6 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/chat
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/dashboard
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/settings
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/billing
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/monitoring
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/incidents
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/optimization
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/analysis
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/drift
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/scaling
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/ai_infrastructure
@@ -308,12 +298,9 @@ Both should return 403 (not 200).
 Verify critical services are initialized and connected:
 ```bash
 python -c "
-from app import app, monitoring_service, incident_engine, notification_service, root_cause_analyzer
+from app import app, notification_service
 with app.app_context():
-    print(f'Monitoring service: {type(monitoring_service).__name__}')
-    print(f'Incident engine: {type(incident_engine).__name__}')
     print(f'Notification service: {type(notification_service).__name__}')
-    print(f'Root cause analyzer: {type(root_cause_analyzer).__name__}')
     print('All critical services wired up')
 "
 ```

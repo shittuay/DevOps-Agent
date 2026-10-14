@@ -342,17 +342,9 @@ app.register_blueprint(billing_bp)
 from routes.admin import admin_bp
 app.register_blueprint(admin_bp)
 
-# Register incidents blueprint
-from routes.incidents import incidents_bp
-app.register_blueprint(incidents_bp)
-
 # Register notifications blueprint
 from routes.notifications import notifications_bp
 app.register_blueprint(notifications_bp)
-
-# Register analysis blueprint for AI-powered root cause analysis
-from routes.analysis import analysis_bp
-app.register_blueprint(analysis_bp)
 
 # Register webhooks blueprint for GitHub/GitLab/Bitbucket integrations
 from routes.webhooks import webhooks_bp
@@ -493,17 +485,10 @@ from api import api_bp
 app.register_blueprint(api_bp)
 csrf.exempt(api_bp)
 
-# Initialize incident response, notifications, and root cause analysis
-from services.incident_response import get_incident_engine
+# Initialize notifications
 from services.notification_service import get_notification_service
-from services.root_cause_analyzer import get_root_cause_analyzer
 
-incident_engine = get_incident_engine()
-incident_engine.set_app(app)
 notification_service = get_notification_service()
-incident_engine.set_notification_service(notification_service)
-root_cause_analyzer = get_root_cause_analyzer()
-root_cause_analyzer.set_app(app)
 
 # Initialise status service (public status page + Brevo subscriber broadcasts)
 status_service.set_app(app)
@@ -1886,20 +1871,7 @@ def status_page():
     """Public status page — no login required."""
     services = status_service.check_health()
     overall = status_service.get_overall_status(services)
-    # Grab last 5 resolved/firing incidents from DB for history section
-    from models import IncidentModel
-    recent_incidents = (
-        IncidentModel.query
-        .filter(IncidentModel.status.in_(['resolved', 'firing']))
-        .order_by(IncidentModel.created_at.desc())
-        .limit(5).all()
-    )
-    return render_template(
-        'status.html',
-        services=services,
-        overall=overall,
-        incidents=[i.to_dict() if hasattr(i, 'to_dict') else {} for i in recent_incidents],
-    )
+    return render_template('status.html', services=services, overall=overall)
 
 
 @app.route('/status/confirm/<token>')
@@ -1910,14 +1882,12 @@ def status_confirm(token):
         return render_template('status.html',
             services=status_service.check_health(),
             overall=status_service.get_overall_status(),
-            incidents=[],
             flash_msg='You are now subscribed to status notifications.',
             flash_type='success',
         )
     return render_template('status.html',
         services=status_service.check_health(),
         overall=status_service.get_overall_status(),
-        incidents=[],
         flash_msg='Invalid or expired confirmation link.',
         flash_type='error',
     )
@@ -1931,7 +1901,6 @@ def status_unsubscribe(token):
     return render_template('status.html',
         services=status_service.check_health(),
         overall=status_service.get_overall_status(),
-        incidents=[],
         flash_msg=msg,
         flash_type='success' if ok else 'error',
     )
@@ -2636,7 +2605,7 @@ def test_notification_channel(channel_id):
 
     notification = Notification(
         title='Test Notification from DevOps Agent',
-        message='Your Slack integration is working correctly. You will receive alerts here for incidents, cost findings, security scans, and infrastructure analysis.',
+        message='Your Slack integration is working correctly. You will receive alerts here for cost findings, security scans, and infrastructure analysis.',
         priority=NotificationPriority.NORMAL,
         fields={'Source': 'DevOps Agent', 'Type': 'Connection Test'},
     )

@@ -2,7 +2,7 @@
 Webhook Integrations Service for DevOps Agent.
 
 Provides webhook handlers for GitHub, GitLab, and Bitbucket
-to process CI/CD events and integrate with incident response.
+to process CI/CD events.
 """
 
 import logging
@@ -63,7 +63,6 @@ class WebhookIntegrationService:
     Features:
     - Validates webhook signatures
     - Parses events from GitHub, GitLab, Bitbucket
-    - Triggers incident response on failures
     - Provides event history and filtering
     """
 
@@ -490,17 +489,8 @@ class WebhookIntegrationService:
 
         return None
 
-    def process_webhook(self, source: str, event_type: str, data: dict,
-                        app_user_id: Optional[int] = None) -> Optional[WebhookEvent]:
-        """Process webhook from any supported source.
-
-        `app_user_id` is this application's `User.id`, used to route any
-        resulting incident into the right per-user namespace. Provider
-        webhooks (GitHub/GitLab/Bitbucket) authenticate by shared-secret
-        signature and carry no application identity, so it is optional; when
-        absent, failure events are logged but no incident is created, because
-        there is no correct namespace to create one in.
-        """
+    def process_webhook(self, source: str, event_type: str, data: dict) -> Optional[WebhookEvent]:
+        """Process webhook from any supported source."""
         event = None
 
         if source == 'github':
@@ -521,41 +511,7 @@ class WebhookIntegrationService:
                 except Exception as e:
                     logger.error(f"Webhook callback error: {e}")
 
-            # Check for failures that should trigger incidents
-            if event.status in ['failure', 'failed', 'error', 'cancelled']:
-                self._handle_failure_event(event, app_user_id)
-
         return event
-
-    def _handle_failure_event(self, event: WebhookEvent, app_user_id: Optional[int] = None):
-        """Handle failure events by potentially creating incidents."""
-        from services.incident_response import get_incident_engine
-
-        if app_user_id is None:
-            # process_alert keys incidents by User.id. Without one there is no
-            # correct namespace to write to, and guessing would put another
-            # user's incident list in front of this event.
-            logger.warning(
-                "Failure event %s/%s not converted to an incident: webhook "
-                "carried no application user id",
-                event.source.value, event.event_type.value,
-            )
-            return
-
-        engine = get_incident_engine()
-
-        # Create an alert for the failure
-        alert_data = {
-            'source': f'webhook-{event.source.value}',
-            'alert_name': f'{event.source.value.title()} {event.event_type.value.replace("_", " ").title()} Failed',
-            'title': event.title,
-            'description': f"{event.description}\n\nRepository: {event.repository}\nBranch: {event.branch or 'N/A'}",
-            'severity': 'high' if event.event_type == EventType.DEPLOYMENT else 'medium',
-            'metadata': event.metadata
-        }
-
-        engine.process_alert(app_user_id, alert_data)
-        logger.info(f"Created incident for failed {event.source.value} event: {event.title}")
 
     def _persist_event(self, event: WebhookEvent):
         """Write a processed event to the DB so every worker/deploy sees it."""

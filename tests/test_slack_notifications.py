@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from services.notification_service import (
-    notify_incident, notify_security, notify_cost, notify_changes,
+    notify_security, notify_cost, notify_changes,
     _send_async, Notification, NotificationPriority
 )
 
@@ -21,7 +21,6 @@ def slack_channel():
     ch.channel_type = 'slack'
     ch.webhook_url = 'https://hooks.slack.com/services/TEST'
     ch.is_active = True
-    ch.notify_incidents = True
     ch.notify_security = True
     ch.notify_cost = True
     ch.notify_changes = True
@@ -33,33 +32,6 @@ def _make_sync_thread(target, daemon=True):
     m = MagicMock()
     m.start.side_effect = target
     return m
-
-
-def test_notify_incident_created_sends_slack(mock_app, slack_channel):
-    """notify_incident fires SlackClient.send_webhook for active channels."""
-    incident = {
-        'id': 'abc123', 'title': 'High CPU', 'severity': 'high',
-        'status': 'detected', 'source': 'cloudwatch'
-    }
-    with patch('services.notification_service.current_app') as mock_ca, \
-         patch('services.notification_service.UserNotificationChannel') as MockCh, \
-         patch('services.notification_service.SlackClient') as MockSlack, \
-         patch('services.notification_service.threading.Thread') as MockThread:
-
-        mock_ca._get_current_object.return_value = mock_app
-        MockCh.query.filter_by.return_value.filter.return_value.all.return_value = [slack_channel]
-        MockThread.side_effect = _make_sync_thread
-        mock_client = MagicMock()
-        mock_client.send_webhook.return_value = True
-        MockSlack.return_value = mock_client
-
-        notify_incident(1, incident, 'created', 'https://devopsagent.io')
-
-        MockSlack.assert_called_once_with(webhook_url='https://hooks.slack.com/services/TEST')
-        mock_client.send_webhook.assert_called_once()
-        notification_arg = mock_client.send_webhook.call_args[0][0]
-        assert 'High CPU' in notification_arg.message
-        assert notification_arg.priority == NotificationPriority.HIGH
 
 
 def test_notify_security_skips_when_no_critical_or_high():
@@ -106,5 +78,5 @@ def test_send_async_no_app_context_silently_skips():
     with patch('services.notification_service.current_app') as mock_ca, \
          patch('services.notification_service.threading.Thread') as MockThread:
         mock_ca._get_current_object.side_effect = RuntimeError('no app context')
-        _send_async(1, 'incidents', notification)
+        _send_async(1, 'security', notification)
         MockThread.assert_not_called()

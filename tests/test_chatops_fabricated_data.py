@@ -1,4 +1,4 @@
-"""Regression test: ChatOps /oncall and /status showed fabricated
+"""Regression test: ChatOps /oncall (and the since-removed /status) showed fabricated
 or mismatched data instead of the user's real state.
 
 Found during a scheduled security review (see CLAUDE.md's "Non-negotiable:
@@ -12,7 +12,8 @@ fixed block of hardcoded numbers/names ("CPU Utilization: 45% (avg)",
 `_require_app_user()` call and no real data lookup at all — unlike every
 sibling command in the file (`_cmd_status`, `_cmd_incidents`, ...), which all
 resolve the calling user and read real per-user state. (`/metrics` and `/alerts`
-were removed with the monitoring engine on 2026-10-13.)
+were removed with the monitoring engine on 2026-10-13, and the incident
+commands, /status included, with Incidents later that day.)
 
 Separately, `_cmd_status` read `mon_status.get('active_rules', 0)` and
 `mon_status.get('alerts_count', 0)`, but `ProactiveMonitoringService.get_status()`
@@ -24,7 +25,7 @@ import os
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key')
 
-from services.chatops_service import ChatOpsService, _UnresolvedAppUser
+from services.chatops_service import ChatOpsService
 import pytest
 
 
@@ -39,24 +40,3 @@ def test_oncall_no_longer_fabricates_schedule(chatops):
     assert '@devops-team' not in response.text
     assert '@sre-team' not in response.text
     assert 'PagerDuty' in response.text or 'OpsGenie' in response.text
-
-
-def test_status_reports_real_incident_counts_without_monitoring(chatops, monkeypatch):
-    """/status reads the caller's incident stats. The monitoring engine was removed
-    on 2026-10-13, so the reply must no longer carry a Monitoring section."""
-    class _FakeEngine:
-        def get_stats(self, user_id):
-            assert user_id == 42
-            return {'active': 1, 'by_severity': {'critical': 0}, 'resolved_last_24h': 3}
-
-    monkeypatch.setattr(
-        'services.incident_response.get_incident_engine',
-        lambda: _FakeEngine(),
-    )
-
-    response = chatops._cmd_status([], app_user_id=42)
-
-    assert 'Active: 1' in response.text
-    assert 'Resolved (24h): 3' in response.text
-    assert 'Monitoring' not in response.text
-    assert '@devops-team' not in response.text

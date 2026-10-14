@@ -334,7 +334,7 @@ def _run_weekly_digest(db):
         logger.debug("Weekly digest: not Sunday, skipping")
         return
 
-    from models import User, UserCloudCredential, IncidentModel, CostOptimization, SecurityFinding, Alert
+    from models import User, UserCloudCredential, CostOptimization, SecurityFinding, Alert
     from services.email_service import EmailService
     from services.health_score import calculate_health_score, get_grade_label
 
@@ -347,17 +347,6 @@ def _run_weekly_digest(db):
     for user in users:
         try:
             # ── Per-user 7-day stats ───────────────────────────────────
-            incidents_total = IncidentModel.query.filter(
-                IncidentModel.user_id == user.id,
-                IncidentModel.triggered_at >= week_ago
-            ).count()
-
-            incidents_resolved = IncidentModel.query.filter(
-                IncidentModel.user_id == user.id,
-                IncidentModel.triggered_at >= week_ago,
-                IncidentModel.status == 'resolved'
-            ).count()
-
             savings_identified = db.session.query(
                 db.func.sum(CostOptimization.potential_monthly_savings)
             ).filter(
@@ -377,8 +366,6 @@ def _run_weekly_digest(db):
                 grade=health['grade'],
                 grade_label=grade_label,
                 score=health['score'],
-                incidents_total=incidents_total,
-                incidents_resolved=incidents_resolved,
                 savings_identified=savings_identified,
                 critical_sec=critical_sec,
             )
@@ -398,7 +385,6 @@ def _run_weekly_digest(db):
 
 
 def _build_digest_html(username, grade, grade_label, score,
-                       incidents_total, incidents_resolved,
                        savings_identified, critical_sec) -> str:
     """Build the weekly digest HTML email body."""
     grade_color = {
@@ -444,14 +430,6 @@ def _build_digest_html(username, grade, grade_label, score,
               </td>
               <td style="padding:0 0 0 24px">
                 <table cellpadding="0" cellspacing="0" width="100%">
-                  <tr><td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                    <span style="color:#94a3b8;font-size:13px">Incidents this week</span>
-                    <span style="float:right;font-weight:700;color:#f1f5f9;font-size:13px">{incidents_total}</span>
-                  </td></tr>
-                  <tr><td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                    <span style="color:#94a3b8;font-size:13px">Auto-resolved</span>
-                    <span style="float:right;font-weight:700;color:#4ade80;font-size:13px">{incidents_resolved}</span>
-                  </td></tr>
                   <tr><td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
                     <span style="color:#94a3b8;font-size:13px">Savings identified</span>
                     <span style="float:right;font-weight:700;color:#fbbf24;font-size:13px">{savings_text}/mo</span>

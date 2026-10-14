@@ -183,20 +183,6 @@ def api_resource_trends():
     return jsonify({'trends': trends})
 
 
-@analytics_bp.route('/api/alerts/summary')
-@login_required
-def api_alerts_summary():
-    """Get alerts summary"""
-    from services.analytics_service import AnalyticsService
-    service = AnalyticsService(current_user.id)
-
-    period = request.args.get('period', '7d')
-    days = int(period.rstrip('dh'))
-
-    data = service.get_alerts_summary(days=days)
-    return jsonify(data)
-
-
 @analytics_bp.route('/api/deployments/stats')
 @login_required
 def api_deployment_stats():
@@ -208,20 +194,6 @@ def api_deployment_stats():
     days = int(period.rstrip('dh'))
 
     data = service.get_deployment_stats(days=days)
-    return jsonify(data)
-
-
-@analytics_bp.route('/api/incidents/stats')
-@login_required
-def api_incident_stats():
-    """Get incident statistics"""
-    from services.analytics_service import AnalyticsService
-    service = AnalyticsService(current_user.id)
-
-    period = request.args.get('period', '30d')
-    days = int(period.rstrip('dh'))
-
-    data = service.get_incident_stats(days=days)
     return jsonify(data)
 
 
@@ -288,9 +260,7 @@ def api_widgets():
         {'id': 'cost_forecast', 'name': 'Cost Forecast', 'type': 'area_chart', 'size': 'large'},
         {'id': 'resource_utilization', 'name': 'Resource Utilization', 'type': 'gauge', 'size': 'medium'},
         {'id': 'top_resources', 'name': 'Top Resources by Cost', 'type': 'bar_chart', 'size': 'medium'},
-        {'id': 'alerts_summary', 'name': 'Alerts Summary', 'type': 'stat_card', 'size': 'small'},
         {'id': 'deployment_status', 'name': 'Deployment Status', 'type': 'pie_chart', 'size': 'medium'},
-        {'id': 'incident_trend', 'name': 'Incident Trend', 'type': 'line_chart', 'size': 'medium'},
         {'id': 'savings_opportunities', 'name': 'Savings Opportunities', 'type': 'list', 'size': 'medium'},
     ]
     return jsonify({'widgets': widgets})

@@ -75,9 +75,7 @@ Help me troubleshoot high CPU
 | Chat | `/` | AI-powered DevOps assistant |
 | Dashboard | `/dashboard` | Infrastructure overview |
 | Monitoring | `/monitoring` | Alert rules and metrics |
-| Incidents | `/incidents` | Incident management |
 | Optimize | `/optimization` | Cost & performance recommendations |
-| Analysis | `/analysis` | Root cause analysis |
 | Scaling | `/scaling` | Predictive scaling |
 | Drift | `/drift` | Configuration drift detection |
 | AI | `/ai` | Natural language infrastructure |

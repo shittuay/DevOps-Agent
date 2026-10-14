@@ -5,7 +5,6 @@ Calculates an A–F letter grade for a user's cloud infrastructure based on:
   - Open critical security findings   (-20 pts each, up to -60)
   - Open high security findings        (-8 pts each, up to -24)
   - Cost waste > $100/mo               (-10 pts per $100 waste, up to -30)
-  - Unresolved incidents (past 7 days) (-5 pts each, up to -20)
   - Active critical alerts             (-5 pts each, up to -15)
 
 Starting score is 100. Minimum is 0.
@@ -18,7 +17,6 @@ Grade thresholds:
   F  0–44
 """
 
-from datetime import datetime, timedelta
 from typing import Dict, Any
 from src.utils.timeutils import utcnow
 
@@ -34,7 +32,7 @@ def calculate_health_score(user_id: int) -> Dict[str, Any]:
         breakdown     dict    per-category deductions and labels
         last_updated  str     ISO timestamp
     """
-    from models import SecurityFinding, CostOptimization, IncidentModel, Alert
+    from models import SecurityFinding, CostOptimization, Alert
 
     score = 100
     breakdown = []
@@ -81,25 +79,6 @@ def calculate_health_score(user_id: int) -> Dict[str, Any]:
             'value': f'${total_waste:.0f}/mo',
             'deduction': waste_deduction,
             'color': 'yellow',
-        })
-
-    # ── Recent incidents (past 7 days) ───────────────────────────────────────
-    week_ago = utcnow() - timedelta(days=7)
-    recent_incidents = IncidentModel.query.filter(
-        IncidentModel.user_id == user_id,
-        IncidentModel.triggered_at >= week_ago,
-        IncidentModel.status != 'resolved'
-    ).count()
-
-    incident_deduction = min(recent_incidents * 5, 20)
-    score -= incident_deduction
-
-    if recent_incidents > 0:
-        breakdown.append({
-            'category': 'Unresolved incidents (7d)',
-            'value': recent_incidents,
-            'deduction': incident_deduction,
-            'color': 'orange',
         })
 
     # ── Active critical alerts ───────────────────────────────────────────────
