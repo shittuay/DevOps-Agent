@@ -141,15 +141,29 @@ def _check_csrf():
         return 'Invalid or expired session. Please refresh and try again.'
 
 
-def _start_mfa_challenge(user, ip_address):
-    """Stash the pending-MFA state in the session, send an email code if that's
-    the user's method, and redirect to /verify-2fa."""
-    # SMS codes were removed (never delivered); anyone still on SMS gets email
-    # codes from now on instead of being locked out.
+def _migrate_sms_mfa(user):
+    """SMS codes were removed (never delivered); anyone still on SMS gets email
+    codes from now on instead of being locked out."""
     if user.mfa_method == 'sms':
         user.mfa_method = 'email'
         db.session.commit()
         security_logger.info(f"MFA migrated sms -> email for {user.email}")
+
+
+def _send_email_otp(user) -> bool:
+    """Generate, store and email a fresh login code. False if the send failed."""
+    from services.two_factor_service import two_factor_service
+    from services.email_service import email_service
+    code = two_factor_service.generate_otp()
+    user.set_mfa_otp(code)
+    db.session.commit()
+    return email_service.send_otp_email(user, code)
+
+
+def _start_mfa_challenge(user, ip_address):
+    """Stash the pending-MFA state in the session, send an email code if that's
+    the user's method, and redirect to /verify-2fa."""
+    _migrate_sms_mfa(user)
 
     session['2fa_pending_user'] = user.id
     session['2fa_pending_time'] = utcnow().isoformat()
@@ -158,16 +172,10 @@ def _start_mfa_challenge(user, ip_address):
     session['2fa_method'] = user.mfa_method or 'totp'
     security_logger.info(f"MFA ({user.mfa_method}) required for {user.email} from {ip_address}")
 
-    if user.mfa_method == 'email':
-        from services.two_factor_service import two_factor_service
-        from services.email_service import email_service
-        code = two_factor_service.generate_otp()
-        user.set_mfa_otp(code)
-        db.session.commit()
-        if not email_service.send_otp_email(user, code):
-            for key in ('2fa_pending_user', '2fa_pending_time', '2fa_method'):
-                session.pop(key, None)
-            return render_template(_LOGIN_TEMPLATE, error=_EMAIL_SEND_FAILED)
+    if user.mfa_method == 'email' and not _send_email_otp(user):
+        for key in ('2fa_pending_user', '2fa_pending_time', '2fa_method'):
+            session.pop(key, None)
+        return render_template(_LOGIN_TEMPLATE, error=_EMAIL_SEND_FAILED)
 
     return redirect(url_for('.verify_2fa'))
 
@@ -611,7 +619,11 @@ def _complete_mfa_login(user, mfa_method, ip_address):
     return redirect(url_for('chat'))
 
 
-def _record_failed_mfa(user, mfa_method, ip_address):
+def _register_failed_mfa(user, ip_address):
+    """Count a wrong code (locking after 5) and return the message to show.
+
+    Shared with the MCP connector sign-in (routes/mcp.py), so both pages share
+    one attempt counter and one lockout."""
     user.two_factor_attempts = (user.two_factor_attempts or 0) + 1
     if user.two_factor_attempts >= 5:
         user.two_factor_locked_until = utcnow() + timedelta(minutes=15)
@@ -622,10 +634,12 @@ def _record_failed_mfa(user, mfa_method, ip_address):
     security_logger.warning(f"Failed MFA for {user.email} from {ip_address}. Remaining: {attempts_remaining}")
 
     if attempts_remaining == 0:
-        error = 'Too many failed attempts. Account locked for 15 minutes.'
-    else:
-        error = f'Invalid code. {attempts_remaining} attempts remaining.'
-    return _render_verify(user, mfa_method, error)
+        return 'Too many failed attempts. Account locked for 15 minutes.'
+    return f'Invalid code. {attempts_remaining} attempts remaining.'
+
+
+def _record_failed_mfa(user, mfa_method, ip_address):
+    return _render_verify(user, mfa_method, _register_failed_mfa(user, ip_address))
 
 
 def _render_verify(user, mfa_method, error=None):
@@ -932,8 +946,6 @@ def api_mfa_verify_method():
 @limiter.limit("3 per 5 minutes")
 def api_2fa_resend_otp():
     """Resend the email OTP during the login flow (60s cooldown)."""
-    from services.two_factor_service import two_factor_service
-
     pending_user_id = session.get('2fa_pending_user')
     mfa_method = session.get('2fa_method')
 
@@ -947,13 +959,7 @@ def api_2fa_resend_otp():
     if not user.can_resend_otp():
         return jsonify({'error': 'Please wait 60 seconds before resending.'}), 429
 
-    code = two_factor_service.generate_otp()
-    user.set_mfa_otp(code)
-    db.session.commit()
-
-    from services.email_service import email_service
-    sent = email_service.send_otp_email(user, code)
-    if not sent:
+    if not _send_email_otp(user):
         return jsonify({'error': _EMAIL_SEND_FAILED}), 500
 
     return jsonify({'success': True, 'message': 'Code resent via email.'})
