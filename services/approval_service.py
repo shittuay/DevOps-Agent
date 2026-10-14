@@ -69,10 +69,40 @@ def eligible_approver_ids(req) -> set:
     return {r[0] for r in rows}
 
 
+SELF_CONFIRM_ROLES = ('approver', 'admin')
+HIGH_RISK_LEVELS = ('high', 'critical')
+
+
+def needs_approval(user, risk_level: str) -> bool:
+    """Whether a risky tool call from this user must wait for a decision.
+
+    Everyone's medium- and high-risk calls wait, except that approvers and
+    admins run medium-risk calls directly. Their high-risk calls (deletes,
+    terminations, destroys, secret disclosure) still wait for their own
+    explicit confirmation: one chat message must not be enough to delete
+    production. Callers only ask this for calls the SafetyValidator flagged.
+    """
+    if not user:
+        return True
+    if getattr(user, 'role', None) in SELF_CONFIRM_ROLES:
+        return risk_level in HIGH_RISK_LEVELS
+    return True
+
+
+def _requester_is_self_confirmer(req) -> bool:
+    from models import User
+    requester = User.query.get(req.requester_id)
+    return bool(requester and requester.role in SELF_CONFIRM_ROLES)
+
+
 def can_approve(req, user) -> bool:
     """Whether this user may approve or reject someone else's request."""
     from services.rbac import user_is_admin
     if not user or user.id == req.requester_id:
+        return False
+    if _requester_is_self_confirmer(req):
+        # An approver's or admin's own high-risk call is a confirmation step,
+        # not a review: only they confirm or cancel it.
         return False
     if user_is_admin(user):
         return True
@@ -92,6 +122,8 @@ def can_self_confirm(req) -> bool:
     Otherwise the platform admins were the only reviewers, and they can't judge
     a customer's account, so the request simply expired.
     """
+    if _requester_is_self_confirmer(req):
+        return True
     return not eligible_approver_ids(req)
 
 
@@ -485,6 +517,73 @@ def _execute_tool(req) -> dict:
     except Exception as e:
         logger.error(f"_execute_tool failed for {req.tool_name}: {e}", exc_info=True)
         return {'success': False, 'error': str(e)}
+
+
+def gate_api_call(user, tool_name: str, params: dict, risk_level: str,
+                  approval_id=None) -> tuple:
+    """Approval gate for the direct tool-execution APIs (developer API and /api/v1).
+
+    The same rules as chat and the Claude.ai connector (see needs_approval and
+    can_self_confirm). Returns (http_status, payload). A first call files a
+    request and answers 202. When the caller may confirm it themselves, they
+    re-send with that approval_id and it runs through _execute_tool (so it is
+    verified and audited like an approved chat action). Otherwise it waits for
+    an owner, admin or approver of their organization, and re-sending with the
+    approval_id reports its status and, once run, its result.
+    """
+    from models import ApprovalRequest
+
+    if approval_id is None:
+        req = create_request(
+            tool_name=tool_name,
+            tool_input=params,
+            risk_level=risk_level,
+            risk_reason=build_risk_reason(tool_name, params),
+            requester_id=user.id,
+        )
+        can_confirm = can_self_confirm(req)
+        return 202, {
+            'status': 'pending_approval',
+            'approval_id': req.id,
+            'tool': tool_name,
+            'risk_level': risk_level,
+            'can_confirm': can_confirm,
+            'expires_at': req.expires_at.isoformat() + 'Z',
+            'message': (
+                f"'{tool_name}' is a {risk_level}-risk operation and has not run. "
+                + ("Re-send the same request with \"approval_id\" set to confirm and run it."
+                   if can_confirm else
+                   "An owner, admin or approver of your organization must approve it on "
+                   "/approvals. Re-send with \"approval_id\" to check its status.")
+            ),
+        }
+
+    _expire_stale()
+    try:
+        approval_id = int(approval_id)
+    except (TypeError, ValueError):
+        return 400, {'error': 'approval_id must be an integer'}
+    req = ApprovalRequest.query.get(approval_id)
+    if not req or req.requester_id != user.id:
+        return 404, {'error': 'Approval request not found'}
+    if req.tool_name != tool_name or (req.tool_input or {}) != (params or {}):
+        return 400, {'error': 'approval_id was issued for a different tool or different params'}
+
+    base = {'approval_id': req.id, 'tool': tool_name}
+    if req.status == 'executed':
+        return 200, {**base, 'status': 'executed', 'result': req.execution_result, 'ran_now': False}
+    if req.status in ('rejected', 'expired'):
+        return 409, {**base, 'status': req.status,
+                     'error': f'This request was {req.status}; send the call again to file a new one.'}
+    if req.status != 'pending':
+        return 409, {**base, 'status': req.status, 'error': f'Request is {req.status}'}
+    if not can_self_confirm(req):
+        return 202, {**base, 'status': 'pending_approval', 'can_confirm': False,
+                     'message': 'Still waiting for an owner, admin or approver of your organization.'}
+    outcome = confirm_own(req.id, user.id)
+    if not outcome.get('success'):
+        return 409, {**base, 'error': outcome.get('error', 'Could not confirm')}
+    return 200, {**base, 'status': 'executed', 'result': outcome.get('result'), 'ran_now': True}
 
 
 def _invalidate_read_cache(user_id) -> None:

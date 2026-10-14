@@ -2442,8 +2442,9 @@ class DevOpsAgent:
                             if _uid:
                                 try:
                                     from models import User
+                                    from services.approval_service import needs_approval
                                     _u = User.query.get(_uid)
-                                    if _u and _u.role in ('approver', 'admin'):
+                                    if _u and not needs_approval(_u, validation.risk_level):
                                         _is_approver = True
                                     elif _u:
                                         from services.approval_service import create_request, build_risk_reason
@@ -2718,8 +2719,9 @@ class DevOpsAgent:
                             if _uid:
                                 try:
                                     from models import User
+                                    from services.approval_service import needs_approval
                                     _u2 = User.query.get(_uid)
-                                    if _u2 and _u2.role in ('approver', 'admin'):
+                                    if _u2 and not needs_approval(_u2, validation.risk_level):
                                         _is_approver = True
                                     elif _u2:
                                         from services.approval_service import create_request, build_risk_reason
@@ -2878,8 +2880,9 @@ class DevOpsAgent:
                     if user_id:
                         try:
                             from models import User
+                            from services.approval_service import needs_approval
                             user = User.query.get(user_id)
-                            if user and user.role not in ('approver', 'admin'):
+                            if user and needs_approval(user, validation.risk_level):
                                 from services.approval_service import create_request, build_risk_reason
                                 conv_id = getattr(self, '_current_conversation_id', None)
                                 reason = build_risk_reason(tool_name, tool_input)

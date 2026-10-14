@@ -1008,8 +1008,20 @@ Retry-After: 3600</pre>
                                 <td style="color:var(--text-tertiary);font-size:12px;">optional</td>
                                 <td style="color:var(--text-secondary);font-size:13px;">Parameters for the tool. Keys vary by tool.</td>
                             </tr>
+                            <tr>
+                                <td><span class="param-name">approval_id</span></td>
+                                <td><span class="param-type">integer</span></td>
+                                <td style="color:var(--text-tertiary);font-size:12px;">optional</td>
+                                <td style="color:var(--text-secondary);font-size:13px;">Confirm, or check, a pending approval for this exact call.</td>
+                            </tr>
                         </tbody>
                     </table>
+                    <p class="section-desc" style="margin-top:12px;">
+                        Risky tools (deletes, stops, IAM and firewall changes) don't run on the first call.
+                        It returns <code>202</code> with an <code>approval_id</code>. If <code>can_confirm</code> is
+                        <code>true</code>, send the same call again with that <code>approval_id</code> to run it;
+                        otherwise an owner, admin or approver of your organization approves it in the app.
+                    </p>
 
                     <div class="code-block">
                         <div class="code-header">

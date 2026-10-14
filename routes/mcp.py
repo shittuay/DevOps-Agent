@@ -651,7 +651,8 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
                 user = User.query.get(user_id)
                 if not user:
                     raise RuntimeError(f"user {user_id} not found")
-                if user.role not in ('approver', 'admin'):
+                from services.approval_service import needs_approval
+                if needs_approval(user, result.risk_level):
                     from services.approval_service import create_request, build_risk_reason, waiting_message
                     reason = build_risk_reason(tool_name, arguments)
                     req = create_request(

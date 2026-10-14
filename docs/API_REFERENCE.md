@@ -85,9 +85,8 @@ Run one tool directly, with no AI in between.
 { "tool": "get_ec2_instances", "params": { "region": "us-east-1" } }
 ```
 
-Medium- and high-risk tools (deletes, terminations, stops, IAM changes and so on) are refused the
-first time with `403` and a `confirm_token`. Send the identical request again with
-`"confirm_token": "<token>"` to run it. The token only works for that exact tool and parameters.
+Medium- and high-risk tools (deletes, terminations, stops, IAM changes and so on) follow the same
+[approval rules](#risky-tools-and-approvals) as chat.
 
 ### Read endpoints
 
@@ -129,8 +128,43 @@ key's scope.
 { "tool": "get_pods", "params": { "namespace": "default" } }
 ```
 
-Medium- and high-risk tools return `403` with `"requires_confirm": true` and the `risk_level`.
-Re-send with `"confirm": true` to run them.
+Medium- and high-risk tools follow the same [approval rules](#risky-tools-and-approvals) as chat.
+
+---
+
+## Risky tools and approvals
+
+Both `POST /api-gateway/v1/execute` and `POST /api/v1/tools/execute` handle medium- and
+high-risk tools the same way the chat and the Claude.ai connector do.
+
+1. The first call doesn't run anything. It files an approval request and returns **`202`**:
+
+   ```json
+   {
+     "status": "pending_approval",
+     "approval_id": 123,
+     "tool": "manage_ec2_instance",
+     "risk_level": "medium",
+     "can_confirm": true,
+     "expires_at": "2026-10-15T08:00:00Z",
+     "message": "..."
+   }
+   ```
+
+2. **If `can_confirm` is `true`** (you aren't in an organization, you're the only owner or admin
+   of yours, or it's your own high-risk call as an Approver or Admin), send the **same** call
+   again with `"approval_id": 123` added. It runs and returns `200` with `"status": "executed"`
+   and the `result`.
+3. **If `can_confirm` is `false`**, an owner, admin or approver of your organization approves it
+   on `/approvals`. Re-sending the call with the `approval_id` returns `202` while it waits and
+   `200` with the result once it has run.
+
+A request expires after 24 hours (`409` with `"status": "expired"`), and a rejected one returns
+`409` with `"status": "rejected"`; send the call again to file a new one. An `approval_id` only
+works for the exact tool and params it was issued for (`400` otherwise) and only for its own
+user (`404`). Approvers and Admins run their own medium-risk calls directly.
+
+The older `confirm_token` round trip and the `"confirm": true` flag no longer skip this.
 
 ---
 
@@ -168,9 +202,12 @@ Secrets are configured by an admin; received events appear on the admin-only `/w
 | `400` | Missing or invalid field |
 | `401` | Missing or invalid API key |
 | `402` | Out of credits |
-| `403` | Plan doesn't include this endpoint, the key lacks the scope, or a risky tool needs confirmation |
+| `202` | A risky tool is waiting for approval (see [above](#risky-tools-and-approvals)) |
+| `403` | Plan doesn't include this endpoint, the key lacks the scope, or the tool is blocked |
+| `409` | The approval request was rejected or has expired |
 | `404` | Unknown tool or resource |
 | `429` | Daily rate limit reached |
+| `503` | The safety check is unavailable, so nothing was run; retry later |
 | `5xx` | Server error; retry later |
 
 Error bodies are JSON with an `error` field.

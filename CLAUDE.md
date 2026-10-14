@@ -1232,10 +1232,10 @@ subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for
 for a deferred risky call) now calls `_record_tool_call`, `_verify_and_annotate` and
 `_audit_infrastructure_change` itself, so an approved terminate is verified and audited — but it
 still calls `agent.tools[name]` directly and so **never invalidates `READ_CACHE`**: a stale
-pre-approval read can be served for up to 60s afterward. `routes/api_gateway.py`'s
-`api_execute_tool()` (`/api-gateway/v1/execute`), `api/v1/tools.py`'s `execute_tool()`
-(`/api/v1/tools/execute`) and `routes/mcp.py`'s `_handle_tools_call()` (MCP connector) still have
-**none** of it: no read-back verification, no `change_details.audit_trail` row, no cache
+pre-approval read can be served for up to 60s afterward. Since 2026-10-14 the two
+direct APIs' **risky** calls run through the approval service and get all of it; their low-risk
+calls, and an approver's medium-risk call, still run the handler directly. `routes/mcp.py`'s
+`_handle_tools_call()` (MCP connector) still has **none** of it: no read-back verification, no `change_details.audit_trail` row, no cache
 invalidation. Routing all four through `_invoke_tool` + verify + audit is the structural fix. See
 CLAUDE_RUNBOOK.md's 2026-09-07 entry (re-checked 2026-10-14).
 
@@ -2071,6 +2071,19 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
   customer's account, and before this such requests just expired.
 - The requester cannot approve their own when someone else is eligible, but can always cancel
   (`/cancel`, stored as `rejected` with `approver_id == requester_id`).
+- **Approvers and admins** (platform role) no longer run everything instantly:
+  `needs_approval(user, risk_level)` lets them run **medium** risk directly, but their
+  **high/critical** calls file a request that only they confirm (`can_self_confirm` is true when
+  the requester is an approver/admin, and `can_approve` returns False for everyone else,
+  platform admins included). All four gates (3 in `core.py`, MCP) call `needs_approval`;
+  `tests/test_approval_consistency.py` fails if a raw role check comes back.
+- **Both direct-execution APIs use the same rules** via `gate_api_call()`:
+  `/api-gateway/v1/execute` and `/api/v1/tools/execute`. First call → 202 + `approval_id`;
+  re-sending the identical call with `approval_id` confirms it when `can_self_confirm`, else
+  reports status/result. The confirmed run goes through `_execute_tool` (verified, audited,
+  cache-invalidated). The developer API's stateless HMAC `confirm_token` and `/api/v1`'s
+  `"confirm": true` were removed: both let any key holder skip approval. The developer API also
+  now **fails closed (503)** when `SafetyValidator` raises; it used to run the tool unchecked.
 - `routes/approvals.py` gates the queue/history/approve/reject on `_reviewer_required`
   (platform approver/admin **or** owner/admin of any org), not `rbac.approver_required`.
   Non-reviewers hitting `/approvals` are redirected to `/approvals/mine`. Org owners/admins see
@@ -2088,11 +2101,12 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
   calls the handler directly rather than through `_invoke_tool`.
 - `/setup` (writes the platform Anthropic key into `config/.env` and re-initializes the shared
   agent) is `@admin_required`; it was `@login_required` only.
-- Pinned by `tests/test_approval_self_confirm.py` and `tests/test_org_admin_approvals.py`.
+- Pinned by `tests/test_approval_self_confirm.py`, `tests/test_org_admin_approvals.py` and
+`tests/test_approval_consistency.py`.
 
-Still open: approver/admin accounts get no confirmation step at all; change requests on
-`/changes` still need the platform `approver` role; the developer API (`confirm_token`) and
-`/api/v1` (`"confirm": true`) still use self-confirmation regardless of organization.
+Still open: change requests on `/changes` still need the platform `approver` role; the CLI (no
+signed-in user) runs risky tools unconfirmed; an approver's medium-risk call through either API
+runs directly without verification/audit (it skips the approval service).
 
 ### Documentation layout
 
