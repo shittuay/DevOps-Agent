@@ -2219,6 +2219,14 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.
 
+**Phones in landscape (fixed 2026-10-14).** A sideways phone is wide but short, so
+width-only media queries gave it the desktop layout and the message box fell off the
+bottom of the screen. Both mobile blocks now read `@media (max-width: 768px), (max-height: 500px)`,
+a `@media (max-height: 500px)` block shrinks the header and welcome banner, and
+`body`/`.sidebar` use `100dvh` (phone `100vh` includes the area behind the browser bars).
+Size new page chrome with `dvh`, and test any layout change at about 915x412 as well as
+portrait. Pinned by `tests/test_chat_landscape_layout.py`.
+
 ---
 
 ### Seeded catalogs (import-time, not `scripts/`)
