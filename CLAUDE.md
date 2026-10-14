@@ -2050,7 +2050,6 @@ endpoints and every page that linked to them.
   what `provision.html` and `dashboard.html` call, so the page's main box 500s. Templates,
   preview, clone and deployments work.
 - **Predictive Scaling is always empty.** Nothing calls `predictive_scaling.add_metric()`.
-- **`/doctor` is visible to every signed-in user** and shows platform internals.
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
 - **The public `/status` page's "Get notified" box** promises incident emails nothing sends.
 
@@ -2100,7 +2099,8 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
   the requester's `READ_CACHE` (on success and on a raised tool), which it skipped because it
   calls the handler directly rather than through `_invoke_tool`.
 - `/setup` (writes the platform Anthropic key into `config/.env` and re-initializes the shared
-  agent) is `@admin_required`; it was `@login_required` only.
+  agent) is `@admin_required`; it was `@login_required` only. `/doctor` (platform diagnostics)
+  is admin-only too, and no longer prints the first 12 characters of the Anthropic key.
 - Pinned by `tests/test_approval_self_confirm.py`, `tests/test_org_admin_approvals.py` and
 `tests/test_approval_consistency.py`.
 

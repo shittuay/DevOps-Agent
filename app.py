@@ -1680,8 +1680,10 @@ def profile():
 
 @app.route('/doctor')
 @login_required
+@_admin_required
 def doctor_page():
-    """System diagnostics page."""
+    """Platform diagnostics (database, keys, disk, packages). Admin only: it
+    describes the server, not the signed-in user's account."""
     from services.doctor import run_diagnostics
     results = run_diagnostics(app=app, db=db, agent=agent)
     return render_template('doctor.html', results=results, user=current_user)
