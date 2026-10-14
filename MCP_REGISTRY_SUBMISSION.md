@@ -10,7 +10,7 @@ Create `servers/devops-agent.json` in the `github.com/anthropics/mcp` repository
 {
   "name": "devops-agent",
   "display_name": "DevOps Agent",
-  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 702 tools across 13 modules including monitoring and alerting.",
+  "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 704 tools across 13 modules including monitoring and alerting.",
   "server_json_url": "https://devopsagent.io/mcp/server.json",
   "website_url": "https://devopsagent.io",
   "categories": [
@@ -37,7 +37,7 @@ Key details:
 - **Name**: `io.github.shittuay/devops-agent` (reverse-DNS format)
 - **Version**: 1.0.4
 - **Title**: DevOps Agent
-- **Description**: Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 702 tools.
+- **Description**: Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 704 tools.
 - **Website**: https://devopsagent.io
 - **Repository**: https://github.com/shittuay/DevOps-Agent
 
@@ -87,15 +87,15 @@ Returns:
 - **SSE (Legacy)**: https://devopsagent.io/mcp/sse
 - **Health Check**: https://devopsagent.io/mcp/health
 
-## Tools Overview (702 total across 13 modules)
+## Tools Overview (704 total across 13 modules)
 
 | Module | Tool Count | Key Capabilities |
 |--------|------------|------------------|
-| AWS | 351 | EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, etc. |
+| AWS | 352 | EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, etc. |
 | Kubernetes | 76 | Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets, Jobs |
 | Azure | 38 | VMs, Storage, SQL, NSGs, Container Instances, Disks, VNets |
 | GCP | 42 | Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, BigQuery |
-| CI/CD | 35 | Jenkins, GitHub Actions, GitLab CI |
+| CI/CD | 36 | Jenkins, GitHub Actions, GitLab CI |
 | Terraform | 26 | init, plan, apply, destroy, workspace, state management, import |
 | SonarQube | 12 | Code quality, projects, issues, quality gates |
 | Nexus | 12 | Repositories, components, cleanup tasks |
@@ -163,10 +163,10 @@ curl -H "Authorization: Bearer TEST_TOKEN" \
 ```markdown
 ## DevOps Agent MCP Server
 
-DevOps Agent is a comprehensive infrastructure management platform that exposes 702 tools across 13 modules as an MCP-compliant remote server.
+DevOps Agent is a comprehensive infrastructure management platform that exposes 704 tools across 13 modules as an MCP-compliant remote server.
 
 ### What's included
-- **702 tools** across AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform, SonarQube, Nexus, monitoring, and alerting
+- **704 tools** across AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform, SonarQube, Nexus, monitoring, and alerting
 - **OAuth 2.0 + PKCE** authentication with RFC 8414/9728 compliant discovery endpoints
 - **Streamable HTTP** and **SSE** transports
 - **npm package** `@devopsagent/mcp-server` for stdio bridge support

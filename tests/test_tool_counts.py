@@ -73,14 +73,34 @@ def test_docs_aws_count():
 
 
 def test_no_stale_totals_left_behind():
-    """Any 7xx number directly followed by 'tools' must be the current total."""
+    """Any 7xx number followed by 'tools' (one word may sit between, e.g. "745 DevOps
+    tools") or used as a stat counter must be the current total."""
     total = sum(_module_counts().values())
-    pattern = re.compile(r'\b(7\d{2})(?=[ -](?:cloud )?tools?\b|-tool\b)', re.IGNORECASE)
+    pattern = re.compile(
+        r'\b(7\d{2})(?=[ -](?:[\w.-]+ )?tools?\b|-tool\b)'
+        r'|data-target="(7\d{2})"',
+        re.IGNORECASE,
+    )
     for f in (ROOT / 'templates').rglob('*.html'):
-        for match in pattern.findall(f.read_text(encoding='utf-8')):
+        for groups in pattern.findall(f.read_text(encoding='utf-8')):
+            match = next(g for g in groups if g)
             assert int(match) == total, (
                 f"{f.relative_to(ROOT)} mentions '{match} tools' but the registry has {total}"
             )
+
+
+def test_markdown_docs_carry_current_totals():
+    """User-facing Markdown docs state the platform and MCP totals."""
+    counts = _module_counts()
+    total = sum(counts.values())
+    mcp_total = sum(counts[m] for m in MCP_MODULES)
+    for rel in ['README.md', 'docs/FEATURE_REFERENCE.md']:
+        text = (ROOT / rel).read_text(encoding='utf-8')
+        assert f"**{total}**" in text, f"{rel} tool total is stale — expected {total}"
+    registry = (ROOT / 'MCP_REGISTRY_SUBMISSION.md').read_text(encoding='utf-8')
+    assert f"{mcp_total} tools across {len(MCP_MODULES)} modules" in registry
+    stale = re.findall(r'\b(7\d{2}) tools\b', registry)
+    assert all(int(n) == mcp_total for n in stale), f"MCP_REGISTRY_SUBMISSION.md: {stale}"
 
 
 def test_mcp_docs_match_exposed_subset():

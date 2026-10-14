@@ -1,146 +1,98 @@
-# DevOps Agent Quick Start Guide
+# DevOps Agent Quick Start
 
-Get up and running in 5 minutes.
-
----
-
-## Step 1: Start the Application
-
-```bash
-cd devops-agent
-python app.py
-```
-
-Open `http://localhost:5000` in your browser.
+From sign-up to your first real result in about five minutes.
 
 ---
 
-## Step 2: Create an Account
+## 1. Create an account
 
-1. Click **Sign Up**
-2. Enter email, username (3-20 chars), and password (8+ chars with upper, lower, numbers)
-3. Click **Create Account**
-4. Log in with your credentials
+1. Go to [devopsagent.io](https://devopsagent.io) and click **Sign Up**.
+2. Use a password with at least 8 characters, including an uppercase letter, a lowercase letter
+   and a number.
+3. Confirm your email from the link we send.
+
+Two-factor authentication is optional but recommended: open **Profile**, find **Two-Factor
+Authentication**, and choose an authenticator app or email codes. Once on, you'll be asked for a code at every sign-in, including
+when you connect the Claude.ai connector.
+
+## 2. Connect a cloud account
+
+Open **Settings → Cloud Credentials**.
+
+- **AWS (recommended: IAM role).** Click **Create role with CloudFormation**. It opens the AWS
+  console with a ready-made, least-privilege role and a generated External ID. Create the stack,
+  then paste the role ARN back into Settings. Access keys work too, as a fallback.
+- **Azure:** subscription ID, tenant ID, client ID and client secret of a service principal.
+- **GCP:** project ID and a service-account JSON key.
+
+Credentials are encrypted and used only for your own requests.
+
+No cloud account yet? Turn on **Sandbox mode** in **Settings → Learning**. Every result is then
+simulated and labelled `[Sandbox]`, so you can try anything safely.
+
+## 3. Connect your other tools (optional)
+
+**Settings → Integrations** connects GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog,
+SonarQube and Nexus. The agent uses only the tools you connect here, never shared credentials.
+
+## 4. Ask something
+
+Open **Chat** and try:
+
+```
+What resources do I have in AWS?
+List my EC2 instances in us-east-1
+Show me pods in the production namespace
+What did I spend on AWS last month, by service?
+Which of my S3 buckets are public?
+Show open high-urgency PagerDuty incidents
+```
+
+Risky actions (deletes, terminations, IAM and security-group changes, restarts and so on) are
+not run straight away; they need approval first. See
+[Approvals](WEB_APPLICATION_GUIDE.md#approvals-and-change-requests).
+
+## 5. Try a workflow
+
+Open **Workflows**, pick one (for example *Launch a web server* or *Audit IAM users*), fill in the
+short form, and it runs step by step in chat. There are 46 workflows across Compute, Security,
+Monitoring, Storage, Database, Cost, Networking, AI/ML, App Hosting, Kubernetes, Incident
+Response, IaC, CI/CD and On-Call.
 
 ---
 
-## Step 3: Configure API Key
+## Where things are
 
-1. Go to `/setup`
-2. Enter your Anthropic API key
-3. Click **Save**
+| Page | Path | What it's for |
+|------|------|---------------|
+| Chat | `/chat` | Talk to the agent |
+| Dashboard | `/dashboard` | Health score, costs and resources from your synced accounts |
+| Workflows | `/workflows` | Pre-built step-by-step jobs |
+| Templates | `/templates` | Starter infrastructure templates |
+| Map | `/infrastructure/map` | Visual map of your synced resources |
+| Drift | `/drift/` | Compare live AWS state against a baseline |
+| Analytics | `/analytics/` | Cost, resource and usage analytics |
+| Compliance | `/compliance/` | Frameworks, policies and reports |
+| Approvals | `/approvals` | Approve or reject pending risky actions (approvers only) |
+| Changes | `/changes` | Change requests and the change audit trail |
+| Learn | `/curriculum/` | Guided DevOps curriculum with an AI coach |
+| Settings | `/settings` | Cloud credentials, integrations, notifications, budgets, learning, API keys |
+| Billing | `/billing` | Plan, credits and credit packs |
 
-Get your key at: https://console.anthropic.com/
+## Plans
 
----
+| Plan | Price | Credits / month | Model |
+|------|-------|-----------------|-------|
+| Free | $0 | 20 | Kimi K3 |
+| Starter | $29 | 200 | Kimi K3 |
+| Professional | $99 | 1,000 | Claude |
+| Business | $299 | 3,000 | Claude |
 
-## Step 4: Set Up Cloud Credentials (Optional)
+Credit packs (100 to 1,000 credits) can be bought any time on the Billing page.
 
-Go to **Settings** (`/settings`) and add:
+## Next steps
 
-**AWS:**
-- Access Key ID
-- Secret Access Key
-- Default Region
-
-**Azure:**
-- Subscription ID
-- Tenant ID
-- Client ID
-- Client Secret
-
-**GCP:**
-- Project ID
-- Service Account JSON
-
----
-
-## Step 5: Start Using the Agent
-
-Type in the chat to interact:
-
-```
-List all EC2 instances
-Show me pods in production namespace
-What S3 buckets do I have?
-Help me troubleshoot high CPU
-```
-
----
-
-## Key Features
-
-| Feature | URL | Description |
-|---------|-----|-------------|
-| Chat | `/` | AI-powered DevOps assistant |
-| Dashboard | `/dashboard` | Infrastructure overview |
-| Monitoring | `/monitoring` | Alert rules and metrics |
-| Optimize | `/optimization` | Cost & performance recommendations |
-| Scaling | `/scaling` | Predictive scaling |
-| Drift | `/drift` | Configuration drift detection |
-| AI | `/ai` | Natural language infrastructure |
-| Analytics | `/analytics` | Reports and cost analysis |
-| Compliance | `/compliance` | Security frameworks |
-
----
-
-## Quick Commands
-
-**AWS:**
-```
-List EC2 instances in us-east-1
-Show S3 buckets
-Get RDS database status
-```
-
-**Kubernetes:**
-```
-Show pods in default namespace
-Scale deployment web-app to 3 replicas
-Get logs from pod nginx-123
-```
-
-**Monitoring:**
-```
-What alerts are firing?
-Create alert for high CPU usage
-Show monitoring rules
-```
-
-**Analysis:**
-```
-Why is the server slow?
-Analyze the deployment failure
-What's causing the error rate spike?
-```
-
----
-
-## Navigation Shortcuts
-
-- **Profile Menu**: Click the profile button in top-right
-- **View Tools**: Profile > View Tools
-- **Statistics**: Profile > Statistics
-- **Settings**: Profile > Settings
-- **New Chat**: Sidebar > New Session
-
----
-
-## Next Steps
-
-1. **Explore Features**: Try each section from the navigation
-2. **Set Up Monitoring**: Create alert rules for your infrastructure
-3. **Configure Notifications**: Add Slack or Teams webhooks
-4. **Read Full Guide**: See [WEB_APPLICATION_GUIDE.md](WEB_APPLICATION_GUIDE.md)
-
----
-
-## Need Help?
-
-- Ask the AI: Type "help" or "what can you do?"
-- View tools: Profile menu > View Tools
-- Documentation: Check the `docs/` folder
-
----
-
-*Full documentation: [WEB_APPLICATION_GUIDE.md](WEB_APPLICATION_GUIDE.md) | [USER_GUIDE.md](USER_GUIDE.md)*
+- [Web application guide](WEB_APPLICATION_GUIDE.md): every page in detail
+- [Feature reference](FEATURE_REFERENCE.md): what the agent and the app can do
+- [API reference](API_REFERENCE.md): the developer API and the programmatic API
+- [Command-line guide](USER_GUIDE.md): running the agent from a terminal

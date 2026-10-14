@@ -1,6 +1,16 @@
 # DevOps Agent - Automation Cookbook
 
-Real-world automation scenarios and complete workflows for common DevOps tasks.
+Example chat requests for common DevOps scenarios. Type them into **Chat** in the web app.
+
+Before you start:
+
+- Cloud requests run against the accounts in **Settings → Cloud Credentials**; CI/CD, PagerDuty,
+  OpsGenie and Datadog requests need the matching connection in **Settings → Integrations**.
+- Risky steps (deletes, stops, IAM and security-group changes and so on) go through
+  [approvals](WEB_APPLICATION_GUIDE.md#approvals-and-change-requests) rather than running at once.
+- Terraform, Docker and shell-command tools run on the DevOps Agent server, not on your machine,
+  so paths like `./infrastructure/staging` refer to that server.
+- Many of these scenarios also exist as ready-made, form-driven jobs on the **Workflows** page.
 
 ## Table of Contents
 
@@ -668,11 +678,6 @@ Phase 10: Report
 
 ## Next Steps
 
-For more detailed information, see:
-- [TOOL_REFERENCE.md](TOOL_REFERENCE.md) - Complete tool documentation
-- [ADVANCED_AUTOMATION.md](ADVANCED_AUTOMATION.md) - Complex workflows
-- [QUICK_START_EXAMPLES.md](QUICK_START_EXAMPLES.md) - Quick reference examples
-
----
-
-**Happy Automating! 🚀**
+- [Workflows](WEB_APPLICATION_GUIDE.md#workflows): 46 pre-built, form-driven jobs
+- [Feature reference](FEATURE_REFERENCE.md): every tool module and page
+- [API reference](API_REFERENCE.md): run these from your own code

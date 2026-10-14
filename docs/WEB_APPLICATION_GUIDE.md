@@ -1,871 +1,350 @@
 # DevOps Agent Web Application Guide
 
-A comprehensive guide to using the DevOps Agent web interface and all its features.
+A page-by-page guide to the DevOps Agent web app at [devopsagent.io](https://devopsagent.io).
+For a five-minute start, see [QUICK_START.md](QUICK_START.md).
 
 ---
 
-## Table of Contents
+## Contents
 
-1. [Getting Started](#getting-started)
-2. [Dashboard Overview](#dashboard-overview)
-3. [Chat Interface](#chat-interface)
-4. [Cloud Configuration](#cloud-configuration)
-5. [Monitoring & Alerts](#monitoring--alerts)
-8. [Optimization](#optimization)
-9. [Predictive Scaling](#predictive-scaling)
-10. [Drift Detection](#drift-detection)
-11. [AI Infrastructure](#ai-infrastructure)
-12. [Analytics & Reporting](#analytics--reporting)
-13. [Notifications](#notifications)
-14. [Webhooks](#webhooks)
-15. [ChatOps](#chatops)
-16. [API Gateway](#api-gateway)
-17. [Compliance](#compliance)
-18. [Organizations & Teams](#organizations--teams)
-19. [Billing](#billing)
-20. [Administration](#administration)
-21. [Profile & Settings](#profile--settings)
-22. [Security](#security)
-23. [Troubleshooting](#troubleshooting)
+1. [Accounts and sign-in](#accounts-and-sign-in)
+2. [Chat](#chat)
+3. [Workflows](#workflows)
+4. [Dashboard](#dashboard)
+5. [Settings](#settings)
+6. [Approvals and change requests](#approvals-and-change-requests)
+7. [Infrastructure pages](#infrastructure-pages)
+8. [Analytics](#analytics)
+9. [Compliance](#compliance)
+10. [Notifications, ChatOps and webhooks](#notifications-chatops-and-webhooks)
+11. [Developer API and the Claude.ai connector](#developer-api-and-the-claudeai-connector)
+12. [Organizations and teams](#organizations-and-teams)
+13. [Learning](#learning)
+14. [Billing](#billing)
+15. [Administration](#administration)
+16. [Public pages](#public-pages)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Getting Started
+## Accounts and sign-in
 
-### Accessing the Application
+**Sign up** with an email, username and password. Passwords need at least 8 characters with an
+uppercase letter, a lowercase letter and a number. Confirm your email from the link we send.
 
-Start the server and navigate to `http://localhost:5000`:
+**Sign in** with your email (any capitalisation) or exact username.
 
-```bash
-python app.py
-```
+- After 5 wrong passwords the account locks for 15 minutes.
+- Sessions last 24 hours; "Remember me" keeps you signed in for 30 days.
+- **Forgot password** emails a reset link.
 
-### Creating an Account
+**Two-factor authentication** (Profile → Two-Factor Authentication): choose an authenticator app
+or emailed codes. Backup codes are issued when you turn it on. 2FA belongs to the account, so it
+works on every device. A code screen stays valid for 10 minutes; after 5 wrong codes, 2FA locks for
+15 minutes. Lost your authenticator? Use **Reset 2FA** on the code screen to get an email link.
 
-1. Click **Sign Up** on the login page
-2. Fill in your details:
-   - **Email**: Valid email address (required for notifications)
-   - **Username**: 3-20 characters (alphanumeric and underscore only)
-   - **Password**: Minimum 8 characters with uppercase, lowercase, and numbers
-3. Click **Create Account**
-
-### Logging In
-
-1. Enter your email or username
-2. Enter your password
-3. Click **Sign In**
-
-**Security Features:**
-- Account locks after 5 failed attempts (15-minute cooldown)
-- Login IP addresses are recorded
-- Session timeout after 24 hours of inactivity
-
-### First-Time Setup
-
-After logging in:
-
-1. **Configure API Key** (`/setup`): Enter your Anthropic API key
-2. **Set Up Cloud Credentials** (`/settings`): Add AWS, Azure, or GCP credentials
-3. **Explore Features**: Use the navigation to explore available tools
+**Single sign-on:** if your organization enforces SSO for your email domain, use **Sign in with
+SSO**. Password sign-in is then refused for that account.
 
 ---
 
-## Dashboard Overview
+## Chat
 
-The dashboard (`/dashboard`) provides a real-time view of your infrastructure.
+The chat (`/chat`) is the main way to work. Type a request in plain English; the agent picks the
+right tools, runs them against your connected accounts, and reports what happened.
 
-### Key Metrics
-
-| Metric | Description |
-|--------|-------------|
-| Resource Health | Status of all monitored resources |
-| Active Alerts | Number of currently firing alerts |
-| Open Incidents | Unresolved incident count |
-| Cost Today | Current day's cloud spending |
-
-### Quick Actions
-
-- **New Chat**: Start a conversation with the AI agent
-- **View Alerts**: Jump to active alerts
-- **Check Incidents**: Review open incidents
-
-### Navigation Bar
-
-| Button | Destination |
-|--------|-------------|
-| Dashboard | Infrastructure overview |
-| Monitoring | Alert rules and metrics |
-| Incidents | Incident management |
-| Optimize | Recommendations |
-| Analysis | Root cause analysis |
-| Credits | Billing page |
-| Export | Download chat history |
-| Clear | Start new conversation |
-| Profile | User menu and settings |
-
----
-
-## Chat Interface
-
-The AI-powered chat is the primary way to interact with DevOps Agent.
-
-### Sending Messages
-
-1. Type your request in the input field
-2. Press **Enter** or click **Send**
-3. Wait for the AI response
-
-### Example Requests
-
-**Infrastructure Queries:**
-```
-List all EC2 instances in us-east-1
-Show me pods in the production namespace
-What S3 buckets have public access?
-```
-
-**Operations:**
-```
-Scale the web-app deployment to 5 replicas
-Stop EC2 instance i-0abc123def
-Restart the nginx pod
-```
-
-**Analysis:**
-```
-Why is CPU usage high on the database server?
-Analyze the recent deployment failure
-What's causing the latency spike?
-```
-
-### Conversation Management
-
-**Sidebar Features:**
-- View conversation history
-- Click any conversation to load it
-- Delete conversations (hover and click Delete)
-- Start new sessions
-
-**Menu Options (Profile Button):**
-- **View Tools**: See all 173+ available tools
-- **Statistics**: Current session metrics
-- **About**: Version information
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Enter | Send message |
-| Shift+Enter | New line |
-
----
-
-## Cloud Configuration
-
-Access via **Settings** (`/settings`).
-
-### AWS Configuration
-
-| Field | Description |
-|-------|-------------|
-| Access Key ID | Your AWS access key |
-| Secret Access Key | Your AWS secret (stored encrypted) |
-| Default Region | Default AWS region (e.g., us-east-1) |
-
-**Required IAM Permissions:**
-- EC2: Describe, Start, Stop, Reboot
-- S3: List, Get, Put
-- RDS: Describe
-- CloudWatch: Get metrics, Describe alarms
-- IAM: List (for auditing)
-
-### Azure Configuration
-
-| Field | Description |
-|-------|-------------|
-| Subscription ID | Azure subscription identifier |
-| Tenant ID | Azure AD tenant |
-| Client ID | Application client ID |
-| Client Secret | Application secret |
-| Default Location | Default region (e.g., eastus) |
-
-### GCP Configuration
-
-| Field | Description |
-|-------|-------------|
-| Project ID | GCP project identifier |
-| Service Account | JSON key file upload |
-| Default Region | Default region (e.g., us-central1) |
-| Default Zone | Default zone (e.g., us-central1-a) |
-
----
-
-## Monitoring & Alerts
-
-Access via **Monitoring** (`/monitoring`).
-
-### Dashboard Overview
-
-- **Active Alerts**: Currently firing alerts
-- **Total Rules**: Number of monitoring rules
-- **Rule Status**: Enabled/disabled breakdown
-
-### Creating Monitoring Rules
-
-1. Click **Create Rule**
-2. Configure:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| Name | Rule identifier | High CPU Alert |
-| Metric Source | Data source | Prometheus |
-| Metric Name | Metric to monitor | cpu_usage_percent |
-| Condition | Comparison operator | Greater than |
-| Threshold | Trigger value | 80 |
-| Duration | How long before alerting | 5 minutes |
-| Severity | Alert importance | Critical |
-
-3. Add labels (optional)
-4. Click **Save**
-
-### Managing Rules
-
-| Action | Description |
-|--------|-------------|
-| Enable/Disable | Toggle rule without deleting |
-| Edit | Modify rule parameters |
-| Delete | Permanently remove rule |
-| Test | Manually check if rule fires |
-
-### Viewing Alerts
-
-**Active Alerts Tab:**
-- List of currently firing alerts
-- Severity indicators
-- Timestamp of when alert started
-- Quick acknowledge button
-
-**Alert History Tab:**
-- Historical alerts
-- Filter by date range
-- Filter by severity
-
-### Service Control
-
-- **Start Monitoring**: Begin rule evaluation
-- **Stop Monitoring**: Pause all monitoring
-- **Status**: Current monitoring state
-
----
-
-## Optimization
-
-Access via **Optimize** (`/optimization`).
-
-### Recommendation Types
-
-| Type | Description |
-|------|-------------|
-| CPU | Right-size CPU allocation |
-| Memory | Adjust memory settings |
-| Disk I/O | Storage optimization |
-| Network | Bandwidth improvements |
-| Cost | Reduce unnecessary spending |
-
-### Working with Recommendations
-
-**View Details:**
-- Current configuration
-- Recommended changes
-- Estimated impact
-- Potential savings
-
-**Actions:**
-- **Implement**: Mark as done after applying
-- **Dismiss**: Dismiss with reason
-- **Auto-Fix**: Apply automatically (if supported)
-
-### Filtering
-
-| Filter | Options |
-|--------|---------|
-| Type | CPU, Memory, Disk, Network, Cost |
-| Category | Compute, Storage, Database, Network |
-| Priority | High, Medium, Low |
-| Status | New, Reviewed, Implemented, Dismissed |
-
----
-
-## Predictive Scaling
-
-Access via **Scaling** (`/scaling`).
-
-### Predictions Dashboard
-
-View scaling predictions with:
-- Resource identification
-- Direction (up/down)
-- Current vs recommended capacity
-- Confidence level
-- Risk assessment
-
-### Prediction Details
-
-| Field | Description |
-|-------|-------------|
-| Resource | What to scale |
-| Direction | Scale up or down |
-| Current | Existing capacity |
-| Recommended | Suggested capacity |
-| Peak Prediction | Expected max load |
-| Confidence | Prediction certainty |
-| Savings | Potential cost impact |
-
-### Pattern Analysis
-
-The system detects:
-- Peak usage hours
-- Peak days of week
-- Growth trends
-- Utilization patterns
-
-### Historical Metrics
-
-View 48-hour history:
-- Usage graphs
-- Anomaly detection
-- Trend visualization
-
----
-
-## Drift Detection
-
-Access via **Drift** (`/drift`).
-
-### Understanding Drift
-
-Infrastructure drift occurs when actual configurations differ from expected baselines.
-
-### Setting Up Baselines
-
-1. Go to **Baselines** tab
-2. Click **Add Baseline**
-3. Choose method:
-   - **From Terraform**: Import state file
-   - **Manual**: Define manually
-   - **Sample**: Use test data
-
-### Running Drift Scans
-
-1. Select resources to scan
-2. Click **Scan for Drift**
-3. Review results:
-   - Changed properties
-   - Added resources
-   - Removed resources
-
-### Drift Reports
-
-Each report includes:
-- Scan timestamp
-- Resources scanned
-- Drift items found
-- Severity classification
-- Remediation suggestions
-
-### Supported Resources
-
-- EC2 instances
-- Security groups
-- S3 buckets
-- RDS instances
-- Load balancers
-- VPCs and subnets
-
----
-
-## AI Infrastructure
-
-Access via **AI** (`/ai`).
-
-### Natural Language Provisioning
-
-Describe infrastructure in plain English:
+**Examples**
 
 ```
-Create a web application with:
-- 3 t3.medium EC2 instances
-- Application Load Balancer
-- RDS PostgreSQL database
-- S3 bucket for assets
-- CloudFront CDN
+List my EC2 instances in us-east-1 and their states
+Which security groups allow 0.0.0.0/0 on port 22?
+What did I spend on AWS last month, by service?
+Show pods in the production namespace that are not Running
+Why did the last run of the deploy workflow in owner/repo fail?
+Who is on call in OpsGenie right now?
 ```
 
-The AI will:
-1. Parse requirements
-2. Generate specifications
-3. Create Terraform/CloudFormation code
-4. Estimate costs
+**What you'll see**
 
-### Templates
+- Tool activity streams in as the agent works, then the final answer.
+- Risky actions don't run straight away. Depending on your role they wait for an approver; see
+  [Approvals](#approvals-and-change-requests).
+- After a create, delete or update, the agent reads the resource back to confirm the change.
+  "Unconfirmed" means the cloud API hadn't caught up yet, not that it failed.
+- Secrets (API keys, private keys, connection strings) are redacted from replies.
 
-Browse pre-built templates:
-- Web Application Stack
-- Microservices Architecture
-- Data Pipeline
-- Serverless Application
+**Header and menus**
 
-### Deployments
+- **Sidebar:** past conversations. Click to reopen; hover to delete.
+- **Model:** the toolbar toggle switches between your plan's default model and the alternatives
+  your plan allows.
+- **Artifacts (📄):** documents the agent generated (runbooks, reports), versioned, with Markdown
+  export.
+- **Profile menu (👤):** Export Chat, Clear Chat, tools list, session stats, Billing, Teams, and
+  (admins) Webhooks.
 
-Track AI-assisted deployments:
-- Deployment status
-- Resources created
-- Cost tracking
-- Rollback options
-
----
-
-## Analytics & Reporting
-
-Access via **Analytics** (`/analytics`).
-
-### Cost Analytics
-
-| Report | Description |
-|--------|-------------|
-| Daily Breakdown | Day-by-day spending |
-| By Service | Cost per AWS/Azure/GCP service |
-| By Resource | Cost per individual resource |
-| Forecast | 30-day prediction |
-
-### Performance Analytics
-
-Available metrics:
-- CPU utilization
-- Memory usage
-- Disk I/O
-- Network throughput
-
-Time ranges:
-- Last hour
-- Last 24 hours
-- Last 7 days
-- Last 30 days
-- Custom
-
-### Export Options
-
-| Format | Use Case |
-|--------|----------|
-| CSV | Spreadsheet analysis |
-| JSON | Programmatic processing |
+Each reply costs credits; the balance is shown in the header, with a warning when it gets low.
 
 ---
 
-## Notifications
+## Workflows
 
-Access via **Notifications** (`/notifications`).
+**Workflows** (`/workflows`) are 46 pre-built, step-by-step jobs in 14 categories: Compute,
+Security, Monitoring, Storage, Database, Cost, Networking, AI/ML, App Hosting, Kubernetes,
+Incident Response, IaC, CI/CD and On-Call.
 
-### Supported Channels
+1. Pick a workflow and click **Run**.
+2. Fill in the short form (region, instance size, allowed IP range, and so on). Your current IP
+   is pre-filled where a firewall rule needs one; leave password fields blank to have one
+   generated.
+3. The workflow opens in chat and runs step by step.
 
-| Channel | Configuration |
-|---------|---------------|
-| Slack | Webhook URL or API token |
-| Microsoft Teams | Webhook URL |
-| Email | SMTP settings |
+Safety rules built into the workflows:
 
-### Setting Up Slack
+- Anything opened to the internet asks for a specific IP range; `0.0.0.0/0` is refused except for
+  the two public web-app workflows.
+- Audit workflows (IAM, public S3 buckets, idle resources) change nothing until you name what to
+  fix.
+- CI/CD and On-Call workflows use the tools you connected in **Settings → Integrations**, and ask
+  "yes" before their one write (re-run, retry, page).
+- Provisioning workflows end with teardown steps so you can clean up.
 
-1. Click **Add Channel** > **Slack**
-2. Enter webhook URL (from Slack app)
-3. Set default channel
-4. Test connection
-5. Save
-
-### Setting Up Teams
-
-1. Click **Add Channel** > **Teams**
-2. Enter incoming webhook URL
-3. Configure options
-4. Test and save
-
-### Sending Notifications
-
-**Priority Levels:**
-- Low
-- Normal
-- High
-- Critical
-
-**Options:**
-- Custom message
-- Action buttons
-- Custom fields
+Past runs and their status are listed on the page.
 
 ---
 
-## Webhooks
+## Dashboard
 
-Access via **Webhooks** (`/webhooks`).
+The dashboard (`/dashboard`) summarises your connected accounts:
 
-### Receiving Git Events
+- **Health score** (A–F) from open security findings, cost waste and active critical alerts.
+- **Monthly spend** and **potential savings** (from AWS Cost Explorer and synced resources).
+- **Total resources** and the last **infrastructure sync**.
 
-**GitHub:**
-- Push events
-- Pull request events
-- Release events
-- Workflow events
-
-**GitLab:**
-- Push events
-- Merge request events
-- Pipeline events
-
-**Bitbucket:**
-- Push events
-- Pull request events
-
-### Webhook Security
-
-| Provider | Security Method |
-|----------|-----------------|
-| GitHub | HMAC signature validation |
-| GitLab | Secret token |
-| Bitbucket | IP allowlisting |
-
-### Event History
-
-View:
-- All received events
-- Payloads
-- Processing status
-- Timestamps
+With no cloud account connected, it shows zeros rather than sample data.
 
 ---
 
-## ChatOps
+## Settings
 
-Access via **ChatOps** (`/chatops`).
+`/settings` has six tabs.
 
-### Slack Commands
+| Tab | What it does |
+|-----|--------------|
+| **Cloud Credentials** | Connect AWS, Azure and GCP. AWS: IAM role (recommended; one-click CloudFormation quick-create with a generated External ID) or access keys. Azure: subscription ID, tenant ID, client ID and secret of a service principal, default location. GCP: project ID, service-account JSON key, default region. Each offers read-only or management policy levels. |
+| **Notifications** | Slack or Teams webhooks for cost findings, security scan results and change recommendations. |
+| **Budgets** | Monthly budget alerts. |
+| **Learning** | Learning mode (the agent explains concepts), level (beginner, intermediate, advanced), Sandbox mode, and practice scenarios. |
+| **Integrations** | GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog, SonarQube and Nexus. Secrets are write-only: never shown again after saving. A saved secret is only ever sent to the server URL you saved with it. |
+| **API Keys** | Keys for the developer API and the programmatic API. |
 
-| Command | Description |
-|---------|-------------|
-| `/devops status` | System status |
-| `/devops incidents` | Active incidents |
-| `/devops alerts` | Firing alerts |
-| `/devops deploy <app>` | Deploy app |
-| `/devops scale <app> <n>` | Scale app |
-| `/devops help` | Show commands |
+**Skills** (`/settings/skills`) turns built-in expertise packs on or off (AWS cost optimization,
+Kubernetes troubleshooting, security hardening, incident runbooks, Terraform best practices) and
+shows the summary the agent keeps of your synced infrastructure.
 
-### Teams Integration
-
-- Direct messages to bot
-- Channel @mentions
-- Adaptive cards for rich responses
+**Sandbox mode** simulates every tool result (labelled `[Sandbox]`), so nothing touches a real
+account. It's for learning and demos, and is not a substitute for a connected account.
 
 ---
 
-## API Gateway
+## Approvals and change requests
 
-Access via **API Gateway** (`/api-gateway`).
+Every tool call is classified by risk before it runs:
 
-### API Key Management
+| Risk | Examples | What happens |
+|------|----------|--------------|
+| Low | Reads, lists, most creates | Runs immediately |
+| Medium | Stop, restart, update, scale, IAM and firewall-rule changes, triggering pipelines, paging on-call | Needs approval |
+| High | Delete, terminate, destroy, and anything that reveals a secret | Needs approval; escalates to critical for production resources |
 
-**Creating Keys:**
+**How approval works today**
 
-1. Click **Create API Key**
-2. Configure:
-   - Name
-   - Scopes
-   - Rate limit
-   - Expiration (optional)
-3. Copy key (shown only once)
+- **If your role is User** (the default for every new account): a medium- or high-risk action
+  from chat or the Claude.ai connector becomes an **approval request**. The chat shows
+  "Approval Required — Waiting for an approver". Approvers are notified in the app and by email.
+  When one approves, the action runs with your credentials and the result is posted back into
+  your conversation. Requests expire after 24 hours.
+- **Who can approve:** accounts with the **Approver** or **Admin** role who share an active
+  organization with you. You can't approve your own request. If you aren't in an organization,
+  only platform admins can see your requests.
+- **If your role is Approver or Admin:** your own risky actions run without a separate approval
+  step.
+- **Sandbox mode:** never creates approval requests; everything is simulated.
 
-**Scopes:**
+**Approvals page** (`/approvals`, Approvers and Admins): pending agent requests and pending change
+requests side by side, with approve and reject (with a note). **History** (`/approvals/history`)
+lists decided requests.
 
-| Scope | Permission |
-|-------|------------|
-| `read:resources` | View infrastructure |
-| `write:resources` | Modify infrastructure |
-| `read:analytics` | View analytics |
-| `write:incidents` | Manage incidents |
-| `admin` | Full access |
+**Change requests** (`/changes`) are the planned, team-reviewed route: ask the agent to "create a
+change request" (or create one on the page), an Approver in your organization approves it, then it
+is executed from the page, with rollback data saved first. High-risk change requests can't be
+self-approved. Actions run directly from chat are also recorded here as executed changes, so the
+page doubles as an audit trail.
 
-### Using the API
+Roles are set by platform admins (Admin → Users), not by organization owners.
 
-```bash
-curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://your-domain.com/api/v1/resources
-```
+---
 
-### Rate Limits
+## Infrastructure pages
 
-- Default: 100 requests/minute
-- Customizable per key
-- Rate limit headers in responses
+**Templates** (`/templates`): curated starter infrastructure templates you can launch from chat.
+
+**Map** (`/infrastructure/map`): a pan-and-zoom map of your synced resources. Hover a resource and
+choose **Investigate** to open chat about it. Plain scroll pans; Ctrl/⌘ + scroll zooms.
+
+**Drift detection** (`/drift/`): compare live AWS state with a baseline.
+
+- Create baselines by **capturing your account's current state** (EC2, security groups, S3, RDS)
+  or **importing a `terraform.tfstate`**.
+- **Scan** to see changed or removed properties. A baseline only pins the properties it lists;
+  extra live properties aren't treated as drift.
+- If the account can't be read, the scan reports an error rather than an empty or clean result.
+
+**AI Infrastructure** (`/ai/`): browse, preview and clone infrastructure templates, and view past
+deployments. The plain-English request box on this page currently returns an error; ask in
+**Chat** instead, which does the same job. The **Recommendations** tab is empty until a live data
+source feeds it.
+
+**Predictive Scaling** (`/scaling/`): scaling predictions for resources that have at least 24 hours
+of metric history. Nothing feeds it metrics automatically yet, so it is normally empty.
+
+---
+
+## Analytics
+
+`/analytics/` (with **Costs**, **Performance** and **Resources** views) shows spend by service
+and over time, a cost forecast, resource counts and utilization, and deployment activity.
+Everything comes from your connected AWS account (Cost Explorer, CloudWatch) or the app's own
+records of your resources and tool runs; without data it shows zeros, never invented numbers.
 
 ---
 
 ## Compliance
 
-Access via **Compliance** (`/compliance`).
+`/compliance/` supports SOC 2, HIPAA, PCI DSS, GDPR, ISO 27001, NIST and CIS.
 
-### Supported Frameworks
+- **Frameworks:** enable the ones you care about.
+- **Controls:** per-control status (compliant, non-compliant, partial, not applicable, pending)
+  and evidence.
+- **Policies:** create, edit and toggle your own policies.
+- **Reports:** generate and download compliance reports.
+- **Audit log:** your account's actions.
 
-| Framework | Full Name |
-|-----------|-----------|
-| SOC 2 | Service Organization Control 2 |
-| ISO 27001 | Information Security Management |
-| HIPAA | Health Insurance Portability |
-| PCI-DSS | Payment Card Industry |
-| GDPR | General Data Protection Regulation |
-| CIS | Center for Internet Security |
-
-### Running Compliance Checks
-
-1. Enable desired frameworks
-2. Click **Run Compliance Check**
-3. Review results:
-   - Passing controls
-   - Failing controls
-   - Recommendations
-
-### Evidence Management
-
-For each control:
-- Upload evidence documents
-- Link external evidence
-- Track review status
-
-### Audit Logging
-
-All actions are logged:
-- User actions
-- Resource changes
-- Configuration changes
-
-**Filters:**
-- Action type
-- Resource type
-- User
-- Date range
+You can also ask the agent to "run a compliance check" or "scan my account for security issues".
 
 ---
 
-## Organizations & Teams
+## Notifications, ChatOps and webhooks
 
-### Organizations (`/organizations`)
+**Notifications** (`/notifications/`): connect Slack and Teams channels, test them, and send a
+manual message.
 
-**Creating Organization:**
-1. Click **Create Organization**
-2. Enter name and description
-3. Upload logo (optional)
-4. Save
+**ChatOps** (`/chatops/`): connect a Slack app or a Teams bot. In Slack the command is `/devops`:
 
-**Roles:**
+| Command | What it does |
+|---------|--------------|
+| `/devops help` | List commands |
+| `/devops link <code>` | Link your Slack/Teams identity to your DevOps Agent account (generate the code on the ChatOps page) |
+| `/devops deployments [environment]` | Recent CI/CD deployments (admins only) |
+| `/devops oncall` | Points you to the PagerDuty/OpsGenie on-call tools |
 
-| Role | Permissions |
-|------|-------------|
-| Owner | Full control, can delete org |
-| Admin | Manage members and settings |
-| Member | Standard access |
+**Webhooks** (`/webhooks/`, admins): receive GitHub, GitLab and Bitbucket CI/CD events. GitHub
+requests are checked with an HMAC signature and GitLab with a secret token.
 
-**Managing Members:**
-1. Go to **Members** tab
-2. Click **Invite Member**
-3. Enter email and select role
-4. Send invitation
+---
 
-### Teams (`/teams`)
+## Developer API and the Claude.ai connector
 
-**Creating Teams:**
-1. Go to **Teams** tab
-2. Click **Create Team**
-3. Add members
-4. Set permissions
+**Developer API** (`/api-gateway/`, Professional and Business): API keys, outgoing webhooks,
+usage, and docs. Calls go to `/api-gateway/v1/*` with an `X-API-Key` header. Each key has a
+daily request limit (1,000 by default). Risky tools return a `confirm_token` that must be sent
+back before they run. Full reference: [/developers](https://devopsagent.io/developers) and
+[API_REFERENCE.md](API_REFERENCE.md).
 
-**Team Roles:**
+**Claude.ai connector:** add `https://devopsagent.io/mcp` as a custom connector in Claude.ai and
+sign in with your DevOps Agent account (and 2FA code). Risky actions follow the same approval
+rules as chat.
 
-| Role | Permissions |
-|------|-------------|
-| Admin | Manage team |
-| Approver | Approve actions |
-| User | Standard operations |
-| Viewer | Read-only |
+---
+
+## Organizations and teams
+
+**Organizations** (`/organizations/`): create one, invite members by email, and give them an
+organization role (owner, admin, member). Organizations also have teams and, for admins, an
+**SSO** page (OIDC or SAML, with verified email domains and optional enforcement).
+
+Organization membership decides which approvers can see your approval requests and change
+requests.
+
+**Teams** (`/teams`): admins see and manage every user's platform role; everyone else sees their
+own account.
+
+---
+
+## Learning
+
+**Learn** (`/curriculum/`): a phased DevOps curriculum with an AI coach and quizzes. Combine with
+**Learning mode** and **Sandbox mode** in Settings to practise safely.
 
 ---
 
 ## Billing
 
-Access via **Billing** (`/billing`).
+`/billing` shows your plan, credits used this month, and history.
 
-### Credit System
+| Plan | Price | Credits / month | Model |
+|------|-------|-----------------|-------|
+| Free | $0 | 20 | Kimi K3 |
+| Starter | $29 | 200 | Kimi K3 |
+| Professional | $99 | 1,000 | Claude |
+| Business | $299 | 3,000 | Claude |
 
-- Credits consumed per AI interaction
-- Different operations cost different amounts
-- View remaining credits in header
-
-### Purchasing Credits
-
-1. Select credit package
-2. Complete payment (Stripe)
-3. Credits added immediately
-
-### Subscription Tiers
-
-| Tier | Credits/Month | Features |
-|------|---------------|----------|
-| Free | 100 | Basic |
-| Pro | 1,000 | All features |
-| Enterprise | Unlimited | Custom |
-
-### Usage Tracking
-
-- Credit history
-- Usage by feature
-- Projected usage
-- Invoices
+Credit packs (100, 250, 500 or 1,000 credits) can be bought at any time. Payments use Stripe
+(prices in Naira are also offered).
 
 ---
 
 ## Administration
 
-Access via **Admin** (`/admin`) - requires admin role.
+Admins (`/admin/`) see user counts and recent sign-ups, manage users (search, change role, lock,
+unlock, delete), browse the usage audit log, and change system settings.
 
-### User Management
+Platform roles:
 
-**Dashboard:**
-- Total users
-- Active users (30 days)
-- Role distribution
-
-**Operations:**
-- Search users
-- View details
-- Change roles
-- Lock/unlock accounts
-- Delete accounts
-
-### System Statistics
-
-- Real-time metrics
-- API usage
-- Error rates
-
-### Audit Log
-
-System-wide activity:
-- Login events
-- Configuration changes
-- Security events
+| Role | Can |
+|------|-----|
+| Admin | Everything, including user management |
+| Approver | Approve or reject risky actions and change requests in their organizations |
+| User | Normal use; risky actions need approval |
+| Viewer | Read-only |
 
 ---
 
-## Profile & Settings
+## Public pages
 
-### Profile (`/profile`)
-
-Edit:
-- Full name
-- Bio
-- Avatar color
-- Theme preference
-- Language
-
-### Settings (`/settings`)
-
-Configure:
-- Cloud credentials
-- API keys
-- Notification preferences
-
----
-
-## Security
-
-### Best Practices
-
-1. **Strong Passwords**: 12+ characters, mixed types
-2. **Unique Credentials**: Don't reuse passwords
-3. **API Key Security**: Limit scopes, set expiration
-4. **Credential Rotation**: Regularly rotate all secrets
-5. **Session Management**: Log out when done
-
-### Security Features
-
-- CSRF protection
-- Rate limiting
-- Account lockout
-- IP logging
-- Encrypted credential storage
-- Audit logging
+- `/status`: live health of the app's components, with email subscription.
+- `/security`: how credentials are handled, the published IAM policies, and how to report a
+  vulnerability.
+- `/docs`, `/developers`, `/about`, `/privacy-policy`, `/usage-policy`.
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| Can't log in | Wait 15 min if locked, or reset password |
-| API key not working | Check expiration, scopes, rate limit |
-| Cloud operations failing | Verify credentials and permissions |
-| Monitoring not working | Ensure service is started |
-
-### Error Messages
-
-| Error | Meaning |
-|-------|---------|
-| "Invalid credentials" | Wrong username/password |
-| "Account locked" | Too many failed attempts |
-| "Insufficient credits" | Need to purchase credits |
-| "Permission denied" | Missing required role |
-| "Rate limit exceeded" | Too many requests |
-
-### Getting Help
-
-1. **Chat Interface**: Ask the AI for help
-2. **Documentation**: Check docs folder
-3. **Support**: Contact support team
+| Problem | What to do |
+|---------|-----------|
+| Account locked | Wait 15 minutes, or reset your password |
+| 2FA code rejected | Check the device clock (authenticator) or use the newest email; paste with or without the space; use a backup code; or **Reset 2FA** |
+| "Connect a cloud account" | Add credentials in Settings → Cloud Credentials |
+| "Connect it in Settings → Integrations" | Add that tool in Settings → Integrations |
+| Action stuck at "Waiting for an approver" | An Approver or Admin in your organization must approve it on `/approvals`; requests expire after 24 hours |
+| Out of credits | Buy a credit pack or upgrade on `/billing` |
+| Claude.ai connector says the credentials were rejected | See CLAUDE_RUNBOOK.md (Cloudflare "AI Crawlers" rule) |
 
 ---
 
-## Quick Reference
+## Removed features
 
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Enter | Send message |
-| Shift+Enter | New line |
-| Esc | Close modal |
-
-### URL Reference
-
-| Path | Feature |
-|------|---------|
-| / | Main chat interface |
-| /dashboard | Infrastructure dashboard |
-| /monitoring | Alert rules and metrics |
-| /optimization | Recommendations |
-| /scaling | Predictive scaling |
-| /drift | Drift detection |
-| /ai | AI infrastructure |
-| /analytics | Reports and analytics |
-| /notifications | Notification channels |
-| /webhooks | Webhook management |
-| /chatops | ChatOps integration |
-| /api-gateway | API key management |
-| /compliance | Compliance frameworks |
-| /organizations | Organization management |
-| /teams | Team management |
-| /billing | Credits and billing |
-| /admin | Administration |
-| /profile | User profile |
-| /settings | Cloud configuration |
-
----
-
-*For CLI usage, see [USER_GUIDE.md](USER_GUIDE.md)*
+Optimize, Monitoring (alert rules), Incidents (and playbooks) and Analysis (root-cause analysis)
+were removed in October 2026. Incident work now happens in chat with the PagerDuty and OpsGenie
+tools and the Incident Response workflows.

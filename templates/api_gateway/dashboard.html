@@ -110,12 +110,12 @@
         </div>
         <div class="card-body">
             <h4>Authentication</h4>
-            <p>Include your API key in the Authorization header:</p>
-            <pre class="code-block">Authorization: Bearer doa_live_xxxxxxxxxxxx</pre>
+            <p>Include your API key in the <code>X-API-Key</code> header:</p>
+            <pre class="code-block">X-API-Key: doa_live_xxxxxxxxxxxx</pre>
 
             <h4 class="mt-4">Example Request</h4>
             <pre class="code-block">curl -X GET "{{ request.url_root }}api-gateway/v1/resources" \
-  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+  -H "X-API-Key: YOUR_API_KEY"</pre>
 
             <h4 class="mt-4">Available Endpoints</h4>
             <ul>
