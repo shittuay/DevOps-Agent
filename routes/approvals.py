@@ -94,7 +94,47 @@ def get_status(approval_id):
     is_approver = current_user.role in ('approver', 'admin') and approval_service.is_visible_to_approver(req, current_user)
     if current_user.id != req.requester_id and not is_approver:
         return jsonify({'error': 'Access denied'}), 403
-    return jsonify(req.to_dict())
+    data = req.to_dict()
+    data['can_confirm'] = (
+        current_user.id == req.requester_id
+        and req.status == 'pending'
+        and approval_service.can_self_confirm(req)
+    )
+    return jsonify(data)
+
+
+@approvals_bp.route('/approvals/mine')
+@login_required
+def my_requests_page():
+    return render_template('approvals/mine.html')
+
+
+@approvals_bp.route('/api/approvals/mine')
+@login_required
+def get_mine():
+    from services import approval_service
+    result = []
+    for r in approval_service.get_pending_for_requester(current_user.id):
+        d = r.to_dict()
+        d['can_confirm'] = approval_service.can_self_confirm(r)
+        result.append(d)
+    return jsonify(result)
+
+
+@approvals_bp.route('/api/approvals/<int:approval_id>/confirm', methods=['POST'])
+@login_required
+def confirm_own(approval_id):
+    from services import approval_service
+    result = approval_service.confirm_own(approval_id, current_user.id)
+    return jsonify(result), (200 if result['success'] else 400)
+
+
+@approvals_bp.route('/api/approvals/<int:approval_id>/cancel', methods=['POST'])
+@login_required
+def cancel_own(approval_id):
+    from services import approval_service
+    result = approval_service.cancel_own(approval_id, current_user.id)
+    return jsonify(result), (200 if result['success'] else 400)
 
 
 @approvals_bp.route('/approvals/history')

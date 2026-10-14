@@ -160,16 +160,24 @@ Every tool call is classified by risk before it runs:
 **How approval works today**
 
 - **If your role is User** (the default for every new account): a medium- or high-risk action
-  from chat or the Claude.ai connector becomes an **approval request**. The chat shows
-  "Approval Required — Waiting for an approver". Approvers are notified in the app and by email.
-  When one approves, the action runs with your credentials and the result is posted back into
-  your conversation. Requests expire after 24 hours.
-- **Who can approve:** accounts with the **Approver** or **Admin** role who share an active
-  organization with you. You can't approve your own request. If you aren't in an organization,
-  only platform admins can see your requests.
+  from chat or the Claude.ai connector doesn't run straight away. It becomes a request that
+  expires after 24 hours if nobody acts on it. When it runs, it uses your credentials and the
+  result is posted back into your conversation.
+- **If you aren't in an organization** (a solo account), you confirm it yourself: the chat card
+  shows **Confirm & run** and **Cancel**, and the same requests are listed on **My requests**
+  (`/approvals/mine`), which is also where you confirm actions asked for through the Claude.ai
+  connector.
+- **If you're in an organization,** an account with the **Approver** or **Admin** role who
+  shares an organization with you approves it; they're notified in the app and by email. You
+  can't approve your own request, but you can cancel it on **My requests**.
+- **If the request can't be recorded** (a database error, say), the action is blocked rather
+  than run.
 - **If your role is Approver or Admin:** your own risky actions run without a separate approval
   step.
 - **Sandbox mode:** never creates approval requests; everything is simulated.
+
+**My requests** (`/approvals/mine`, everyone): your own pending requests, with Confirm & run
+(solo accounts) and Cancel.
 
 **Approvals page** (`/approvals`, Approvers and Admins): pending agent requests and pending change
 requests side by side, with approve and reject (with a note). **History** (`/approvals/history`)

@@ -2879,11 +2879,39 @@
                                         <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#f59e0b;">&#9203; Approval Required</div>
                                         <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--accent-primary);margin-bottom:6px;">${escapeHtml(evt.tool_name)}</div>
                                         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">${escapeHtml(evt.risk_reason)}</div>
-                                        <div style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
+                                        <div id="approval-wait-${approvalId}" style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
                                             Waiting for an approver
                                             <span class="approval-dots">&#8226;&#8226;&#8226;</span>
                                         </div>
                                     </div>`;
+                                // Solo accounts confirm their own risky actions.
+                                fetch(`/api/approvals/${approvalId}/status`).then(r => r.ok ? r.json() : null).then(s => {
+                                    if (!s || !s.can_confirm) return;
+                                    const wait = document.getElementById(`approval-wait-${approvalId}`);
+                                    if (!wait) return;
+                                    wait.innerHTML = `
+                                        <span>This action needs your confirmation before it runs.</span>
+                                        <button type="button" data-act="confirm" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.15);color:#10b981;font-weight:600;cursor:pointer;">Confirm &amp; run</button>
+                                        <button type="button" data-act="cancel" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#ef4444;font-weight:600;cursor:pointer;">Cancel</button>`;
+                                    wait.style.flexWrap = 'wrap';
+                                    wait.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
+                                        wait.querySelectorAll('button').forEach(b => b.disabled = true);
+                                        try {
+                                            const res = await fetch(`/api/approvals/${approvalId}/${btn.dataset.act}`, {
+                                                method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+                                            });
+                                            const d = await res.json();
+                                            if (!d.success) {
+                                                wait.querySelector('span').textContent = d.error || 'Something went wrong.';
+                                                wait.querySelectorAll('button').forEach(b => b.disabled = false);
+                                            } else {
+                                                wait.innerHTML = btn.dataset.act === 'confirm' ? 'Running…' : 'Cancelling…';
+                                            }
+                                        } catch (_) {
+                                            wait.querySelectorAll('button').forEach(b => b.disabled = false);
+                                        }
+                                    }));
+                                }).catch(() => {});
                                 // Animate the dots
                                 let _dotState = 0;
                                 const _dotAnim = setInterval(() => {
@@ -2909,8 +2937,14 @@
                                             card.style.borderColor = ok ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)';
                                             card.style.background = ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
                                             card.innerHTML = `
-                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:${ok?'#10b981':'#ef4444'};">${ok?'&#10003; Approved &amp; Executed':'&#10007; Executed with error'}</div>
+                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:${ok?'#10b981':'#ef4444'};">${ok?(s.approver_id === s.requester_id ? '&#10003; Confirmed &amp; Executed' : '&#10003; Approved &amp; Executed'):'&#10007; Executed with error'}</div>
                                                 <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);white-space:pre-wrap;overflow-x:auto;">${JSON.stringify(res, null, 2).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
+                                        } else if (s.status === 'rejected' && s.approver_id === s.requester_id) {
+                                            card.style.borderColor = 'rgba(156,163,175,0.4)';
+                                            card.style.background = 'rgba(156,163,175,0.08)';
+                                            card.innerHTML = `
+                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#9ca3af;">Cancelled</div>
+                                                <div style="font-size:13px;color:var(--text-secondary);">You cancelled this request. Nothing was changed.</div>`;
                                         } else if (s.status === 'rejected') {
                                             card.style.borderColor = 'rgba(239,68,68,0.4)';
                                             card.style.background = 'rgba(239,68,68,0.08)';
@@ -2922,7 +2956,7 @@
                                             card.style.background = 'rgba(156,163,175,0.08)';
                                             card.innerHTML = `
                                                 <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#9ca3af;">&#9203; Request Expired</div>
-                                                <div style="font-size:13px;color:var(--text-secondary);">No approver acted within 24 hours.</div>`;
+                                                <div style="font-size:13px;color:var(--text-secondary);">Nobody confirmed it within 24 hours, so it was not run.</div>`;
                                         }
                                     } catch (_) {}
                                 }, 4000);

@@ -1552,6 +1552,9 @@ Tests run against **SQLite in-memory** (forced in `tests/conftest.py`, overridin
 **about 1,412 tests** (~5 minutes; verified 2026-10-14). Three are environment-dependent and
 fail in a bare sandbox but pass in CI: two `test_network_safety.py` tests need public DNS, and
 `test_api_tools_execute.py::test_initialize_agent_populates_config` needs `ANTHROPIC_API_KEY` set.
+**The whole suite shares one in-memory SQLite connection.** `app.py` drops `pool_recycle` for
+SQLite URLs: with it, the connection was recycled 300s into the run and every later test saw an
+empty database ("no such table"). The suite takes about five minutes, so it sat on that edge.
 `tests/test_stripe.py` and `tests/test_secrets_manager.py` are
 diagnostic scripts that hit live Stripe/AWS APIs; they are excluded from pytest
 collection (`collect_ignore` in `conftest.py`) and run directly instead.
@@ -2047,12 +2050,39 @@ endpoints and every page that linked to them.
   what `provision.html` and `dashboard.html` call, so the page's main box 500s. Templates,
   preview, clone and deployments work.
 - **Predictive Scaling is always empty.** Nothing calls `predictive_scaling.add_metric()`.
-- **`/setup` is `@login_required` only.** Any signed-in user can POST an Anthropic key that
-  `save_api_key` writes into the server's `config/.env`. Production loads secrets from Secrets
-  Manager first, but the `.env` value wins if that load fails. Should be `@admin_required`.
 - **`/doctor` is visible to every signed-in user** and shows platform internals.
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
 - **The public `/status` page's "Get notified" box** promises incident emails nothing sends.
+
+### Approvals: who confirms what (2026-10-14)
+
+`services/approval_service.py`. A medium/high-risk call from a `role='user'` account (chat on
+all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
+- **Solo requester** (no active `OrganizationMember` row, `can_self_confirm(req)`): the
+  requester confirms it themselves via `POST /api/approvals/<id>/confirm` (chat card buttons,
+  or `/approvals/mine`). Platform approvers are **not** emailed; the requester gets an in-app
+  reminder instead. Before this, a solo customer's request was visible only to platform admins,
+  who can't judge a stranger's account, so it just expired.
+- **Org member**: unchanged. An approver/admin sharing an org approves on `/approvals`; the
+  requester cannot approve their own, but can cancel (`/cancel`, stored as `rejected` with
+  `approver_id == requester_id`).
+- `waiting_message(req)` is the tool-result text the model sees; it says which of the two
+  applies, so the agent tells the user the right next step.
+- **The gate fails closed.** If filing the request raises (or the user row is missing), the
+  Claude path and MCP now block the call. Both used to log a warning and run it anyway. The two
+  Kimi paths already failed closed. A path with **no** user id at all (the CLI) still runs
+  risky tools unconfirmed, as before.
+- `approve()` and `confirm_own()` share `_run_approved()`. `_execute_tool()` now invalidates
+  the requester's `READ_CACHE` (on success and on a raised tool), which it skipped because it
+  calls the handler directly rather than through `_invoke_tool`.
+- `/setup` (writes the platform Anthropic key into `config/.env` and re-initializes the shared
+  agent) is `@admin_required`; it was `@login_required` only.
+- Pinned by `tests/test_approval_self_confirm.py`.
+
+Still open: approver/admin accounts get no confirmation step at all; organization
+owners/admins (`OrganizationMember.role`) can't approve their team's requests unless they also
+hold the platform `approver` role; the developer API (`confirm_token`) and `/api/v1`
+(`"confirm": true`) still use self-confirmation regardless of organization.
 
 ### Documentation layout
 

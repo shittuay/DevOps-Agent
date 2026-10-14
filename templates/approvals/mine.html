@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}My Requests — DevOps Agent{% endblock %}
+{% block content %}
+<style>
+    .mine-header { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+    .mine-header h1 { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 700; }
+    .mine-intro { color: var(--text-secondary); font-size: 14px; margin-bottom: 24px; max-width: 70ch; }
+    .req-card { padding: 18px 20px; margin-bottom: 12px; }
+    .req-tool { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--accent-primary); }
+    .req-reason { font-size: 14px; color: var(--text-primary); margin: 6px 0 4px; }
+    .req-meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-secondary); }
+    .req-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+    .btn-run, .btn-cancel {
+        padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .btn-run { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+    .btn-cancel { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .btn-run:disabled, .btn-cancel:disabled { opacity: 0.5; cursor: default; }
+    .req-wait { font-size: 13px; color: var(--text-secondary); }
+    .req-status { font-size: 13px; margin-top: 8px; }
+    .empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-family: 'IBM Plex Mono', monospace; }
+</style>
+
+<div class="mine-header"><h1>My Requests</h1></div>
+<p class="mine-intro">Risky actions you asked the agent for (deletes, stops, IAM and firewall changes)
+wait here until they're confirmed. If you're not in an organization, you confirm them yourself;
+otherwise an approver in your organization does. Requests expire after 24 hours.</p>
+
+<div id="list"><div class="empty">Loading…</div></div>
+
+<script>
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+}
+
+async function load() {
+    const list = document.getElementById('list');
+    try {
+        const res = await fetch('/api/approvals/mine');
+        if (!res.ok) throw new Error();
+        const reqs = await res.json();
+        if (!reqs.length) {
+            list.innerHTML = '<div class="empty">Nothing waiting for confirmation.</div>';
+            return;
+        }
+        list.innerHTML = reqs.map(r => `
+            <div class="card req-card" id="req-${r.id}">
+                <div class="req-tool">${esc(r.tool_name)}</div>
+                <div class="req-reason">${esc(r.risk_reason)}</div>
+                <div class="req-meta">Risk: ${esc((r.risk_level || '').toUpperCase())} · expires ${esc(new Date(r.expires_at).toLocaleString())}</div>
+                <div class="req-actions">
+                    ${r.can_confirm
+                        ? `<button class="btn-run" onclick="act(${r.id}, 'confirm', this)">Confirm &amp; run</button>`
+                        : `<span class="req-wait">Waiting for an approver in your organization</span>`}
+                    <button class="btn-cancel" onclick="act(${r.id}, 'cancel', this)">Cancel request</button>
+                </div>
+                <div class="req-status" id="status-${r.id}"></div>
+            </div>`).join('');
+    } catch (e) {
+        list.innerHTML = '<div class="empty">Couldn’t load your requests. Refresh to try again.</div>';
+    }
+}
+
+async function act(id, action, btn) {
+    const card = document.getElementById(`req-${id}`);
+    card.querySelectorAll('button').forEach(b => b.disabled = true);
+    const status = document.getElementById(`status-${id}`);
+    status.textContent = action === 'confirm' ? 'Running…' : 'Cancelling…';
+    try {
+        const res = await fetch(`/api/approvals/${id}/${action}`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+        });
+        const data = await res.json();
+        if (!data.success) {
+            status.style.color = '#ef4444';
+            status.textContent = data.error || 'Something went wrong.';
+            card.querySelectorAll('button').forEach(b => b.disabled = false);
+            return;
+        }
+        if (action === 'cancel') {
+            status.style.color = 'var(--text-secondary)';
+            status.textContent = 'Cancelled. Nothing was changed.';
+        } else {
+            const ok = (data.result || {}).success !== false;
+            status.style.color = ok ? '#10b981' : '#ef4444';
+            status.textContent = ok ? 'Done. The result is also in the chat.' : 'Ran, but returned an error: ' + ((data.result || {}).error || 'unknown');
+        }
+    } catch (e) {
+        status.style.color = '#ef4444';
+        status.textContent = 'Network error. Refresh to see the current state.';
+    }
+}
+
+load();
+</script>
+{% endblock %}
