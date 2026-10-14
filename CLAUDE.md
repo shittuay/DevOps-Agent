@@ -2227,6 +2227,12 @@ a `@media (max-height: 500px)` block shrinks the header and welcome banner, and
 Size new page chrome with `dvh`, and test any layout change at about 915x412 as well as
 portrait. Pinned by `tests/test_chat_landscape_layout.py`.
 
+**Phones held upright (fixed 2026-10-14).** The `max-width: 480px` block used to hide
+`.header-nav` outright, and neither the ☰ sidebar nor the profile menu links to Dashboard,
+Workflows, Approvals or Map, so they were unreachable from chat in portrait. The header now
+wraps and the tabs become a second, sideways-scrolling row. Never hide the tab row without
+putting those links somewhere else. Same test file.
+
 ---
 
 ### Seeded catalogs (import-time, not `scripts/`)

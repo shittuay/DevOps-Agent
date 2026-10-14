@@ -1317,8 +1317,39 @@
                 font-size: 18px;
             }
 
+            /* Tabs used to be hidden here, leaving no way to reach Dashboard,
+               Workflows, Approvals or Map from a phone held upright. Show them
+               as a second, sideways-scrolling row instead. */
+            .header-content {
+                flex-wrap: wrap;
+                height: auto;
+                min-height: 52px;
+                padding: 6px 12px 0;
+                row-gap: 2px;
+            }
+
+            .header-actions {
+                margin-left: auto;
+            }
+
             .header-nav {
+                order: 3;
+                flex: 0 0 100%;
+                justify-content: flex-start;
+                overflow-x: auto;
+                scrollbar-width: none;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 4px;
+            }
+
+            .header-nav::-webkit-scrollbar {
                 display: none;
+            }
+
+            .header-nav .header-button {
+                flex-shrink: 0;
+                padding: 8px 10px;
+                font-size: 14px;
             }
 
             #credits-badge {
