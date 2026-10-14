@@ -297,3 +297,13 @@ def test_setup_is_admin_only(app, people):
 
     admin = _login(app, people['admin'].email)
     assert admin.get('/setup').status_code == 200
+
+
+def test_doctor_is_admin_only(app, people):
+    user = _login(app, people['solo'].email)
+    assert user.get('/doctor').status_code in (302, 403)
+
+    admin = _login(app, people['admin'].email)
+    resp = admin.get('/doctor')
+    assert resp.status_code == 200
+    assert b'sk-ant-' not in resp.data, "the diagnostics page must not show any part of the API key"

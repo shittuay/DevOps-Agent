@@ -49,7 +49,7 @@ def run_diagnostics(app=None, db=None, agent=None) -> Dict[str, Any]:
         'name': 'Anthropic API Key',
         'category': 'ai',
         'status': 'ok' if api_key.startswith('sk-ant-') else 'error',
-        'detail': f"{api_key[:12]}..." if api_key else 'Not configured',
+        'detail': 'Configured' if api_key else 'Not configured',
     })
 
     # 4. Agent status (warning not error — agent may not be passed in scheduler context)
