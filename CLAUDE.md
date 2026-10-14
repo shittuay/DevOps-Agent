@@ -162,7 +162,7 @@ report, including a **critical** "security group open to `0.0.0.0/0`" alert that
 literal in the source, against an account with no database in it. See CLAUDE_RUNBOOK.md.
 
 **This has recurred beyond Drift.** A 2026-09-02 scheduled audit found the entire Predictive
-Scaling feature (`/scaling`, `services/predictive_scaling.py`) unconditionally fabricating three
+Scaling feature (`/scaling`, `services/predictive_scaling.py`; removed 2026-10-14) unconditionally fabricating three
 named resources and their metric history for every user with no `[Sandbox]` label, plus an "Apply"
 endpoint that reported fake `status: 'applied'` success without calling any cloud API — fixed (see
 CLAUDE_RUNBOOK.md's 2026-09-02 entry). The same audit found `services/analytics_service.py`'s
@@ -2043,15 +2043,32 @@ endpoints and every page that linked to them.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
-- **`/ai/` plain-English box is broken.** `routes/ai_infrastructure.py` calls
-  `parse_natural_language`, `generate_terraform`, `generate_cloudformation`, `estimate_cost`,
-  `validate_spec`, `deploy`, `explain_code`, `convert_code` and `security_scan` on
-  `AIInfrastructureService`, which has none of them (it has `parse_request`). `/ai/api/parse` is
-  what `provision.html` and `dashboard.html` call, so the page's main box 500s. Templates,
-  preview, clone and deployments work.
-- **Predictive Scaling is always empty.** Nothing calls `predictive_scaling.add_metric()`.
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
 - **The public `/status` page's "Get notified" box** promises incident emails nothing sends.
+
+### AI Infrastructure box fixed; Predictive Scaling removed (2026-10-14)
+
+- **`/ai/api/parse`** used to call `parse_natural_language`, which `AIInfrastructureService`
+  never had, and the pages sent `query` while the route required `request`, so the box always
+  failed. It now accepts either field, runs `parse_request()` + `generate_spec()`, and returns
+  `{intent, spec, terraform, note}`. It **only generates code**; nothing is created. AWS only
+  (`SUPPORTED_PROVIDERS`); Azure/GCP or unrecognised text → 422 with a pointer to Chat.
+- **The generated Terraform is safe by construction:** EC2 uses a `data "aws_ami"` lookup pinned
+  to Canonical's owner `099720109477` (same id as `aws_tools._AMI_OWNERS`), never a literal AMI
+  (it used to hardcode `ami-0c55b159cbfafe1f0`); IMDSv2 required; RDS uses
+  `manage_master_user_password`, private, encrypted, deletion protection, final snapshot; S3 gets a
+  public-access block. ALB is a comment (needs the user's subnets).
+- **No invented prices.** `estimated_cost` and the hardcoded per-size dollar table are gone.
+- `parse_request` now collects **every** resource in a request (`intent['actions']`), via
+  `CREATE_VERBS` + `RESOURCE_NOUNS`, so "create 3 small servers and a database" yields both.
+- Removed endpoints that called nonexistent methods: generate-terraform, generate-cloudformation,
+  estimate-cost, validate, deploy, explain, convert, security-scan; plus `/ai/api/analyze-drift`,
+  which reported "No drift detected" without reading any account (real drift is `/drift`).
+  `AIInfrastructureService.execute_request()` (logged "All resources provisioned successfully"
+  with no cloud call; no callers) was deleted.
+- **Predictive Scaling** (`routes/scaling.py`, `services/predictive_scaling.py`,
+  `templates/scaling/`) was removed at the owner's request: nothing ever called `add_metric()`,
+  so it was always empty. It had no DB tables. Guard: `tests/test_ai_box_and_scaling_removed.py`.
 
 ### Approvals: who confirms what (2026-10-14)
 

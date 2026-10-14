@@ -47,9 +47,8 @@ ALLOWED_5XX = {
     # Deliberate fail-closed response: no cloud API call is ever made here
     # (see CLAUDE.md's "every feature runs against a real cloud account" rule),
     # so every call returns 501 regardless of the dummy rec_id, unlike its
-    # sibling Apply endpoints (routes/scaling.py, app.py's dashboard apply)
-    # which happen to 403/404 first in this test environment before reaching
-    # their own identical 501.
+    # sibling Apply endpoint (app.py's dashboard apply), which happens to
+    # 403/404 first in this test environment before reaching its own 501.
     'ai_infrastructure.api_apply_recommendation': {501},
 }
 

@@ -58,15 +58,15 @@
                 <h3>Natural Language Provisioning</h3>
             </div>
             <div class="card-body">
-                <p class="text-muted mb-3">Describe what you need in plain English, and AI will generate the infrastructure code.</p>
+                <p class="text-muted mb-3">Describe AWS servers, databases, buckets or VPCs in plain English to get Terraform you can review. Nothing is created here; ask in <a href="/chat">Chat</a> to build it.</p>
                 <form id="nlpForm">
-                    <textarea id="nlpInput" class="form-control mb-3" rows="3" placeholder="e.g., Create a web server with 2 CPU cores, 4GB RAM, running Ubuntu in us-east-1..."></textarea>
+                    <textarea id="nlpInput" class="form-control mb-3" rows="3" placeholder="e.g., Create 2 small servers and a database named shop in us west"></textarea>
                     <button type="submit" class="btn btn-primary">
                         <i class="fas fa-magic"></i> Generate Infrastructure
                     </button>
                 </form>
                 <div id="nlpResult" class="mt-3" style="display: none;">
-                    <h4>Generated Specification</h4>
+                    <h4>Generated Terraform</h4>
                     <pre id="generatedSpec" class="code-block"></pre>
                 </div>
             </div>
@@ -264,11 +264,11 @@ async function parseNaturalLanguage() {
             body: JSON.stringify({query: input})
         });
 
-        if (response.ok) {
-            const data = await response.json();
-            document.getElementById('generatedSpec').textContent = JSON.stringify(data.spec, null, 2);
-            document.getElementById('nlpResult').style.display = 'block';
-        }
+        const data = await response.json();
+        document.getElementById('generatedSpec').textContent = response.ok
+            ? data.terraform
+            : (data.error || 'Something went wrong.');
+        document.getElementById('nlpResult').style.display = 'block';
     } catch (error) {
         console.error('Error parsing input:', error);
     }

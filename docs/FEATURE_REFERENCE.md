@@ -74,8 +74,7 @@ Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC, CI/CD and On
 | Templates | `/templates` | Starter infrastructure templates |
 | Infrastructure map | `/infrastructure/map` | Pan-and-zoom map of synced resources; open any resource in chat |
 | Drift detection | `/drift/` | Capture a baseline from your live AWS account (EC2, security groups, S3, RDS) or import one from a `terraform.tfstate`, then scan for property-level changes and removed resources |
-| AI infrastructure | `/ai/` | Browse, preview and clone templates; past deployments. Its plain-English request box currently errors, so use Chat |
-| Predictive scaling | `/scaling/` | Scaling recommendations from metric history. Nothing feeds it metrics yet, so it is normally empty |
+| AI infrastructure | `/ai/` | Plain-English description → reviewable Terraform for AWS servers, databases, buckets and VPCs (nothing is created; no prices); browse, preview and clone templates; past deployments |
 
 ## Analytics (`/analytics/`)
 
@@ -180,5 +179,6 @@ Docker, Terraform and command tools run on the DevOps Agent server, not on your 
 ## Removed features
 
 Removed in October 2026: Optimize (`/optimization`), Monitoring alert rules (`/monitoring`),
-Incidents and playbooks (`/incidents`) and root-cause Analysis (`/analysis`). Incident work now
+Incidents and playbooks (`/incidents`), root-cause Analysis (`/analysis`) and Predictive Scaling
+(`/scaling`). Incident work now
 happens in chat, using the PagerDuty and OpsGenie tools and the Incident Response workflows.

@@ -97,100 +97,42 @@ def deployment_detail(deployment_id):
 @ai_infrastructure_bp.route('/api/parse', methods=['POST'])
 @login_required
 def api_parse_request():
-    """Parse natural language infrastructure request"""
-    from services.ai_infrastructure import AIInfrastructureService
+    """Turn a plain-English description into a spec and reviewable Terraform.
+
+    Only generates code; nothing is created in the user's account here.
+    """
+    from services.ai_infrastructure import AIInfrastructureService, SUPPORTED_PROVIDERS
     service = AIInfrastructureService(current_user.id)
 
-    data = request.get_json()
-    if not data or 'request' not in data:
-        return jsonify({'error': 'Request text is required'}), 400
+    data = request.get_json(silent=True) or {}
+    text = (data.get('request') or data.get('query') or '').strip()
+    if not text:
+        return jsonify({'error': 'Describe the infrastructure you want.'}), 400
+    if len(text) > 2000:
+        return jsonify({'error': 'Keep the description under 2,000 characters.'}), 400
 
-    result = service.parse_natural_language(data['request'])
-    return jsonify(result)
+    provider = (data.get('cloud_provider') or 'aws').lower()
+    if provider not in SUPPORTED_PROVIDERS:
+        return jsonify({
+            'error': 'Only AWS is supported on this page. For Azure or Google Cloud, ask in Chat.',
+        }), 422
 
+    intent = service.parse_request(text)
+    if not intent.get('actions'):
+        return jsonify({
+            'error': ("Couldn't tell what to build. Try something like \"create 2 small servers "
+                      "and a database named shop in us west\", or ask in Chat."),
+            'intent': intent,
+        }), 422
 
-@ai_infrastructure_bp.route('/api/generate-terraform', methods=['POST'])
-@login_required
-def api_generate_terraform():
-    """Generate Terraform code from spec"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'spec' not in data:
-        return jsonify({'error': 'Infrastructure spec is required'}), 400
-
-    terraform_code = service.generate_terraform(data['spec'])
+    spec = service.generate_spec(intent)
     return jsonify({
-        'terraform': terraform_code,
-        'format': 'hcl'
+        'intent': intent,
+        'spec': spec.to_dict(),
+        'terraform': spec.to_terraform(),
+        'note': ('Review the code and run terraform plan before applying. No cost estimate is '
+                 'shown here; ask in Chat for live pricing from your own account.'),
     })
-
-
-@ai_infrastructure_bp.route('/api/generate-cloudformation', methods=['POST'])
-@login_required
-def api_generate_cloudformation():
-    """Generate CloudFormation template from spec"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'spec' not in data:
-        return jsonify({'error': 'Infrastructure spec is required'}), 400
-
-    template = service.generate_cloudformation(data['spec'])
-    return jsonify({
-        'template': template,
-        'format': 'yaml'
-    })
-
-
-@ai_infrastructure_bp.route('/api/estimate-cost', methods=['POST'])
-@login_required
-def api_estimate_cost():
-    """Estimate infrastructure cost"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'spec' not in data:
-        return jsonify({'error': 'Infrastructure spec is required'}), 400
-
-    estimate = service.estimate_cost(data['spec'])
-    return jsonify(estimate)
-
-
-@ai_infrastructure_bp.route('/api/validate', methods=['POST'])
-@login_required
-def api_validate_spec():
-    """Validate infrastructure spec"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'spec' not in data:
-        return jsonify({'error': 'Infrastructure spec is required'}), 400
-
-    validation = service.validate_spec(data['spec'])
-    return jsonify(validation)
-
-
-@ai_infrastructure_bp.route('/api/deploy', methods=['POST'])
-@login_required
-def api_deploy():
-    """Deploy infrastructure from spec"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'spec' not in data:
-        return jsonify({'error': 'Infrastructure spec is required'}), 400
-
-    dry_run = data.get('dry_run', True)
-    result = service.deploy(data['spec'], dry_run=dry_run)
-
-    return jsonify(result)
-
 
 @ai_infrastructure_bp.route('/api/deployments')
 @login_required
@@ -295,75 +237,3 @@ def api_optimize():
 
     suggestions = service.get_optimization_suggestions(optimization_type)
     return jsonify({'suggestions': suggestions})
-
-
-@ai_infrastructure_bp.route('/api/explain', methods=['POST'])
-@login_required
-def api_explain():
-    """Explain infrastructure code"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'code' not in data:
-        return jsonify({'error': 'Code is required'}), 400
-
-    code_type = data.get('type', 'terraform')
-    explanation = service.explain_code(data['code'], code_type)
-
-    return jsonify({'explanation': explanation})
-
-
-@ai_infrastructure_bp.route('/api/convert', methods=['POST'])
-@login_required
-def api_convert():
-    """Convert between infrastructure formats"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'code' not in data:
-        return jsonify({'error': 'Code is required'}), 400
-
-    source_format = data.get('source_format', 'terraform')
-    target_format = data.get('target_format', 'cloudformation')
-
-    converted = service.convert_code(data['code'], source_format, target_format)
-    return jsonify({
-        'converted': converted,
-        'source_format': source_format,
-        'target_format': target_format
-    })
-
-
-@ai_infrastructure_bp.route('/api/analyze-drift', methods=['POST'])
-@login_required
-def api_analyze_drift():
-    """Analyze infrastructure drift"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json(silent=True) or {}
-    resource_ids = data.get('resource_ids')
-    if not resource_ids:
-        return jsonify({'error': 'resource_ids is required'}), 400
-
-    drift_report = service.analyze_drift(resource_ids)
-    return jsonify(drift_report)
-
-
-@ai_infrastructure_bp.route('/api/security-scan', methods=['POST'])
-@login_required
-def api_security_scan():
-    """Scan infrastructure code for security issues"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json()
-    if not data or 'code' not in data:
-        return jsonify({'error': 'Code is required'}), 400
-
-    code_type = data.get('type', 'terraform')
-    scan_result = service.security_scan(data['code'], code_type)
-
-    return jsonify(scan_result)

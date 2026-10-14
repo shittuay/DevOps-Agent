@@ -18,7 +18,7 @@ def test_monitoring_route_is_gone(authenticated_client):
 
 @pytest.mark.parametrize('path', [
     '/dashboard', '/chat', '/chatops/', '/drift/',
-    '/notifications/', '/scaling/', '/webhooks/',
+    '/notifications/', '/webhooks/',
 ])
 def test_pages_render_without_monitoring_link(authenticated_client, path):
     resp = authenticated_client.get(path, follow_redirects=True)

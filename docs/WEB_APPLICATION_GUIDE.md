@@ -216,13 +216,15 @@ choose **Investigate** to open chat about it. Plain scroll pans; Ctrl/⌘ + scro
   extra live properties aren't treated as drift.
 - If the account can't be read, the scan reports an error rather than an empty or clean result.
 
-**AI Infrastructure** (`/ai/`): browse, preview and clone infrastructure templates, and view past
-deployments. The plain-English request box on this page currently returns an error; ask in
-**Chat** instead, which does the same job. The **Recommendations** tab is empty until a live data
-source feeds it.
-
-**Predictive Scaling** (`/scaling/`): scaling predictions for resources that have at least 24 hours
-of metric history. Nothing feeds it metrics automatically yet, so it is normally empty.
+**AI Infrastructure** (`/ai/`): describe AWS servers, databases, storage buckets or VPCs in plain
+English ("create 3 small servers and a database named shop in us west") and get Terraform to
+review and apply yourself. Nothing is created in your account from this page, and no prices are
+shown; ask in **Chat** to build it or for live pricing, and for Azure or Google Cloud. The
+generated code looks up the newest Ubuntu 22.04 image from Canonical rather than hardcoding one,
+keeps databases private and encrypted with an AWS-managed password, and blocks public access on
+buckets. Load balancers aren't generated here, because they need your subnets. The page also
+lets you browse, preview and clone templates, and view past deployments. The
+**Recommendations** tab is empty until a live data source feeds it.
 
 ---
 
@@ -362,6 +364,6 @@ Platform roles:
 
 ## Removed features
 
-Optimize, Monitoring (alert rules), Incidents (and playbooks) and Analysis (root-cause analysis)
-were removed in October 2026. Incident work now happens in chat with the PagerDuty and OpsGenie
+Optimize, Monitoring (alert rules), Incidents (and playbooks), Analysis (root-cause analysis) and
+Predictive Scaling were removed in October 2026. Incident work now happens in chat with the PagerDuty and OpsGenie
 tools and the Incident Response workflows.

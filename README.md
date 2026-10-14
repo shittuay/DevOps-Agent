@@ -136,7 +136,7 @@ the code depends on (per-user isolation, SSRF guards, risk classification, guard
 ## Removed features
 
 These were removed in October 2026 and are no longer part of the app: Optimize, Monitoring
-(alert rules), Incidents (and playbooks) and Analysis (root-cause analysis). Incident work now
+(alert rules), Incidents (and playbooks), Analysis (root-cause analysis) and Predictive Scaling. Incident work now
 happens in chat, with the PagerDuty and OpsGenie tools and the Incident Response workflows.
 
 ## Support
