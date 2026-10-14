@@ -163,13 +163,14 @@ Every tool call is classified by risk before it runs:
   from chat or the Claude.ai connector doesn't run straight away. It becomes a request that
   expires after 24 hours if nobody acts on it. When it runs, it uses your credentials and the
   result is posted back into your conversation.
-- **If you aren't in an organization** (a solo account), you confirm it yourself: the chat card
-  shows **Confirm & run** and **Cancel**, and the same requests are listed on **My requests**
-  (`/approvals/mine`), which is also where you confirm actions asked for through the Claude.ai
-  connector.
-- **If you're in an organization,** an account with the **Approver** or **Admin** role who
-  shares an organization with you approves it; they're notified in the app and by email. You
-  can't approve your own request, but you can cancel it on **My requests**.
+- **If you're in an organization,** the organization's **owners and admins** approve it, along
+  with anyone in the organization who has the platform **Approver** role. They're notified in
+  the app and by email and approve on the Approvals page. You can't approve your own request,
+  but you can cancel it on **My requests**.
+- **If nobody else could approve it** (you aren't in an organization, or you're the only owner
+  or admin of yours), you confirm it yourself: the chat card shows **Confirm & run** and
+  **Cancel**, and the same requests are listed on **My requests** (`/approvals/mine`), which is
+  also where you confirm actions asked for through the Claude.ai connector.
 - **If the request can't be recorded** (a database error, say), the action is blocked rather
   than run.
 - **If your role is Approver or Admin:** your own risky actions run without a separate approval
@@ -177,10 +178,11 @@ Every tool call is classified by risk before it runs:
 - **Sandbox mode:** never creates approval requests; everything is simulated.
 
 **My requests** (`/approvals/mine`, everyone): your own pending requests, with Confirm & run
-(solo accounts) and Cancel.
+(when nobody else could approve) and Cancel.
 
-**Approvals page** (`/approvals`, Approvers and Admins): pending agent requests and pending change
-requests side by side, with approve and reject (with a note). **History** (`/approvals/history`)
+**Approvals page** (`/approvals`, organization owners and admins, plus platform Approvers and
+Admins): pending agent requests from your team, with approve and reject (with a note). Platform
+Approvers also see pending change requests here. **History** (`/approvals/history`)
 lists decided requests.
 
 **Change requests** (`/changes`) are the planned, team-reviewed route: ask the agent to "create a
@@ -189,7 +191,9 @@ is executed from the page, with rollback data saved first. High-risk change requ
 self-approved. Actions run directly from chat are also recorded here as executed changes, so the
 page doubles as an audit trail.
 
-Roles are set by platform admins (Admin → Users), not by organization owners.
+Organization owners and admins make someone an organization admin from the organization's Members page.
+The platform Approver and Admin roles are set by platform admins (Admin → Users); change requests
+on `/changes` still need the platform Approver role.
 
 ---
 

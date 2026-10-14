@@ -23,8 +23,9 @@
 
 <div class="mine-header"><h1>My Requests</h1></div>
 <p class="mine-intro">Risky actions you asked the agent for (deletes, stops, IAM and firewall changes)
-wait here until they're confirmed. If you're not in an organization, you confirm them yourself;
-otherwise an approver in your organization does. Requests expire after 24 hours.</p>
+wait here until they're confirmed. Your organization's owners and admins approve them; if nobody
+else could (you're not in an organization, or you're its only owner or admin), you confirm them
+yourself. Requests expire after 24 hours.</p>
 
 <div id="list"><div class="empty">Loading…</div></div>
 
@@ -53,7 +54,7 @@ async function load() {
                 <div class="req-actions">
                     ${r.can_confirm
                         ? `<button class="btn-run" onclick="act(${r.id}, 'confirm', this)">Confirm &amp; run</button>`
-                        : `<span class="req-wait">Waiting for an approver in your organization</span>`}
+                        : `<span class="req-wait">Waiting for an owner or admin of your organization</span>`}
                     <button class="btn-cancel" onclick="act(${r.id}, 'cancel', this)">Cancel request</button>
                 </div>
                 <div class="req-status" id="status-${r.id}"></div>

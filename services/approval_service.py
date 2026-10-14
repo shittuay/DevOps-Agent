@@ -34,35 +34,65 @@ def build_risk_reason(tool_name: str, tool_input: dict) -> str:
     return f"This will execute: {action}"
 
 
-def is_visible_to_approver(req, approver) -> bool:
-    """Whether a non-admin approver may view/act on this ApprovalRequest.
+def eligible_approver_ids(req) -> set:
+    """Users in the requester's organizations who may approve this request.
 
-    ApprovalRequest has no organization_id of its own (unlike InfrastructureChange),
-    so visibility is derived from whether the approver shares an active organization
-    membership with the request's requester — mirrors routes/changes.py's
-    _change_visible_to_approver. A requester with no active org membership (solo
-    account) is only visible to admins, same convention as changes.py.
+    That is every active member of an organization the requester belongs to who
+    is either an owner/admin of that organization, or holds the platform-wide
+    'approver'/'admin' role. The requester is never included. Platform admins
+    outside the requester's organizations can also act (see can_approve), but are
+    deliberately not counted here: they know nothing about a customer's account,
+    so their existence must not stop a customer confirming their own action.
     """
-    from services.rbac import user_is_admin, user_active_org_ids
-    if user_is_admin(approver):
-        return True
-    requester_orgs = user_active_org_ids(req.requester_id)
-    if not requester_orgs:
+    from sqlalchemy import or_
+    from models import OrganizationMember, User
+    from services.rbac import user_active_org_ids, ORG_APPROVER_ROLES
+
+    org_ids = user_active_org_ids(req.requester_id)
+    if not org_ids:
+        return set()
+    rows = (
+        OrganizationMember.query
+        .join(User, User.id == OrganizationMember.user_id)
+        .filter(
+            OrganizationMember.organization_id.in_(org_ids),
+            OrganizationMember.is_active.is_(True),
+            OrganizationMember.user_id != req.requester_id,
+            or_(
+                OrganizationMember.role.in_(ORG_APPROVER_ROLES),
+                User.role.in_(('approver', 'admin')),
+            ),
+        )
+        .with_entities(OrganizationMember.user_id)
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
+def can_approve(req, user) -> bool:
+    """Whether this user may approve or reject someone else's request."""
+    from services.rbac import user_is_admin
+    if not user or user.id == req.requester_id:
         return False
-    return bool(requester_orgs & user_active_org_ids(approver.id))
+    if user_is_admin(user):
+        return True
+    return user.id in eligible_approver_ids(req)
+
+
+def is_visible_to_approver(req, approver) -> bool:
+    """Kept for existing callers: an approver may see a request they can act on."""
+    return can_approve(req, approver)
 
 
 def can_self_confirm(req) -> bool:
     """Whether the requester may confirm (approve) their own request.
 
-    A solo account (no active organization membership) has nobody who can
-    meaningfully review its actions: the only approvers who can see the request
-    are platform admins, who know nothing about the customer's account. So the
-    requester confirms it themselves. Requests from organization members still
-    need an approver who shares an organization with them.
+    Allowed when nobody in the requester's organizations could approve it: a
+    solo account, or an organization with no other owner, admin or approver.
+    Otherwise the platform admins were the only reviewers, and they can't judge
+    a customer's account, so the request simply expired.
     """
-    from services.rbac import user_active_org_ids
-    return not user_active_org_ids(req.requester_id)
+    return not eligible_approver_ids(req)
 
 
 def waiting_message(req) -> str:
@@ -74,8 +104,8 @@ def waiting_message(req) -> str:
             f"My requests page (/approvals/mine). Request id {req.id}, expires in 24 hours."
         )
     return (
-        f"Not run yet: approval request {req.id} for {req.tool_name} was sent to the approvers "
-        f"in the user's organization. It runs once an approver approves it on /approvals."
+        f"Not run yet: approval request {req.id} for {req.tool_name} was sent to the owners, admins "
+        f"and approvers of the user's organization. It runs once one of them approves it on /approvals."
     )
 
 
@@ -129,8 +159,8 @@ def _notify_approvers(req):
     from models import User, AppNotification, db
     from services.email_service import EmailService
 
-    candidates = User.query.filter(User.role.in_(['approver', 'admin'])).all()
-    approvers = [a for a in candidates if is_visible_to_approver(req, a)]
+    ids = eligible_approver_ids(req)
+    approvers = User.query.filter(User.id.in_(ids)).all() if ids else []
     if not approvers:
         logger.warning("No approvers configured to notify")
         return
@@ -176,15 +206,12 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
     if not req:
         return {'success': False, 'error': 'Request not found'}
 
-    approver = User.query.get(approver_id)
-    if not approver or approver.role not in ('approver', 'admin'):
-        return {'success': False, 'error': 'Unauthorized'}
-
-    if not is_visible_to_approver(req, approver):
-        return {'success': False, 'error': 'Unauthorized'}
-
     if approver_id == req.requester_id:
         return {'success': False, 'error': 'Cannot approve your own request'}
+
+    approver = User.query.get(approver_id)
+    if not can_approve(req, approver):
+        return {'success': False, 'error': 'Unauthorized'}
 
     if req.status != 'pending':
         return {'success': False, 'error': f'Request is already {req.status}'}
@@ -324,15 +351,12 @@ def reject(approval_id: int, approver_id: int, note: Optional[str] = None) -> di
     if not req:
         return {'success': False, 'error': 'Request not found'}
 
-    approver = User.query.get(approver_id)
-    if not approver or approver.role not in ('approver', 'admin'):
-        return {'success': False, 'error': 'Unauthorized'}
-
-    if not is_visible_to_approver(req, approver):
-        return {'success': False, 'error': 'Unauthorized'}
-
     if approver_id == req.requester_id:
         return {'success': False, 'error': 'Cannot reject your own request'}
+
+    approver = User.query.get(approver_id)
+    if not can_approve(req, approver):
+        return {'success': False, 'error': 'Unauthorized'}
 
     if req.status != 'pending':
         return {'success': False, 'error': f'Request is already {req.status}'}
@@ -397,10 +421,7 @@ def get_pending_for_approver(approver_id: int) -> list:
     approver = User.query.get(approver_id)
     if not approver:
         return []
-    from services.rbac import user_is_admin
-    if user_is_admin(approver):
-        return reqs
-    return [r for r in reqs if is_visible_to_approver(r, approver)]
+    return [r for r in reqs if can_approve(r, approver)]
 
 
 def _execute_tool(req) -> dict:

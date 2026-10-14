@@ -29,7 +29,7 @@ say so and do nothing, unless you turn on Sandbox mode, where results are simula
 | Check | What it does |
 |-------|--------------|
 | Risk classification | Every tool call is low, medium or high risk. Deletes and terminations are high; restarts, stops, IAM, firewall and other changes are medium; reads and most creates are low. Production targets raise high to critical. |
-| Approvals | Medium- and high-risk calls from chat and the Claude.ai connector wait for confirmation unless your role is Approver or Admin. Solo accounts confirm their own (chat card or `/approvals/mine`); organization members need an approver. If the request can't be recorded, the action is blocked. See [Approvals](WEB_APPLICATION_GUIDE.md#approvals-and-change-requests). |
+| Approvals | Medium- and high-risk calls from chat and the Claude.ai connector wait for approval unless your role is Approver or Admin. Your organization's owners and admins approve them; if nobody else could (a solo account, or you're the only owner), you confirm them yourself in the chat card or on `/approvals/mine`. If the request can't be recorded, the action is blocked. See [Approvals](WEB_APPLICATION_GUIDE.md#approvals-and-change-requests). |
 | Change requests | `/changes`: a request, approval and execution record with rollback data. |
 | Guardrails | Prompt-injection and abuse screening on every chat entry point, with a temporary block after repeated violations. |
 | Secret redaction | Keys, tokens and connection strings are redacted from replies before they are shown or saved. |

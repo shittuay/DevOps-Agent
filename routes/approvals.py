@@ -2,14 +2,51 @@ from flask import Blueprint, jsonify, redirect, render_template, request, url_fo
 from flask_login import current_user, login_required
 
 from models import ApprovalRequest, InfrastructureChange, OrganizationMember, User, db
-from services.rbac import approver_required as _approver_required, user_is_admin, user_active_org_ids
+from functools import wraps
+
+from services.rbac import user_is_admin, user_is_approver, user_active_org_ids, user_admin_org_ids
 
 approvals_bp = Blueprint('approvals', __name__)
 
 
+def _is_reviewer(user) -> bool:
+    """Platform approvers/admins, and owners/admins of any organization."""
+    return user_is_approver(user) or bool(user_admin_org_ids(user.id))
+
+
+def _reviewer_required(f):
+    """Like rbac.approver_required, but also lets organization owners and admins in:
+    they approve their own team's agent requests without the platform role."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _is_reviewer(current_user):
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Approver access required'}), 403
+            return redirect(url_for('approvals.my_requests_page'))
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def _reviewable_requester_ids(user):
+    """Requesters whose decided agent requests this reviewer may see in history,
+    or None for platform admins (everyone)."""
+    if user_is_admin(user):
+        return None
+    org_ids = set(user_admin_org_ids(user.id))
+    if user_is_approver(user):
+        org_ids |= user_active_org_ids(user.id)
+    if not org_ids:
+        return set()
+    rows = db.session.query(OrganizationMember.user_id).filter(
+        OrganizationMember.organization_id.in_(org_ids),
+        OrganizationMember.is_active.is_(True),
+    ).all()
+    return {r[0] for r in rows}
+
+
 @approvals_bp.route('/approvals')
 @login_required
-@_approver_required
+@_reviewer_required
 def queue_page():
     return render_template('approvals/queue.html')
 
@@ -27,6 +64,10 @@ def _org_scoped_change_query(query):
     """
     if current_user.role == 'admin':
         return query
+    if not user_is_approver(current_user):
+        # Organization owners/admins review agent requests only; change requests
+        # are approved through /changes, which still needs the platform role.
+        return query.filter(db.false())
     org_ids = user_active_org_ids(current_user.id)
     if not org_ids:
         return query.filter(db.false())
@@ -35,7 +76,7 @@ def _org_scoped_change_query(query):
 
 @approvals_bp.route('/api/approvals/pending')
 @login_required
-@_approver_required
+@_reviewer_required
 def get_pending():
     from services import approval_service
     result = []
@@ -76,7 +117,7 @@ def get_pending():
 
 @approvals_bp.route('/api/approvals/count')
 @login_required
-@_approver_required
+@_reviewer_required
 def get_count():
     from services import approval_service
     reqs = approval_service.get_pending_for_approver(current_user.id)
@@ -91,7 +132,7 @@ def get_count():
 def get_status(approval_id):
     from services import approval_service
     req = ApprovalRequest.query.get_or_404(approval_id)
-    is_approver = current_user.role in ('approver', 'admin') and approval_service.is_visible_to_approver(req, current_user)
+    is_approver = approval_service.can_approve(req, current_user)
     if current_user.id != req.requester_id and not is_approver:
         return jsonify({'error': 'Access denied'}), 403
     data = req.to_dict()
@@ -139,31 +180,26 @@ def cancel_own(approval_id):
 
 @approvals_bp.route('/approvals/history')
 @login_required
-@_approver_required
+@_reviewer_required
 def history_page():
     return render_template('approvals/history.html')
 
 
 @approvals_bp.route('/api/approvals/history')
 @login_required
-@_approver_required
+@_reviewer_required
 def get_history():
     status_filter = request.args.get('status', 'all')
     limit = min(int(request.args.get('limit', 100)), 500)
 
     # Agent approval requests (non-pending), scoped to this approver's organization(s)
     query = ApprovalRequest.query.filter(ApprovalRequest.status != 'pending')
-    is_admin = user_is_admin(current_user)
-    if not is_admin:
-        org_ids = user_active_org_ids(current_user.id)
-        if not org_ids:
+    visible = _reviewable_requester_ids(current_user)
+    if visible is not None:
+        if not visible:
             query = query.filter(db.false())
         else:
-            visible_requesters = db.session.query(OrganizationMember.user_id).filter(
-                OrganizationMember.organization_id.in_(org_ids),
-                OrganizationMember.is_active.is_(True)
-            )
-            query = query.filter(ApprovalRequest.requester_id.in_(visible_requesters))
+            query = query.filter(ApprovalRequest.requester_id.in_(visible))
     if status_filter == 'approved':
         query = query.filter(ApprovalRequest.status.in_(['approved', 'executed']))
     elif status_filter in ('rejected', 'expired'):
@@ -210,7 +246,7 @@ def get_history():
 
 @approvals_bp.route('/api/approvals/<int:approval_id>/approve', methods=['POST'])
 @login_required
-@_approver_required
+@_reviewer_required
 def approve(approval_id):
     data = request.get_json() or {}
     from services import approval_service
@@ -221,7 +257,7 @@ def approve(approval_id):
 
 @approvals_bp.route('/api/approvals/<int:approval_id>/reject', methods=['POST'])
 @login_required
-@_approver_required
+@_reviewer_required
 def reject(approval_id):
     data = request.get_json() or {}
     from services import approval_service
