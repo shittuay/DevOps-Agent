@@ -12,7 +12,7 @@ def test_optimization_route_is_gone(authenticated_client):
     assert authenticated_client.get('/optimization/').status_code == 404
 
 
-@pytest.mark.parametrize('path', ['/dashboard', '/chat', '/workflows', '/scaling/'])
+@pytest.mark.parametrize('path', ['/dashboard', '/chat', '/workflows'])
 def test_pages_render_without_optimize_link(authenticated_client, path):
     resp = authenticated_client.get(path, follow_redirects=True)
     assert resp.status_code == 200, f"{path} -> {resp.status_code}"

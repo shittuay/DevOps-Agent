@@ -364,9 +364,6 @@ app.register_blueprint(chatops_bp)
 from routes.drift import drift_bp
 app.register_blueprint(drift_bp)
 
-# Register predictive scaling blueprint
-from routes.scaling import scaling_bp
-app.register_blueprint(scaling_bp)
 
 # Register AI Infrastructure blueprint
 from routes.ai_infrastructure import ai_infrastructure_bp
@@ -4487,7 +4484,7 @@ def apply_recommendation(rec_id):
     recommended action (stop the instance, resize it, add a lifecycle
     policy, etc.) — it must never report success it didn't perform (see
     CLAUDE.md's "every feature runs against a real cloud account" rule, and
-    the identical fix in routes/scaling.py's api_apply_recommendation). A
+    the same rule applied to the since-removed Predictive Scaling Apply). A
     user trusting a false "applied — saving $X/mo" toast would stop looking
     for other ways to address the cost/reliability issue that was never
     actually fixed, while the resource keeps running exactly as before.

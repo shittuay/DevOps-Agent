@@ -13,17 +13,16 @@
             <form id="provisionForm">
                 <div class="form-group">
                     <label>Describe your infrastructure needs:</label>
-                    <textarea id="nlInput" class="form-control" rows="4" placeholder="e.g., Create a production-ready web application with load balancer, 3 web servers, and a PostgreSQL database in AWS us-east-1"></textarea>
+                    <textarea id="nlInput" class="form-control" rows="4" placeholder="e.g., Create 3 small servers and a database named shop in us west"></textarea>
                 </div>
-                <div class="form-group">
-                    <label>Cloud Provider:</label>
-                    <select id="cloudProvider" class="form-control">
-                        <option value="aws">AWS</option>
-                        <option value="azure">Azure</option>
-                        <option value="gcp">Google Cloud</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Generate Infrastructure Code</button>
+                <p class="text-muted" style="font-size:13px;margin:0 0 15px;">
+                    Generates Terraform for AWS servers, databases, storage buckets and VPCs that you can
+                    review and apply yourself. Nothing is created in your account here. To build it directly,
+                    or for Azure and Google Cloud, ask in <a href="/chat">Chat</a>.
+                </p>
+                <input type="hidden" id="cloudProvider" value="aws">
+                <button type="submit" class="btn btn-primary">Generate Terraform</button>
+                <div id="parseError" style="display:none;margin-top:12px;color:#ef4444;font-size:14px;"></div>
             </form>
         </div>
     </div>
@@ -34,19 +33,11 @@
                 <h3>Generated Infrastructure</h3>
                 <div>
                     <button class="btn btn-sm btn-secondary" onclick="copyCode()">Copy</button>
-                    <button class="btn btn-sm btn-primary" onclick="deployInfra()">Deploy</button>
                 </div>
             </div>
             <div class="card-body">
-                <div class="mb-3">
-                    <strong>Estimated Monthly Cost:</strong> <span id="estimatedCost">$0</span>
-                </div>
-                <ul class="nav nav-tabs">
-                    <li class="nav-item"><a class="nav-link active" data-tab="terraform">Terraform</a></li>
-                    <li class="nav-item"><a class="nav-link" data-tab="cloudformation">CloudFormation</a></li>
-                </ul>
+                <p id="resultNote" class="text-muted" style="font-size:13px;"></p>
                 <pre id="terraformCode" class="code-block mt-3"></pre>
-                <pre id="cloudformationCode" class="code-block mt-3" style="display:none;"></pre>
             </div>
         </div>
     </div>
@@ -69,37 +60,33 @@ document.getElementById('provisionForm').addEventListener('submit', async functi
     e.preventDefault();
     const query = document.getElementById('nlInput').value;
     const provider = document.getElementById('cloudProvider').value;
+    const err = document.getElementById('parseError');
+    err.style.display = 'none';
 
-    const response = await fetch('/ai/api/parse', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query, cloud_provider: provider})
-    });
-
-    if (response.ok) {
+    try {
+        const response = await fetch('/ai/api/parse', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query, cloud_provider: provider})
+        });
         const data = await response.json();
-        document.getElementById('terraformCode').textContent = data.terraform || 'No Terraform code generated';
-        document.getElementById('cloudformationCode').textContent = data.cloudformation || 'No CloudFormation code generated';
-        document.getElementById('estimatedCost').textContent = '$' + (data.estimated_cost || 0).toFixed(2);
+        if (!response.ok) {
+            err.textContent = data.error || 'Something went wrong.';
+            err.style.display = 'block';
+            document.getElementById('resultSection').style.display = 'none';
+            return;
+        }
+        document.getElementById('terraformCode').textContent = data.terraform;
+        document.getElementById('resultNote').textContent = data.note || '';
         document.getElementById('resultSection').style.display = 'block';
+    } catch (e2) {
+        err.textContent = 'Network error. Try again.';
+        err.style.display = 'block';
     }
 });
 
-document.querySelectorAll('.nav-link').forEach(link => {
-    link.addEventListener('click', function() {
-        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-        this.classList.add('active');
-        const tab = this.dataset.tab;
-        document.getElementById('terraformCode').style.display = tab === 'terraform' ? 'block' : 'none';
-        document.getElementById('cloudformationCode').style.display = tab === 'cloudformation' ? 'block' : 'none';
-    });
-});
-
 function copyCode() {
-    const activeTab = document.querySelector('.nav-link.active').dataset.tab;
-    const code = document.getElementById(activeTab + 'Code').textContent;
-    navigator.clipboard.writeText(code);
-    alert('Code copied to clipboard!');
+    navigator.clipboard.writeText(document.getElementById('terraformCode').textContent);
 }
 </script>
 {% endblock %}
