@@ -32,7 +32,7 @@ src/
     kubernetes_tools.py  # 76 K8s tools (pods, deployments, services, namespaces, etc.)
     azure_tools.py       # 38 Azure tools (VMs, storage, SQL, NSGs, containers, etc.)
     gcp_tools.py         # 42 GCP tools (Compute, GCS, Cloud SQL, GKE, Cloud Run, etc.)
-    cicd_tools.py        # 35 CI/CD tools (Jenkins + GitHub Actions + GitLab)
+    cicd_tools.py        # 36 CI/CD tools (Jenkins + GitHub Actions + GitLab)
     terraform_tools.py   # 26 Terraform tools (init, plan, apply, destroy, state, workspace, import)
     sonarqube_tools.py   # 12 SonarQube tools (projects, quality gates, issues, analysis)
     nexus_tools.py       # 12 Nexus tools (repositories, components, assets, users, cleanup)
@@ -109,7 +109,7 @@ VMs (list, describe, start, stop, restart, create, delete), Storage (list accoun
 ### GCP (42 tools)
 Compute (list, describe, start, stop, create, delete, snapshots), GCS (list buckets, create, delete, list objects), Cloud SQL (list, create, delete, restart), GKE (list clusters, describe, resize, delete), Cloud Run (list, deploy, delete), Pub/Sub (list topics, create topic, delete topic, create subscription), Secret Manager (list, create, delete, add version), BigQuery (list datasets, create, delete), Firewall (list, create, delete), Cloud Functions (list, delete), Cloud Logs.
 
-### CI/CD — Jenkins + GitHub Actions + GitLab (35 tools)
+### CI/CD — Jenkins + GitHub Actions + GitLab (36 tools)
 `trigger_jenkins_job`, `get_jenkins_job_status`, `get_jenkins_build_logs`, `list_jenkins_jobs`, `get_jenkins_queue`, `abort_jenkins_build`, `enable_jenkins_job`, `disable_jenkins_job`, `get_jenkins_job_config`, `list_jenkins_nodes`, `delete_jenkins_build`.
 Credentials: the user's Jenkins connection (Settings > Integrations) or explicit params; never env vars.
 
@@ -1227,17 +1227,17 @@ Deferred (decisions recorded in the doc): Terraform generation, a `retry_queue`
 subsystem, SG-rule / tag update verification, `check-errors.yml` wiring for
 `destructive-audit-alert`.
 
-**Not yet fixed, flagged by the 2026-09-07 scheduled audit: three tool-execution paths bypass
-this entire stack.** `services/approval_service.py`'s `_execute_tool()` (approve-and-run for a
-previously-deferred high-risk call), `routes/api_gateway.py`'s `api_execute_tool()` (`/v1/execute`
-developer API), and `routes/mcp.py`'s `_handle_tools_call()` (MCP connector) all invoke the tool
-handler directly instead of through `DevOpsAgent._invoke_tool` → `_verify_and_annotate` →
-`_audit_infrastructure_change` — so an *approved* `terminate_ec2_instance` (by definition the
-highest-risk class of call) gets no read-back verification, no `change_details.audit_trail` row,
-and doesn't invalidate `READ_CACHE`, letting a stale pre-approval read serve for up to 60s
-afterward. Same "duplicated pipeline not ported to sibling call sites" shape as the guardrails
-gap below — deferred because it touches the approval flow, the developer REST API, and the MCP
-connector at once and warrants its own reviewed change. See CLAUDE_RUNBOOK.md's 2026-09-07 entry.
+**Partly fixed; flagged by the 2026-09-07 scheduled audit: four tool-execution paths bypass
+`DevOpsAgent._invoke_tool`.** `services/approval_service.py`'s `_execute_tool()` (approve-and-run
+for a deferred risky call) now calls `_record_tool_call`, `_verify_and_annotate` and
+`_audit_infrastructure_change` itself, so an approved terminate is verified and audited — but it
+still calls `agent.tools[name]` directly and so **never invalidates `READ_CACHE`**: a stale
+pre-approval read can be served for up to 60s afterward. `routes/api_gateway.py`'s
+`api_execute_tool()` (`/api-gateway/v1/execute`), `api/v1/tools.py`'s `execute_tool()`
+(`/api/v1/tools/execute`) and `routes/mcp.py`'s `_handle_tools_call()` (MCP connector) still have
+**none** of it: no read-back verification, no `change_details.audit_trail` row, no cache
+invalidation. Routing all four through `_invoke_tool` + verify + audit is the structural fix. See
+CLAUDE_RUNBOOK.md's 2026-09-07 entry (re-checked 2026-10-14).
 
 ## Historical Fixes & Gotchas
 
@@ -1549,8 +1549,9 @@ python -m pytest tests/ -v   # Verbose
 
 Tests run against **SQLite in-memory** (forced in `tests/conftest.py`, overriding
 `DATABASE_URL`) — Postgres is not required to run the suite. Current suite:
-**992 passing, 1 skipped** (~4 minutes with coverage; verified 2026-09-12 — this
-line previously read "497 passing", which had drifted badly out of date).
+**about 1,412 tests** (~5 minutes; verified 2026-10-14). Three are environment-dependent and
+fail in a bare sandbox but pass in CI: two `test_network_safety.py` tests need public DNS, and
+`test_api_tools_execute.py::test_initialize_agent_populates_config` needs `ANTHROPIC_API_KEY` set.
 `tests/test_stripe.py` and `tests/test_secrets_manager.py` are
 diagnostic scripts that hit live Stripe/AWS APIs; they are excluded from pytest
 collection (`collect_ignore` in `conftest.py`) and run directly instead.
@@ -2036,6 +2037,32 @@ unused. `tests/test_incidents_removed.py` guards the routes, modules, ChatOps co
 endpoints and every page that linked to them.
 
 ---
+
+### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
+
+- **`/ai/` plain-English box is broken.** `routes/ai_infrastructure.py` calls
+  `parse_natural_language`, `generate_terraform`, `generate_cloudformation`, `estimate_cost`,
+  `validate_spec`, `deploy`, `explain_code`, `convert_code` and `security_scan` on
+  `AIInfrastructureService`, which has none of them (it has `parse_request`). `/ai/api/parse` is
+  what `provision.html` and `dashboard.html` call, so the page's main box 500s. Templates,
+  preview, clone and deployments work.
+- **Predictive Scaling is always empty.** Nothing calls `predictive_scaling.add_metric()`.
+- **`/setup` is `@login_required` only.** Any signed-in user can POST an Anthropic key that
+  `save_api_key` writes into the server's `config/.env`. Production loads secrets from Secrets
+  Manager first, but the `.env` value wins if that load fails. Should be `@admin_required`.
+- **`/doctor` is visible to every signed-in user** and shows platform internals.
+- **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
+- **The public `/status` page's "Get notified" box** promises incident emails nothing sends.
+
+### Documentation layout
+
+User docs live in `docs/` (index: `docs/README.md`): `QUICK_START.md`,
+`WEB_APPLICATION_GUIDE.md`, `FEATURE_REFERENCE.md`, `API_REFERENCE.md`, `AUTOMATION_COOKBOOK.md`
+and the CLI guide `USER_GUIDE.md`. The root `QUICK_START.md` and `USER_GUIDE.md` are pointers
+only. `docs/archive/`, `docs/superpowers/`, `docs/designs/` and `docs/blog/` are historical and
+not maintained. When a feature is added or removed, update those six guides plus the in-app
+`templates/docs.html`; `tests/test_tool_counts.py` checks tool totals in templates, `README.md`,
+`docs/FEATURE_REFERENCE.md` and `MCP_REGISTRY_SUBMISSION.md`.
 
 ### Skills System
 **Access:** `/settings/skills` — toggle built-in skills on/off, view learned infrastructure summary

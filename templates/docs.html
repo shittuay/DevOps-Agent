@@ -680,12 +680,12 @@
         Scale the api-deployment to 4 replicas<br>
         Get logs for pod api-server-xyz<br><br>
         <span class="comment"># Incident response</span><br>
-        Run the high-cpu-usage playbook on app-server-02<br>
-        Show me all firing alerts in the last 2 hours
+        Show open high-urgency PagerDuty incidents<br>
+        Who is on call in OpsGenie right now?
       </div>
 
       <h3 class="subsection-title">Confirmation for risky operations</h3>
-      <p>Before executing any destructive action (deleting resources, terminating instances, modifying IAM policies), the agent will pause and ask you to confirm. This cannot be disabled — it is a core safety feature.</p>
+      <p>Every tool call is risk-classified. Medium- and high-risk actions (deleting resources, terminating or stopping instances, changing IAM policies or firewall rules) don't run straight away: for accounts with the default User role they become an approval request that an Approver or Admin must approve on the Approvals page. Accounts with the Approver or Admin role run them directly. Sandbox mode simulates everything instead.</p>
 
       <h3 class="subsection-title">Model selector</h3>
       <p>Use the model toggle in the chat toolbar to switch between AI providers:</p>
@@ -1123,28 +1123,29 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
     <!-- Tools Overview -->
     <section id="tools-overview">
       <h2 class="section-title">Tools Overview</h2>
-      <p>The agent has access to 749 tools across 17 categories. You never call tools directly — the agent selects and chains the right ones based on your request.</p>
+      <p>The agent has access to 749 tools across 18 categories. You never call tools directly — the agent selects and chains the right ones based on your request.</p>
 
       <table class="docs-table">
         <thead><tr><th>Provider / Category</th><th>Tools</th><th>Services covered</th></tr></thead>
         <tbody>
-          <tr><td>AWS</td><td><span class="badge badge-orange">351</span></td><td>EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT, ALB, ECR, Secrets Manager</td></tr>
+          <tr><td>AWS</td><td><span class="badge badge-orange">352</span></td><td>EC2, VPC, IAM, RDS, Lambda, ECS, EKS, S3, DynamoDB, CloudFormation, Route53, SNS/SQS, CloudWatch, ElastiCache, EFS, EventBridge, Kinesis, NAT, ALB, ECR, Secrets Manager</td></tr>
           <tr><td>Azure</td><td><span class="badge badge-cyan">38</span></td><td>VMs, Storage, SQL, NSGs, Container Instances, Disks, VNets, Public IPs</td></tr>
           <tr><td>GCP</td><td><span class="badge badge-green">42</span></td><td>Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, Secret Manager, BigQuery, Firewall, Cloud Functions, Logs</td></tr>
           <tr><td>Kubernetes</td><td><span class="badge badge-gray">76</span></td><td>Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets, Ingress, Nodes, Jobs</td></tr>
-          <tr><td>CI/CD</td><td><span class="badge badge-orange">35</span></td><td>Jenkins (jobs, builds, pipelines, queue), GitHub Actions (workflows, runs, secrets)</td></tr>
+          <tr><td>CI/CD</td><td><span class="badge badge-orange">36</span></td><td>Jenkins (jobs, builds, pipelines, queue), GitHub Actions (workflows, runs, jobs, secrets), GitLab CI (pipelines, jobs)</td></tr>
           <tr><td>Docker</td><td><span class="badge badge-cyan">22</span></td><td>Containers (lifecycle, exec, logs), Images, Volumes, Networks, Compose</td></tr>
           <tr><td>Terraform</td><td><span class="badge badge-green">26</span></td><td>Init, plan, apply, destroy, state management, workspaces, outputs</td></tr>
           <tr><td>SonarQube</td><td><span class="badge badge-gray">12</span></td><td>Projects, issues, quality gates, coverage &amp; technical debt metrics</td></tr>
           <tr><td>Nexus</td><td><span class="badge badge-orange">12</span></td><td>Repositories, components, assets, system health</td></tr>
           <tr><td>Ansible</td><td><span class="badge badge-cyan">13</span></td><td>Playbooks, inventory, ad-hoc commands, roles, Galaxy</td></tr>
-          <tr><td>Monitoring</td><td><span class="badge badge-green">12</span></td><td>Prometheus, CloudWatch metrics, threshold alerts</td></tr>
+          <tr><td>Monitoring</td><td><span class="badge badge-green">12</span></td><td>Prometheus, Datadog and Grafana: queries, monitors, dashboards, alerts</td></tr>
           <tr><td>Alerting</td><td><span class="badge badge-gray">16</span></td><td>PagerDuty (incidents, on-call, services), OpsGenie (alerts, teams, schedules)</td></tr>
           <tr><td>Pentest</td><td><span class="badge badge-orange">12</span></td><td>Port scanning, SSL checks, HTTP security headers, DNS enumeration</td></tr>
           <tr><td>Git</td><td><span class="badge badge-cyan">47</span></td><td>Clone, branch, commit, push, pull, merge, rebase, tags, stash, search, maintenance</td></tr>
           <tr><td>GitHub</td><td><span class="badge badge-green">19</span></td><td>Repos, issues, PRs, branches, releases, workflows, collaborators</td></tr>
           <tr><td>DevOps Operations</td><td><span class="badge badge-gray">10</span></td><td>Infrastructure operations, deployment workflows, cross-service orchestration</td></tr>
           <tr><td>Command</td><td><span class="badge badge-orange">2</span></td><td>Safe shell command execution with output capture</td></tr>
+          <tr><td>Verification</td><td><span class="badge badge-cyan">2</span></td><td>HTTP and TCP reachability checks (<code>http_check</code>, <code>tcp_check</code>)</td></tr>
         </tbody>
       </table>
 
@@ -1195,11 +1196,11 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
     <section id="developer-api">
       <div class="section-badge">Developer</div>
       <h2 class="section-title">REST API</h2>
-      <p>The DevOps Agent REST API lets you integrate cloud automation directly into your own tools, scripts, and CI/CD pipelines. All endpoints require an API key — generate one from <strong>Settings → Developer → API Keys</strong>.</p>
+      <p>The DevOps Agent REST API lets you integrate cloud automation directly into your own tools, scripts, and CI/CD pipelines. All endpoints require an API key — generate one from <strong>Settings → API Keys</strong>.</p>
 
       <h3 class="subsection-title">Authentication</h3>
-      <p>Pass your API key in the <code>Authorization</code> header on every request:</p>
-      <pre class="code-block">Authorization: Bearer YOUR_API_KEY</pre>
+      <p>Pass your API key in the <code>X-API-Key</code> header on every request:</p>
+      <pre class="code-block">X-API-Key: YOUR_API_KEY</pre>
       <p>Alternatively, use the <code>api_key</code> query parameter for clients that cannot set headers:</p>
       <pre class="code-block">GET /api-gateway/v1/resources?api_key=YOUR_API_KEY</pre>
 
@@ -1222,16 +1223,15 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
       <table class="docs-table">
         <thead><tr><th>Header</th><th>Meaning</th></tr></thead>
         <tbody>
-          <tr><td><code>X-RateLimit-Limit</code></td><td>Maximum requests allowed per hour</td></tr>
-          <tr><td><code>X-RateLimit-Remaining</code></td><td>Requests remaining in the current window</td></tr>
-          <tr><td><code>X-RateLimit-Reset</code></td><td>Unix timestamp when the window resets</td></tr>
+          <tr><td><code>X-RateLimit-Limit</code></td><td>Maximum requests allowed per day (default 1,000)</td></tr>
+          <tr><td><code>X-RateLimit-Remaining</code></td><td>Requests remaining today (the count resets daily)</td></tr>
         </tbody>
       </table>
       <p>When the limit is exceeded the API returns <code>429 Too Many Requests</code>.</p>
 
       <h3 class="subsection-title">Example — list resources</h3>
       <pre class="code-block">curl https://devopsagent.io/api-gateway/v1/resources \
-  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+  -H "X-API-Key: YOUR_API_KEY"</pre>
       <pre class="code-block">{
   "resources": [
     { "id": 1, "name": "prod-web-01", "type": "ec2", "status": "running", "region": "us-east-1" },
