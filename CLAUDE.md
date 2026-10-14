@@ -1753,7 +1753,7 @@ instance + GetCommandInvocation only). No long-lived AWS keys exist in GitHub.
 
 Enforced by `@admin_required` / `@approver_required` decorators in `services/rbac.py`.
 
-**This is a platform-wide role, distinct from `OrganizationMember.role`** (`owner`/`admin`/`member`, used by `organizations.py`/`services/multi_tenancy.py` for team management) — the two never cross-check each other. A route gated only by `@approver_required` has no tenant boundary by default: it must add an explicit org-membership check if it touches data that isn't already scoped by `user_id`, or any `role='approver'` account can act on every organization's data platform-wide (see CLAUDE_RUNBOOK.md, change-governance org-scope fix and its 2026-07-26 ApprovalRequest recurrence). The org-membership lookup itself is centralized in `services.rbac.user_active_org_ids(user_id)` — import it rather than reimplementing an `OrganizationMember` query; that duplication is exactly how the recurrence happened. Two visibility helpers build on it: `routes/changes.py`'s `_change_visible_to_approver(change, user)` for `InfrastructureChange` (which has its own `organization_id`, stamped at creation from the requester's active org) and `services/approval_service.is_visible_to_approver(req, approver)` for `ApprovalRequest` (which has no `organization_id` column — visibility is derived from whether the approver shares an active org with the *requester*). Both treat a requester with no active org membership as admin-only, since there's no team to scope against.
+**This is a platform-wide role, distinct from `OrganizationMember.role`** (`owner`/`admin`/`member`, used by `organizations.py`/`services/multi_tenancy.py` for team management) — the two never cross-check each other. A route gated only by `@approver_required` has no tenant boundary by default: it must add an explicit org-membership check if it touches data that isn't already scoped by `user_id`, or any `role='approver'` account can act on every organization's data platform-wide (see CLAUDE_RUNBOOK.md, change-governance org-scope fix and its 2026-07-26 ApprovalRequest recurrence). The org-membership lookup itself is centralized in `services.rbac.user_active_org_ids(user_id)` — import it rather than reimplementing an `OrganizationMember` query; that duplication is exactly how the recurrence happened. Two visibility helpers build on it: `routes/changes.py`'s `_change_visible_to_approver(change, user)` for `InfrastructureChange` (which has its own `organization_id`, stamped at creation from the requester's active org) and `services/approval_service.is_visible_to_approver(req, approver)` for `ApprovalRequest` (which has no `organization_id` column — visibility is derived from whether the approver shares an active org with the *requester*). `_change_visible_to_approver` treats a requester with no active org membership as admin-only, since there's no team to scope against. **Agent requests (`ApprovalRequest`) no longer use the platform role alone:** organization owners/admins approve their team's, and a requester nobody else can approve confirms their own — see "Approvals: who confirms what" under Feature Reference.
 
 ### Admin Pages
 
@@ -2058,14 +2058,25 @@ endpoints and every page that linked to them.
 
 `services/approval_service.py`. A medium/high-risk call from a `role='user'` account (chat on
 all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
-- **Solo requester** (no active `OrganizationMember` row, `can_self_confirm(req)`): the
-  requester confirms it themselves via `POST /api/approvals/<id>/confirm` (chat card buttons,
-  or `/approvals/mine`). Platform approvers are **not** emailed; the requester gets an in-app
-  reminder instead. Before this, a solo customer's request was visible only to platform admins,
-  who can't judge a stranger's account, so it just expired.
-- **Org member**: unchanged. An approver/admin sharing an org approves on `/approvals`; the
-  requester cannot approve their own, but can cancel (`/cancel`, stored as `rejected` with
-  `approver_id == requester_id`).
+- **Who can approve** is `eligible_approver_ids(req)`: active members of any organization the
+  requester belongs to whose `OrganizationMember.role` is `owner`/`admin`, **or** whose platform
+  `User.role` is `approver`/`admin`; never the requester. `can_approve(req, user)` adds platform
+  admins (who see everything, for support). Org owners/admins were added 2026-10-14: before,
+  only the platform `approver` role counted, and only platform admins can grant it, so a
+  customer team couldn't set up its own reviewers.
+- **Nobody eligible** (`can_self_confirm(req)`: a solo account, or an org whose only owner/admin
+  is the requester): the requester confirms it themselves via
+  `POST /api/approvals/<id>/confirm` (chat card buttons, or `/approvals/mine`). Platform admins
+  are deliberately not counted as eligible here and are **not** emailed: they can't judge a
+  customer's account, and before this such requests just expired.
+- The requester cannot approve their own when someone else is eligible, but can always cancel
+  (`/cancel`, stored as `rejected` with `approver_id == requester_id`).
+- `routes/approvals.py` gates the queue/history/approve/reject on `_reviewer_required`
+  (platform approver/admin **or** owner/admin of any org), not `rbac.approver_required`.
+  Non-reviewers hitting `/approvals` are redirected to `/approvals/mine`. Org owners/admins see
+  **agent requests only**: change requests (`InfrastructureChange`) are still approved through
+  `/changes`, which keeps `@approver_required`, so `_org_scoped_change_query` returns nothing
+  for them. History is scoped by `_reviewable_requester_ids()`.
 - `waiting_message(req)` is the tool-result text the model sees; it says which of the two
   applies, so the agent tells the user the right next step.
 - **The gate fails closed.** If filing the request raises (or the user row is missing), the
@@ -2077,12 +2088,11 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
   calls the handler directly rather than through `_invoke_tool`.
 - `/setup` (writes the platform Anthropic key into `config/.env` and re-initializes the shared
   agent) is `@admin_required`; it was `@login_required` only.
-- Pinned by `tests/test_approval_self_confirm.py`.
+- Pinned by `tests/test_approval_self_confirm.py` and `tests/test_org_admin_approvals.py`.
 
-Still open: approver/admin accounts get no confirmation step at all; organization
-owners/admins (`OrganizationMember.role`) can't approve their team's requests unless they also
-hold the platform `approver` role; the developer API (`confirm_token`) and `/api/v1`
-(`"confirm": true`) still use self-confirmation regardless of organization.
+Still open: approver/admin accounts get no confirmation step at all; change requests on
+`/changes` still need the platform `approver` role; the developer API (`confirm_token`) and
+`/api/v1` (`"confirm": true`) still use self-confirmation regardless of organization.
 
 ### Documentation layout
 

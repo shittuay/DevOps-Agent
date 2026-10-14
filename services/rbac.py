@@ -166,6 +166,25 @@ def user_active_org_ids(user_id: int) -> Set[int]:
     return {r[0] for r in rows}
 
 
+ORG_APPROVER_ROLES = ('owner', 'admin')
+
+
+def user_admin_org_ids(user_id: int) -> Set[int]:
+    """Organization IDs where the user is an active owner or admin.
+
+    Organization owners and admins approve their own team's risky agent actions
+    (services/approval_service.py), without needing the platform-wide 'approver'
+    role, which only platform admins can grant.
+    """
+    from models import OrganizationMember
+    rows = OrganizationMember.query.filter(
+        OrganizationMember.user_id == user_id,
+        OrganizationMember.is_active.is_(True),
+        OrganizationMember.role.in_(ORG_APPROVER_ROLES),
+    ).with_entities(OrganizationMember.organization_id).all()
+    return {r[0] for r in rows}
+
+
 def user_can_manage_user(manager, target_user) -> bool:
     """Check if manager can manage target user."""
     if not manager or not target_user:
