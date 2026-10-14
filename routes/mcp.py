@@ -997,11 +997,46 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
     button{width:100%;padding:13px;background:#ff6b35;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
     button:hover{background:#e55a25}
     .err{color:#f87171;font-size:13px;margin-bottom:12px}
+    .note{color:#9ca3af;font-size:13px;margin:16px 0 0}
+    .link{background:none;border:none;color:#ff6b35;font-size:14px;font-weight:500;padding:8px;width:auto;margin-top:8px}
+    .link:hover{background:none;text-decoration:underline}
   </style>
 </head>
 <body>
 <div class="card">
   <h2>DevOps Agent</h2>
+  {% macro oauth_fields() %}
+    <input type="hidden" name="client_id"             value="{{ client_id }}">
+    <input type="hidden" name="redirect_uri"          value="{{ redirect_uri }}">
+    <input type="hidden" name="state"                 value="{{ state }}">
+    <input type="hidden" name="code_challenge"        value="{{ code_challenge }}">
+    <input type="hidden" name="code_challenge_method" value="{{ code_challenge_method }}">
+  {% endmacro %}
+  {% if mfa_token %}
+  {% if mfa_method == 'email' %}
+  <p>Enter the 6-digit code we emailed you.</p>
+  {% else %}
+  <p>Enter the 6-digit code from your authenticator app, or a backup code.</p>
+  {% endif %}
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  {% if message %}<div class="note" style="margin:0 0 12px">{{ message }}</div>{% endif %}
+  <form method="POST">
+    {{ oauth_fields() }}
+    <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
+    <input type="text" name="code" placeholder="6-digit code" required autofocus
+           inputmode="numeric" autocomplete="one-time-code" maxlength="12">
+    <button type="submit">Verify</button>
+  </form>
+  {% if mfa_method == 'email' %}
+  <form method="POST">
+    {{ oauth_fields() }}
+    <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
+    <input type="hidden" name="resend" value="1">
+    <button type="submit" class="link">Resend code</button>
+  </form>
+  {% endif %}
+  <p class="note">Signing in as <strong>{{ account_email }}</strong></p>
+  {% else %}
   {% if client_name %}
   <p>Sign in to let <strong>{{ client_name }}</strong> access your infrastructure tools.</p>
   {% else %}
@@ -1009,18 +1044,35 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
   {% endif %}
   {% if error %}<div class="err">{{ error }}</div>{% endif %}
   <form method="POST">
-    <input type="hidden" name="client_id"             value="{{ client_id }}">
-    <input type="hidden" name="redirect_uri"          value="{{ redirect_uri }}">
-    <input type="hidden" name="state"                 value="{{ state }}">
-    <input type="hidden" name="code_challenge"        value="{{ code_challenge }}">
-    <input type="hidden" name="code_challenge_method" value="{{ code_challenge_method }}">
+    {{ oauth_fields() }}
     <input type="email"    name="email"    placeholder="Email"    required autofocus>
     <input type="password" name="password" placeholder="Password" required>
     <button type="submit">Authorize</button>
   </form>
+  {% endif %}
 </div>
 </body>
 </html>"""
+
+# Two-factor step of the connector sign-in. After the password is accepted the
+# browser holds a signed, short-lived token naming the user and the exact OAuth
+# request (client, redirect_uri, PKCE challenge); no auth code is issued until a
+# valid 2FA code comes back with it. The lifetime matches /login's code screen.
+_MFA_TOKEN_SALT = 'mcp-oauth-mfa'
+_MFA_TOKEN_MAX_AGE = 10 * 60
+
+
+def _mfa_serializer():
+    from flask import current_app
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(current_app.secret_key, salt=_MFA_TOKEN_SALT)
+
+
+def _oauth_request_binding(client_id: str, redirect_uri: str, code_challenge: str) -> str:
+    """Ties a 2FA token to one authorization request, so it can't be replayed
+    against another client, redirect target or PKCE challenge."""
+    raw = f'{client_id}\n{redirect_uri}\n{code_challenge}'.encode()
+    return hashlib.sha256(raw).hexdigest()
 
 
 @mcp_bp.route('/oauth/authorize', methods=['GET', 'POST'])
@@ -1086,7 +1138,7 @@ def oauth_authorize():
         return jsonify({'error': 'invalid_request',
                         'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
 
-    if request.method == 'GET':
+    def render(error=None, **extra):
         return render_template_string(_AUTHORIZE_HTML,
                                       client_id=client_id,
                                       redirect_uri=redirect_uri,
@@ -1094,9 +1146,24 @@ def oauth_authorize():
                                       code_challenge=code_challenge,
                                       code_challenge_method=code_challenge_method,
                                       client_name=client_name,
-                                      error=None)
+                                      error=error,
+                                      **extra)
 
-    # POST — validate credentials
+    if request.method == 'GET':
+        return render()
+
+    binding = _oauth_request_binding(client_id, redirect_uri, code_challenge)
+
+    # POST, second step: the 2FA code
+    mfa_token = request.form.get('mfa_token', '')
+    if mfa_token:
+        try:
+            user = _authorize_mfa_step(mfa_token, binding, render)
+        except _AuthorizeStepResponse as step:
+            return step.response
+        return _redirect_with_code(user, redirect_uri, code_challenge, state)
+
+    # POST, first step: email + password
     email    = request.form.get('email', '').strip().lower()
     password = request.form.get('password', '')
 
@@ -1122,30 +1189,110 @@ def oauth_authorize():
                 user.record_failed_login()
             raise ValueError('Invalid email or password')
 
-        # Correct password: reset the shared failed-attempt counter, mirroring
-        # /login's own success path.
+        # Same rule as /login: an organization that enforces SSO doesn't allow
+        # password sign-in, so it can't be used to connect Claude either.
+        from services import sso_service
+        if sso_service.sso_login_required(user):
+            raise ValueError('Your organization requires single sign-on, so this '
+                             'account cannot be connected with a password.')
+
+        # 2FA accounts get the code step before any auth code is issued. As on
+        # /login, the failed-password counter is only reset once that passes.
+        if user.has_mfa_enabled():
+            from routes.auth import _EMAIL_SEND_FAILED, _migrate_sms_mfa, _send_email_otp
+            _migrate_sms_mfa(user)
+            if user.mfa_method == 'email' and not _send_email_otp(user):
+                raise ValueError(_EMAIL_SEND_FAILED)
+            token = _mfa_serializer().dumps({'uid': user.id, 'b': binding})
+            logger.info(f"MCP OAuth: 2FA ({user.mfa_method}) required for user_id={user.id}")
+            return render(mfa_token=token, mfa_method=user.mfa_method,
+                          account_email=user.email)
+
+        # Correct password, no 2FA: reset the shared failed-attempt counter,
+        # mirroring /login's own success path.
         user.update_last_login(ip_address=request.remote_addr)
     except ValueError as e:
-        return render_template_string(_AUTHORIZE_HTML,
-                                      client_id=client_id,
-                                      redirect_uri=redirect_uri,
-                                      state=state,
-                                      code_challenge=code_challenge,
-                                      code_challenge_method=code_challenge_method,
-                                      client_name=client_name,
-                                      error=str(e))
+        return render(error=str(e))
     except Exception as e:
         logger.error(f"OAuth authorize error: {e}", exc_info=True)
-        return render_template_string(_AUTHORIZE_HTML,
-                                      client_id=client_id,
-                                      redirect_uri=redirect_uri,
-                                      state=state,
-                                      code_challenge=code_challenge,
-                                      code_challenge_method=code_challenge_method,
-                                      client_name=client_name,
-                                      error='Server error, please try again')
+        return render(error='Server error, please try again')
 
-    # Issue auth code (persisted to the DB so any worker can exchange it)
+    return _redirect_with_code(user, redirect_uri, code_challenge, state)
+
+
+class _AuthorizeStepResponse(Exception):
+    """Carries the page to show when the 2FA step does not complete."""
+
+    def __init__(self, response):
+        super().__init__()
+        self.response = response
+
+
+def _authorize_mfa_step(mfa_token: str, binding: str, render):
+    """Check the second (2FA) step of the connector sign-in.
+
+    Returns the signed-in User, or raises _AuthorizeStepResponse with the page
+    to show instead. Uses /login's code check, attempt counter and lockout, so
+    the two pages can't be played against each other."""
+    from itsdangerous import BadSignature, SignatureExpired
+    from models import User, db
+    from routes.auth import (_EMAIL_SEND_FAILED, _check_mfa_code, _mfa_lockout_message,
+                             _register_failed_mfa, _send_email_otp)
+
+    try:
+        data = _mfa_serializer().loads(mfa_token, max_age=_MFA_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        raise _AuthorizeStepResponse(render(
+            error='Your sign-in timed out before the code was entered. Please sign in again.'))
+    except BadSignature:
+        raise _AuthorizeStepResponse(render(error='Your sign-in could not be verified. Please sign in again.'))
+
+    user = db.session.get(User, data.get('uid')) if isinstance(data, dict) else None
+    if user is None or data.get('b') != binding or not user.has_mfa_enabled():
+        raise _AuthorizeStepResponse(render(error='Your sign-in could not be verified. Please sign in again.'))
+
+    mfa_method = user.mfa_method
+    ip_address = request.remote_addr
+
+    def code_page(error=None, message=None):
+        return render(error=error, message=message, mfa_token=mfa_token,
+                      mfa_method=mfa_method, account_email=user.email)
+
+    if user.is_locked():
+        raise _AuthorizeStepResponse(render(
+            error='Account temporarily locked due to multiple failed login attempts. Try again in 15 minutes.'))
+
+    if request.form.get('resend'):
+        if mfa_method != 'email':
+            raise _AuthorizeStepResponse(code_page())
+        if not user.can_resend_otp():
+            raise _AuthorizeStepResponse(code_page(error='Please wait 60 seconds before resending.'))
+        if not _send_email_otp(user):
+            raise _AuthorizeStepResponse(code_page(error=_EMAIL_SEND_FAILED))
+        raise _AuthorizeStepResponse(code_page(message='A new code is on its way.'))
+
+    code = request.form.get('code', '').strip()
+    if not code:
+        raise _AuthorizeStepResponse(code_page(error='Please enter a verification code.'))
+
+    lockout = _mfa_lockout_message(user)
+    if lockout:
+        db.session.commit()
+        raise _AuthorizeStepResponse(code_page(error=lockout))
+
+    if not _check_mfa_code(user, mfa_method, code):
+        raise _AuthorizeStepResponse(code_page(error=_register_failed_mfa(user, ip_address)))
+
+    user.two_factor_attempts = 0
+    db.session.commit()
+    user.update_last_login(ip_address=ip_address)
+    logger.info(f"MCP OAuth: 2FA ({mfa_method}) verified for user_id={user.id}")
+    return user
+
+
+def _redirect_with_code(user, redirect_uri: str, code_challenge: str, state: str):
+    """Issue the auth code and send the browser back to the client."""
+    # Persisted to the DB so any worker can exchange it
     code = secrets.token_urlsafe(32)
     _store_code_db(code, user.id, redirect_uri, code_challenge)
 

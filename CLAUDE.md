@@ -332,6 +332,13 @@ instance is found.
   to already have a name and a runbook entry** — the same lesson as the guardrails-pipeline
   duplication problem elsewhere in this file, just for authentication instead of jailbreak
   screening.
+  That lesson recurred on 2026-10-13: `oauth_authorize()` also skipped **2FA and SSO
+  enforcement**, so a password alone connected Claude to a 2FA account. It now shows a code step
+  before any auth code is issued. The step's token is signed with itsdangerous, lasts 10 minutes
+  and is bound to the client_id, redirect_uri and PKCE challenge. It shares `routes/auth.py`'s
+  `_check_mfa_code`, `_register_failed_mfa` (one attempt counter and lockout), `_send_email_otp`
+  and `_migrate_sms_mfa`, and SSO-enforced accounts are refused there as on `/login`. Pinned by
+  `tests/test_mcp_oauth_2fa.py`.
 - `forgot_password()` dispatches token generation, persistence, and the password-reset email send
   through `_dispatch_password_reset_email()` on a background daemon thread, rather than doing that
   work inline before responding — an existing account's token write + synchronous outbound email
@@ -1694,6 +1701,13 @@ GitHub Actions workflows live in `.github/workflows/`:
   and nginx), the app's `MCP auth:` log lines (shows whether the Bearer header arrived and
   whether the token was found), the `mcp_oauth_*` table schemas, and recent token
   **metadata** (never token values). Same OIDC + SSM pattern as `check-errors.yml`.
+  **If the log shows `/mcp/oauth/token` 200 and then no `/mcp` request at all, the block is at
+  Cloudflare, not in the app.** The Cloudflare custom rule "AI Crawlers" blocks any user agent
+  containing `Claude-User` (plus other AI agents) everywhere except `/robots.txt`; Claude's
+  token-bearing MCP calls were stopped there, and claude.ai reported it as "the integration
+  rejected the credentials it just issued". The rule now also exempts paths starting with `/mcp`
+  and `/.well-known/oauth`. Keep those exemptions if the rule is ever regenerated (CLAUDE_RUNBOOK.md,
+  2026-10-13).
 
 Note: a feature-branch push does NOT trigger `ci.yml`'s scan (only `main`/`develop`
 do). The scheduled scan is the only timer-based scan.
