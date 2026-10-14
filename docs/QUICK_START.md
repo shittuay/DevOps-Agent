@@ -49,7 +49,8 @@ Show open high-urgency PagerDuty incidents
 ```
 
 Risky actions (deletes, terminations, IAM and security-group changes, restarts and so on) are
-not run straight away; they need approval first. See
+not run straight away. On a personal account you confirm them yourself with **Confirm & run** in
+the chat; in an organization an approver approves them. See
 [Approvals](WEB_APPLICATION_GUIDE.md#approvals-and-change-requests).
 
 ## 5. Try a workflow
@@ -73,7 +74,8 @@ Response, IaC, CI/CD and On-Call.
 | Drift | `/drift/` | Compare live AWS state against a baseline |
 | Analytics | `/analytics/` | Cost, resource and usage analytics |
 | Compliance | `/compliance/` | Frameworks, policies and reports |
-| Approvals | `/approvals` | Approve or reject pending risky actions (approvers only) |
+| My requests | `/approvals/mine` | Confirm or cancel your own pending risky actions |
+| Approvals | `/approvals` | Approve or reject your team's pending risky actions (approvers only) |
 | Changes | `/changes` | Change requests and the change audit trail |
 | Learn | `/curriculum/` | Guided DevOps curriculum with an AI coach |
 | Settings | `/settings` | Cloud credentials, integrations, notifications, budgets, learning, API keys |

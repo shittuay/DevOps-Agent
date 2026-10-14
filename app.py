@@ -316,6 +316,12 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 300,
 }
+if database_url.startswith('sqlite'):
+    # An in-memory SQLite database lives on its one connection (Flask-SQLAlchemy
+    # uses a StaticPool for it). Recycling that connection after 300s silently
+    # replaces the database with a new, empty one; the test suite runs about
+    # five minutes, so every test after that point saw "no such table".
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize database
@@ -496,6 +502,7 @@ status_service.set_email_service(email_service)
 
 # RBAC context processor - makes RBAC helpers available in all templates
 from services.rbac import RBACContext, get_user_role, user_has_permission, Permission
+from services.rbac import admin_required as _admin_required
 
 @app.context_processor
 def inject_rbac():
@@ -1787,8 +1794,10 @@ def onboarding_scan():
 
 @app.route('/setup', methods=['GET', 'POST'])
 @login_required
+@_admin_required
 def setup():
-    """Setup page for API key configuration."""
+    """Platform API key configuration. Admin only: the key is written into the
+    server's config/.env and re-initializes the shared agent for every user."""
     if request.method == 'POST':
         data = request.get_json()
         if not data:

@@ -645,11 +645,14 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
             # caller cannot self-approve a high-risk tool call just by having an
             # MCP client willing to send it — defer to a real approver instead of
             # trusting the MCP client to have confirmed with a human first.
+            _blocked = None
             try:
                 from models import User
                 user = User.query.get(user_id)
-                if user and user.role not in ('approver', 'admin'):
-                    from services.approval_service import create_request, build_risk_reason
+                if not user:
+                    raise RuntimeError(f"user {user_id} not found")
+                if user.role not in ('approver', 'admin'):
+                    from services.approval_service import create_request, build_risk_reason, waiting_message
                     reason = build_risk_reason(tool_name, arguments)
                     req = create_request(
                         tool_name=tool_name,
@@ -658,18 +661,26 @@ def _handle_tools_call(req_id: Any, params: Dict, user_id: int) -> Dict:
                         risk_reason=reason,
                         requester_id=user_id,
                     )
-                    return _ok(req_id, {
-                        "content": [{"type": "text", "text": json.dumps({
-                            "success": False,
-                            "error": "Pending approval from an approver",
-                            "approval_id": req.id,
-                            "risk_level": result.risk_level,
-                            "risk_reason": reason,
-                        })}],
-                        "isError": True,
-                    })
+                    _blocked = {
+                        "success": False,
+                        "error": waiting_message(req),
+                        "approval_id": req.id,
+                        "risk_level": result.risk_level,
+                        "risk_reason": reason,
+                    }
             except Exception as e:
-                logger.warning(f"MCP approval intercept failed for '{tool_name}': {e}")
+                # Fail closed: a risky call whose approval request can't be filed
+                # must not run anyway.
+                logger.error(f"MCP approval intercept failed for '{tool_name}', blocking: {e}")
+                _blocked = {
+                    "success": False,
+                    "error": "Not run: this action needs approval and the approval request could not be created. Try again later.",
+                }
+            if _blocked is not None:
+                return _ok(req_id, {
+                    "content": [{"type": "text", "text": json.dumps(_blocked)}],
+                    "isError": True,
+                })
             logger.warning(f"MCP executing high-risk tool '{tool_name}' for user {user_id}")
     except Exception as e:
         # Deliberate fail-open (matches /v1/execute and the Haiku guardrail

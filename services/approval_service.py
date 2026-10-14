@@ -52,6 +52,33 @@ def is_visible_to_approver(req, approver) -> bool:
     return bool(requester_orgs & user_active_org_ids(approver.id))
 
 
+def can_self_confirm(req) -> bool:
+    """Whether the requester may confirm (approve) their own request.
+
+    A solo account (no active organization membership) has nobody who can
+    meaningfully review its actions: the only approvers who can see the request
+    are platform admins, who know nothing about the customer's account. So the
+    requester confirms it themselves. Requests from organization members still
+    need an approver who shares an organization with them.
+    """
+    from services.rbac import user_active_org_ids
+    return not user_active_org_ids(req.requester_id)
+
+
+def waiting_message(req) -> str:
+    """Tool-result text telling the model (and through it, the user) what happens next."""
+    if can_self_confirm(req):
+        return (
+            f"Not run yet: {req.tool_name} is a risky action and needs the user's confirmation. "
+            f"Tell the user to confirm or cancel it with the buttons in chat, or on the "
+            f"My requests page (/approvals/mine). Request id {req.id}, expires in 24 hours."
+        )
+    return (
+        f"Not run yet: approval request {req.id} for {req.tool_name} was sent to the approvers "
+        f"in the user's organization. It runs once an approver approves it on /approvals."
+    )
+
+
 def create_request(tool_name: str, tool_input: dict, risk_level: str,
                    risk_reason: str, requester_id: int,
                    conversation_id: Optional[str] = None):
@@ -74,11 +101,27 @@ def create_request(tool_name: str, tool_input: dict, risk_level: str,
     db.session.commit()
 
     try:
-        _notify_approvers(req)
+        if can_self_confirm(req):
+            _notify_requester_to_confirm(req)
+        else:
+            _notify_approvers(req)
     except Exception as e:
-        logger.warning(f"Failed to notify approvers for request {req.id}: {e}")
+        logger.warning(f"Failed to send notifications for approval request {req.id}: {e}")
 
     return req
+
+
+def _notify_requester_to_confirm(req):
+    """In-app reminder for a solo requester whose action is waiting on their own confirmation."""
+    from models import AppNotification, db
+    db.session.add(AppNotification(
+        user_id=req.requester_id,
+        title=f"Confirm action: {req.tool_name}",
+        body=f"{req.risk_reason}. Confirm or cancel it within 24 hours.",
+        category='warning',
+        link='/approvals/mine',
+    ))
+    db.session.commit()
 
 
 def _notify_approvers(req):
@@ -127,7 +170,7 @@ def _notify_approvers(req):
 
 def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> dict:
     """Approve a request, execute the tool, and notify the requester."""
-    from models import ApprovalRequest, User, AppNotification, ChatMessage, db
+    from models import ApprovalRequest, User
 
     req = ApprovalRequest.query.get(approval_id)
     if not req:
@@ -146,17 +189,73 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
     if req.status != 'pending':
         return {'success': False, 'error': f'Request is already {req.status}'}
 
+    return _run_approved(req, approver, note, self_confirmed=False)
+
+
+def confirm_own(approval_id: int, user_id: int) -> dict:
+    """The requester confirms their own request. Only allowed for solo accounts."""
+    from models import ApprovalRequest, User
+
+    _expire_stale()
+    req = ApprovalRequest.query.get(approval_id)
+    if not req or req.requester_id != user_id:
+        return {'success': False, 'error': 'Request not found'}
+    if req.status != 'pending':
+        return {'success': False, 'error': f'Request is already {req.status}'}
+    if not can_self_confirm(req):
+        return {'success': False, 'error': 'An approver in your organization must approve this request'}
+    user = User.query.get(user_id)
+    if not user:
+        return {'success': False, 'error': 'Request not found'}
+    return _run_approved(req, user, None, self_confirmed=True)
+
+
+def cancel_own(approval_id: int, user_id: int) -> dict:
+    """The requester withdraws their own pending request."""
+    from models import ApprovalRequest, db
+
+    _expire_stale()
+    req = ApprovalRequest.query.get(approval_id)
+    if not req or req.requester_id != user_id:
+        return {'success': False, 'error': 'Request not found'}
+    if req.status != 'pending':
+        return {'success': False, 'error': f'Request is already {req.status}'}
+    req.status = 'rejected'
+    req.approver_id = user_id
+    req.decided_at = utcnow()
+    req.approver_note = 'Cancelled by the requester'
+    db.session.commit()
+    return {'success': True}
+
+
+def get_pending_for_requester(user_id: int) -> list:
+    """The user's own non-expired pending requests, newest first."""
+    from models import ApprovalRequest
+
+    _expire_stale()
+    return (
+        ApprovalRequest.query
+        .filter(ApprovalRequest.requester_id == user_id, ApprovalRequest.status == 'pending')
+        .order_by(ApprovalRequest.created_at.desc())
+        .all()
+    )
+
+
+def _run_approved(req, decided_by, note: Optional[str], self_confirmed: bool) -> dict:
+    """Mark a request approved, execute it, and record the outcome."""
+    from models import User, AppNotification, ChatMessage, db
+
     now = utcnow()
     req.status = 'approved'
-    req.approver_id = approver_id
+    req.approver_id = decided_by.id
     req.decided_at = now
-    req.approver_note = note
+    req.approver_note = note if not self_confirmed else 'Confirmed by the requester'
     db.session.commit()
 
     try:
         result = _execute_tool(req)
     except Exception as e:
-        logger.error(f"Tool execution failed for approval {approval_id}: {e}", exc_info=True)
+        logger.error(f"Tool execution failed for approval {req.id}: {e}", exc_info=True)
         result = {'success': False, 'error': str(e)}
 
     req.status = 'executed'
@@ -164,10 +263,11 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
     req.executed_at = utcnow()
     db.session.commit()
 
+    heading = "**Confirmed by you.**" if self_confirmed else f"**Approval granted** by {decided_by.username}."
     if req.conversation_id:
         try:
             result_text = (
-                f"**Approval granted** by {approver.username}.\n\n"
+                f"{heading}\n\n"
                 f"**Result ({req.tool_name}):**\n```json\n{json.dumps(result, indent=2)}\n```"
             )
             msg = ChatMessage(
@@ -181,12 +281,15 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
         except Exception as e:
             logger.warning(f"Failed to append result to conversation: {e}")
 
+    if self_confirmed:
+        return {'success': True, 'result': result}
+
     try:
         result_summary = 'succeeded' if result.get('success') else 'failed'
         notif = AppNotification(
             user_id=req.requester_id,
             title=f"Request approved: {req.tool_name}",
-            body=f"Approved by {approver.username}. Execution {result_summary}.",
+            body=f"Approved by {decided_by.username}. Execution {result_summary}.",
             category='success' if result.get('success') else 'warning',
             link='/chat',
         )
@@ -199,7 +302,7 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
             html = (
                 f"<h2>Your Request Was Approved</h2>"
                 f"<p><strong>Tool:</strong> {req.tool_name}</p>"
-                f"<p><strong>Approved by:</strong> {approver.username}</p>"
+                f"<p><strong>Approved by:</strong> {decided_by.username}</p>"
                 f"<p><strong>Result:</strong> {result_summary}</p>"
             )
             EmailService().send_email(
@@ -344,11 +447,13 @@ def _execute_tool(req) -> dict:
             except Exception as e:
                 result = {'success': False, 'error': str(e)}
                 agent._record_tool_call(tool_name, result, outcome='raised')
+                _invalidate_read_cache(req.requester_id)
                 return result
             # Order matches core.py's model-loop sites (Phase 5): record, then
             # verify (attaches result['_verification']), then audit — so the
             # rule-10 destructive audit trail can read the verification result.
             agent._record_tool_call(tool_name, result, outcome='ran')
+            _invalidate_read_cache(req.requester_id)
             result = agent._verify_and_annotate(tool_name, tool_input, result)
             agent._audit_infrastructure_change(tool_name, tool_input, result)
             return result
@@ -359,6 +464,19 @@ def _execute_tool(req) -> dict:
     except Exception as e:
         logger.error(f"_execute_tool failed for {req.tool_name}: {e}", exc_info=True)
         return {'success': False, 'error': str(e)}
+
+
+def _invalidate_read_cache(user_id) -> None:
+    """Drop the requester's cached reads so nothing stale contradicts the change just made.
+
+    DevOpsAgent._invoke_tool does this for the chat paths; this path calls the
+    handler directly, so it has to do it itself.
+    """
+    try:
+        from services.tool_cache import READ_CACHE
+        READ_CACHE.invalidate_user(user_id)
+    except Exception as e:
+        logger.warning(f"Read-cache invalidation failed for user {user_id}: {e}")
 
 
 def _expire_stale():

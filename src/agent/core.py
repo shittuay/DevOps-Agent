@@ -2449,7 +2449,7 @@ class DevOpsAgent:
                                         from services.approval_service import create_request, build_risk_reason
                                         _conv_id = getattr(self, '_current_conversation_id', None)
                                         _reason = build_risk_reason(tool_name, tool_input)
-                                        create_request(
+                                        _req = create_request(
                                             tool_name=tool_name,
                                             tool_input=tool_input,
                                             risk_level=validation.risk_level,
@@ -2457,7 +2457,8 @@ class DevOpsAgent:
                                             requester_id=_uid,
                                             conversation_id=_conv_id,
                                         )
-                                        result = {'success': False, 'error': f'Approval request created for {tool_name}. An approver must review.'}
+                                        from services.approval_service import waiting_message
+                                        result = {'success': False, 'error': waiting_message(_req)}
                                 except Exception as _e:
                                     self.logger.warning(f"Kimi (non-streaming) approval intercept failed: {_e}")
                             if _is_approver:
@@ -2896,13 +2897,23 @@ class DevOpsAgent:
                                     'risk_level': validation.risk_level,
                                     'risk_reason': reason,
                                 }
+                                from services.approval_service import waiting_message
                                 self.conversation.add_tool_result(
                                     tool_use_id,
-                                    json.dumps({'success': False, 'error': 'Pending approval from an approver'}),
+                                    json.dumps({'success': False, 'error': waiting_message(req)}),
                                 )
                                 return
+                            if not user:
+                                raise RuntimeError(f"requesting user {user_id} not found")
                         except Exception as e:
-                            self.logger.warning(f"Approval intercept failed: {e}")
+                            # Fail closed: if the approval request can't be filed, the
+                            # risky action must not run anyway.
+                            self.logger.error(f"Approval intercept failed, blocking {tool_name}: {e}")
+                            self.conversation.add_tool_result(
+                                tool_use_id,
+                                json.dumps({'success': False, 'error': 'Not run: this action needs approval and the approval request could not be created. Try again later.'}),
+                            )
+                            return
                     self.logger.warning(
                         f"High-risk operation requires confirmation: {tool_name} "
                         f"(risk_level: {validation.risk_level})"
