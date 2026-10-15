@@ -561,7 +561,6 @@
     <div class="sidebar-section">
       <div class="sidebar-heading">Tools Reference</div>
       <a href="#tools-overview" class="sidebar-link">Tools Overview</a>
-      <a href="#monitoring" class="sidebar-link">Monitoring & Alerts</a>
       <a href="#alerting" class="sidebar-link">Alerting (PD / OpsGenie)</a>
     </div>
     <div class="sidebar-section">
@@ -1161,37 +1160,6 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
       </table>
     </section>
 
-    <!-- Monitoring -->
-    <section id="monitoring">
-      <h2 class="section-title">Monitoring & Alerts</h2>
-      <p>The Monitoring tab lets you create threshold-based alerts on any metric exposed by your cloud provider or Prometheus.</p>
-
-      <h3 class="subsection-title">Creating a monitor</h3>
-      <div class="steps">
-        <div class="step">
-          <div class="step-num">1</div>
-          <div class="step-body">
-            <div class="step-title">Go to Monitoring → New Rule</div>
-            <div class="step-desc">Choose a metric (CPU, memory, error rate, latency, disk, etc.).</div>
-          </div>
-        </div>
-        <div class="step">
-          <div class="step-num">2</div>
-          <div class="step-body">
-            <div class="step-title">Set the threshold</div>
-            <div class="step-desc">Enter a numeric value (e.g. <code>85</code> for 85% CPU). The threshold must be a number — text values are rejected.</div>
-          </div>
-        </div>
-        <div class="step">
-          <div class="step-num">3</div>
-          <div class="step-body">
-            <div class="step-title">Choose notification channels</div>
-            <div class="step-desc">Email, Slack webhook, or PagerDuty. Alerts fire when the rule enters <strong>firing</strong> state and again when it <strong>resolves</strong>.</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- Developer API -->
     <section id="developer-api">
       <div class="section-badge">Developer</div>
@@ -1500,7 +1468,7 @@ Content-Type: application/json
           <tr><td>Model Override</td><td>Chat toolbar</td><td>Force Kimi or Claude regardless of your subscription tier default.</td></tr>
           <tr><td>Two-Factor Auth</td><td>Settings → Security</td><td>Enable TOTP or email OTP for login.</td></tr>
           <tr><td>Password</td><td>Settings → Security</td><td>Change your login password.</td></tr>
-          <tr><td>Notifications</td><td>Settings → Notifications</td><td>Configure email alerts for monitoring rules and billing events.</td></tr>
+          <tr><td>Notifications</td><td>Settings → Notifications</td><td>Add Slack channels for new cost savings, security findings and change approvals.</td></tr>
         </tbody>
       </table>
     </section>
