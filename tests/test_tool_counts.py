@@ -31,9 +31,9 @@ def _module_counts():
 
 
 def _tier_credits():
-    """Parse monthly_credits per tier from the app.py seed."""
-    src = (ROOT / 'app.py').read_text(encoding='utf-8')
-    return dict(re.findall(r"name='(\w+)', display_name='[^']*', monthly_credits=(\d+)", src))
+    """monthly_credits per tier from the shared tier definitions."""
+    from services.subscription_tiers import TIER_DEFINITIONS
+    return {t['name']: str(t['monthly_credits']) for t in TIER_DEFINITIONS}
 
 
 def test_platform_total_in_user_facing_pages():

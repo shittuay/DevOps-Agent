@@ -5954,55 +5954,9 @@ def init_database():
     try:
         db.create_all()
 
-        # Upsert subscription tiers — create if missing, update if prices/features changed
-        from models import SubscriptionTier
-
-        tier_definitions = [
-            dict(name='free', display_name='Free', monthly_credits=20, monthly_price=0.0,
-                 description='Try the DevOps Agent with limited features',
-                 features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
-                 max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
-                 compliance_frameworks=[], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=29.0,
-                 description='For individual developers and solo operators',
-                 features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
-                 max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
-                 compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='professional', display_name='Professional', monthly_credits=1000, monthly_price=99.0,
-                 description='For growing teams with multi-cloud needs',
-                 features=['1,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
-                           'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
-                           'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
-                 max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
-                 compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
-            dict(name='business', display_name='Business', monthly_credits=3000, monthly_price=299.0,
-                 description='Full-scale automation for large organizations',
-                 features=['3,000 AI messages per month', 'Unlimited cloud accounts', 'Unlimited resources',
-                           'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
-                           'Auto-remediation + custom rules', 'Auto-sync every 15 minutes',
-                           'SSO / SAML', 'Audit log export', 'Dedicated support + SLA'],
-                 max_cloud_accounts=99, max_resources=99999, max_team_members=99, sync_interval_minutes=15,
-                 compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
-                 has_pdf_export=True, has_auto_remediation=True, has_sso=True, has_audit_export=True),
-        ]
-        created = 0
-        updated = 0
-        for defn in tier_definitions:
-            tier = SubscriptionTier.query.filter_by(name=defn['name']).first()
-            if tier:
-                changed = False
-                for key, val in defn.items():
-                    if key == 'name':
-                        continue
-                    if getattr(tier, key) != val:
-                        setattr(tier, key, val)
-                        changed = True
-                if changed:
-                    updated += 1
-            else:
-                tier = SubscriptionTier(**defn, is_active=True)
-                db.session.add(tier)
-                created += 1
+        # Upsert subscription tiers — create if missing, update every field
+        from services.subscription_tiers import upsert_all_tiers
+        created, updated = upsert_all_tiers(db)
         db.session.commit()
 
         return jsonify({
@@ -6351,6 +6305,14 @@ if __name__ != '__main__' and not _is_testing:
             seed_workflow_templates()
     except Exception as _e:
         logger.warning(f"Workflow template seeding skipped (non-fatal): {_e}")
+    # Plan feature lists shown on the Billing page. Only /init-database ever wrote
+    # them, so corrected copy never reached production. Copy fields only.
+    try:
+        with app.app_context():
+            from services.subscription_tiers import sync_tier_features
+            sync_tier_features()
+    except Exception as _e:
+        logger.warning(f"Subscription tier feature sync skipped (non-fatal): {_e}")
 
 
 # ---------------------------------------------------------------------------
@@ -6419,51 +6381,10 @@ if __name__ == '__main__':
         _db_safe = _re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', database_url)
         print(f"  Host: {_db_safe}")
 
-        # Upsert subscription tiers — create if missing, update if prices/features changed
-        tier_definitions = [
-            dict(name='free', display_name='Free', monthly_credits=20, monthly_price=0.0,
-                 description='Try the DevOps Agent with limited features',
-                 features=['20 AI messages per month', '1 cloud account', '25 resources tracked', 'Manual sync only'],
-                 max_cloud_accounts=1, max_resources=25, max_team_members=1, sync_interval_minutes=0,
-                 compliance_frameworks=[], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='starter', display_name='Starter', monthly_credits=200, monthly_price=29.0,
-                 description='For individual developers and solo operators',
-                 features=['200 AI messages per month', '1 cloud account', '50 resources tracked', 'SOC 2 compliance scans', 'Email support'],
-                 max_cloud_accounts=1, max_resources=50, max_team_members=1, sync_interval_minutes=0,
-                 compliance_frameworks=['soc2'], has_pdf_export=False, has_auto_remediation=False, has_sso=False, has_audit_export=False),
-            dict(name='professional', display_name='Professional', monthly_credits=1000, monthly_price=99.0,
-                 description='For growing teams with multi-cloud needs',
-                 features=['1,000 AI messages per month', '3 cloud accounts (AWS + Azure + GCP)', '500 resources tracked',
-                           'Up to 10 team members', 'SOC 2 + HIPAA compliance', 'PDF compliance reports',
-                           'Auto-remediation', 'Auto-sync every 6 hours', 'Priority support'],
-                 max_cloud_accounts=3, max_resources=500, max_team_members=10, sync_interval_minutes=360,
-                 compliance_frameworks=['soc2', 'hipaa'], has_pdf_export=True, has_auto_remediation=True, has_sso=False, has_audit_export=False),
-            dict(name='business', display_name='Business', monthly_credits=3000, monthly_price=299.0,
-                 description='Full-scale automation for large organizations',
-                 features=['3,000 AI messages per month', 'Unlimited cloud accounts', 'Unlimited resources',
-                           'Unlimited team members', 'All compliance frameworks', 'PDF compliance reports',
-                           'Auto-remediation + custom rules', 'Auto-sync every 15 minutes',
-                           'SSO / SAML', 'Audit log export', 'Dedicated support + SLA'],
-                 max_cloud_accounts=99, max_resources=99999, max_team_members=99, sync_interval_minutes=15,
-                 compliance_frameworks=['soc2', 'hipaa', 'pci_dss', 'gdpr', 'iso27001', 'nist', 'cis'],
-                 has_pdf_export=True, has_auto_remediation=True, has_sso=True, has_audit_export=True),
-        ]
-        for defn in tier_definitions:
-            tier = SubscriptionTier.query.filter_by(name=defn['name']).first()
-            if tier:
-                updated = False
-                for key, val in defn.items():
-                    if key == 'name':
-                        continue
-                    if getattr(tier, key) != val:
-                        setattr(tier, key, val)
-                        updated = True
-                if updated:
-                    print(f"  Updated tier: {defn['name']} (price=${defn['monthly_price']})")
-            else:
-                tier = SubscriptionTier(**defn, is_active=True)
-                db.session.add(tier)
-                print(f"  Created tier: {defn['name']} (price=${defn['monthly_price']})")
+        # Upsert subscription tiers — create if missing, update every field
+        from services.subscription_tiers import upsert_all_tiers
+        _created, _updated = upsert_all_tiers(db)
+        print(f"  Subscription tiers: {_created} created, {_updated} updated")
         db.session.commit()
         print("Subscription tiers synced")
 
