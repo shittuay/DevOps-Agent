@@ -69,7 +69,19 @@ def team(app, db_session):
         OrganizationMember(organization_id=org.id, user_id=peer.id, role='member', is_active=True),
     ])
     db.session.commit()
-    return {'owner': owner, 'member': member, 'peer': peer, 'solo': solo}
+    people = {'owner': owner, 'member': member, 'peer': peer, 'solo': solo}
+    yield people
+
+    # The suite shares one database: leave nothing behind for tests that count rows.
+    from models import InfrastructureChange, User
+    ids = [u.id for u in people.values()]
+    db.session.rollback()
+    InfrastructureChange.query.filter(InfrastructureChange.user_id.in_(ids)).delete(synchronize_session=False)
+    OrganizationMember.query.filter_by(organization_id=org.id).delete(synchronize_session=False)
+    Organization.query.filter_by(id=org.id).delete(synchronize_session=False)
+    User.query.filter(User.id.in_(ids)).delete(synchronize_session=False)
+    db.session.commit()
+    db.session.expunge_all()
 
 
 def test_solo_user_confirms_their_own_high_risk_change(app, team):
