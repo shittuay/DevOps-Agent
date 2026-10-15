@@ -78,7 +78,10 @@ def people(app, db_session):
         db.session.commit()
     keys = {}
     for u in (solo, member):
-        db.session.add(UserSubscription(user_id=u.id, tier_id=tier.id, credits_remaining=50))
+        from datetime import timedelta
+        from src.utils.timeutils import utcnow
+        db.session.add(UserSubscription(user_id=u.id, tier_id=tier.id, credits_remaining=50,
+                                        current_period_end=utcnow() + timedelta(days=20)))
         k, plain = APIKey.create_for_user(u.id, 'consist', ['read', 'write'])
         db.session.add(k)
         keys[u.id] = plain

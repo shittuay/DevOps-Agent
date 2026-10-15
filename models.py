@@ -686,6 +686,14 @@ class UserSubscription(db.Model):
 
         db.session.commit()
 
+    def refresh_credits_if_due(self) -> bool:
+        """Refill this month's credits when the period has ended. Every tier, free
+        included: the free plan is 20 credits a month (decided 2026-10-14). True if refilled."""
+        if self.tier and self.should_reset_credits():
+            self.reset_monthly_credits()
+            return True
+        return False
+
     def should_reset_credits(self) -> bool:
         """Check if it's time to reset monthly credits"""
         if not self.current_period_end:

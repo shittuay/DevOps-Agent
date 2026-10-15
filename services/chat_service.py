@@ -62,25 +62,31 @@ GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'
 GROQ_FALLBACK_MAX_TOKENS = 4096
 
 
-def generate_upgrade_pitch() -> str:
-    """Return a markdown upgrade pitch for free-tier users who exhausted their trial credits."""
-    return """## Your free trial has ended
+def generate_upgrade_pitch(refills_at=None) -> str:
+    """Markdown shown when a Free-plan user has used this month's 20 credits.
 
-You've used all **20 trial credits** -- and you got the full experience: the same AI agent and real cloud tools that our paid users rely on every day.
-
-Here's what you accomplished during your trial:
-- **Real tool execution** -- not just chat, actual cloud operations
-- **AI-powered DevOps automation** with Kimi K3
-- **Security scans, cost analysis, infrastructure management** -- all hands-free
-
-### Ready to keep going?
-
-**Starter Plan -- $29/month**
-- 200 credits/month
-- Full tool access (AWS, Azure, GCP, Kubernetes)
-- Priority support
-
-[Upgrade now](/billing) to pick up right where you left off. Your conversations and settings are saved."""
+    The Free plan refills every month (decided 2026-10-14); this used to call it a
+    one-time trial that had "ended".
+    """
+    from services.subscription_tiers import TIER_DEFINITIONS
+    starter = next((t for t in TIER_DEFINITIONS if t['name'] == 'starter'), None)
+    when = f" on **{refills_at:%B} {refills_at.day}**" if refills_at else " next month"
+    lines = [
+        "## You've used this month's free credits",
+        "",
+        f"Your 20 free credits refill{when}. Your conversations and settings are saved.",
+    ]
+    if starter:
+        lines += [
+            "",
+            "### Want to keep going now?",
+            "",
+            f"**Starter Plan: ${starter['monthly_price']:.0f}/month**",
+            *[f"- {f}" for f in starter['features']],
+            "",
+            "[Upgrade](/billing) to pick up right where you left off.",
+        ]
+    return "\n".join(lines)
 
 
 def process_free_tier_chat(message: str, conversation_history: list, preferences_context: str = None) -> str:
