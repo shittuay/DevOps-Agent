@@ -56,6 +56,22 @@ def _create_medium_risk_change(client, active_org_id=None):
 def org_governance_setup(app, db_session):
     from models import db, Organization, OrganizationMember, InfrastructureChange, User
 
+    # The suite shares one database: clear anything an earlier run of this fixture left.
+    db.session.rollback()
+    emails = ['org-requester@example.com', 'org-approver@example.com',
+              'outside-approver@example.com', 'gov-admin@example.com', 'org-plain-member@example.com']
+    stale = [u.id for u in User.query.filter(User.email.in_(emails)).all()]
+    old_org = Organization.query.filter_by(slug='acme-gov-scope-test').first()
+    if old_org:
+        OrganizationMember.query.filter_by(organization_id=old_org.id).delete(synchronize_session=False)
+        Organization.query.filter_by(id=old_org.id).delete(synchronize_session=False)
+    if stale:
+        InfrastructureChange.query.filter(InfrastructureChange.user_id.in_(stale)).delete(synchronize_session=False)
+        OrganizationMember.query.filter(OrganizationMember.user_id.in_(stale)).delete(synchronize_session=False)
+        User.query.filter(User.id.in_(stale)).delete(synchronize_session=False)
+    db.session.commit()
+    db.session.expunge_all()
+
     requester = _make_user(db_session, 'org-requester@example.com', role='user')
     org_approver = _make_user(db_session, 'org-approver@example.com', role='approver')
     outside_approver = _make_user(db_session, 'outside-approver@example.com', role='approver')
@@ -91,6 +107,7 @@ def org_governance_setup(app, db_session):
         db.session.commit()
     except Exception:
         db.session.rollback()
+    db.session.expunge_all()  # drop stale objects so later tests don't touch deleted rows
 
 
 def test_change_stamped_with_active_organization(app, org_governance_setup):

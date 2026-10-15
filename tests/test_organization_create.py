@@ -28,9 +28,10 @@ def test_create_organization_rejects_missing_owner(app, db_session):
     from services.multi_tenancy import MultiTenancyService
     from models import Organization
     svc = MultiTenancyService()
+    before = Organization.query.count()  # other tests share the database
     assert svc.create_organization(name='Acme', owner_id=None) is None
     assert svc.create_organization(name='   ', owner_id=1) is None
-    assert Organization.query.count() == 0
+    assert Organization.query.count() == before
     # Session must still be usable (no failed-insert PendingRollback).
     assert Organization.query.filter_by(owner_id=None).count() == 0
 
