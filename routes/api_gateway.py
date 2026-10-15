@@ -12,14 +12,11 @@ from src.utils.timeutils import utcnow
 api_gateway_bp = Blueprint('api_gateway', __name__, url_prefix='/api-gateway')
 
 _WEBHOOK_EVENTS = [
+    # Sent when the agent creates or deletes a resource (chat or an approved request).
     {'id': 'resource.created', 'name': 'Resource Created'},
-    {'id': 'resource.updated', 'name': 'Resource Updated'},
     {'id': 'resource.deleted', 'name': 'Resource Deleted'},
-    {'id': 'alert.triggered', 'name': 'Alert Triggered'},
-    {'id': 'deployment.started', 'name': 'Deployment Started'},
-    {'id': 'deployment.completed', 'name': 'Deployment Completed'},
-    {'id': 'deployment.failed', 'name': 'Deployment Failed'},
-    {'id': 'cost.threshold', 'name': 'Cost Threshold Exceeded'},
+    # Sent when a budget alert (Settings > Budgets) goes over its threshold.
+    {'id': 'cost.threshold', 'name': 'Budget Exceeded'},
 ]
 
 
@@ -165,11 +162,16 @@ def create_webhook():
             flash('Webhook name and URL are required.', 'error')
             return render_template('api_gateway/create_webhook.html', events=_WEBHOOK_EVENTS), 400
 
+        allowed = {e['id'] for e in _WEBHOOK_EVENTS}
+        events = [e for e in request.form.getlist('events') if e in allowed]
+        if not events:
+            flash('Choose at least one event.', 'error')
+            return render_template('api_gateway/create_webhook.html', events=_WEBHOOK_EVENTS), 400
         webhook = service.create_webhook(
             user_id=current_user.id,
             name=name,
             url=url,
-            events=request.form.getlist('events'),
+            events=events,
         )
         if webhook:
             flash('Webhook created successfully!', 'success')

@@ -98,6 +98,28 @@ Medium- and high-risk tools (deletes, terminations, stops, IAM changes and so on
 | `GET /analytics/costs?period=30d` | Cost analytics from your cloud account |
 | `GET /conversations?limit=20&offset=0` | Your conversations (limit up to 100) |
 
+### Outgoing webhooks
+
+Add endpoints under **Developer API → Webhooks**. Each one subscribes to any of:
+
+| Event | Sent when |
+|-------|-----------|
+| `resource.created` | The agent created a resource in your account (chat, or an approved request) |
+| `resource.deleted` | The agent deleted or terminated a resource |
+| `cost.threshold` | One of your budget alerts (Settings → Budgets) went over its threshold |
+
+Each delivery is a `POST` with a JSON body such as
+`{"event": "resource.deleted", "timestamp": "...", "resource": {"type": "s3", "id": "logs-1", "name": "logs-1", "provider": "aws"}, "change_id": 42, "tool": "delete_s3_bucket"}`
+and these headers:
+
+- `X-DevOps-Agent-Event`: the event name.
+- `X-DevOps-Agent-Delivery`: the delivery id.
+- `X-DevOps-Agent-Signature`: `sha256=` + the HMAC-SHA256 of the raw request body, keyed with
+  the endpoint's secret. Verify it against the body bytes you received.
+
+Endpoints on private or internal addresses are refused. Calls made directly through `/execute`,
+`/api/v1/tools/execute` or the MCP connector without an approval step don't send events yet.
+
 ---
 
 ## Programmatic API

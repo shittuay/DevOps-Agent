@@ -112,7 +112,12 @@ write-only and are only ever sent to the server URL you saved.
 ### Notifications (Settings → Notifications)
 
 - Slack and Microsoft Teams channels, with a test button.
-- Toggles for change, security and cost notifications; budget alerts in Settings → Budgets.
+- Toggles for change, security and cost notifications.
+- Budget alerts (Settings → Budgets): checked daily against AWS billed spend; over budget sends an
+  email, a channel message and a `cost.threshold` webhook, once per period.
+- Weekly digest email on Sundays for accounts with a connected cloud.
+- Outgoing webhooks (Developer API): `resource.created`, `resource.deleted`, `cost.threshold`;
+  see [API_REFERENCE.md](API_REFERENCE.md#outgoing-webhooks).
 
 The separate `/notifications/`, ChatOps (`/chatops/`) and inbound Git webhook (`/webhooks/`)
 pages were removed on 2026-10-14: the first saved nothing real alerts used, ChatOps had only

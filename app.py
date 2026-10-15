@@ -1889,7 +1889,7 @@ def status_unsubscribe(token):
 
 @app.route('/email/unsubscribe')
 def email_unsubscribe():
-    """Unsubscribe a user from onboarding drip emails (unauthenticated, HMAC-verified)."""
+    """Unsubscribe from onboarding and weekly digest emails (unauthenticated, HMAC-verified)."""
     from services.drip_email_service import verify_unsubscribe_token
     user_id = request.args.get('user_id', type=int)
     token = request.args.get('token', '')
@@ -1899,7 +1899,7 @@ def email_unsubscribe():
     if user:
         user.email_opt_out = True
         db.session.commit()
-    return '<html><body style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Unsubscribed</h2><p style="color:#94a3b8">You will no longer receive onboarding emails from DevOps Agent.</p></div></body></html>'
+    return '<html><body style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Unsubscribed</h2><p style="color:#94a3b8">You will no longer receive onboarding or weekly digest emails from DevOps Agent. Budget alerts you set up are not affected.</p></div></body></html>'
 
 
 @app.route('/api/status/subscribe', methods=['POST'])
@@ -2471,18 +2471,24 @@ def budget_alerts():
         alerts = BudgetAlert.query.filter_by(user_id=current_user.id).all()
         return jsonify({'alerts': [a.to_dict() for a in alerts]})
 
-    data = request.get_json()
-    name = data.get('name', '').strip()
-    threshold = data.get('threshold_amount', 0)
+    data = request.get_json(silent=True) or {}
+    name = str(data.get('name') or '').strip()[:100]
+    try:
+        threshold = float(data.get('threshold_amount', 0))
+    except (TypeError, ValueError):
+        threshold = 0
+    period = data.get('period', 'monthly')
 
     if not name or threshold <= 0:
         return jsonify({'error': 'Name and positive threshold amount are required'}), 400
+    if period not in ('monthly', 'weekly', 'daily'):
+        return jsonify({'error': 'Period must be monthly, weekly or daily'}), 400
 
     alert = BudgetAlert(
         user_id=current_user.id,
         name=name,
         threshold_amount=threshold,
-        period=data.get('period', 'monthly'),
+        period=period,
     )
     db.session.add(alert)
     db.session.commit()

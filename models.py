@@ -20,6 +20,7 @@ class User(UserMixin, db.Model):
     full_name = db.Column(db.String(120))
     created_at = db.Column(db.DateTime, default=utcnow)
     last_login = db.Column(db.DateTime)
+    last_digest_sent_at = db.Column(db.DateTime)  # weekly digest email, one per week
 
     # Profile settings
     avatar_color = db.Column(db.String(7), default='#cd7c48')  # Hex color for avatar
@@ -1991,7 +1992,7 @@ class WebhookEndpoint(db.Model):
     secret = db.Column(db.String(64))  # For HMAC signature verification
 
     # Events to subscribe to
-    events = db.Column(db.JSON, default=lambda: [])  # ['resource.created', 'alert.triggered', etc.]
+    events = db.Column(db.JSON, default=lambda: [])  # ['resource.created', 'resource.deleted', 'cost.threshold']
 
     # Configuration
     is_active = db.Column(db.Boolean, default=True)
@@ -2510,6 +2511,7 @@ class BudgetAlert(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     last_triggered = db.Column(db.DateTime)
     last_checked_amount = db.Column(db.Float)
+    last_checked_at = db.Column(db.DateTime)  # last time AWS billing was read for this alert
 
     created_at = db.Column(db.DateTime, default=utcnow)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
@@ -2525,6 +2527,7 @@ class BudgetAlert(db.Model):
             'is_active': self.is_active,
             'last_triggered': self.last_triggered.isoformat() if self.last_triggered else None,
             'last_checked_amount': self.last_checked_amount,
+            'last_checked_at': self.last_checked_at.isoformat() if self.last_checked_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

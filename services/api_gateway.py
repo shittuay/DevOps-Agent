@@ -65,13 +65,8 @@ class RateLimitTier(Enum):
 class WebhookEvent(Enum):
     """Webhook event types."""
     RESOURCE_CREATED = 'resource.created'
-    RESOURCE_UPDATED = 'resource.updated'
     RESOURCE_DELETED = 'resource.deleted'
-    ALERT_TRIGGERED = 'alert.triggered'
-    DEPLOYMENT_STARTED = 'deployment.started'
-    DEPLOYMENT_COMPLETED = 'deployment.completed'
-    COST_ANOMALY = 'cost.anomaly'
-    SECURITY_FINDING = 'security.finding'
+    COST_THRESHOLD = 'cost.threshold'
 
 
 RATE_LIMITS = {
@@ -337,6 +332,7 @@ class APIGatewayService:
                 status='pending'
             )
             db.session.add(delivery)
+            db.session.flush()  # so the delivery id header is real
 
             # Create signature
             signature_payload = json.dumps(payload, sort_keys=True)
@@ -359,13 +355,13 @@ class APIGatewayService:
                     delivery.response_body = 'Webhook URL targets a private/internal network (blocked by SSRF protection)'
                     db.session.commit()
                     logger.warning(f"Blocked SSRF attempt to {webhook.url}")
-                    return delivery
+                    continue  # one bad endpoint must not stop delivery to the rest
                 start_time = utcnow()
                 response = safe_request(
                     'POST',
                     webhook.url,
                     validator=_raise_if_unsafe_webhook_url,
-                    json=payload,
+                    data=signature_payload.encode(),  # the exact bytes that were signed
                     headers=headers,
                     timeout=webhook.timeout_seconds or 30
                 )
@@ -421,7 +417,7 @@ class APIGatewayService:
                 'POST',
                 webhook.url,
                 validator=_raise_if_unsafe_webhook_url,
-                json=test_payload,
+                data=signature_payload.encode(),
                 headers={
                     'Content-Type': 'application/json',
                     'X-DevOps-Agent-Event': 'test',
@@ -532,3 +528,45 @@ def require_api_key(scopes: List[str] = None):
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+
+# Events a webhook can subscribe to. Only events something actually sends are offered:
+# resource.updated, alert.triggered and the deployment.* events were offered and never sent.
+DELIVERED_EVENTS = {
+    WebhookEvent.RESOURCE_CREATED.value: 'Resource created',
+    WebhookEvent.RESOURCE_DELETED.value: 'Resource deleted',
+    WebhookEvent.COST_THRESHOLD.value: 'Budget exceeded',
+}
+
+
+def dispatch_webhook_event(user_id: int, event: str, payload: Dict) -> bool:
+    """Send an event to the user's subscribed outgoing webhooks, off the request thread.
+
+    Returns True when a delivery was started. Silently does nothing outside an app
+    context or when no active webhook subscribes to the event.
+    """
+    if event not in DELIVERED_EVENTS or not user_id:
+        return False
+    try:
+        from flask import current_app
+        flask_app = current_app._get_current_object()
+        from models import WebhookEndpoint
+        hooks = WebhookEndpoint.query.filter_by(user_id=user_id, is_active=True).all()
+    except Exception:
+        return False
+    if not any(event in (h.events or []) for h in hooks):
+        return False
+
+    body = {'event': event, 'timestamp': utcnow().isoformat(), **payload}
+
+    def _run():
+        with flask_app.app_context():
+            try:
+                APIGatewayService().trigger_webhook(event, body, user_id=user_id)
+            except Exception:
+                logger.exception(f"Webhook dispatch failed for user {user_id} ({event})")
+
+    import threading
+    threading.Thread(target=_run, daemon=True, name=f'webhook-{event}').start()
+    return True
+
