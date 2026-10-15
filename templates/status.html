@@ -198,86 +198,8 @@
     .s-unknown .status-dot       { background: var(--muted); }
     .s-unknown .status-label     { color: var(--muted); }
 
-    /* ── incidents ── */
-    .incident-list { display: flex; flex-direction: column; gap: 10px; }
-    .incident-card {
-      padding: 16px 18px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
-    .incident-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-    .incident-badge {
-      font-size: 10px; font-weight: 700; letter-spacing: .8px;
-      padding: 2px 8px; border-radius: 4px;
-    }
-    .ib-resolved { background: rgba(34,197,94,.15);  color: var(--green); }
-    .ib-firing   { background: rgba(239,68,68,.15);  color: var(--red); }
-    .ib-open     { background: rgba(245,158,11,.15); color: var(--yellow); }
-    .incident-title { font-size: 14px; font-weight: 600; color: var(--text); }
-    .incident-time  { font-size: 12px; color: var(--muted); font-family: var(--mono); }
-    .no-incidents {
-      padding: 24px 18px;
-      text-align: center;
-      color: var(--muted);
-      font-size: 14px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
-
-    /* ── subscribe box ── */
-    .subscribe-box {
-      margin-top: 44px;
-      padding: 32px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-    }
-    .subscribe-title {
-      font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 6px;
-    }
-    .subscribe-sub {
-      font-size: 14px; color: var(--muted); margin-bottom: 20px;
-    }
-    .subscribe-form {
-      display: flex; gap: 10px;
-    }
-    .subscribe-form input[type="email"] {
-      flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-size: 14px;
-      outline: none;
-      transition: border-color .2s;
-    }
-    .subscribe-form input[type="email"]:focus { border-color: var(--orange); }
-    .subscribe-form button {
-      background: var(--orange);
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background .2s;
-    }
-    .subscribe-form button:hover { background: #e0400f; }
-    .subscribe-msg {
-      margin-top: 12px;
-      font-size: 13px;
-      display: none;
-    }
-    .subscribe-msg.show { display: block; }
-    .subscribe-msg.ok  { color: var(--green); }
-    .subscribe-msg.err { color: var(--red); }
-    .subscribe-note {
-      margin-top: 10px;
+    .status-note {
+      margin-top: 18px;
       font-size: 12px;
       color: var(--muted);
     }
@@ -293,7 +215,6 @@
     footer a:hover { color: var(--text); }
 
     @media (max-width: 480px) {
-      .subscribe-form { flex-direction: column; }
       .hero-title { font-size: 24px; }
     }
   </style>
@@ -340,8 +261,7 @@
     </div>
 
     <div class="hero-title">System Status</div>
-    <div class="hero-sub">Live health overview of the DevOps Agent platform</div>
-    <div class="ts" id="ts"></div>
+    <div class="hero-sub">Health of the DevOps Agent platform and the providers it depends on</div>
   </div>
 
   <!-- Services -->
@@ -351,7 +271,7 @@
     <div class="service-row s-{{ svc.status }}">
       <div class="service-left">
         <div class="service-name">{{ svc.name }}</div>
-        <div class="service-desc">{{ svc.description }}</div>
+        <div class="service-desc">{{ svc.description }}{% if svc.status != 'operational' %} &middot; {{ svc.detail }}{% endif %}</div>
       </div>
       <div class="service-right">
         <span class="status-dot"></span>
@@ -361,17 +281,7 @@
     {% endfor %}
   </div>
 
-  <!-- Subscribe -->
-  <div class="subscribe-box">
-    <div class="subscribe-title">Get Notified</div>
-    <div class="subscribe-sub">Receive email alerts when incidents are detected or resolved via Brevo.</div>
-    <form class="subscribe-form" id="subForm" onsubmit="handleSubscribe(event)">
-      <input type="email" id="subEmail" placeholder="you@example.com" required autocomplete="email" />
-      <button type="submit">Notify Me</button>
-    </form>
-    <div class="subscribe-msg" id="subMsg"></div>
-    <div class="subscribe-note">No spam. One email per incident. Unsubscribe anytime.</div>
-  </div>
+  <div class="status-note">Checked every couple of minutes{% if checked_at %}; last check {{ checked_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}. Monitoring tools can poll <code>/api/status/health</code> (200 when everything is operational, 503 otherwise).</div>
 
 </div>
 
@@ -404,48 +314,7 @@
     applyTheme(html.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
   });
 
-  // Timestamp
-  document.getElementById('ts').textContent =
-    'Last checked: ' + new Date().toUTCString();
 
-  // Subscribe form
-  async function handleSubscribe(e) {
-    e.preventDefault();
-    const email = document.getElementById('subEmail').value.trim();
-    const msg   = document.getElementById('subMsg');
-    const btn   = e.target.querySelector('button');
-
-    btn.disabled = true;
-    btn.textContent = 'Sending…';
-    msg.className = 'subscribe-msg';
-    msg.textContent = '';
-
-    try {
-      const resp = await fetch('/api/status/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const data = await resp.json();
-      if (resp.ok) {
-        msg.textContent = data.message || 'Check your inbox for a confirmation email.';
-        msg.classList.add('show', 'ok');
-        document.getElementById('subEmail').value = '';
-      } else if (resp.status === 409) {
-        msg.textContent = 'This email is already subscribed.';
-        msg.classList.add('show', 'err');
-      } else {
-        msg.textContent = data.error || 'Something went wrong. Please try again.';
-        msg.classList.add('show', 'err');
-      }
-    } catch {
-      msg.textContent = 'Network error. Please try again.';
-      msg.classList.add('show', 'err');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Notify Me';
-    }
-  }
 </script>
 
 </body>

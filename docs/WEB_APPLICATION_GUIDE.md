@@ -335,7 +335,9 @@ Platform roles:
 
 ## Public pages
 
-- `/status`: live health of the app's components, with email subscription.
+- `/status`: health of the app and the providers it depends on (database, Kimi/Claude, Stripe,
+  email), probed every couple of minutes. `/api/status/health` returns the same as JSON (200 when
+  all operational, 503 otherwise) for uptime monitors.
 - `/security`: how credentials are handled, the published IAM policies, and how to report a
   vulnerability.
 - `/docs`, `/developers`, `/about`, `/privacy-policy`, `/usage-policy`.
