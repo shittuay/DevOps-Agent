@@ -125,14 +125,31 @@ def test_missing_default_encryption_is_a_finding(monkeypatch, test_user, db_sess
     assert [f['finding_type'] for f in r['findings']] == ['unencrypted_s3_bucket']
 
 
-def test_scan_endpoint_reports_failure(authenticated_client, monkeypatch, test_user):
+@pytest.fixture
+def aws_account(test_user, db_session):
+    from models import UserCloudCredential, db
+    cred = UserCloudCredential(user_id=test_user.id, cloud_provider='aws',
+                               credentials_encrypted='x', is_active=True)
+    db.session.add(cred)
+    db.session.commit()
+    yield cred
+    db.session.delete(cred)
+    db.session.commit()
+
+
+def test_scan_without_aws_account_asks_to_connect(authenticated_client, test_user):
+    resp = authenticated_client.post('/api/security/scan')
+    assert resp.status_code == 400 and resp.get_json()['no_cloud_account'] is True
+
+
+def test_scan_endpoint_reports_failure(authenticated_client, monkeypatch, test_user, aws_account):
     _install(monkeypatch, s3=_denied(), ec2=_denied(), rds=_denied(), iam=_denied())
     resp = authenticated_client.post('/api/security/scan')
     assert resp.status_code == 502
     assert resp.get_json()['scan_failed'] is True
 
 
-def test_dismissed_finding_stays_hidden(authenticated_client, monkeypatch, test_user):
+def test_dismissed_finding_stays_hidden(authenticated_client, monkeypatch, test_user, aws_account):
     _install(monkeypatch, s3=FakeS3(['logs'], public=['logs']))
     assert authenticated_client.post('/api/security/scan').status_code == 200
     [finding] = authenticated_client.get('/api/security/summary').get_json()['findings']

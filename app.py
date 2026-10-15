@@ -4559,6 +4559,11 @@ def security_scan():
     page must say so rather than show "no issues".
     """
     from services.security_scanner import scan_aws_security, SecurityScanError
+    from models import UserCloudCredential
+    if not UserCloudCredential.query.filter_by(user_id=current_user.id, cloud_provider='aws',
+                                               is_active=True).first():
+        return jsonify({'success': False, 'no_cloud_account': True,
+                        'error': 'Connect an AWS account in Settings to run security checks.'}), 400
     try:
         results = scan_aws_security(current_user.id)
     except SecurityScanError as e:
