@@ -1175,6 +1175,10 @@ See [docs/execution-integrity.md](docs/execution-integrity.md) for the full
   on-instance state you haven't read); *PROVISION THEN CONFIGURE IN ONE SHOT*
   (bake config into `user_data` on the first `create_ec2_instance` — don't
   launch bare, hit an IAM wall, and terminate+relaunch).
+- **Prices** (2026-10-15) — *PRICES ARE ESTIMATES UNLESS A TOOL SAID SO*: a cost or
+  price not read from a tool result this conversation must be labelled "estimate" with a
+  pointer to the provider's pricing page (a GuardDuty answer quoted "~$1-5/mo" as fact).
+  Pinned by `tests/test_price_estimates_labelled.py`.
 - **Session resource registry** — a creating tool (`create_`/`run_`/`launch_`/
   `provision_`/`deploy_`, excluding `_rule`/`change_request`) that succeeds is
   recorded by `_audit_infrastructure_change` (renamed from
