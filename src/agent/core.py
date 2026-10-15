@@ -1043,6 +1043,17 @@ class DevOpsAgent:
 
             db.session.commit()
             self.logger.info(f"Audit log created for chat {action_type}: {tool_name} / {resource_id}")
+            if action_type in ('create', 'delete'):
+                try:
+                    from services.api_gateway import dispatch_webhook_event
+                    dispatch_webhook_event(user_id, f'resource.{action_type}d', {
+                        'resource': {'type': resource_type, 'id': resource_id,
+                                     'name': resource_name, 'provider': cloud_provider},
+                        'change_id': change.id,
+                        'tool': tool_name,
+                    })
+                except Exception as e:
+                    self.logger.warning(f"Webhook dispatch skipped for {tool_name}: {e}")
         except Exception as e:
             self.logger.warning(f"Failed to create audit log for {tool_name}: {e}")
 

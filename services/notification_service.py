@@ -385,6 +385,8 @@ def _send_async(user_id: int, event_type: str, notification: 'Notification') -> 
                 for ch in channels:
                     if ch.channel_type == 'slack':
                         SlackClient(webhook_url=ch.webhook_url).send_webhook(notification)
+                    elif ch.channel_type == 'teams':
+                        TeamsClient(webhook_url=ch.webhook_url).send(notification)
             except Exception:
                 logger.exception(f"Error sending {event_type} notification for user {user_id}")
 

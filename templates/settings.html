@@ -954,7 +954,7 @@
                 <div class="section-header">
                     <div>
                         <h2>Budget Alerts</h2>
-                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Get notified when spend exceeds thresholds</p>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Checked once a day against your AWS billed spend (needs Cost Explorer turned on). When spend passes the threshold you get an email and a message on your Slack/Teams channels, once per period. Monthly is month to date, weekly is Monday to date, daily is yesterday.</p>
                     </div>
                     <span id="budgetStatusBadge" class="status-badge" style="background: var(--accent-warning); color: #000;">No Alerts</span>
                 </div>
@@ -1688,6 +1688,12 @@
         }
 
         // Budget Alerts
+        function _escBudget(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+                return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+            });
+        }
+
         function loadBudgetAlerts() {
             fetch('/api/budget-alerts')
                 .then(r => r.json())
@@ -1709,11 +1715,11 @@
                     list.innerHTML = alerts.map(a => `
                         <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 8px;">
                             <div>
-                                <span style="font-weight: 500; color: var(--text-primary);">${a.name}</span>
+                                <span style="font-weight: 500; color: var(--text-primary);">${_escBudget(a.name)}</span>
                                 <span style="font-size: 0.85rem; color: var(--accent-primary); margin-left: 10px; font-weight: 600;">$${a.threshold_amount.toFixed(2)}</span>
                                 <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 6px;">/ ${a.period}</span>
                                 ${a.is_active ? '' : '<span style="font-size:0.75rem; color:var(--accent-warning); margin-left:8px;">paused</span>'}
-                                ${a.last_checked_amount != null ? `<span style="font-size:0.75rem; color:var(--text-secondary); margin-left:10px;">Last: $${a.last_checked_amount.toFixed(2)}</span>` : ''}
+                                ${a.last_checked_amount != null ? `<span style="font-size:0.75rem; color:var(--text-secondary); margin-left:10px;">Spend so far: $${a.last_checked_amount.toFixed(2)}</span>` : '<span style="font-size:0.75rem; color:var(--text-secondary); margin-left:10px;">Not checked yet</span>'}
                             </div>
                             <div style="display: flex; gap: 8px;">
                                 <button onclick="toggleBudgetAlert(${a.id}, ${!a.is_active})" style="padding: 4px 10px; font-size: 0.75rem; border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary); border-radius: 4px; cursor: pointer;">${a.is_active ? 'Pause' : 'Enable'}</button>

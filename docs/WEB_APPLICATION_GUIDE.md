@@ -138,8 +138,8 @@ With no cloud account connected, it shows zeros rather than sample data.
 | Tab | What it does |
 |-----|--------------|
 | **Cloud Credentials** | Connect AWS, Azure and GCP. AWS: IAM role (recommended; one-click CloudFormation quick-create with a generated External ID) or access keys. Azure: subscription ID, tenant ID, client ID and secret of a service principal, default location. GCP: project ID, service-account JSON key, default region. Each offers read-only or management policy levels. |
-| **Notifications** | Slack or Teams webhooks for cost findings, security scan results and change recommendations. |
-| **Budgets** | Monthly budget alerts. |
+| **Notifications** | Slack or Teams channels for new cost savings, security findings, change requests and budget alerts. |
+| **Budgets** | Monthly, weekly or daily spend thresholds, checked once a day against AWS billing (Cost Explorer must be on). Going over sends an email, a Slack/Teams message and a `cost.threshold` webhook, once per period. |
 | **Learning** | Learning mode (the agent explains concepts), level (beginner, intermediate, advanced), Sandbox mode, and practice scenarios. |
 | **Integrations** | GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog, SonarQube and Nexus. Secrets are write-only: never shown again after saving. A saved secret is only ever sent to the server URL you saved with it. |
 | **API Keys** | Keys for the developer API and the programmatic API. |
@@ -260,7 +260,11 @@ the agent to "scan my account for security issues".
 ## Notifications
 
 **Settings → Notifications**: connect Slack and Teams channels, test them, and choose which
-events reach them (change requests, security findings, cost savings).
+events reach them (change requests, security findings, cost savings, budget alerts).
+
+**Weekly digest:** on Sundays, accounts with a connected cloud get one email with their health
+grade, savings found that week and open critical findings. The email has a one-click unsubscribe
+link (it also stops onboarding emails; budget alerts are unaffected).
 
 ---
 

@@ -1,8 +1,8 @@
 """
 Scheduled Infrastructure Checks Service
 
-Runs periodic background tasks: infrastructure sync, security scans,
-cost anomaly detection, and health checks.
+Runs periodic background tasks: infrastructure sync, budget alerts, the weekly
+digest email, onboarding emails, backups and health checks.
 
 Multi-worker safety: uses a PID file lock so only one gunicorn worker
 starts the scheduler thread. Other workers skip silently.
@@ -110,10 +110,9 @@ def _scheduler_loop(app, db):
     intervals = {
         'health_check':      timedelta(minutes=5),
         'infra_sync':        timedelta(hours=1),
-        'cost_check':        timedelta(hours=6),
-        'security_scan':     timedelta(hours=12),
+        'budget_check':      timedelta(hours=1),     # each alert at most daily
         'drip_email':        timedelta(hours=1),
-        'weekly_digest':     timedelta(hours=168),   # 7 days
+        'weekly_digest':     timedelta(hours=1),     # sends on Sundays, once per user per week
         'db_backup':         timedelta(hours=24),
     }
 
@@ -149,10 +148,8 @@ def _run_task(task_name: str, app, db):
         _run_health_check(app, db)
     elif task_name == 'infra_sync':
         _run_infra_sync(app, db)
-    elif task_name == 'cost_check':
-        _run_cost_anomaly_check(db)
-    elif task_name == 'security_scan':
-        _run_security_scan(db)
+    elif task_name == 'budget_check':
+        _run_budget_checks(db)
     elif task_name == 'drip_email':
         _run_drip_emails(db)
     elif task_name == 'weekly_digest':
@@ -266,51 +263,17 @@ def _sync_user_safe(app, user_id: int):
         logger.warning(f"Infra sync failed for user {user_id}: {e}")
 
 
-def _run_cost_anomaly_check(db):
-    """Check for cost anomalies across all users with AWS credentials."""
-    from models import User
-    users = User.query.filter(User.is_active == True).all()
-
-    for user in users:
+def _run_budget_checks(db):
+    """Compare billed AWS spend with each user's budget alerts (Settings > Budgets)."""
+    from models import BudgetAlert
+    from services.budget_alerts import check_user_budgets
+    user_ids = [uid for (uid,) in db.session.query(BudgetAlert.user_id)
+                .filter(BudgetAlert.is_active == True).distinct()]  # noqa: E712
+    for uid in user_ids:
         try:
-            _check_user_costs(db, user)
+            check_user_budgets(uid)
         except Exception as e:
-            logger.debug(f"Cost check skipped for user {user.id}: {e}")
-
-
-def _check_user_costs(db, user):
-    """Check a single user's cost trends for anomalies."""
-    from models import CostOptimization
-    recent = (
-        CostOptimization.query
-        .filter_by(user_id=user.id)
-        .order_by(CostOptimization.created_at.desc())
-        .limit(10)
-        .all()
-    )
-
-    if len(recent) >= 2:
-        latest_savings = sum(r.potential_monthly_savings or 0 for r in recent[:5])
-        if latest_savings > 100:
-            logger.info(f"User {user.id}: ${latest_savings:.0f} potential savings detected")
-
-
-def _run_security_scan(db):
-    """Log open security findings for active users."""
-    from models import User, SecurityFinding
-    users = User.query.filter(User.is_active == True).all()
-
-    for user in users:
-        try:
-            critical = SecurityFinding.query.filter_by(
-                user_id=user.id,
-                status='open',
-                severity='critical'
-            ).count()
-            if critical > 0:
-                logger.warning(f"User {user.id}: {critical} critical security findings open")
-        except Exception as e:
-            logger.debug(f"Security scan skipped for user {user.id}: {e}")
+            logger.warning(f"Budget check failed for user {uid}: {e}")
 
 
 def _run_drip_emails(db):
@@ -326,13 +289,16 @@ def _run_weekly_digest(db):
     """
     Send the weekly infrastructure digest email to every active user.
 
-    Fires on Sundays (checked here so the 168h interval doesn't drift to
-    wrong days). Only sends if today is Sunday (UTC weekday == 6).
+    Runs hourly and sends on Sundays (UTC), once per user per week, tracked by
+    `User.last_digest_sent_at`. It used to run every 168h from process start and
+    send only if that moment fell on a Sunday, so it almost never went out.
     Skips users with no cloud credentials or no email address.
     """
-    if utcnow().weekday() != 6:   # 0=Mon … 6=Sun
+    now = utcnow()
+    if now.weekday() != 6:   # 0=Mon … 6=Sun
         logger.debug("Weekly digest: not Sunday, skipping")
         return
+    week_start = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     from models import User, UserCloudCredential, CostOptimization, SecurityFinding, Alert
     from services.email_service import EmailService
@@ -341,7 +307,12 @@ def _run_weekly_digest(db):
     email_svc = EmailService()
     week_ago = utcnow() - timedelta(days=7)
 
-    users = _users_with_credentials_query(db).filter(User.email != None).all()  # noqa: E711
+    users = (_users_with_credentials_query(db)
+             .filter(User.email != None)  # noqa: E711
+             .filter(db.or_(User.email_opt_out == False, User.email_opt_out == None))  # noqa: E711,E712
+             .filter(db.or_(User.last_digest_sent_at == None,  # noqa: E711
+                            User.last_digest_sent_at < week_start))
+             .all())
 
     sent = skipped = 0
     for user in users:
@@ -361,7 +332,10 @@ def _run_weekly_digest(db):
             health = calculate_health_score(user.id)
             grade_label = get_grade_label(health['grade'])
 
+            from services.drip_email_service import generate_unsubscribe_token
             html = _build_digest_html(
+                unsubscribe_url=(f"{__import__('os').environ.get('BASE_URL', 'https://devopsagent.io')}"
+                                 f"/email/unsubscribe?user_id={user.id}&token={generate_unsubscribe_token(user.id)}"),
                 username=user.username or user.email.split('@')[0],
                 grade=health['grade'],
                 grade_label=grade_label,
@@ -373,6 +347,8 @@ def _run_weekly_digest(db):
             subject = f"Your DevOps Agent weekly digest — Infrastructure health: {health['grade']} ({grade_label})"
             ok = email_svc.send_email(user.email, subject, html)
             if ok:
+                user.last_digest_sent_at = now
+                db.session.commit()
                 sent += 1
             else:
                 skipped += 1
@@ -385,7 +361,7 @@ def _run_weekly_digest(db):
 
 
 def _build_digest_html(username, grade, grade_label, score,
-                       savings_identified, critical_sec) -> str:
+                       savings_identified, critical_sec, unsubscribe_url='') -> str:
     """Build the weekly digest HTML email body."""
     grade_color = {
         'A': '#4ade80', 'B': '#60a5fa',
@@ -451,7 +427,7 @@ def _build_digest_html(username, grade, grade_label, score,
           </td></tr></table>
           <p style="text-align:center;margin:16px 0 0;font-size:12px;color:#475569">
             You're receiving this because you have an active DevOps Agent account.<br>
-            <a href="{base_url}/settings" style="color:#64748b">Manage email preferences</a>
+            <a href="{unsubscribe_url or base_url + '/settings'}" style="color:#64748b">Unsubscribe from the weekly digest</a>
           </p>
         </td></tr>
 

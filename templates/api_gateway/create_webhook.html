@@ -21,10 +21,12 @@
                 <div class="form-group">
                     <label>Events:</label>
                     <div class="checkbox-group">
-                        <label><input type="checkbox" name="events" value="resource.created"> Resource Created</label>
-                        <label><input type="checkbox" name="events" value="resource.updated"> Resource Updated</label>
-                        <label><input type="checkbox" name="events" value="resource.deleted"> Resource Deleted</label>
-                        <label><input type="checkbox" name="events" value="alert.triggered"> Alert Triggered</label>
+                        {% for e in events %}
+                        <label><input type="checkbox" name="events" value="{{ e.id }}" checked> {{ e.name }}</label>
+                        {% endfor %}
+                    </div>
+                    <p class="text-muted" style="font-size:0.85rem;margin-top:6px;">Resource events are sent when the agent creates or deletes a resource in your account (from chat or an approved request). Budget exceeded is sent when one of your budget alerts goes over.</p>
+                    <div>
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary">Create Webhook</button>
