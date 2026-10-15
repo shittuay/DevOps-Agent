@@ -769,11 +769,20 @@
 
                     <!-- Role ARN fields (default) -->
                     <div id="aws-role-fields">
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <label for="aws-policy-level">What DevOps Agent may do</label>
+                            <select id="aws-policy-level">
+                                <option value="Read">Read: see every AWS service, change nothing (recommended)</option>
+                                <option value="Manage">Manage: also create, change and delete resources</option>
+                                <option value="ReadOnly">Strict read: a shorter, hand-picked list of services</option>
+                                <option value="Management">Strict manage: hand-picked list, with changes</option>
+                            </select>
+                        </div>
                         <button type="button" class="btn btn-secondary" onclick="openCfQuickCreate()" style="margin-bottom:6px;">
                             &#9889; Create role with CloudFormation
                         </button>
                         <p class="field-hint" style="margin-bottom:16px;">
-                            One click sets up the role, trust policy, and least-privilege permissions in your AWS account
+                            One click sets up the role, trust policy and the access level you picked in your AWS account
                             (<a href="{{ cf_template_url }}" target="_blank">auditable template</a>).
                             When the stack finishes, copy the <code>RoleArn</code> from its Outputs tab into the field below.
                         </p>
@@ -980,7 +989,8 @@
             const url = 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate'
                 + '?templateURL=' + encodeURIComponent(CF_TEMPLATE_URL)
                 + '&stackName=devops-agent-access'
-                + '&param_ExternalId=' + encodeURIComponent(eidInput.value.trim());
+                + '&param_ExternalId=' + encodeURIComponent(eidInput.value.trim())
+                + '&param_PolicyLevel=' + encodeURIComponent(document.getElementById('aws-policy-level').value);
             window.open(url, '_blank');
         }
 

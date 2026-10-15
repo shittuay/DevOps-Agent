@@ -388,11 +388,11 @@
                     before you connect. Your security team can review every action we request.
                 </p>
                 <ul class="feature-list">
-                    <li><strong><a href="/static/iam/devops-agent-readonly.json" target="_blank">Read-only policy</a></strong> (recommended start): discovery, cost analysis, and security scanning &mdash; <strong>metadata only, never your data</strong></li>
+                    <li><strong>Read</strong> (recommended start): the agent can see the configuration of every AWS service, using AWS's own ViewOnlyAccess and SecurityAudit policies, plus an explicit block on your data (S3 objects, database items, function code) and on secret values &mdash; <strong>metadata only, never your data</strong>. Prefer a short, hand-picked list? Choose <a href="/static/iam/devops-agent-readonly.json" target="_blank">Strict read</a>.</li>
                     <li>No <code>s3:GetObject</code> &mdash; we see bucket configuration, never object contents</li>
                     <li>No <code>secretsmanager:GetSecretValue</code>, no <code>ssm:GetParameter</code> &mdash; secret values stay unreadable</li>
                     <li>No <code>lambda:GetFunction</code> &mdash; we read function configuration, never your code</li>
-                    <li><strong><a href="/static/iam/devops-agent-management.json" target="_blank">Management policy</a></strong>: full agent capability, but IAM stays read-only (no privilege escalation) and secret values stay excluded</li>
+                    <li><strong>Manage</strong>: the agent can also create, change and delete resources in any AWS service (AWS's PowerUserAccess policy), but cannot change IAM (no privilege escalation) and secret values stay blocked. Prefer a hand-picked list? Choose <a href="/static/iam/devops-agent-management.json" target="_blank">Strict manage</a>.</li>
                     <li>Automated tests in our CI pipeline fail the release if any change weakens these guarantees</li>
                 </ul>
             </div>

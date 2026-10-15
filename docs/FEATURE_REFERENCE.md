@@ -99,7 +99,9 @@ framework scores were not real assessments.
 ### Cloud accounts (Settings → Cloud Credentials)
 
 - **AWS:** IAM role (recommended, one-click CloudFormation quick-create with an External ID) or
-  access keys. Published least-privilege read-only and management policies.
+  access keys. Access levels: Read (default; every AWS service, configuration only, no data or
+  secret values) or Manage (also create/change/delete; no IAM changes, no secret values), plus
+  the stricter hand-picked ReadOnly/Management lists. See `docs/iam-policies.md`.
 - **Azure:** service principal.
 - **GCP:** service-account JSON key.
 

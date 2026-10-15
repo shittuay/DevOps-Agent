@@ -114,8 +114,9 @@ def test_cloudformation_template_embeds_published_policies():
     files. If this fails, re-run scripts/build_cf_template.py and re-upload."""
     template = _load(CF_TEMPLATE)
     policies = template['Resources']['DevOpsAgentRole']['Properties']['Policies']
-    assert len(policies) == 2  # the main policy, plus the self-grant one only when AllowSelfGrant=Yes
+    assert len(policies) == 3  # main, self-grant (only when AllowSelfGrant=Yes), guardrails
     assert policies[1]['Fn::If'][0] == 'SelfGrant'
+    assert policies[2]['PolicyName'] == 'DevOpsAgentGuardrails'
     branches = policies[0]['PolicyDocument']['Fn::If']
     assert branches[0] == 'IsManagement'
     assert branches[1] == _load(MANAGEMENT), 'template management policy out of sync'
@@ -125,7 +126,7 @@ def test_cloudformation_template_embeds_published_policies():
 def test_cloudformation_template_trust_policy_requires_external_id():
     template = _load(CF_TEMPLATE)
     assert template['Parameters']['ExternalId']['MinLength'] >= 8
-    assert template['Parameters']['PolicyLevel']['Default'] == 'ReadOnly'
+    assert template['Parameters']['PolicyLevel']['Default'] == 'Read'
     trust = template['Resources']['DevOpsAgentRole']['Properties']['AssumeRolePolicyDocument']
     condition = trust['Statement'][0]['Condition']['StringEquals']
     assert condition['sts:ExternalId'] == {'Ref': 'ExternalId'}
@@ -158,7 +159,7 @@ def test_self_grant_is_off_by_default_and_boundary_capped():
                   if a.startswith('iam:')]
     for a in iam_allows:
         assert a.split(':')[1].startswith(('Get', 'List', 'Generate')) or a in (
-            'iam:PassRole', 'iam:PutRolePolicy', 'iam:DeleteRolePolicy'), a
+            'iam:PassRole', 'iam:PutRolePolicy', 'iam:DeleteRolePolicy', 'iam:CreateServiceLinkedRole'), a
     own_role = {'Fn::Sub': 'arn:aws:iam::${AWS::AccountId}:role/${RoleName}'}
     assert by_sid['EditOwnInlinePolicies']['Resource'] == own_role
     assert 'Condition' in by_sid['PassRoleToAwsServicesOnly']
@@ -169,3 +170,45 @@ def test_self_grant_is_off_by_default_and_boundary_capped():
     allow = [s for s in self_policy['Statement'] if s['Effect'] == 'Allow']
     assert allow == [{'Sid': 'EditOwnInlinePolicies', 'Effect': 'Allow',
                       'Action': ['iam:PutRolePolicy', 'iam:DeleteRolePolicy'], 'Resource': own_role}]
+
+
+def test_standard_levels_use_aws_managed_policies():
+    """Read/Manage (2026-10-15) rest on AWS-managed policies so every service is covered;
+    the hand-picked lists stay as ReadOnly/Management, and existing stacks keep them."""
+    t = _load(CF_TEMPLATE)
+    level = t['Parameters']['PolicyLevel']
+    assert level['Default'] == 'Read'
+    assert set(level['AllowedValues']) == {'Read', 'Manage', 'ReadOnly', 'Management'}
+    role = t['Resources']['DevOpsAgentRole']['Properties']
+    cond, read_arns, rest = role['ManagedPolicyArns']['Fn::If']
+    assert cond == 'IsStandardRead'
+    names = lambda arns: [a['Fn::Sub'].rsplit('policy/', 1)[1] for a in arns]
+    assert names(read_arns) == ['job-function/ViewOnlyAccess', 'SecurityAudit']
+    cond2, manage_arns, none = rest['Fn::If']
+    assert cond2 == 'IsStandardManage' and names(manage_arns) == ['PowerUserAccess']
+    assert none == {'Ref': 'AWS::NoValue'}, 'ReadOnly/Management stay on the hand-picked lists only'
+
+
+def test_guardrails_hold_on_every_level():
+    t = _load(CF_TEMPLATE)
+    guard = t['Resources']['DevOpsAgentRole']['Properties']['Policies'][2]['PolicyDocument']['Fn::If']
+    assert guard[0] == 'IsStandardRead'
+    read_doc, other_doc = guard[1], guard[2]
+    for doc in (read_doc, other_doc):
+        deny = {a for s in doc['Statement'] if s['Effect'] == 'Deny' for a in s['Action']}
+        assert {'secretsmanager:GetSecretValue', 'ssm:GetParameter'} <= deny
+        assert all(s['Effect'] == 'Deny' for s in doc['Statement'])
+    read_deny = {a for s in read_doc['Statement'] for a in s['Action']}
+    assert {'s3:GetObject', 'dynamodb:GetItem', 'dynamodb:Scan', 'lambda:GetFunction'} <= read_deny
+
+
+def test_setup_pages_offer_every_level_and_pass_it_to_cloudformation():
+    allowed = set(_load(CF_TEMPLATE)['Parameters']['PolicyLevel']['AllowedValues'])
+    for name, select_id in (('settings.html', 'awsPolicyLevel'), ('onboarding.html', 'aws-policy-level')):
+        html = (ROOT / 'templates' / name).read_text(encoding='utf-8')
+        block = html[html.index(f'id="{select_id}"'):]
+        block = block[:block.index('</select>')]
+        offered = set(re.findall(r'<option value="([^"]+)"', block))
+        assert offered == allowed, name
+        assert block.index('value="Read"') < block.index('value="Manage"'), 'Read is the default choice'
+        assert '&param_PolicyLevel=' in html, name

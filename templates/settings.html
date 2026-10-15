@@ -567,10 +567,16 @@
                     <!-- Role ARN fields (default) -->
                     <div id="roleArnFields">
                         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;margin-bottom:16px;background:rgba(37,99,235,0.06);border:1px solid #bfdbfe;border-radius:8px;">
+                            <select id="awsPolicyLevel" aria-label="What DevOps Agent may do" style="padding:6px 10px;border-radius:6px;border:1px solid #d1d5db;font-size:0.85em;">
+                                <option value="Read">Read: see every AWS service, change nothing (recommended)</option>
+                                <option value="Manage">Manage: also create, change and delete resources</option>
+                                <option value="ReadOnly">Strict read: a shorter, hand-picked list of services</option>
+                                <option value="Management">Strict manage: hand-picked list, with changes</option>
+                            </select>
                             <button type="button" class="btn-primary" onclick="openCfQuickCreate()" style="white-space:nowrap;">
                                 &#9889; Create role with CloudFormation
                             </button>
-                            <small style="flex:1;min-width:200px;">Don't have a role yet? One click creates it in your AWS account with our least-privilege policy. Copy the <code>RoleArn</code> from the stack's Outputs tab back here.</small>
+                            <small style="flex:1;min-width:200px;">Don't have a role yet? Pick what DevOps Agent may do, and one click creates the role in your AWS account. Read covers every AWS service without touching your data. Copy the <code>RoleArn</code> from the stack's Outputs tab back here.</small>
                         </div>
                         <div class="form-group">
                             <label for="roleArn">IAM Role ARN *</label>
@@ -1199,7 +1205,8 @@
             return 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate'
                 + '?templateURL=' + encodeURIComponent(CF_TEMPLATE_URL)
                 + '&stackName=devops-agent-access'
-                + '&param_ExternalId=' + encodeURIComponent(externalId);
+                + '&param_ExternalId=' + encodeURIComponent(externalId)
+                + '&param_PolicyLevel=' + encodeURIComponent(document.getElementById('awsPolicyLevel').value);
         }
 
         function openCfQuickCreate() {

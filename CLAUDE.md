@@ -297,6 +297,19 @@ instance is found.
   - Settings UI (`templates/settings.html`) and onboarding wizard (`templates/onboarding.html`) both have a mode toggle; **role ARN is the recommended default** (access keys demoted to fallback for self-hosted setups)
   - Trust policy instructions in both UIs render the platform account ID from `PLATFORM_AWS_ACCOUNT_ID` env var (default `188046727805`), exposed via the `/settings` and `/onboarding` routes in `app.py`; the quick-create template link comes from `CF_TEMPLATE_URL` (same routes). The two must move together — the template's trust policy names that account.
   - **Migration bridge** (`PLATFORM_BRIDGE_ROLE_ARN`, unset by default): when a direct `AssumeRole` into a customer role is **denied**, `_assume_role()` retries by first assuming that bridge role in the *previous* platform account and chaining from it (External ID still sent; chained sessions max 3600s). Exists only so role-based customers keep working while they update trust policies after a platform account move — each bridged call logs `assumed via migration bridge`. Unset it once that log goes quiet. Full procedure: `docs/aws-account-migration.md`; `scripts/count_role_arn_customers.py` lists who is affected (and reports undecryptable credentials, a check that the encryption key carried over).
+  - **AWS access levels (2026-10-15, owner decision).** The CloudFormation `PolicyLevel` is
+    `Read` (default) / `Manage` / `ReadOnly` / `Management`. **Read** = AWS-managed
+    `ViewOnlyAccess` + `SecurityAudit` + the published read-only policy; **Manage** =
+    `PowerUserAccess` + the published management policy. Every level also gets the
+    `DevOpsAgentGuardrails` inline deny: secret values always, and on Read the data reads
+    (`DATA_READ_ACTIONS` in `scripts/build_cf_template.py`), so "metadata, not data" holds
+    whatever AWS puts in its managed policies. Why: the hand-picked list of ~45 services left
+    out GuardDuty and every other unlisted service, so the agent was refused and had to ask
+    for each permission. `ReadOnly`/`Management` are the old lists, kept as "Strict" and so
+    existing stacks (which update with `UsePreviousValue`) never get broader access without
+    choosing it. Settings and onboarding pass the choice as `param_PolicyLevel`; Azure
+    (Reader/Contributor) and GCP (Viewer/Editor) already used built-in roles. Guarded by
+    `tests/test_iam_policies.py`. **Re-upload the template to S3 after merging.**
   - **Published least-privilege IAM policies** (`static/iam/devops-agent-readonly.json` + `devops-agent-management.json`, docs in `docs/iam-policies.md`): read-only = metadata never data (no `s3:GetObject`, `secretsmanager:GetSecretValue`, `ssm:GetParameter`, `lambda:GetFunction`); management = service writes but IAM read-only + `iam:PassRole` conditioned to AWS service principals, secret values still excluded. Guarded by `tests/test_iam_policies.py` — update the tests if you change the policy guarantees.
   - **CloudFormation quick-create**: `cloudformation/devops-agent-role.json` is generated from the policy files by `scripts/build_cf_template.py` and hosted at `s3://devopsagent-cf-templates/devops-agent-role.json` (public read — quick-create requires an S3 URL). "Create role with CloudFormation" buttons in settings + onboarding auto-generate an External ID and open the console quick-create page. **After editing a policy file: re-run the build script and re-upload to S3** (command in `docs/iam-policies.md`); a sync test fails if the committed template drifts.
   - **Public `/security` trust page** (`templates/security.html`, route `security_page` in `app.py`): credential handling, auditable policy links, sandbox pitch, guardrails stack, vulnerability contact (`security@devopsagent.io`). Linked from landing + about footers. Onboarding step 1 has a "Start in sandbox" callout that PUTs `{sandbox_mode: true}` to `/api/preferences` and completes onboarding without credentials.
@@ -2259,6 +2272,9 @@ policy and ask the account owner yes/no, then retry. `services/aws_permissions.p
   `DevOpsAgentGrantedPermissions`. The setting is re-read at execution, and
   `is_sensitive()` actions (iam/sts/organizations/kms/sso..., secret values, wildcards)
   are never self-granted.
+- **Read bundles:** a refused read (`List`/`Describe`/`Get`/`BatchGet`) also asks for that
+  service's `List*` and `Describe*` (`_READ_WILDCARDS`), so one yes covers it. Those two
+  wildcards are the only ones `is_sensitive()` accepts; identity prefixes never get bundles.
 - **Retry:** up to 3 tries (`RETRY_DELAYS`, IAM propagation). A different denied action on
   retry files a follow-up request (`next_permission_request`).
 - **CloudFormation:** `AllowSelfGrant` (default `No`) adds `DevOpsAgentSelfGrant`

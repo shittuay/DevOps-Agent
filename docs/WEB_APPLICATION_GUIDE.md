@@ -137,7 +137,7 @@ With no cloud account connected, it shows zeros rather than sample data.
 
 | Tab | What it does |
 |-----|--------------|
-| **Cloud Credentials** | Connect AWS, Azure and GCP. AWS: IAM role (recommended; one-click CloudFormation quick-create with a generated External ID) or access keys. Azure: subscription ID, tenant ID, client ID and secret of a service principal, default location. GCP: project ID, service-account JSON key, default region. Each offers read-only or management policy levels. |
+| **Cloud Credentials** | Connect AWS, Azure and GCP. AWS: IAM role (recommended; one-click CloudFormation quick-create with a generated External ID) or access keys. Azure: subscription ID, tenant ID, client ID and secret of a service principal, default location. GCP: project ID, service-account JSON key, default region. Each offers a read level and a manage level: AWS Read/Manage (built on AWS-managed policies, so every service is covered; stricter hand-picked lists are also offered), Azure Reader/Contributor, GCP Viewer/Editor. |
 | **Notifications** | Slack or Teams channels for new cost savings, security findings, change requests and budget alerts. |
 | **Budgets** | Monthly, weekly or daily spend thresholds, checked once a day against AWS billing (Cost Explorer must be on). Going over sends an email, a Slack/Teams message and a `cost.threshold` webhook, once per period. |
 | **Learning** | Learning mode (the agent explains concepts), level (beginner, intermediate, advanced), Sandbox mode, and practice scenarios. |
