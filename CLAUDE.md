@@ -2096,6 +2096,27 @@ months a 30-day window spans and returns `source: 'cost_explorer'`; the DB fallb
 1.05). The page labels estimates; "Apply" (always 501) is replaced by **Fix in chat**, which opens
 `/chat?prefill=<text>` (filled in, not sent). Guard: `tests/test_dashboard_honest.py`.
 
+Step 6 done: alerts that were promised now go out.
+- **Outgoing webhooks** (`services/api_gateway.dispatch_webhook_event`): `resource.created` /
+  `resource.deleted` are sent from `DevOpsAgent._audit_infrastructure_change` (so from chat and
+  approved requests; direct `/execute`, `/api/v1/tools/execute` and MCP calls without an approval
+  step write no change row and send nothing yet), and `cost.threshold` from budget alerts. Only
+  `DELIVERED_EVENTS` are offered; resource.updated / alert.triggered / deployment.* were offered
+  and never sent. Delivery runs on a daemon thread with its own app context; one SSRF-blocked
+  endpoint no longer stops delivery to the rest; the body is the exact signed bytes
+  (`json.dumps(payload, sort_keys=True)`), so `X-DevOps-Agent-Signature` verifies against the raw body.
+- **Teams** channels now receive `_send_async` notifications (only Slack did).
+- **Budget alerts** (`services/budget_alerts.py`): `check_user_budgets()` runs from the
+  scheduler's hourly `budget_check`, each alert at most daily (`BudgetAlert.last_checked_at`),
+  reading billed spend from Cost Explorer (monthly = month to date, weekly = Monday to date,
+  daily = yesterday). Over budget → email + channel message + webhook, once per period.
+  `BudgetCheckError` (billing unreadable) leaves the alert unchecked, never "under budget".
+- **Weekly digest** runs hourly and sends on Sundays once per user (`User.last_digest_sent_at`);
+  it ran every 168h from process start and almost never fired. It honours `User.email_opt_out`
+  and links the signed `/email/unsubscribe` (which now covers onboarding and digest emails).
+- The scheduler's `cost_check` / `security_scan` jobs (log-only, matched nobody) are gone.
+Guard: `tests/test_real_alerts.py`.
+
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
