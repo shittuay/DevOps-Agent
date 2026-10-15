@@ -3298,3 +3298,28 @@ AccessDenied into a yes/no request with the exact minimal policy, and retries on
 added (by the owner, or by the agent within an opt-in permissions boundary). Design and
 invariants: CLAUDE.md "AWS permission requests". Follow-up needed by the owner: re-upload
 the CloudFormation template to S3 so quick-create offers `AllowSelfGrant`.
+
+## 2026-10-15 — Self-grant's sensitive-action list missed credential-vending reads
+
+The scheduled security review that audited this feature the same day it shipped found that
+both layers meant to stop self-grant from acquiring a secret-disclosure permission — the
+app-level `services.aws_permissions.SENSITIVE_ACTIONS` allowlist and the AWS-enforced
+`DevOpsAgentBoundary`'s `NeverSecretValues` deny statement (`scripts/build_cf_template.py`) —
+omitted `ec2:GetPasswordData` (decrypts and returns a Windows instance's Administrator
+password) and the Redshift credential-vending reads (`redshift:GetClusterCredentials`,
+`redshift-serverless:GetCredentials`). Reachable via the ungated `aws_api_read` escape hatch
+(no dedicated tool, no risk classification in `safety.py`), a customer with self-grant
+enabled asking for an instance's Windows password would have the agent silently add itself
+`ec2:GetPasswordData` — not flagged sensitive — and return the decrypted password into
+chat, contradicting the feature's own "AWS enforces the boundary, so the agent can never
+grant itself more" guarantee.
+
+**Fix:** added the three actions to `SENSITIVE_ACTIONS`; `scripts/build_cf_template.py` now
+imports that same set as `SECRET_VALUE_ACTIONS` instead of hand-maintaining a second copy —
+the two lists existing independently is exactly how they drifted apart on day one.
+Regenerated and committed `cloudformation/devops-agent-role.json`.
+**Still needed from the owner:** re-upload it to
+`s3://devopsagent-cf-templates/devops-agent-role.json` (same outstanding step as the
+previous entry — the two can be done together). Guarded by
+`tests/test_aws_permission_requests.py::test_sensitive_actions` and
+`tests/test_iam_policies.py::test_self_grant_is_off_by_default_and_boundary_capped`.
