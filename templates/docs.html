@@ -704,15 +704,16 @@
     <!-- Dashboard -->
     <section id="dashboard">
       <h2 class="section-title">Dashboard</h2>
-      <p>The Dashboard gives you a live overview of your cloud infrastructure without having to ask the agent. It auto-syncs every time you visit.</p>
+      <p>The Dashboard gives you an overview of your connected cloud accounts without having to ask the agent. Use <strong>Sync now</strong> to refresh it.</p>
 
       <table class="docs-table">
         <thead><tr><th>Widget</th><th>What it shows</th></tr></thead>
         <tbody>
           <tr><td>Resource Summary</td><td>Total EC2, RDS, S3, Lambda, and Kubernetes resources across all connected providers</td></tr>
-          <tr><td>Cost Trends</td><td>Monthly spend chart + month-over-month change</td></tr>
-          <tr><td>Cost Forecast</td><td>Projected spend for the current month based on usage so far</td></tr>
-          <tr><td>Recommendations</td><td>Cost savings and rightsizing suggestions from your last sync</td></tr>
+          <tr><td>Spend</td><td>Last 30 days from AWS billing (Cost Explorer), by service and by day; otherwise an estimate from list prices, labelled as one</td></tr>
+          <tr><td>Forecast</td><td>AWS's own forecast for the next 30 days, shown only when Cost Explorer is on</td></tr>
+          <tr><td>Recommendations</td><td>Savings backed by your account's data (low CPU, long-stopped instances, unattached volumes), with estimated amounts. <strong>Fix in chat</strong> opens the agent with it filled in</td></tr>
+          <tr><td>Security checks</td><td>Public S3 buckets, open security groups, public or unencrypted RDS, IAM users without MFA</td></tr>
           <tr><td>Resource Groups</td><td>Breakdown by service (EC2, RDS, etc.) with expandable utilization detail</td></tr>
         </tbody>
       </table>
