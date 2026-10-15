@@ -140,17 +140,28 @@ def test_outside_approver_cannot_see_or_act_on_foreign_org_change(app, org_gover
     assert resp.status_code == 403
 
 
-def test_solo_change_without_org_requires_admin(app, org_governance_setup):
+def test_unstamped_change_is_still_reviewed_by_the_requesters_org(app, org_governance_setup):
+    """Since 2026-10-14 visibility follows the requester's organizations (the same
+    rule as agent requests), not the organization stamped from the session. A
+    change filed without an active org is still reviewed by the requester's
+    org-mate approver; outsiders still can't touch it."""
     setup = org_governance_setup
     requester_client = _login(app, 'org-requester@example.com')
     change = _create_medium_risk_change(requester_client, active_org_id=None)
     assert change['organization_id'] is None
 
-    # Even the requester's own org-mate approver can't act on it — it was
-    # never stamped to the org, so there's nothing to scope against.
-    org_approver_client = _login(app, 'org-approver@example.com')
-    resp = org_approver_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'nope'})
+    outside_client = _login(app, 'outside-approver@example.com')
+    resp = outside_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'nope'})
     assert resp.status_code == 403
+
+    org_approver_client = _login(app, 'org-approver@example.com')
+    resp = org_approver_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'ok'})
+    assert resp.status_code == 200, resp.get_json()
+
+
+def test_admin_can_approve_unstamped_change(app, org_governance_setup):
+    requester_client = _login(app, 'org-requester@example.com')
+    change = _create_medium_risk_change(requester_client, active_org_id=None)
 
     admin_client = _login(app, 'gov-admin@example.com')
     resp = admin_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'ok'})

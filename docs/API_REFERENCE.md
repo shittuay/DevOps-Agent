@@ -1,12 +1,14 @@
 # DevOps Agent API Reference
 
-DevOps Agent has three public interfaces:
+DevOps Agent has two public interfaces:
 
 | Interface | Base URL | Best for |
 |-----------|----------|----------|
-| [Developer API](#developer-api) | `https://devopsagent.io/api-gateway/v1` | Running the agent or a single tool from your own code |
-| [Programmatic API](#programmatic-api) | `https://devopsagent.io/api/v1` | Managing conversations, resources, keys and your account; has an OpenAPI spec |
+| [Developer API](#developer-api) | `https://devopsagent.io/api-gateway/v1` | Running the agent or a tool, managing conversations, resources, keys and your account from your own code |
 | [Claude.ai connector (MCP)](#claudeai-connector-mcp) | `https://devopsagent.io/mcp` | Using DevOps Agent tools from Claude |
+
+The older `https://devopsagent.io/api/v1` is **deprecated** and stops working on its Sunset date
+(see [Moving off /api/v1](#moving-off-apiv1)). The same API keys work on both.
 
 
 The other `/api/...` endpoints the web app calls (chat, dashboard, settings) use your browser
@@ -16,7 +18,7 @@ session and CSRF protection. They are internal and can change without notice; do
 
 ## API keys
 
-Create keys in the app at **`/api-gateway/keys`** (or with `POST /api/v1/api-keys`). The key is
+Create keys in the app at **`/api-gateway/keys`** (or with `POST /api-gateway/v1/api-keys`). The key is
 shown once; store it somewhere safe. Each key has:
 
 - **Scopes:** `read`, `write`, `delete`, `admin`
@@ -122,34 +124,36 @@ Endpoints on private or internal addresses are refused. Calls made directly thro
 
 ---
 
-## Programmatic API
+## Account, conversations and keys (Developer API)
 
-Base URL: `https://devopsagent.io/api/v1`
-
-- **OpenAPI spec:** `GET /api/v1/openapi.json`
-- **Interactive docs:** `/api/v1/docs`
-
-**Authentication:** `X-API-Key: <key>` or `Authorization: Bearer <key>`. Endpoints check the
-key's scope.
+Same base URL and key as above. Each endpoint checks the key's scope (`read`, `write`, `admin`).
 
 | Area | Endpoints |
 |------|-----------|
-| Auth | `GET /auth/validate`, `GET /auth/me`, `GET /auth/usage` |
-| API keys | `GET`/`POST /api-keys`; `GET`/`PATCH`/`DELETE /api-keys/<id>`; `POST /api-keys/<id>/rotate` |
+| Account | `GET`/`PATCH /me`; `GET /me/usage`; `GET /me/subscription`; `GET`/`PATCH /me/preferences` |
 | Conversations | `GET`/`POST /conversations`; `GET`/`DELETE /conversations/<id>`; `POST /conversations/<id>/messages` |
-| Chat streaming | `POST /chat/stream` |
-| Resources | `GET /resources`, `GET /resources/<id>`, `POST /resources/sync`, `GET /resources/stats`, `GET /resources/alerts`, `GET /resources/security` |
-| Tools | `POST /tools/execute` |
-| Account | `GET`/`PATCH /users/me`; `GET`/`PATCH /users/me/preferences`; `GET /users/me/subscription`; `GET /users/me/usage` |
-| Health | `GET /health`, `GET /health/detailed`, `GET /status` |
+| API keys | `GET`/`POST /api-keys`; `GET`/`PATCH`/`DELETE /api-keys/<id>`; `POST /api-keys/<id>/rotate` (writes need `admin`) |
+| Resources | `POST /resources/sync`, `GET /resources/stats` |
+| Security | `GET /security/findings` |
+| Spec | `GET /openapi.json`, generated from the live routes |
 
-### `POST /tools/execute` (scope `write`)
+## Moving off /api/v1
 
-```json
-{ "tool": "get_pods", "params": { "namespace": "default" } }
-```
+Every `/api/v1` response carries `Deprecation: true`, a `Sunset` date (currently
+**12 January 2027**) and a `Link: <...>; rel="successor-version"` header naming the new path.
+Change the base URL to `/api-gateway/v1` and rename these paths:
 
-Medium- and high-risk tools follow the same [approval rules](#risky-tools-and-approvals) as chat.
+| Old (`/api/v1`) | New (`/api-gateway/v1`) |
+|-----------------|-------------------------|
+| `/auth/me`, `/users/me` | `/me` |
+| `/users/me/usage`, `/users/me/subscription`, `/users/me/preferences` | `/me/usage`, `/me/subscription`, `/me/preferences` |
+| `/resources/security` | `/security/findings` |
+| `/tools/execute` | `/execute` |
+| `/chat/stream` | `/agent/stream` |
+| `/conversations...`, `/api-keys...`, `/resources...` | same path |
+
+Not carried over: `/auth/validate` (call `/me`), `/auth/usage` (use `/me/usage`),
+`/resources/alerts`, and `/health/detailed` / `/status` (use the public `/api/status/health`).
 
 ---
 

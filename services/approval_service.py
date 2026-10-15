@@ -109,6 +109,45 @@ def can_approve(req, user) -> bool:
     return user.id in eligible_approver_ids(req)
 
 
+def reviewable_requester_ids(user):
+    """Requesters whose requests this reviewer may see, or None for platform admins (everyone).
+
+    Members of organizations the reviewer owns or administers, plus, for platform
+    approvers, members of any organization they belong to.
+    """
+    from models import OrganizationMember, db
+    from services.rbac import user_is_admin, user_is_approver, user_active_org_ids, user_admin_org_ids
+    if user_is_admin(user):
+        return None
+    org_ids = set(user_admin_org_ids(user.id))
+    if user_is_approver(user):
+        org_ids |= user_active_org_ids(user.id)
+    if not org_ids:
+        return set()
+    rows = db.session.query(OrganizationMember.user_id).filter(
+        OrganizationMember.organization_id.in_(org_ids),
+        OrganizationMember.is_active.is_(True),
+    ).all()
+    return {r[0] for r in rows}
+
+
+class _ChangeAsRequest:
+    """Lets the agent-request rules below judge an InfrastructureChange."""
+    def __init__(self, change):
+        self.requester_id = change.user_id
+
+
+def can_review_change(change, user) -> bool:
+    """Same rule as agent requests: the requester's org owners/admins (or platform
+    approvers in their org, or platform admins) review someone else's change."""
+    return can_approve(_ChangeAsRequest(change), user)
+
+
+def can_confirm_own_change(change, user) -> bool:
+    """The requester confirms their own change when nobody else could review it."""
+    return bool(user) and user.id == change.user_id and can_self_confirm(_ChangeAsRequest(change))
+
+
 def is_visible_to_approver(req, approver) -> bool:
     """Kept for existing callers: an approver may see a request they can act on."""
     return can_approve(req, approver)

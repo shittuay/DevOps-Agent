@@ -123,7 +123,7 @@ src/agent/          Agent loop, safety classification, tool selection, guardrail
 src/tools/          Tool modules (aws_tools.py, kubernetes_tools.py, ...)
 services/           Business logic (credentials, workflows, approvals, billing, ...)
 routes/             Blueprints for feature pages and APIs
-api/v1/             Programmatic REST API (/api/v1)
+api/v1/             Deprecated REST API (/api/v1); its handlers also serve /api-gateway/v1
 templates/          Jinja2 pages
 tests/              pytest suite
 docs/               Guides and references

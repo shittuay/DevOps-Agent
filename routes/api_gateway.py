@@ -910,3 +910,78 @@ def dashboard_stats():
         'requests_month': stats.get('requests_month', 0),
         'rate_limit_hits': stats.get('rate_limit_hits', 0)
     })
+
+
+# ---------------------------------------------------------------------------
+# One developer API (2026-10-14). /api/v1 is deprecated; everything it offered
+# that /api-gateway/v1 didn't is served here by the same handlers, with the same
+# key check (scopes, IP allow-list, daily limit) so behaviour is identical.
+# ---------------------------------------------------------------------------
+
+# (gateway path, method, api.v1 module, function, old /api/v1 path)
+V1_PARITY_ROUTES = [
+    ('/v1/me', 'GET', 'auth', 'get_current_user', '/api/v1/auth/me'),
+    ('/v1/me', 'PATCH', 'users', 'update_user_profile', '/api/v1/users/me'),
+    ('/v1/me/usage', 'GET', 'users', 'get_user_usage', '/api/v1/users/me/usage'),
+    ('/v1/me/subscription', 'GET', 'users', 'get_user_subscription', '/api/v1/users/me/subscription'),
+    ('/v1/me/preferences', 'GET', 'users', 'get_user_preferences', '/api/v1/users/me/preferences'),
+    ('/v1/me/preferences', 'PATCH', 'users', 'update_user_preferences', '/api/v1/users/me/preferences'),
+    ('/v1/conversations', 'POST', 'conversations', 'create_conversation', '/api/v1/conversations'),
+    ('/v1/conversations/<conversation_id>', 'GET', 'conversations', 'get_conversation',
+     '/api/v1/conversations/<id>'),
+    ('/v1/conversations/<conversation_id>', 'DELETE', 'conversations', 'delete_conversation',
+     '/api/v1/conversations/<id>'),
+    ('/v1/conversations/<conversation_id>/messages', 'POST', 'conversations', 'send_message',
+     '/api/v1/conversations/<id>/messages'),
+    ('/v1/api-keys', 'GET', 'api_keys', 'list_api_keys', '/api/v1/api-keys'),
+    ('/v1/api-keys', 'POST', 'api_keys', 'create_api_key', '/api/v1/api-keys'),
+    ('/v1/api-keys/<int:key_id>', 'GET', 'api_keys', 'get_api_key', '/api/v1/api-keys/<id>'),
+    ('/v1/api-keys/<int:key_id>', 'PATCH', 'api_keys', 'update_api_key', '/api/v1/api-keys/<id>'),
+    ('/v1/api-keys/<int:key_id>', 'DELETE', 'api_keys', 'revoke_api_key', '/api/v1/api-keys/<id>'),
+    ('/v1/api-keys/<int:key_id>/rotate', 'POST', 'api_keys', 'rotate_api_key',
+     '/api/v1/api-keys/<id>/rotate'),
+    ('/v1/resources/sync', 'POST', 'resources', 'sync_resources', '/api/v1/resources/sync'),
+    ('/v1/resources/stats', 'GET', 'resources', 'get_resource_stats', '/api/v1/resources/stats'),
+    ('/v1/security/findings', 'GET', 'resources', 'list_security_findings', '/api/v1/resources/security'),
+]
+
+
+def _register_v1_parity_routes():
+    import importlib
+    for path, method, module, func, _old in V1_PARITY_ROUTES:
+        view = getattr(importlib.import_module(f'api.v1.{module}'), func)
+        api_gateway_bp.add_url_rule(path, endpoint=f'v1p_{func}', view_func=view, methods=[method])
+
+
+_register_v1_parity_routes()
+
+
+@api_gateway_bp.route('/v1/openapi.json')
+def openapi_spec():
+    """OpenAPI 3 description generated from the routes actually registered under /api-gateway/v1."""
+    from flask import current_app
+    import re
+    paths = {}
+    for rule in current_app.url_map.iter_rules():
+        if not rule.rule.startswith('/api-gateway/v1/') or rule.rule.endswith('/openapi.json'):
+            continue
+        view = current_app.view_functions.get(rule.endpoint)
+        doc = ((view.__doc__ or '').strip().splitlines() or [''])[0] if view else ''
+        oa_path = re.sub(r'<(?:[^:<>]+:)?([^<>]+)>', r'{\1}', rule.rule[len('/api-gateway/v1'):])
+        params = [{'name': p, 'in': 'path', 'required': True, 'schema': {'type': 'string'}}
+                  for p in re.findall(r'{([^}]+)}', oa_path)]
+        for method in sorted((rule.methods or set()) - {'HEAD', 'OPTIONS'}):
+            op = {'summary': doc or rule.endpoint, 'responses': {'200': {'description': 'OK'}}}
+            if params:
+                op['parameters'] = params
+            paths.setdefault(oa_path, {})[method.lower()] = op
+    return jsonify({
+        'openapi': '3.0.3',
+        'info': {'title': 'DevOps Agent Developer API', 'version': '1.0.0',
+                 'description': 'Authenticate with the X-API-Key header. Docs: https://devopsagent.io/developers'},
+        'servers': [{'url': '/api-gateway/v1'}],
+        'components': {'securitySchemes': {
+            'ApiKeyAuth': {'type': 'apiKey', 'in': 'header', 'name': 'X-API-Key'}}},
+        'security': [{'ApiKeyAuth': []}],
+        'paths': dict(sorted(paths.items())),
+    })

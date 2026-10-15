@@ -180,7 +180,8 @@ def test_org_admins_are_notified(teams, monkeypatch):
     assert teams['other_owner'].id not in notified
 
 
-def test_org_admin_does_not_see_change_requests(app, teams):
+def test_org_admin_reviews_change_requests_too(app, teams):
+    """One queue since 2026-10-14: change requests follow the agent-request rules."""
     from models import InfrastructureChange, db
     change = InfrastructureChange(
         user_id=teams['member'].id,
@@ -195,9 +196,11 @@ def test_org_admin_does_not_see_change_requests(app, teams):
     db.session.commit()
     owner = _login(app, teams['owner'].email)
     pending = owner.get('/api/approvals/pending').get_json()
-    assert all(r['_type'] != 'change' for r in pending), (
-        "change requests are approved through /changes, which still needs the platform role"
-    )
+    assert [r['id'] for r in pending if r['_type'] == 'change'] == [change.id]
+    assert owner.post(f'/api/changes/{change.id}/approve', json={}).status_code == 200
+
+    other_owner = _login(app, teams['other_owner'].email)
+    assert all(r['_type'] != 'change' for r in other_owner.get('/api/approvals/pending').get_json())
 
 
 def test_history_is_scoped_to_the_admins_orgs(app, teams, fake_execute):

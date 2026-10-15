@@ -25,7 +25,8 @@
 <p class="mine-intro">Risky actions you asked the agent for (deletes, stops, IAM and firewall changes)
 wait here until they're confirmed. Your organization's owners and admins approve them; if nobody
 else could (you're not in an organization, or you're its only owner or admin), you confirm them
-yourself. Requests expire after 24 hours.</p>
+yourself. Agent requests expire after 24 hours. Change requests you filed from
+<a href="/changes">Change history</a> show here too; once confirmed, run them from there.</p>
 
 <div id="list"><div class="empty">Loading…</div></div>
 
@@ -46,32 +47,45 @@ async function load() {
             list.innerHTML = '<div class="empty">Nothing waiting for confirmation.</div>';
             return;
         }
-        list.innerHTML = reqs.map(r => `
-            <div class="card req-card" id="req-${r.id}">
+        list.innerHTML = reqs.map(r => {
+            const t = r._type === 'change' ? 'change' : 'agent';
+            const key = `${t}-${r.id}`;
+            const meta = t === 'change'
+                ? `Change request · Risk: ${esc((r.risk_level || '').toUpperCase())}`
+                : `Risk: ${esc((r.risk_level || '').toUpperCase())} · expires ${esc(new Date(r.expires_at).toLocaleString())}`;
+            const confirmLabel = t === 'change' ? 'Confirm' : 'Confirm &amp; run';
+            return `
+            <div class="card req-card" id="req-${key}">
                 <div class="req-tool">${esc(r.tool_name)}</div>
                 <div class="req-reason">${esc(r.risk_reason)}</div>
-                <div class="req-meta">Risk: ${esc((r.risk_level || '').toUpperCase())} · expires ${esc(new Date(r.expires_at).toLocaleString())}</div>
+                <div class="req-meta">${meta}</div>
                 <div class="req-actions">
                     ${r.can_confirm
-                        ? `<button class="btn-run" onclick="act(${r.id}, 'confirm', this)">Confirm &amp; run</button>`
+                        ? `<button class="btn-run" onclick="act('${t}', ${r.id}, 'confirm', this)">${confirmLabel}</button>`
                         : `<span class="req-wait">Waiting for an owner or admin of your organization</span>`}
-                    <button class="btn-cancel" onclick="act(${r.id}, 'cancel', this)">Cancel request</button>
+                    <button class="btn-cancel" onclick="act('${t}', ${r.id}, 'cancel', this)">Cancel request</button>
                 </div>
-                <div class="req-status" id="status-${r.id}"></div>
-            </div>`).join('');
+                <div class="req-status" id="status-${key}"></div>
+            </div>`;
+        }).join('');
     } catch (e) {
         list.innerHTML = '<div class="empty">Couldn’t load your requests. Refresh to try again.</div>';
     }
 }
 
-async function act(id, action, btn) {
-    const card = document.getElementById(`req-${id}`);
+async function act(type, id, action, btn) {
+    const key = `${type}-${id}`;
+    const card = document.getElementById(`req-${key}`);
     card.querySelectorAll('button').forEach(b => b.disabled = true);
-    const status = document.getElementById(`status-${id}`);
-    status.textContent = action === 'confirm' ? 'Running…' : 'Cancelling…';
+    const status = document.getElementById(`status-${key}`);
+    status.textContent = action === 'confirm' ? (type === 'change' ? 'Confirming…' : 'Running…') : 'Cancelling…';
+    const url = type === 'change'
+        ? `/api/changes/${id}/${action === 'confirm' ? 'approve' : 'reject'}`
+        : `/api/approvals/${id}/${action}`;
+    const body = type === 'change' && action === 'cancel' ? {reason: 'Cancelled by requester'} : {};
     try {
-        const res = await fetch(`/api/approvals/${id}/${action}`, {
-            method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+        const res = await fetch(url, {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
         });
         const data = await res.json();
         if (!data.success) {
@@ -83,6 +97,9 @@ async function act(id, action, btn) {
         if (action === 'cancel') {
             status.style.color = 'var(--text-secondary)';
             status.textContent = 'Cancelled. Nothing was changed.';
+        } else if (type === 'change') {
+            status.style.color = '#10b981';
+            status.innerHTML = 'Confirmed. Run it from <a href="/changes">Change history</a>.';
         } else {
             const ok = (data.result || {}).success !== false;
             status.style.color = ok ? '#10b981' : '#ef4444';

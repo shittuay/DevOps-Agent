@@ -183,27 +183,25 @@ Every tool call is classified by risk before it runs:
   high-risk actions (delete, terminate, destroy, anything that reveals a secret) still wait for
   you to click **Confirm & run**: one message shouldn't be enough to delete production. Nobody
   else approves those for you.
-- **Through the APIs:** the developer API and `/api/v1` apply the same rules; see the
+- **Through the API:** the developer API (and the deprecated `/api/v1`) apply the same rules; see the
   [API reference](API_REFERENCE.md#risky-tools-and-approvals).
 - **Sandbox mode:** never creates approval requests; everything is simulated.
 
-**My requests** (`/approvals/mine`, everyone): your own pending requests, with Confirm & run
-(when nobody else could approve) and Cancel.
+**My requests** (`/approvals/mine`, everyone): your own pending agent requests and change
+requests, with Confirm (when nobody else could approve) and Cancel.
 
 **Approvals page** (`/approvals`, organization owners and admins, plus platform Approvers and
-Admins): pending agent requests from your team, with approve and reject (with a note). Platform
-Approvers also see pending change requests here. **History** (`/approvals/history`)
-lists decided requests.
+Admins): one queue for your team's pending agent requests and change requests, with approve and
+reject (with a note). **History** (`/approvals/history`) lists decided requests.
 
 **Change requests** (`/changes`) are the planned, team-reviewed route: ask the agent to "create a
-change request" (or create one on the page), an Approver in your organization approves it, then it
-is executed from the page, with rollback data saved first. High-risk change requests can't be
-self-approved. Actions run directly from chat are also recorded here as executed changes, so the
-page doubles as an audit trail.
+change request" (or create one on the page). It is decided in Approvals by the same rules as agent
+requests (an owner or admin of your organization; you, if nobody else could), then executed from
+`/changes`, with rollback data saved first. Actions run directly from chat are also recorded
+there as executed changes, so the page doubles as an audit trail.
 
 Organization owners and admins make someone an organization admin from the organization's Members page.
-The platform Approver and Admin roles are set by platform admins (Admin → Users); change requests
-on `/changes` still need the platform Approver role.
+The platform Approver and Admin roles are set by platform admins (Admin → Users).
 
 ---
 
