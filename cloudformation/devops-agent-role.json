@@ -22,6 +22,15 @@
       "Type": "String",
       "Default": "DevOpsAgentRole",
       "Description": "Name of the IAM role to create."
+    },
+    "AllowSelfGrant": {
+      "Type": "String",
+      "AllowedValues": [
+        "No",
+        "Yes"
+      ],
+      "Default": "No",
+      "Description": "Yes: when AWS refuses an action and you approve the missing permission in DevOps Agent, the agent adds it to this role itself. The role can only edit its own inline policies, and a permissions boundary you control caps it: no IAM changes, no secret values. No: you add approved permissions yourself."
     }
   },
   "Conditions": {
@@ -32,9 +41,114 @@
         },
         "Management"
       ]
+    },
+    "SelfGrant": {
+      "Fn::Equals": [
+        {
+          "Ref": "AllowSelfGrant"
+        },
+        "Yes"
+      ]
     }
   },
   "Resources": {
+    "DevOpsAgentBoundary": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Condition": "SelfGrant",
+      "Properties": {
+        "Description": "Permissions boundary for the DevOps Agent role: the most it can ever do, whatever permissions it adds to itself.",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllServicesExceptIdentity",
+              "Effect": "Allow",
+              "NotAction": [
+                "iam:*",
+                "sts:*",
+                "organizations:*",
+                "account:*",
+                "sso:*",
+                "identitystore:*"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "GovernanceRead",
+              "Effect": "Allow",
+              "Action": [
+                "iam:Get*",
+                "iam:List*",
+                "iam:GenerateCredentialReport",
+                "iam:GenerateServiceLastAccessedDetails",
+                "sts:GetCallerIdentity",
+                "ce:Get*",
+                "ce:Describe*",
+                "ce:List*",
+                "cloudtrail:Describe*",
+                "cloudtrail:Get*",
+                "cloudtrail:LookupEvents",
+                "config:Describe*",
+                "config:Get*",
+                "config:List*",
+                "organizations:Describe*",
+                "organizations:List*",
+                "servicequotas:Get*",
+                "servicequotas:List*",
+                "support:Describe*",
+                "resource-groups:*",
+                "tag:Get*",
+                "xray:Get*",
+                "xray:BatchGet*"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "PassRoleToAwsServicesOnly",
+              "Effect": "Allow",
+              "Action": "iam:PassRole",
+              "Resource": "*",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": [
+                    "ec2.amazonaws.com",
+                    "ecs-tasks.amazonaws.com",
+                    "lambda.amazonaws.com",
+                    "eks.amazonaws.com",
+                    "events.amazonaws.com",
+                    "states.amazonaws.com",
+                    "autoscaling.amazonaws.com"
+                  ]
+                }
+              }
+            },
+            {
+              "Sid": "EditOwnInlinePolicies",
+              "Effect": "Allow",
+              "Action": [
+                "iam:PutRolePolicy",
+                "iam:DeleteRolePolicy"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/${RoleName}"
+              }
+            },
+            {
+              "Sid": "NeverSecretValues",
+              "Effect": "Deny",
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:GetParametersByPath",
+                "ssm:GetParameterHistory"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
     "DevOpsAgentRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
@@ -43,6 +157,17 @@
         },
         "Description": "Assumed by DevOps Agent (devopsagent.io) for infrastructure operations.",
         "MaxSessionDuration": 3600,
+        "PermissionsBoundary": {
+          "Fn::If": [
+            "SelfGrant",
+            {
+              "Ref": "DevOpsAgentBoundary"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
         "AssumeRolePolicyDocument": {
           "Version": "2012-10-17",
           "Statement": [
@@ -347,6 +472,47 @@
                 }
               ]
             }
+          },
+          {
+            "Fn::If": [
+              "SelfGrant",
+              {
+                "PolicyName": "DevOpsAgentSelfGrant",
+                "PolicyDocument": {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Sid": "EditOwnInlinePolicies",
+                      "Effect": "Allow",
+                      "Action": [
+                        "iam:PutRolePolicy",
+                        "iam:DeleteRolePolicy"
+                      ],
+                      "Resource": {
+                        "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/${RoleName}"
+                      }
+                    },
+                    {
+                      "Sid": "NeverTouchTheBoundaryOrTrust",
+                      "Effect": "Deny",
+                      "Action": [
+                        "iam:PutRolePermissionsBoundary",
+                        "iam:DeleteRolePermissionsBoundary",
+                        "iam:UpdateAssumeRolePolicy",
+                        "iam:AttachRolePolicy",
+                        "iam:DetachRolePolicy"
+                      ],
+                      "Resource": {
+                        "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/${RoleName}"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "Ref": "AWS::NoValue"
+              }
+            ]
           }
         ]
       }

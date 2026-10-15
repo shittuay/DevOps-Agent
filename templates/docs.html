@@ -685,6 +685,7 @@
 
       <h3 class="subsection-title">Confirmation for risky operations</h3>
       <p>Every tool call is risk-classified. Medium- and high-risk actions (deleting resources, terminating or stopping instances, changing IAM policies or firewall rules) don't run straight away: for accounts with the default User role they wait for confirmation. On a personal account you confirm them yourself with <strong>Confirm &amp; run</strong> in the chat (or on <a href="/approvals/mine">My requests</a>); in an organization, the organization's owners and admins approve them on the Approvals page. Accounts with the Approver or Admin role run medium-risk actions directly and confirm their own high-risk ones with <strong>Confirm &amp; run</strong>. Sandbox mode simulates everything instead.</p>
+      <p>If AWS refuses an action because DevOps Agent's role is missing a permission, the chat shows the exact policy needed and asks you yes or no. Add it in AWS and click <strong>I added it, retry</strong>, or, if you launched the CloudFormation stack with <code>AllowSelfGrant=Yes</code> and turned on self-grant in Settings → AWS Configuration, the agent adds it to its own role (capped by a permissions boundary you control) and retries. Identity, key and secret-value permissions are never added automatically.</p>
 
       <h3 class="subsection-title">Model selector</h3>
       <p>Use the model toggle in the chat toolbar to switch between AI providers:</p>

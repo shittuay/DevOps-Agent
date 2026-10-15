@@ -1423,6 +1423,48 @@ class DevOpsAgent:
                 })
 
     def _invoke_tool(self, tool_name: str, tool_input: dict) -> Any:
+        """Run a tool (see _invoke_tool_cached); turn an AWS access-denied into a permission request."""
+        result = self._invoke_tool_cached(tool_name, tool_input)
+        return self._maybe_request_aws_permission(tool_name, tool_input, result)
+
+    def _maybe_request_aws_permission(self, tool_name: str, tool_input: dict, result: Any) -> Any:
+        """When AWS refused for lack of a permission, file a request the account owner approves.
+
+        services/aws_permissions.py builds the smallest policy; the request goes through
+        the normal approval flow (org owners/admins, or the user themselves when nobody
+        else can approve). The model gets the request id instead of a dead end, and the
+        chat shows the approval card (`_pending_approval`). Never in sandbox mode, never
+        without a signed-in user, and never fatal: any error leaves the result as it was.
+        """
+        try:
+            if getattr(self, '_sandbox_mode', False):
+                return result
+            uid = getattr(self, '_current_user_id', None)
+            category = (getattr(self, 'tool_categories', {}) or {}).get(tool_name) or ''
+            if not uid or not (category.startswith('aws') or tool_name.startswith('aws_api_')):
+                return result
+            from services import aws_permissions
+            if not aws_permissions.is_access_denied(result):
+                return result
+            req = aws_permissions.file_request(uid, getattr(self, '_current_conversation_id', None),
+                                               tool_name, tool_input, result, category)
+            if req is None:
+                return result
+            if not getattr(self, '_pending_approval', None):
+                self._pending_approval = {
+                    'approval_id': req.id,
+                    'tool_name': aws_permissions.PERMISSION_TOOL,
+                    'risk_level': 'high',
+                    'risk_reason': req.risk_reason,
+                    'permission': {k: (req.tool_input or {}).get(k)
+                                   for k in ('action', 'policy', 'mode', 'manual', 'sensitive')},
+                }
+            return {**result, '_permission_request': aws_permissions.model_note(req)}
+        except Exception as e:
+            self.logger.warning(f"Permission request skipped for {tool_name}: {e}")
+            return result
+
+    def _invoke_tool_cached(self, tool_name: str, tool_input: dict) -> Any:
         """Call a tool handler, with a 60s per-user cache for read-only tools.
 
         Execution Integrity rule 5 (docs/execution-integrity.md): a reasoning
@@ -1839,6 +1881,7 @@ class DevOpsAgent:
             self.pending_download = None
             self._sandbox_mode = sandbox_mode
             self._current_user_id = user_id
+            self._pending_approval = None
             self._tools_override = tools_override
             self._trust_tool_results = trust_tool_results
 
@@ -2808,6 +2851,14 @@ class DevOpsAgent:
                             'tool_call_id': tc_info['id'],
                             'content': sanitized_result,
                         })
+
+                        # An AWS permission request filed by _invoke_tool: stop and show
+                        # the owner the yes/no card, as the Claude path does.
+                        if getattr(self, '_pending_approval', None):
+                            approval = self._pending_approval
+                            self._pending_approval = None
+                            yield f"\x00APPROVAL_REQUIRED\x00{json.dumps(approval)}"
+                            return
 
                         time.sleep(0.5)
 

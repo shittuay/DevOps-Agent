@@ -3290,3 +3290,11 @@ breaking their saved connection. Both now pass `ParameterKey=RoleName,UsePreviou
 `tests/test_aws_account_migration.py::test_update_stack_instructions_keep_every_template_parameter`
 reads the parameter list from the template, so a parameter added later is checked too.
 Found while writing the customer message for the AWS account move.
+
+## 2026-10-15 — AWS permission requests
+
+Owner report: the agent often stopped at an AWS permission error. It now turns an
+AccessDenied into a yes/no request with the exact minimal policy, and retries once it is
+added (by the owner, or by the agent within an opt-in permissions boundary). Design and
+invariants: CLAUDE.md "AWS permission requests". Follow-up needed by the owner: re-upload
+the CloudFormation template to S3 so quick-create offers `AllowSelfGrant`.

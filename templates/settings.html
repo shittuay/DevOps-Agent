@@ -533,6 +533,14 @@
                     <p><strong>Mode:</strong> <span id="currentAuthMode"></span></p>
                     <p><strong>Identity:</strong> <span id="currentIdentity"></span></p>
                     <p><strong>Region:</strong> <span id="currentRegion"></span></p>
+                    <div id="selfGrantBox" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+                        <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
+                            <input type="checkbox" id="selfGrantToggle" onchange="setSelfGrant(this.checked)" style="margin-top:3px;" />
+                            <span><strong>Let DevOps Agent add missing permissions itself, after I say yes</strong><br>
+                            <small>When AWS refuses an action for lack of a permission, the agent always shows you the exact policy and asks first. With this on, a yes adds it to the agent's own role and it retries; with it off, you add it in AWS and then confirm. Needs the CloudFormation stack launched with <code>AllowSelfGrant=Yes</code>, which caps the role with a permissions boundary. Identity, key and secret-value permissions are never added automatically.</small></span>
+                        </label>
+                        <div id="selfGrantMsg" style="font-size:0.85em;margin-top:6px;"></div>
+                    </div>
                 </div>
 
                 <div id="errorMessage" class="alert alert-error"></div>
@@ -1249,6 +1257,8 @@
                             document.getElementById('currentIdentity').textContent = data.role_arn || 'Not set';
                             switchAwsMode('role_arn');
                             checkAwsPolicyFreshness();
+                            document.getElementById('selfGrantBox').style.display = 'block';
+                            document.getElementById('selfGrantToggle').checked = !!data.self_grant;
                         } else {
                             document.getElementById('currentAuthMode').textContent = 'Access Keys';
                             document.getElementById('currentIdentity').textContent = data.access_key || 'Not set';
@@ -1257,6 +1267,29 @@
                     }
                 })
                 .catch(error => console.error('Error loading config:', error));
+        }
+
+        function setSelfGrant(enabled) {
+            var box = document.getElementById('selfGrantToggle');
+            var msg = document.getElementById('selfGrantMsg');
+            msg.textContent = 'Saving...';
+            msg.style.color = '';
+            fetch('/api/aws/self-grant', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({enabled: enabled})
+            })
+                .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, d: d}; }); })
+                .then(function(res) {
+                    msg.textContent = res.d.message || res.d.error || '';
+                    msg.style.color = res.ok ? '#059669' : '#dc2626';
+                    if (!res.ok) box.checked = !enabled;
+                })
+                .catch(function() {
+                    msg.textContent = 'Could not save the setting.';
+                    msg.style.color = '#dc2626';
+                    box.checked = !enabled;
+                });
         }
 
         function checkAwsPolicyFreshness() {

@@ -98,8 +98,42 @@ aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
+This command leaves `AllowSelfGrant` at its default (`No`). If you opted in, add
+`ParameterKey=AllowSelfGrant,ParameterValue=Yes` (see below).
+
 Manually created roles: re-paste the current policy JSON from the published
 URLs at the top of this document.
+
+### Letting the agent add missing permissions (AllowSelfGrant)
+
+When AWS refuses an action because the role lacks a permission, DevOps Agent shows
+you the exact policy it needs (one action, the narrowest resource) and asks yes or
+no. On yes, either you add it in AWS yourself (the card shows the console path and
+an `aws iam put-role-policy` command) and the agent retries, or, if you opted in,
+the agent adds it to its own role and retries.
+
+To opt in, launch or update the stack with `AllowSelfGrant=Yes`, then turn on
+"Let DevOps Agent add missing permissions itself" in Settings → AWS Configuration
+(it refuses unless the role has a permissions boundary). `Yes` adds:
+
+- `DevOpsAgentSelfGrant`: `iam:PutRolePolicy` / `iam:DeleteRolePolicy` on this role
+  only, and a deny on changing its boundary, trust policy or attached policies.
+- `DevOpsAgentBoundary`, a managed policy set as the role's permissions boundary:
+  every service except IAM writes, `sts`, `organizations`, `account` and SSO; IAM
+  read; `iam:PassRole` to AWS services only; and never secret values
+  (`secretsmanager:GetSecretValue`, `ssm:GetParameter*`). The role can't edit it.
+
+AWS enforces the boundary, so nothing the agent adds can exceed it. The app also
+never adds identity, key or secret-value permissions itself; those are always left
+to you. Note that the boundary caps permissions you add by hand too: to give the
+role something outside it, edit the boundary policy.
+
+```bash
+aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
+  --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \
+  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,UsePreviousValue=true ParameterKey=RoleName,UsePreviousValue=true ParameterKey=AllowSelfGrant,ParameterValue=Yes \
+  --capabilities CAPABILITY_NAMED_IAM
+```
 
 ### Manual
 

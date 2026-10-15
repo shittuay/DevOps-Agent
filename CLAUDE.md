@@ -2234,6 +2234,43 @@ Still open: the CLI (no
 signed-in user) runs risky tools unconfirmed; an approver's medium-risk call through either API
 runs directly without verification/audit (it skips the approval service).
 
+### AWS permission requests (2026-10-15)
+
+Owner request: when AWS refuses an action for a missing permission, write the needed
+policy and ask the account owner yes/no, then retry. `services/aws_permissions.py`.
+- **Trigger:** `DevOpsAgent._invoke_tool` (all 5 exec sites) passes every result through
+  `_maybe_request_aws_permission`: AWS tools only (category `aws*` or `aws_api_*`), never in
+  sandbox or without a user, never raises. `parse_denial()` reads the action from AWS's
+  "is not authorized to perform: svc:Action" text, else builds it from "when calling the X
+  operation" plus the category / `aws_api_*` `service` (boto3 client → IAM prefix and S3
+  operation → IAM action maps). An explicit deny (SCP/boundary) is never proposed.
+- **Request:** an ordinary high-risk `ApprovalRequest` with `tool_name='grant_aws_permission'`
+  (`PERMISSION_TOOL`), deduped per pending action. That name is **never a registered tool**:
+  only a real AccessDenied creates one (test pins it). The model gets `_permission_request`
+  in the result; the chat card comes from `_pending_approval` (Claude path, and a check after
+  each Kimi streaming tool result; Kimi non-streaming relies on `/approvals/mine`). The card
+  and approvals pages show the policy, console path and CLI.
+- **Approval:** same rules as any agent request (org owners/admins, or self-confirm).
+  `approval_service._execute_tool` routes `PERMISSION_TOOL` to `execute_grant()`.
+- **Modes:** `manual` (default): the owner adds the policy, confirms, the agent retries.
+  `self` (opt-in): role-ARN connections with `self_grant` on (`set_aws_self_grant`, `PUT
+  /api/aws/self-grant`, refuses unless the role has a permissions boundary; re-saving AWS
+  credentials turns it off). The agent merges the statement into its own inline policy
+  `DevOpsAgentGrantedPermissions`. The setting is re-read at execution, and
+  `is_sensitive()` actions (iam/sts/organizations/kms/sso..., secret values, wildcards)
+  are never self-granted.
+- **Retry:** up to 3 tries (`RETRY_DELAYS`, IAM propagation). A different denied action on
+  retry files a follow-up request (`next_permission_request`).
+- **CloudFormation:** `AllowSelfGrant` (default `No`) adds `DevOpsAgentSelfGrant`
+  (Put/DeleteRolePolicy on its own role; deny boundary/trust/attach changes) and the
+  `DevOpsAgentBoundary` managed policy as the permissions boundary (all services except
+  iam/sts/organizations/account/SSO, plus IAM read, PassRole to services, own-inline edits;
+  deny secret values). **After merging, re-upload `cloudformation/devops-agent-role.json`
+  to S3** (`docs/iam-policies.md`); the live quick-create link serves the old template until then.
+  The update-stack commands deliberately omit `AllowSelfGrant` (UsePreviousValue fails on
+  stacks made before it existed; omitting resets to the safe `No`).
+- Tests: `tests/test_aws_permission_requests.py`, `tests/test_iam_policies.py`.
+
 ### Documentation layout
 
 User docs live in `docs/` (index: `docs/README.md`): `QUICK_START.md`,

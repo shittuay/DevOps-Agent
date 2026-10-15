@@ -157,4 +157,8 @@ def test_update_stack_instructions_keep_every_template_parameter():
         text = path.read_text()
         assert 'update-stack' in text, f'{path.name} no longer shows update-stack; update this test'
         for name in params:
+            if name == 'AllowSelfGrant':
+                # Leaving it out resets it to 'No', the safe default, and UsePreviousValue is
+                # rejected for stacks created before the parameter existed (2026-10-15).
+                continue
             assert f'ParameterKey={name},UsePreviousValue=true' in text, f'{path.name} omits {name}'
