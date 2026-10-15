@@ -243,6 +243,31 @@ def api_docs():
     return render_template('api_gateway/docs.html')
 
 
+def _resource_json(r, detail: bool = False) -> dict:
+    """A synced resource as the developer API returns it.
+
+    The model's fields are resource_name / cloud_provider / resource_metadata. These
+    endpoints used to read name / provider / metadata, which don't exist, so both
+    crashed with a 500 for any user with at least one synced resource.
+    """
+    data = {
+        'id': r.id,
+        'name': r.resource_name,
+        'type': r.resource_type,
+        'provider': r.cloud_provider,
+        'status': r.status,
+        'region': r.region,
+        'created_at': r.created_at.isoformat() if r.created_at else None,
+    }
+    if detail:
+        data.update({
+            'resource_id': r.resource_id,
+            'metadata': r.resource_metadata or {},
+            'last_synced': r.last_synced.isoformat() if r.last_synced else None,
+        })
+    return data
+
+
 # External API endpoints (for SDK/external use)
 @api_gateway_bp.route('/v1/resources', methods=['GET'])
 @api_key_required
@@ -254,17 +279,7 @@ def api_list_resources():
         user_id=request.api_key.user_id
     ).all()
 
-    return jsonify({
-        'resources': [{
-            'id': r.id,
-            'name': r.name,
-            'type': r.resource_type,
-            'provider': r.provider,
-            'status': r.status,
-            'region': r.region,
-            'created_at': r.created_at.isoformat() if r.created_at else None
-        } for r in resources]
-    })
+    return jsonify({'resources': [_resource_json(r) for r in resources]})
 
 
 @api_gateway_bp.route('/v1/resources/<resource_id>', methods=['GET'])
@@ -281,20 +296,7 @@ def api_get_resource(resource_id):
     if not resource:
         return jsonify({'error': 'Resource not found'}), 404
 
-    return jsonify({
-        'resource': {
-            'id': resource.id,
-            'name': resource.name,
-            'type': resource.resource_type,
-            'provider': resource.provider,
-            'status': resource.status,
-            'region': resource.region,
-            'resource_id': resource.resource_id,
-            'metadata': resource.metadata,
-            'created_at': resource.created_at.isoformat() if resource.created_at else None,
-            'last_synced': resource.last_synced.isoformat() if resource.last_synced else None
-        }
-    })
+    return jsonify({'resource': _resource_json(resource, detail=True)})
 
 
 @api_gateway_bp.route('/v1/analytics/costs', methods=['GET'])
@@ -875,6 +877,15 @@ def api_list_keys():
     from services.api_gateway import APIGatewayService
     keys = APIGatewayService().get_user_api_keys(current_user.id)
     return jsonify({'keys': [k.to_dict() for k in keys]})
+
+
+@api_gateway_bp.route('/api/webhooks')
+@login_required
+def api_list_webhooks():
+    """JSON endpoint: list current user's webhooks (the dashboard and Webhooks page call it)."""
+    from services.api_gateway import APIGatewayService
+    webhooks = APIGatewayService().get_user_webhooks(current_user.id)
+    return jsonify({'webhooks': [w.to_dict() for w in webhooks]})
 
 
 @api_gateway_bp.route('/api/stats')
