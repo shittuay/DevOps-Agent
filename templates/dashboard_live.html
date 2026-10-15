@@ -397,6 +397,22 @@
 
         .btn-dismiss:hover { color: var(--text-secondary); border-color: var(--border-medium); }
 
+        /* ── Security checks ── */
+        .sec-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .sec-note { font-size: 13px; color: var(--text-tertiary); margin: -4px 0 10px; line-height: 1.5; }
+        .sec-note.error { color: var(--accent-danger); }
+        .sec-card { border-left-color: var(--text-tertiary); }
+        .sec-card.critical { border-left-color: var(--accent-danger); }
+        .sec-card.high { border-left-color: #f97316; }
+        .sec-card.medium { border-left-color: var(--accent-warning); }
+        .sec-sev {
+            font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700;
+            text-transform: uppercase; min-width: 72px; padding-top: 2px; color: var(--text-tertiary);
+        }
+        .sec-card.critical .sec-sev { color: var(--accent-danger); }
+        .sec-card.high .sec-sev { color: #f97316; }
+        .sec-card.medium .sec-sev { color: var(--accent-warning); }
+
         /* ── Resources Table ── */
         .resources-section {
             animation: cardIn 0.4s ease 0.35s both;
@@ -913,6 +929,16 @@
                 <div id="recsList"></div>
             </div>
 
+            <!-- Security checks -->
+            <div class="recs-section" id="secSection">
+                <div class="section-header sec-head">
+                    <span id="secHeader">Security checks</span>
+                    <button class="btn-sm btn-dismiss" id="secScanBtn" onclick="runSecurityScan()">Run checks</button>
+                </div>
+                <div class="sec-note" id="secNote">Checks your AWS account for public S3 buckets, security groups open to the internet, public or unencrypted databases, and console users without MFA.</div>
+                <div id="secList"></div>
+            </div>
+
             <!-- Resources -->
             <div class="resources-section" id="resourcesSection" style="display:none;">
                 <div class="section-header">Infrastructure Resources</div>
@@ -1008,6 +1034,7 @@
                 $('dashContent').style.display = 'block';
 
                 loadCosts();
+                loadSecurity();
             } catch (e) {
                 console.error('Dashboard load error:', e);
                 $('loadingState').style.display = 'none';
@@ -1409,6 +1436,75 @@
                 showToast('Sync error: ' + e.message, 'error');
                 resetBtn();
             }
+        };
+
+        function renderSecurity(data) {
+            var list = data.findings || [];
+            $('secHeader').textContent = list.length
+                ? 'Security checks \u2014 ' + list.length + ' open'
+                : 'Security checks';
+            $('secList').innerHTML = list.map(function(f) {
+                var sev = (f.severity || 'low').toLowerCase();
+                return '<div class="rec-card sec-card ' + sev + '">' +
+                    '<div class="sec-sev">' + escHtml(sev) + '</div>' +
+                    '<div class="rec-body">' +
+                        '<div class="rec-title-row"><div class="rec-title">' + escHtml(f.title) + '</div></div>' +
+                        '<div class="rec-desc">' + escHtml(f.description) + '</div>' +
+                        (f.remediation_steps ? '<div class="rec-desc">Fix: ' + escHtml(f.remediation_steps) + '</div>' : '') +
+                        '<div class="rec-actions">' +
+                            '<button class="btn-sm btn-dismiss" onclick="window._dismissFinding(' + f.id + ')">Dismiss</button>' +
+                        '</div>' +
+                    '</div></div>';
+            }).join('');
+        }
+
+        async function loadSecurity() {
+            try {
+                var res = await fetch('/api/security/summary');
+                if (!res.ok) return;
+                var data = await res.json();
+                renderSecurity(data);
+                if (data.last_detected) {
+                    $('secNote').classList.remove('error');
+                    $('secNote').textContent = 'Last found an issue ' + new Date(data.last_detected).toLocaleString() + '. Run the checks again to refresh.';
+                }
+            } catch (e) { console.error('Security summary error:', e); }
+        }
+
+        async function runSecurityScan() {
+            var btn = $('secScanBtn'), note = $('secNote');
+            btn.disabled = true; btn.textContent = 'Checking\u2026';
+            try {
+                var res = await fetch('/api/security/scan', {method: 'POST'});
+                var data = await res.json();
+                if (!res.ok || !data.success) {
+                    note.classList.add('error');
+                    note.textContent = data.error || 'The security checks could not run.';
+                    return;
+                }
+                var failed = Object.keys(data.checks || {}).filter(function(k) { return data.checks[k].status !== 'ok'; });
+                var warnings = Object.keys(data.checks || {}).reduce(function(n, k) { return n + ((data.checks[k].warnings || []).length); }, 0);
+                var parts = ['Checked just now' + (data.region ? ' (security groups and databases in ' + data.region + ')' : '') + '.'];
+                parts.push(data.total ? data.total + ' issue' + (data.total === 1 ? '' : 's') + ' found.' : 'No issues found in the checks that ran.');
+                if (data.resolved) parts.push(data.resolved + ' fixed since last time.');
+                if (failed.length) parts.push('Could not run: ' + failed.map(function(k) { return data.checks[k].label; }).join('; ') + '.');
+                if (warnings) parts.push(warnings + ' item' + (warnings === 1 ? '' : 's') + ' could not be read.');
+                note.classList.toggle('error', failed.length > 0);
+                note.textContent = parts.join(' ');
+                var sum = await fetch('/api/security/summary');
+                if (sum.ok) renderSecurity(await sum.json());
+            } catch (e) {
+                note.classList.add('error');
+                note.textContent = 'The security checks could not run.';
+            } finally {
+                btn.disabled = false; btn.textContent = 'Run checks';
+            }
+        }
+
+        window._dismissFinding = async function(id) {
+            if (!confirm('Dismiss this finding? Later checks will not show it again.')) return;
+            var res = await fetch('/api/security/findings/' + id + '/dismiss', {method: 'POST'});
+            if (res.ok) loadSecurity(); else showToast('Could not dismiss', 'error');
         };
 
         function escHtml(s) {

@@ -48,7 +48,6 @@ def make_celery(app=None):
         include=[
             'tasks.cloud_tasks',
             'tasks.email_tasks',
-            'tasks.security_tasks',
             'tasks.maintenance_tasks'
         ]
     )
@@ -87,7 +86,6 @@ def make_celery(app=None):
         task_routes={
             'tasks.cloud_tasks.*': {'queue': 'cloud'},
             'tasks.email_tasks.*': {'queue': 'email'},
-            'tasks.security_tasks.*': {'queue': 'security'},
             'tasks.maintenance_tasks.*': {'queue': 'maintenance'},
         },
 
@@ -112,11 +110,6 @@ def make_celery(app=None):
             'subscription-reminders': {
                 'task': 'tasks.email_tasks.send_renewal_reminders',
                 'schedule': crontab(hour=9, minute=0),  # 9 AM daily
-            },
-            # Security scan for suspicious activity
-            'security-audit': {
-                'task': 'tasks.security_tasks.audit_user_activity',
-                'schedule': crontab(minute=0, hour='*/6'),  # Every 6 hours
             },
             # Database backup daily at 2 AM
             'backup-database-daily': {

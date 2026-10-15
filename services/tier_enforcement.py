@@ -76,15 +76,6 @@ def check_feature(user_id, feature_name):
     return getattr(tier, feature_name, False)
 
 
-def check_compliance_framework(user_id, framework):
-    """Check if user's tier includes a specific compliance framework."""
-    tier = get_user_tier(user_id) or _get_free_tier()
-    if not tier:
-        return False
-    allowed = tier.compliance_frameworks or []
-    return framework in allowed
-
-
 def require_feature(feature_name):
     """Decorator that checks if user's tier has a specific feature."""
     def decorator(f):
