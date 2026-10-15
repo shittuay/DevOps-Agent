@@ -1384,6 +1384,11 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 ## Free Trial System
 
 Free-tier users get **20 credits/month** with full agent experience — Kimi K3 with real tool execution.
+**They refill monthly like every plan** (owner decision, 2026-10-14). Chat and `/api/v1` used to
+skip the refill for free users ("one-time trial") while Billing refilled them. Every credit gate
+now calls `UserSubscription.refresh_credits_if_due()`; the out-of-credits message
+(`chat_service.generate_upgrade_pitch(refills_at)`) gives the refill date and Starter's real
+allowance from `TIER_DEFINITIONS`. Guard: `tests/test_free_credits_monthly.py`.
 
 ### Model Tier Mapping
 
@@ -1400,7 +1405,7 @@ Users can override tier default via chat toolbar toggle (`/api/model/switch`).
 
 - **Kimi K3**: OpenAI-compatible API at `https://api.moonshot.ai/v1`. Requires `MOONSHOT_API_KEY`. Like the k2.7 line, it is a reasoning model — responses carry a `reasoning_content` field alongside `content` (the app reads `content`); it spends more completion tokens on reasoning, so keep `max_tokens` generous.
 - **Tool format**: `_convert_tools_to_openai_format()` converts Anthropic format to OpenAI function-calling format.
-- **Credit exhaustion**: Free users get 200 response with `trial_ended: true`, not 402.
+- **Credit exhaustion**: Free users get 200 response with `trial_ended: true` (kept for the UI; it means "this month's free credits are used"), not 402.
 - **Groq fallback**: Used when both Anthropic and Kimi are down. See `GROQ_FALLBACK_MODEL` in `chat_service.py`.
 
 ### Learning Mode & Sandbox

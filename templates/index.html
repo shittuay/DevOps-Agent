@@ -2826,11 +2826,11 @@
                         if (data.trial_ended) {
                             const ctaDiv = document.createElement('div');
                             ctaDiv.className = 'trial-ended-banner';
-                            ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Upgrade to Starter &mdash; $29/month</a>';
+                            ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Keep going now: Starter &mdash; $29/month</a>';
                             textDiv.parentElement.appendChild(ctaDiv);
                             const _inp = document.getElementById('messageInput');
                             const _btn = document.getElementById('sendButton');
-                            if (_inp) { _inp.disabled = true; _inp.placeholder = 'Trial ended — upgrade to continue'; }
+                            if (_inp) { _inp.disabled = true; _inp.placeholder = 'Free credits used for this month — they refill next month, or upgrade'; }
                             if (_btn) _btn.disabled = true;
                         }
                         markWorkflowExecution('completed');
@@ -3022,11 +3022,11 @@
                                 if (evt.trial_ended) {
                                     const ctaDiv = document.createElement('div');
                                     ctaDiv.className = 'trial-ended-banner';
-                                    ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Upgrade to Starter &mdash; $29/month</a>';
+                                    ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Keep going now: Starter &mdash; $29/month</a>';
                                     textDiv.parentElement.appendChild(ctaDiv);
                                     const input = document.getElementById('messageInput');
                                     const sendBtn = document.getElementById('sendButton');
-                                    if (input) { input.disabled = true; input.placeholder = 'Trial ended — upgrade to continue'; }
+                                    if (input) { input.disabled = true; input.placeholder = 'Free credits used for this month — they refill next month, or upgrade'; }
                                     if (sendBtn) sendBtn.disabled = true;
                                 }
                                 loadConversations();

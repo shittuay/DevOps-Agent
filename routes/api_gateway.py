@@ -457,6 +457,7 @@ def api_execute_tool():
             'upgrade_url': '/billing'
         }), 403
 
+    sub.refresh_credits_if_due()
     if not sub.has_credits():
         return jsonify({'error': 'insufficient_credits', 'credits_remaining': 0}), 402
 
@@ -584,6 +585,7 @@ def api_agent_stream():
             yield f"data: {_json.dumps({'type': 'error', 'message': 'Developer API requires Professional or Business plan.'})}\n\n"
         return Response(stream_with_context(_err()), mimetype='text/event-stream')
 
+    sub.refresh_credits_if_due()
     if not sub.has_credits():
         def _err():
             yield f"data: {_json.dumps({'type': 'error', 'message': 'Insufficient credits.'})}\n\n"
@@ -754,6 +756,7 @@ def api_agent():
             'upgrade_url': '/billing'
         }), 403
 
+    sub.refresh_credits_if_due()
     if not sub.has_credits():
         return jsonify({'error': 'insufficient_credits', 'credits_remaining': 0}), 402
 

@@ -2785,10 +2785,9 @@ def api_chat():
             db.session.commit()
             _track_conversion(current_user.id, 'trial_start', {'credits': free_tier.monthly_credits})
 
-        # Reset monthly credits for paid tiers only — free tier is a one-time trial
+        # Monthly refill for every tier, free included (free = 20 credits a month).
         tier_name = subscription.tier.name if subscription.tier else 'free'
-        if tier_name != 'free' and subscription.should_reset_credits():
-            subscription.reset_monthly_credits()
+        subscription.refresh_credits_if_due()
 
         # Guard: if user has 0 credits but has never used any, their subscription
         # was mis-initialized (e.g. free tier had monthly_credits=0 at signup time).
@@ -2803,7 +2802,7 @@ def api_chat():
                 db.session.commit()
                 # Free-tier exhausted: return upgrade pitch as a normal response
                 return jsonify({
-                    'response': _generate_upgrade_pitch(),
+                    'response': _generate_upgrade_pitch(subscription.current_period_end),
                     'credits_remaining': 0,
                     'trial_ended': True,
                 })
@@ -2929,13 +2928,13 @@ def api_chat():
         if tier_name == 'free':
             credits_left = CreditService.balance(current_user.id)
             trial_context = (
-                f"TRIAL CONTEXT: This user is on a free trial with {credits_left} credits remaining out of 20. "
+                f"PLAN CONTEXT: This user is on the Free plan with {credits_left} of their 20 monthly credits left; they refill each month. "
                 "They are experiencing the full DevOps agent with real tool execution. "
             )
             if credits_left <= 5:
                 trial_context += (
                     "Their credits are running low. Naturally weave in a brief mention that they can "
-                    "upgrade to the Starter plan ($29/month) for 500 credits/month to keep using these tools. "
+                    "upgrade to the Starter plan ($29/month) for 200 credits a month, or wait for next month's refill. "
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
@@ -3432,10 +3431,9 @@ def api_chat_stream():
             db.session.add(subscription)
             db.session.commit()
 
-        # Reset monthly credits for paid tiers only — free tier is a one-time trial
+        # Monthly refill for every tier, free included (free = 20 credits a month).
         tier_name = subscription.tier.name if subscription.tier else 'free'
-        if tier_name != 'free' and subscription.should_reset_credits():
-            subscription.reset_monthly_credits()
+        subscription.refresh_credits_if_due()
 
         subscription.repair_if_never_used()
 
@@ -3443,7 +3441,7 @@ def api_chat_stream():
             if tier_name == 'free':
                 # Free-tier exhausted: stream the upgrade pitch as SSE
                 import json as _json_stream
-                pitch = _generate_upgrade_pitch()
+                pitch = _generate_upgrade_pitch(subscription.current_period_end)
                 def generate_pitch():
                     yield f"data: {_json_stream.dumps({'type': 'chunk', 'content': pitch})}\n\n"
                     yield f"data: {_json_stream.dumps({'type': 'done', 'credits_remaining': 0, 'trial_ended': True})}\n\n"
@@ -3616,13 +3614,13 @@ def api_chat_stream():
         if tier_name == 'free':
             credits_left = CreditService.balance(uid)
             trial_context = (
-                f"TRIAL CONTEXT: This user is on a free trial with {credits_left} credits remaining out of 20. "
+                f"PLAN CONTEXT: This user is on the Free plan with {credits_left} of their 20 monthly credits left; they refill each month. "
                 "They are experiencing the full DevOps agent with real tool execution. "
             )
             if credits_left <= 5:
                 trial_context += (
                     "Their credits are running low. Naturally weave in a brief mention that they can "
-                    "upgrade to the Starter plan ($29/month) for 500 credits/month to keep using these tools. "
+                    "upgrade to the Starter plan ($29/month) for 200 credits a month, or wait for next month's refill. "
                     "Do NOT make this the focus -- still answer their question fully first."
                 )
 
