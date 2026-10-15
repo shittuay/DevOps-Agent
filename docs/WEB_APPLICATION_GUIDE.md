@@ -118,8 +118,14 @@ Past runs and their status are listed on the page.
 The dashboard (`/dashboard`) summarises your connected accounts:
 
 - **Health score** (A–F) from open security findings, cost waste and active critical alerts.
-- **Monthly spend** and **potential savings** (from AWS Cost Explorer and synced resources).
-- **Total resources** and the last **infrastructure sync**.
+- **Spend**: the last 30 days from AWS billing when Cost Explorer is on, with AWS's own forecast.
+  Otherwise an **estimated monthly cost** from list prices, labelled as such, and no forecast.
+- **Estimated savings**: recommendations backed by evidence from your account (CloudWatch CPU,
+  how long an instance has been stopped, unattached volumes). Savings figures are estimates.
+  **Fix in chat** opens chat with the recommendation filled in; the agent checks the resource and
+  asks before changing anything. **Dismiss** hides it for good.
+- **Security checks**: see [Security checks](#security-checks).
+- **Total resources** and the last **infrastructure sync** (use **Sync now** to refresh).
 
 With no cloud account connected, it shows zeros rather than sample data.
 

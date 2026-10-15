@@ -37,20 +37,22 @@ def get_actual_costs(user_id: int, days: int = 30) -> Dict:
     )
 
     # Parse service breakdown
-    services = []
+    # A 30-day window spans two calendar months, so the same service can appear in
+    # two monthly periods; add them up instead of listing it twice.
+    by_service: Dict[str, Dict] = {}
     total_cost = 0.0
     for period in service_costs.get('ResultsByTime', []):
         for group in period.get('Groups', []):
             service_name = group['Keys'][0]
             amount = float(group['Metrics']['UnblendedCost']['Amount'])
-            if amount > 0.01:
-                services.append({
-                    'service': service_name,
-                    'cost': round(amount, 2),
-                    'unit': group['Metrics']['UnblendedCost']['Unit']
-                })
-                total_cost += amount
+            entry = by_service.setdefault(service_name, {
+                'service': service_name, 'cost': 0.0,
+                'unit': group['Metrics']['UnblendedCost']['Unit'],
+            })
+            entry['cost'] += amount
+            total_cost += amount
 
+    services = [dict(e, cost=round(e['cost'], 2)) for e in by_service.values() if e['cost'] > 0.01]
     services.sort(key=lambda x: x['cost'], reverse=True)
 
     # Parse daily trend
@@ -67,7 +69,8 @@ def get_actual_costs(user_id: int, days: int = 30) -> Dict:
         'services': services,
         'daily_trend': daily_trend,
         'start_date': start_date,
-        'end_date': end_date
+        'end_date': end_date,
+        'source': 'cost_explorer',
     }
 
 

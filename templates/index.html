@@ -4048,6 +4048,20 @@
             }
         });
 
+        // ?prefill= puts text in the message box without sending it (Dashboard "Fix in chat"),
+        // so the user reads and edits it first.
+        document.addEventListener('DOMContentLoaded', function() {
+            const params = new URLSearchParams(window.location.search);
+            const prefill = params.get('prefill');
+            if (!prefill) return;
+            const input = document.getElementById('messageInput');
+            if (!input) return;
+            input.value = prefill.slice(0, 2000);
+            input.dispatchEvent(new Event('input'));
+            input.focus();
+            window.history.replaceState({}, '', window.location.pathname);
+        });
+
         // Open a specific conversation from ?cid= (workflow runs, "View Chat" links).
         // Without this the chat page ignored cid entirely and rendered whatever
         // conversation the session pointed at, so a workflow run appeared in the

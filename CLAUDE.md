@@ -2083,6 +2083,19 @@ requests now notify through `notify_change_event()` → `_send_async()`, so they
 delivered. Guard: `tests/test_shell_pages_removed.py` (routes 404, modules unimportable, no page
 links to them).
 
+Step 5 done: the Dashboard only shows what it can back up. In
+`services/infrastructure_sync.py`: idle-instance recommendations need CloudWatch CPU (no
+name-based fallback) and Spot recommendations (pure name guesses) are gone; "stopped for N days"
+reads `resource_metadata['stopped_since']`, parsed from EC2's `StateTransitionReason` (it used
+`last_synced`, which every sync resets, so it never fired); EC2 sync is paginated; each run deletes
+pending recommendations it no longer supports (thread-local `_seen_this_run()`), never recreates a
+dismissed one, and tells account-level rows apart by title (every unattached volume used to
+overwrite one row). `services/cost_explorer.get_actual_costs()` merges a service across the two
+months a 30-day window spans and returns `source: 'cost_explorer'`; the DB fallback in
+`/api/dashboard/costs` returns `source: 'estimate'` and **no forecast** (it was the estimate ×
+1.05). The page labels estimates; "Apply" (always 501) is replaced by **Fix in chat**, which opens
+`/chat?prefill=<text>` (filled in, not sent). Guard: `tests/test_dashboard_honest.py`.
+
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**

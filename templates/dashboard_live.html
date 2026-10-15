@@ -385,6 +385,8 @@
         .btn-apply {
             background: var(--accent-success);
             color: #fff;
+            display: inline-block;
+            text-decoration: none;
         }
 
         .btn-apply:hover { opacity: 0.85; }
@@ -886,12 +888,12 @@
                     <div class="stat-sub" id="statResourceBreakdown"></div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Monthly Spend</div>
+                    <div class="stat-label" id="statSpendLabel">Estimated monthly cost</div>
                     <div class="stat-value" id="statSpend">$0</div>
                     <div class="stat-sub" id="statForecast"></div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Potential Savings</div>
+                    <div class="stat-label">Estimated savings</div>
                     <div class="stat-value green" id="statSavings">$0</div>
                     <div class="stat-sub" id="statRecCount"></div>
                 </div>
@@ -909,7 +911,7 @@
                 <div class="panel">
                     <div class="panel-title">
                         Cost by Service
-                        <span class="panel-title-hint">Last 30 days</span>
+                        <span class="panel-title-hint" id="costBarsHint">Last 30 days</span>
                     </div>
                     <div id="costBars"></div>
                 </div>
@@ -1047,18 +1049,24 @@
                 var res = await fetch('/api/dashboard/costs');
                 costData = await res.json();
 
+                var billed = costData.source === 'cost_explorer';
                 if (!costData.error && costData.services && costData.services.length > 0) {
                     renderCostBars(costData.services);
                     renderTrend(costData.daily_trend || []);
                     $('costRow').style.display = 'grid';
+                    $('costBarsHint').textContent = billed ? 'Last 30 days, from AWS billing' : 'Estimated from list prices';
 
-                    if (costData.forecast && costData.forecast.forecast_total) {
-                        $('statForecast').innerHTML = 'Projected: <strong>' + fmt(costData.forecast.forecast_total) + '</strong> next month';
+                    if (billed && costData.forecast && costData.forecast.forecast_total) {
+                        $('statForecast').innerHTML = 'AWS forecast: <strong>' + fmt(costData.forecast.forecast_total) + '</strong> next 30 days';
                     }
 
-                    if (costData.total_cost) {
+                    if (billed && costData.total_cost) {
+                        $('statSpendLabel').textContent = 'Spend, last 30 days';
                         $('statSpend').textContent = fmt(costData.total_cost);
                     }
+                }
+                if (!billed) {
+                    $('statForecast').textContent = 'From list prices; turn on AWS Cost Explorer for billed spend';
                 }
             } catch (e) {
                 // Cost Explorer may not be enabled
@@ -1067,6 +1075,7 @@
 
         function renderStats(data) {
             $('statResources').textContent = data.total_resources;
+            $('statSpendLabel').textContent = 'Estimated monthly cost';
             $('statSpend').textContent = fmt(data.total_monthly_cost);
             $('statSavings').textContent = fmt(data.total_potential_savings);
             $('statSyncTime').textContent = timeAgo(data.last_synced);
@@ -1204,13 +1213,13 @@
 
             recs.sort(function(a, b) { return b.potential_monthly_savings - a.potential_monthly_savings; });
 
-            $('recsHeader').textContent = 'Cost Optimization \u2014 ' + fmt(recs.reduce(function(s, r) { return s + r.potential_monthly_savings; }, 0)) + '/mo recoverable';
+            $('recsHeader').textContent = 'Cost Optimization \u2014 about ' + fmt(recs.reduce(function(s, r) { return s + r.potential_monthly_savings; }, 0)) + '/mo, estimated';
 
             var html = '';
             recs.forEach(function(r) {
                 var type = r.recommendation_type || 'unknown';
                 html += '<div class="rec-card">' +
-                    '<div class="rec-savings">' + fmt(r.potential_monthly_savings) + '<br><small>/month</small></div>' +
+                    '<div class="rec-savings">~' + fmt(r.potential_monthly_savings) + '<br><small>/month est.</small></div>' +
                     '<div class="rec-body">' +
                         '<div class="rec-title-row">' +
                             '<div class="rec-title">' + escHtml(r.title) + '</div>' +
@@ -1218,7 +1227,7 @@
                         '</div>' +
                         '<div class="rec-desc">' + escHtml(r.description) + '</div>' +
                         '<div class="rec-actions">' +
-                            '<button class="btn-sm btn-apply" onclick="window._applyRec(' + r.id + ')">Apply</button>' +
+                            '<a class="btn-sm btn-apply" href="' + fixInChatUrl(r) + '">Fix in chat</a>' +
                             '<button class="btn-sm btn-dismiss" onclick="window._dismissRec(' + r.id + ')">Dismiss</button>' +
                         '</div>' +
                     '</div>' +
@@ -1331,23 +1340,13 @@
                 '</div>';
         }
 
-        window._applyRec = async function(recId) {
-            if (!confirm('Apply this optimization?')) return;
-            try {
-                var res = await fetch('/api/dashboard/recommendations/' + recId + '/apply', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }
-                });
-                var data = await res.json();
-                if (data.success) {
-                    showToast('Optimization applied - saving ' + fmt(data.savings) + '/mo', 'success');
-                    loadDashboard();
-                } else {
-                    showToast(data.error || 'Failed to apply', 'error');
-                }
-            } catch (e) {
-                showToast('Network error', 'error');
-            }
-        };
+        // Opens chat with the recommendation filled in (not sent). The agent checks the
+        // resource first, and any change goes through the normal confirmation step.
+        function fixInChatUrl(r) {
+            var prompt = 'Help me act on this cost recommendation: ' + r.title + '. ' + (r.description || '') +
+                ' Check the current state first and ask me before changing anything.';
+            return '/chat?prefill=' + encodeURIComponent(prompt);
+        }
 
         window._dismissRec = async function(recId) {
             try {

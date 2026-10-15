@@ -1,6 +1,8 @@
 """Infrastructure sync service for tracking cloud resources and costs"""
 import os
+import re
 import logging
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from models import db, InfrastructureResource, CostOptimization
@@ -273,15 +275,43 @@ def sync_aws_resources(user_id: int) -> Dict:
     return result
 
 
+_TRANSITION_TIME_RE = re.compile(r'\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) GMT\)')
+
+
+def _stopped_since_from_reason(reason: Optional[str]) -> Optional[str]:
+    """When an instance stopped, from EC2's StateTransitionReason.
+
+    EC2 reports e.g. "User initiated (2026-08-01 14:03:22 GMT)". Returns an ISO
+    timestamp, or None when the reason carries no time.
+    """
+    match = _TRANSITION_TIME_RE.search(reason or '')
+    if not match:
+        return None
+    return datetime.strptime(match.group(1), '%Y-%m-%d %H:%M:%S').isoformat()
+
+
+def days_stopped(resource: InfrastructureResource) -> Optional[int]:
+    """Whole days since a stopped EC2 instance stopped, or None if unknown."""
+    since = (resource.resource_metadata or {}).get('stopped_since')
+    if not since:
+        return None
+    try:
+        return (utcnow().replace(tzinfo=None) - datetime.fromisoformat(since).replace(tzinfo=None)).days
+    except ValueError:
+        return None
+
+
 def sync_aws_ec2_instances(user_id: int) -> int:
     """Sync AWS EC2 instances"""
     try:
         ec2 = _get_user_boto_client(user_id, 'ec2')
-        response = ec2.describe_instances()
+        reservations = []
+        for page in ec2.get_paginator('describe_instances').paginate():
+            reservations.extend(page.get('Reservations', []))
 
         count = 0
         seen_ids = set()
-        for reservation in response.get('Reservations', []):
+        for reservation in reservations:
             for instance in reservation.get('Instances', []):
                 instance_id = instance['InstanceId']
                 instance_type = instance['InstanceType']
@@ -316,11 +346,12 @@ def sync_aws_ec2_instances(user_id: int) -> int:
                     db.session.add(resource)
 
                 # Update resource details
+                previous = dict(resource.resource_metadata or {}) if resource.status == 'stopped' else {}
                 resource.resource_name = instance_name
                 resource.region = instance['Placement']['AvailabilityZone'][:-1]
                 resource.status = state
                 resource.monthly_cost = calculate_ec2_cost(instance_type, state)
-                resource.resource_metadata = {
+                metadata = {
                     'instance_type': instance_type,
                     'launch_time': instance['LaunchTime'].isoformat(),
                     'private_ip': instance.get('PrivateIpAddress'),
@@ -328,6 +359,12 @@ def sync_aws_ec2_instances(user_id: int) -> int:
                     'vpc_id': instance.get('VpcId'),
                     'subnet_id': instance.get('SubnetId'),
                 }
+                if state == 'stopped':
+                    stopped_since = (_stopped_since_from_reason(instance.get('StateTransitionReason'))
+                                     or previous.get('stopped_since'))
+                    if stopped_since:
+                        metadata['stopped_since'] = stopped_since
+                resource.resource_metadata = metadata
                 resource.last_synced = utcnow()
 
                 count += 1
@@ -1224,11 +1261,12 @@ def generate_cost_recommendations(user_id: int):
     resources = InfrastructureResource.query.filter_by(user_id=user_id).all()
     new_count = 0
     total_new_savings = 0.0
+    _seen_this_run().clear()
+    stale_candidates = {r.id for r in CostOptimization.query.filter_by(user_id=user_id, status='pending')}
 
     for resource in resources:
-        # Check for idle EC2 instances (mock - in production, query CloudWatch)
+        # Idle EC2: only when CloudWatch shows it (never guessed from the name)
         if resource.resource_type == 'ec2' and resource.status == 'running':
-            # Simulate low CPU usage detection
             if should_recommend_stopping(resource):
                 idle_savings = resource.monthly_cost * 0.9
                 if create_or_update_recommendation(
@@ -1258,30 +1296,16 @@ def generate_cost_recommendations(user_id: int):
                     new_count += 1
                     total_new_savings += rightsizing_savings
 
-            # Check for Spot instance opportunities
-            if is_spot_candidate(resource):
-                spot_savings = resource.monthly_cost * 0.7  # 70% savings with Spot
-                if create_or_update_recommendation(
-                    user_id=user_id,
-                    resource_id=resource.id,
-                    rec_type='spot_instance',
-                    title=f"Spot instance opportunity: {resource.resource_name}",
-                    description=f"This workload appears suitable for Spot instances. Save up to 70% by using Spot instances.",
-                    savings=spot_savings
-                ):
-                    new_count += 1
-                    total_new_savings += spot_savings
-
-        # Check for stopped instances that have been stopped for a long time
+        # Stopped for over 30 days, by the time EC2 reports it stopped
         if resource.resource_type == 'ec2' and resource.status == 'stopped':
-            days_stopped = (utcnow() - resource.last_synced).days
-            if days_stopped > 30:
-                stopped_savings = 5.00  # EBS storage savings
+            stopped_days = days_stopped(resource)
+            if stopped_days is not None and stopped_days > 30:
+                stopped_savings = 5.00  # rough EBS storage cost of a stopped instance
                 if create_or_update_recommendation(
                     user_id=user_id,
                     resource_id=resource.id,
                     rec_type='unused_resource',
-                    title=f"Stopped instance for {days_stopped} days: {resource.resource_name}",
+                    title=f"Stopped instance for {stopped_days} days: {resource.resource_name}",
                     description=f"This instance has been stopped for over 30 days. Consider terminating it and creating a snapshot if needed.",
                     savings=stopped_savings
                 ):
@@ -1327,15 +1351,19 @@ def generate_cost_recommendations(user_id: int):
     # Check for unattached EBS volumes
     check_unattached_volumes(user_id)
 
+    # Drop pending recommendations this run no longer supports (the instance was
+    # resized, the volume deleted, or the old name-based guesses).
+    for rec_id in stale_candidates - _seen_this_run():
+        CostOptimization.query.filter_by(id=rec_id, user_id=user_id, status='pending').delete()
+
     db.session.commit()
     return new_count, total_new_savings
 
 
 def should_recommend_stopping(resource: InfrastructureResource) -> bool:
     """
-    Determine if we should recommend stopping a resource.
-    Delegates to real CloudWatch metrics via cost_explorer module.
-    Falls back to name-based heuristic if metrics unavailable.
+    Recommend stopping only when CloudWatch shows average CPU under 5% for 7 days.
+    No metrics means no recommendation; it never guesses from the name.
     """
     try:
         from services.cost_explorer import get_instance_utilization
@@ -1344,10 +1372,20 @@ def should_recommend_stopping(resource: InfrastructureResource) -> bool:
         if cpu_avg is not None and cpu_avg < 5.0:
             return True
         return False
-    except Exception:
-        # Fallback: recommend stopping dev/test/staging instances
-        name = (resource.resource_name or '').lower()
-        return any(kw in name for kw in ['dev', 'test', 'staging', 'sandbox'])
+    except Exception as e:
+        logger.warning(f"Idle check skipped for {resource.resource_id} (user {resource.user_id}): {e}")
+        return False
+
+
+# Pending recommendation ids re-confirmed by the current generate_cost_recommendations run.
+# Thread-local: gunicorn runs several requests per process.
+_run_state = threading.local()
+
+
+def _seen_this_run() -> set:
+    if not hasattr(_run_state, 'seen'):
+        _run_state.seen = set()
+    return _run_state.seen
 
 
 def create_or_update_recommendation(
@@ -1359,14 +1397,20 @@ def create_or_update_recommendation(
     savings: float
 ) -> bool:
     """Create or update a cost optimization recommendation. Returns True if new row created."""
-    existing = CostOptimization.query.filter_by(
+    query = CostOptimization.query.filter_by(
         user_id=user_id,
         resource_id=resource_id,
         recommendation_type=rec_type,
-        status='pending'
-    ).first()
+    )
+    if resource_id is None:
+        # Account-level rows (one per volume, one per instance type) are told apart by title.
+        query = query.filter_by(title=title)
+    existing = query.filter_by(status='pending').first()
 
     if not existing:
+        if query.filter_by(status='dismissed').first():
+            return False  # the user already dismissed this one; don't bring it back
+
         recommendation = CostOptimization(
             user_id=user_id,
             resource_id=resource_id,
@@ -1378,6 +1422,7 @@ def create_or_update_recommendation(
         db.session.add(recommendation)
         return True
 
+    _seen_this_run().add(existing.id)
     existing.title = title
     existing.description = description
     existing.potential_monthly_savings = savings
@@ -1415,14 +1460,6 @@ def get_smaller_instance_type(instance_type: str) -> str:
     elif 'large' in instance_type:
         return instance_type.replace('large', 'medium')
     return instance_type
-
-
-def is_spot_candidate(resource: InfrastructureResource) -> bool:
-    """Determine if workload is suitable for Spot instances"""
-    # Simulate spot candidacy - in production, analyze workload patterns
-    # Dev/test environments and batch jobs are good candidates
-    resource_name = resource.resource_name.lower()
-    return any(keyword in resource_name for keyword in ['dev', 'test', 'batch', 'worker'])
 
 
 def check_reserved_instance_opportunities(user_id: int, resources: List):
@@ -1478,7 +1515,7 @@ def check_unattached_volumes(user_id: int):
                 savings=monthly_cost
             )
     except Exception as e:
-        print(f'Error checking unattached volumes: {e}')
+        logger.warning(f'Unattached volume check skipped for user {user_id}: {e}')
 
 
 def get_dashboard_summary(user_id: int) -> Dict:
