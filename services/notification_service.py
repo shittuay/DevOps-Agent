@@ -38,17 +38,6 @@ class NotificationPriority(Enum):
 
 
 @dataclass
-class NotificationConfig:
-    """Configuration for a notification channel."""
-    channel: NotificationChannel
-    enabled: bool = True
-    webhook_url: Optional[str] = None
-    api_token: Optional[str] = None
-    default_channel: Optional[str] = None
-    metadata: dict = field(default_factory=dict)
-
-
-@dataclass
 class Notification:
     """A notification to be sent."""
     title: str
@@ -327,276 +316,6 @@ class TeamsClient:
             return False
 
 
-class NotificationService:
-    """
-    Central notification service for managing and sending notifications
-    across multiple channels.
-    """
-
-    def __init__(self, config: dict = None):
-        self.config = config or {}
-        # Per-user channel configs, keyed by user_id
-        self._user_channels: dict[int, dict[str, NotificationConfig]] = {}
-        self._user_slack_clients: dict[int, SlackClient] = {}
-        self._user_teams_clients: dict[int, TeamsClient] = {}
-
-    def _get_user_channels(self, user_id: int) -> dict[str, NotificationConfig]:
-        """Get or initialize per-user channel configs."""
-        if user_id not in self._user_channels:
-            self._user_channels[user_id] = {}
-        return self._user_channels[user_id]
-
-    def configure_slack(self, user_id: int, webhook_url: str = None, api_token: str = None,
-                        default_channel: str = "#alerts") -> None:
-        """Configure Slack integration for a user."""
-        user_channels = self._get_user_channels(user_id)
-        user_channels["slack"] = NotificationConfig(
-            channel=NotificationChannel.SLACK,
-            enabled=True,
-            webhook_url=webhook_url,
-            api_token=api_token,
-            default_channel=default_channel
-        )
-        self._user_slack_clients[user_id] = SlackClient(webhook_url=webhook_url, api_token=api_token)
-        logger.info("Slack notification channel configured")
-
-    def configure_teams(self, user_id: int, webhook_url: str) -> None:
-        """Configure Microsoft Teams integration for a user."""
-        user_channels = self._get_user_channels(user_id)
-        user_channels["teams"] = NotificationConfig(
-            channel=NotificationChannel.TEAMS,
-            enabled=True,
-            webhook_url=webhook_url
-        )
-        self._user_teams_clients[user_id] = TeamsClient(webhook_url=webhook_url)
-        logger.info("Teams notification channel configured")
-
-    def send(self, user_id: int, notification: Notification, channels: list[str] = None) -> dict[str, bool]:
-        """
-        Send notification to specified channels for a user.
-
-        Args:
-            user_id: The user ID
-            notification: The notification to send
-            channels: List of channel names to send to (defaults to all enabled)
-
-        Returns:
-            Dict mapping channel names to success status
-        """
-        user_channels = self._get_user_channels(user_id)
-        results = {}
-        target_channels = channels or list(user_channels.keys())
-
-        for channel_name in target_channels:
-            if channel_name not in user_channels:
-                logger.warning(f"Unknown channel: {channel_name}")
-                results[channel_name] = False
-                continue
-
-            config = user_channels[channel_name]
-            if not config.enabled:
-                logger.debug(f"Channel {channel_name} is disabled")
-                results[channel_name] = False
-                continue
-
-            slack_client = self._user_slack_clients.get(user_id)
-            teams_client = self._user_teams_clients.get(user_id)
-
-            if config.channel == NotificationChannel.SLACK and slack_client:
-                if config.webhook_url:
-                    results[channel_name] = slack_client.send_webhook(
-                        notification,
-                        config.default_channel
-                    )
-                elif config.api_token:
-                    results[channel_name] = slack_client.send_api(
-                        notification,
-                        config.default_channel
-                    )
-                else:
-                    results[channel_name] = False
-
-            elif config.channel == NotificationChannel.TEAMS and teams_client:
-                results[channel_name] = teams_client.send(notification)
-            else:
-                results[channel_name] = False
-
-        return results
-
-    def send_alert(self, user_id: int, alert_data: dict, channels: list[str] = None) -> dict[str, bool]:
-        """Send an alert notification."""
-        severity = alert_data.get("severity", "medium")
-        priority_map = {
-            "low": NotificationPriority.LOW,
-            "medium": NotificationPriority.NORMAL,
-            "high": NotificationPriority.HIGH,
-            "critical": NotificationPriority.CRITICAL,
-        }
-
-        notification = Notification(
-            title=f"Alert: {alert_data.get('rule_name', 'Unknown')}",
-            message=alert_data.get("message", "Alert triggered"),
-            priority=priority_map.get(severity, NotificationPriority.NORMAL),
-            fields={
-                "Severity": severity.upper(),
-                "Value": str(alert_data.get("value", "N/A")),
-                "Threshold": str(alert_data.get("threshold", "N/A")),
-                "Time": utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
-            }
-        )
-
-        return self.send(user_id, notification, channels)
-
-    def send_deployment_notification(self, user_id: int, deployment_data: dict,
-                                     status: str = "started",
-                                     channels: list[str] = None) -> dict[str, bool]:
-        """Send a deployment notification."""
-        status_priorities = {
-            "started": NotificationPriority.NORMAL,
-            "completed": NotificationPriority.LOW,
-            "failed": NotificationPriority.CRITICAL,
-            "rolled_back": NotificationPriority.HIGH,
-        }
-
-        notification = Notification(
-            title=f"Deployment {status.title()}: {deployment_data.get('name', 'Unknown')}",
-            message=deployment_data.get("message", f"Deployment {status}"),
-            priority=status_priorities.get(status, NotificationPriority.NORMAL),
-            fields={
-                "Environment": deployment_data.get("environment", "N/A"),
-                "Version": deployment_data.get("version", "N/A"),
-                "Deployed By": deployment_data.get("deployed_by", "N/A"),
-            }
-        )
-
-        if deployment_data.get("url"):
-            notification.actions.append({
-                "text": "View Deployment",
-                "url": deployment_data["url"],
-                "primary": True
-            })
-
-        return self.send(user_id, notification, channels)
-
-    def send_change_notification(self, user_id: int, change_data: dict,
-                                    event: str = "created",
-                                    channels: list[str] = None) -> dict[str, bool]:
-        """Send a change governance notification."""
-        event_config = {
-            "created": ("Change Request Created", NotificationPriority.NORMAL),
-            "approved": ("Change Request Approved", NotificationPriority.NORMAL),
-            "rejected": ("Change Request Rejected", NotificationPriority.HIGH),
-            "executed": ("Change Executed", NotificationPriority.NORMAL),
-            "failed": ("Change Execution Failed", NotificationPriority.CRITICAL),
-            "rollback": ("Change Rolled Back", NotificationPriority.HIGH),
-        }
-
-        title, priority = event_config.get(event, ("Change Update", NotificationPriority.NORMAL))
-        risk = change_data.get("risk_level", "unknown")
-        if risk == "high":
-            priority = NotificationPriority.HIGH
-
-        notification = Notification(
-            title=f"{title}: #{change_data.get('id', 'N/A')}",
-            message=change_data.get("title", "Infrastructure change"),
-            priority=priority,
-            fields={
-                "Action": change_data.get("action_type", "N/A"),
-                "Resource": f"{change_data.get('resource_type', '')} {change_data.get('resource_name', '')}".strip(),
-                "Risk": risk.upper(),
-                "Status": event.upper(),
-            }
-        )
-
-        if change_data.get("approval_comment"):
-            notification.fields["Comment"] = change_data["approval_comment"]
-
-        return self.send(user_id, notification, channels)
-
-    def send_security_notification(self, user_id: int, findings_data: dict,
-                                    channels: list[str] = None) -> dict[str, bool]:
-        """Send security scan results notification."""
-        critical = findings_data.get("critical", 0)
-        high = findings_data.get("high", 0)
-        total = findings_data.get("total", 0)
-
-        if critical > 0:
-            priority = NotificationPriority.CRITICAL
-        elif high > 0:
-            priority = NotificationPriority.HIGH
-        else:
-            priority = NotificationPriority.NORMAL
-
-        notification = Notification(
-            title=f"Security Scan: {total} findings",
-            message=f"Security scan completed with {critical} critical, {high} high severity findings",
-            priority=priority,
-            fields={
-                "Critical": str(critical),
-                "High": str(high),
-                "Medium": str(findings_data.get("medium", 0)),
-                "Low": str(findings_data.get("low", 0)),
-                "Total": str(total),
-            }
-        )
-
-        return self.send(user_id, notification, channels)
-
-    def send_cost_alert(self, user_id: int, cost_data: dict,
-                        channels: list[str] = None) -> dict[str, bool]:
-        """Send cost threshold alert."""
-        notification = Notification(
-            title=f"Cost Alert: ${cost_data.get('amount', 0):.2f}",
-            message=cost_data.get("message", "Cost threshold exceeded"),
-            priority=NotificationPriority.HIGH,
-            fields={
-                "Current Spend": f"${cost_data.get('amount', 0):.2f}",
-                "Threshold": f"${cost_data.get('threshold', 0):.2f}",
-                "Period": cost_data.get("period", "Monthly"),
-                "Top Service": cost_data.get("top_service", "N/A"),
-            }
-        )
-
-        return self.send(user_id, notification, channels)
-
-    def get_status(self, user_id: int) -> dict:
-        """Get the status of all notification channels for a user."""
-        user_channels = self._get_user_channels(user_id)
-        return {
-            "channels": {
-                name: {
-                    "type": config.channel.value,
-                    "enabled": config.enabled,
-                    "configured": bool(config.webhook_url or config.api_token)
-                }
-                for name, config in user_channels.items()
-            },
-            "total_configured": sum(
-                1 for c in user_channels.values()
-                if c.webhook_url or c.api_token
-            )
-        }
-
-
-# Global notification service instance
-_notification_service: Optional[NotificationService] = None
-
-
-def get_notification_service() -> NotificationService:
-    """Get or create the global notification service instance."""
-    global _notification_service
-    if _notification_service is None:
-        _notification_service = NotificationService()
-    return _notification_service
-
-
-def configure_notifications(config: dict) -> NotificationService:
-    """Configure and return the notification service."""
-    global _notification_service
-    _notification_service = NotificationService(config)
-    return _notification_service
-
-
 _BASE_URL = os.environ.get('BASE_URL', 'https://devopsagent.io')
 
 
@@ -737,3 +456,40 @@ def notify_changes(user_id: int, rec_count: int, base_url: str = _BASE_URL) -> N
     )
     _send_async(user_id, 'changes', notification)
 
+
+
+_CHANGE_EVENTS = {
+    'created': ('Change request created', NotificationPriority.NORMAL),
+    'approved': ('Change request approved', NotificationPriority.NORMAL),
+    'rejected': ('Change request rejected', NotificationPriority.HIGH),
+    'executed': ('Change executed', NotificationPriority.NORMAL),
+    'failed': ('Change failed', NotificationPriority.CRITICAL),
+    'rollback': ('Change rolled back', NotificationPriority.HIGH),
+}
+
+
+def notify_change_event(user_id: int, change: dict, event: str, base_url: str = _BASE_URL) -> None:
+    """Tell the user's saved channels about a change request moving (Settings > Notifications).
+
+    Used to go through an in-memory per-process store that only the removed
+    /notifications page wrote to, so these were never delivered.
+    """
+    title, priority = _CHANGE_EVENTS.get(event, ('Change updated', NotificationPriority.NORMAL))
+    risk = str(change.get('risk_level') or 'unknown')
+    if risk == 'high' and priority == NotificationPriority.NORMAL:
+        priority = NotificationPriority.HIGH
+    fields = {
+        'Action': str(change.get('action_type') or 'N/A'),
+        'Resource': f"{change.get('resource_type') or ''} {change.get('resource_name') or ''}".strip() or 'N/A',
+        'Risk': risk.upper(),
+    }
+    if change.get('approval_comment'):
+        fields['Comment'] = str(change['approval_comment'])[:300]
+    notification = Notification(
+        title=f"{title}: #{change.get('id', '')}",
+        message=str(change.get('title') or 'Infrastructure change'),
+        priority=priority,
+        fields=fields,
+        actions=[{'text': 'View change history', 'url': f'{base_url}/changes', 'primary': True}],
+    )
+    _send_async(user_id, 'changes', notification)

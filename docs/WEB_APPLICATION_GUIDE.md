@@ -16,7 +16,7 @@ For a five-minute start, see [QUICK_START.md](QUICK_START.md).
 7. [Infrastructure pages](#infrastructure-pages)
 8. [Analytics](#analytics)
 9. [Security checks](#security-checks)
-10. [Notifications, ChatOps and webhooks](#notifications-chatops-and-webhooks)
+10. [Notifications](#notifications)
 11. [Developer API and the Claude.ai connector](#developer-api-and-the-claudeai-connector)
 12. [Organizations and teams](#organizations-and-teams)
 13. [Learning](#learning)
@@ -80,8 +80,8 @@ Who is on call in OpsGenie right now?
   your plan allows.
 - **Artifacts (📄):** documents the agent generated (runbooks, reports), versioned, with Markdown
   export.
-- **Profile menu (👤):** Export Chat, Clear Chat, tools list, session stats, Billing, Teams, and
-  (admins) Webhooks.
+- **Profile menu (👤):** Export Chat, Clear Chat, tools list, session stats, Billing and Teams
+  (your organizations).
 
 Each reply costs credits; the balance is shown in the header, with a warning when it gets low.
 
@@ -203,7 +203,7 @@ on `/changes` still need the platform Approver role.
 
 ## Infrastructure pages
 
-**Templates** (`/templates`): curated starter infrastructure templates you can launch from chat.
+**Templates** (`/ai/templates`): curated starter infrastructure templates you can preview and copy.
 
 **Map** (`/infrastructure/map`): a pan-and-zoom map of your synced resources. Hover a resource and
 choose **Investigate** to open chat about it. Plain scroll pans; Ctrl/⌘ + scroll zooms.
@@ -251,22 +251,10 @@ the agent to "scan my account for security issues".
 
 ---
 
-## Notifications, ChatOps and webhooks
+## Notifications
 
-**Notifications** (`/notifications/`): connect Slack and Teams channels, test them, and send a
-manual message.
-
-**ChatOps** (`/chatops/`): connect a Slack app or a Teams bot. In Slack the command is `/devops`:
-
-| Command | What it does |
-|---------|--------------|
-| `/devops help` | List commands |
-| `/devops link <code>` | Link your Slack/Teams identity to your DevOps Agent account (generate the code on the ChatOps page) |
-| `/devops deployments [environment]` | Recent CI/CD deployments (admins only) |
-| `/devops oncall` | Points you to the PagerDuty/OpsGenie on-call tools |
-
-**Webhooks** (`/webhooks/`, admins): receive GitHub, GitLab and Bitbucket CI/CD events. GitHub
-requests are checked with an HMAC signature and GitLab with a secret token.
+**Settings → Notifications**: connect Slack and Teams channels, test them, and choose which
+events reach them (change requests, security findings, cost savings).
 
 ---
 
@@ -293,9 +281,6 @@ organization role (owner, admin, member). Organizations also have teams and, for
 
 Organization membership decides which approvers can see your approval requests and change
 requests.
-
-**Teams** (`/teams`): admins see and manage every user's platform role; everyone else sees their
-own account.
 
 ---
 

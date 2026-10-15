@@ -44,10 +44,9 @@ def _change_visible_to_approver(change, user) -> bool:
 def _notify_change(change, event):
     """Send notification for change events (best-effort, never fails the request)."""
     try:
-        from services.notification_service import get_notification_service
-        svc = get_notification_service()
+        from services.notification_service import notify_change_event
         details = change.change_details or {}
-        svc.send_change_notification(change.user_id, {
+        notify_change_event(change.user_id, {
             'id': change.id,
             'title': change.title,
             'action_type': change.action_type,
@@ -55,7 +54,7 @@ def _notify_change(change, event):
             'resource_name': change.resource_name,
             'risk_level': details.get('risk_level', 'unknown'),
             'approval_comment': change.approval_comment,
-        }, event=event)
+        }, event)
     except Exception as e:
         logger.debug(f"Change notification skipped: {e}")
 

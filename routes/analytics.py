@@ -23,13 +23,6 @@ def cost_analytics():
     return render_template('analytics/costs.html')
 
 
-@analytics_bp.route('/performance')
-@login_required
-def performance_analytics():
-    """Performance metrics and trends"""
-    return render_template('analytics/performance.html')
-
-
 @analytics_bp.route('/resources')
 @login_required
 def resource_analytics():
@@ -264,7 +257,6 @@ def api_widgets():
         {'id': 'savings_opportunities', 'name': 'Savings Opportunities', 'type': 'list', 'size': 'medium'},
     ]
     return jsonify({'widgets': widgets})
-
 
 
 @analytics_bp.route('/api/tool-usage')

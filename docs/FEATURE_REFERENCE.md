@@ -71,7 +71,7 @@ Networking, AI/ML, App Hosting, Kubernetes, Incident Response, IaC, CI/CD and On
 | Page | Path | What it does |
 |------|------|--------------|
 | Dashboard | `/dashboard` | Health score, costs and resources from your synced cloud accounts |
-| Templates | `/templates` | Starter infrastructure templates |
+| Templates | `/ai/templates` | Starter infrastructure templates |
 | Infrastructure map | `/infrastructure/map` | Pan-and-zoom map of synced resources; open any resource in chat |
 | Drift detection | `/drift/` | Capture a baseline from your live AWS account (EC2, security groups, S3, RDS) or import one from a `terraform.tfstate`, then scan for property-level changes and removed resources |
 | AI infrastructure | `/ai/` | Plain-English description → reviewable Terraform for AWS servers, databases, buckets and VPCs (nothing is created; no prices); browse, preview and clone templates; past deployments |
@@ -109,20 +109,14 @@ Credentials are encrypted per user and never fall back to the platform's own.
 GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog, SonarQube and Nexus. Saved secrets are
 write-only and are only ever sent to the server URL you saved.
 
-### Notifications (`/notifications/`, Settings → Notifications)
+### Notifications (Settings → Notifications)
 
 - Slack and Microsoft Teams channels, with a test button.
-- Toggles for change, security, cost and alert notifications; budget alerts in Settings → Budgets.
+- Toggles for change, security and cost notifications; budget alerts in Settings → Budgets.
 
-### ChatOps (`/chatops/`)
-
-Slack and Teams bot. Link your chat identity with a one-time code from the ChatOps page, then use
-`/devops help`, `/devops link <code>`, `/devops oncall` and, for admins, `/devops deployments`.
-
-### Inbound Git webhooks (`/webhooks/`)
-
-Receivers for GitHub (HMAC signature), GitLab (secret token) and Bitbucket. The events dashboard
-is admin-only.
+The separate `/notifications/`, ChatOps (`/chatops/`) and inbound Git webhook (`/webhooks/`)
+pages were removed on 2026-10-14: the first saved nothing real alerts used, ChatOps had only
+`/help` and `/link` left, and the webhook receivers fed nothing.
 
 ### Developer API, programmatic API and connector
 

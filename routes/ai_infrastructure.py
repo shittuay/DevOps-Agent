@@ -58,41 +58,6 @@ def api_template_clone(template_id):
     return jsonify({'success': True, 'template': service.template_to_dict(clone)})
 
 
-@ai_infrastructure_bp.route('/recommendations')
-@login_required
-def recommendations():
-    """AI-powered recommendations"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-    all_recommendations = service.get_recommendations(current_user.id)
-    return render_template('ai_infrastructure/recommendations.html', recommendations=all_recommendations)
-
-
-@ai_infrastructure_bp.route('/deployments')
-@login_required
-def deployments():
-    """AI-assisted deployments history"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-    all_deployments = service.get_user_deployments(current_user.id)
-    return render_template('ai_infrastructure/deployments.html', deployments=all_deployments)
-
-
-@ai_infrastructure_bp.route('/deployments/<int:deployment_id>')
-@login_required
-def deployment_detail(deployment_id):
-    """Deployment detail"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-    deployment = service.get_user_deployment(current_user.id, deployment_id)
-
-    if not deployment:
-        flash('Deployment not found.', 'error')
-        return redirect(url_for('ai_infrastructure.deployments'))
-
-    return render_template('ai_infrastructure/deployment_detail.html', deployment=deployment)
-
-
 # API Endpoints
 @ai_infrastructure_bp.route('/api/parse', methods=['POST'])
 @login_required
@@ -134,64 +99,6 @@ def api_parse_request():
                  'shown here; ask in Chat for live pricing from your own account.'),
     })
 
-@ai_infrastructure_bp.route('/api/deployments')
-@login_required
-def api_deployments():
-    """List the user's AI-assisted deployments (JSON for the deployments page)."""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-    deployments = service.get_user_deployments(current_user.id)
-    return jsonify({'deployments': deployments})
-
-
-@ai_infrastructure_bp.route('/api/recommendations')
-@login_required
-def api_recommendations():
-    """Get AI recommendations"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    category = request.args.get('category')
-    recommendations = service.get_recommendations(current_user.id)
-
-    return jsonify({
-        'recommendations': [{
-            'id': r.get('id'),
-            'category': r.get('category'),
-            'title': r.get('title'),
-            'description': r.get('description'),
-            'impact': r.get('impact'),
-            'effort': r.get('effort'),
-            'potential_savings': r.get('potential_savings'),
-            'created_at': None
-        } for r in recommendations]
-    })
-
-
-@ai_infrastructure_bp.route('/api/recommendations/<int:rec_id>/apply', methods=['POST'])
-@login_required
-def api_apply_recommendation(rec_id):
-    """Apply a recommendation"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    result = service.apply_recommendation(rec_id, current_user.id)
-    return jsonify(result), (200 if result.get('success') else 501)
-
-
-@ai_infrastructure_bp.route('/api/recommendations/<int:rec_id>/dismiss', methods=['POST'])
-@login_required
-def api_dismiss_recommendation(rec_id):
-    """Dismiss a recommendation"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    reason = request.json.get('reason') if request.is_json else None
-    if service.dismiss_recommendation(rec_id, reason):
-        return jsonify({'success': True})
-    return jsonify({'error': 'Failed to dismiss recommendation'}), 400
-
-
 @ai_infrastructure_bp.route('/api/templates')
 @login_required
 def api_templates():
@@ -224,16 +131,3 @@ def api_template_preview(template_id):
 
     return jsonify(preview)
 
-
-@ai_infrastructure_bp.route('/api/optimize', methods=['POST'])
-@login_required
-def api_optimize():
-    """Get optimization suggestions for current infrastructure"""
-    from services.ai_infrastructure import AIInfrastructureService
-    service = AIInfrastructureService(current_user.id)
-
-    data = request.get_json() or {}
-    optimization_type = data.get('type', 'cost')
-
-    suggestions = service.get_optimization_suggestions(optimization_type)
-    return jsonify({'suggestions': suggestions})

@@ -264,14 +264,6 @@ def audit_log():
     return render_template('admin/audit_log.html', logs=logs)
 
 
-@admin_bp.route('/settings')
-@login_required
-@admin_required
-def system_settings():
-    """System-wide settings."""
-    return render_template('admin/settings.html')
-
-
 # ==================== API ENDPOINTS ====================
 
 

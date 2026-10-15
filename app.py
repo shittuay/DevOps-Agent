@@ -348,18 +348,6 @@ app.register_blueprint(billing_bp)
 from routes.admin import admin_bp
 app.register_blueprint(admin_bp)
 
-# Register notifications blueprint
-from routes.notifications import notifications_bp
-app.register_blueprint(notifications_bp)
-
-# Register webhooks blueprint for GitHub/GitLab/Bitbucket integrations
-from routes.webhooks import webhooks_bp
-app.register_blueprint(webhooks_bp)
-
-# Register chatops blueprint for Slack/Teams bot integration
-from routes.chatops import chatops_bp
-app.register_blueprint(chatops_bp)
-
 # Register drift detection blueprint for infrastructure drift detection
 from routes.drift import drift_bp
 app.register_blueprint(drift_bp)
@@ -484,10 +472,6 @@ from api import api_bp
 app.register_blueprint(api_bp)
 csrf.exempt(api_bp)
 
-# Initialize notifications
-from services.notification_service import get_notification_service
-
-notification_service = get_notification_service()
 
 # Initialise status service (public status page + Brevo subscriber broadcasts)
 status_service.set_app(app)
@@ -1841,13 +1825,6 @@ def settings_skills():
     return render_template('settings/skills.html', user=current_user)
 
 
-@app.route('/templates')
-@login_required
-def templates_page():
-    """Command templates management page."""
-    return render_template('templates.html', user=current_user)
-
-
 @app.route('/docs')
 def docs():
     """Documentation page - Public access."""
@@ -1986,17 +1963,6 @@ def privacy_policy():
     return render_template('privacy-policy.html')
 
 
-@app.route('/teams')
-@login_required
-def teams():
-    """Team management page — admin sees all users, others see themselves only."""
-    if current_user.role == 'admin':
-        users = User.query.order_by(User.created_at.asc()).limit(200).all()
-    else:
-        users = [current_user]
-    return render_template('teams.html', users=users, current_user=current_user)
-
-
 @app.route('/about')
 def about():
     """About page - Explains all features."""
@@ -2007,163 +1973,6 @@ def about():
 def security_page():
     """Public security/trust page - credential handling, policies, guardrails."""
     return render_template('security.html')
-
-
-@app.route('/api/team/invite', methods=['POST'])
-@login_required
-def invite_team_member():
-    """Invite a new team member."""
-    # Only admins can invite members
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Only administrators can invite team members'}), 403
-
-    # Check tier limits
-    from services.tier_enforcement import check_resource_limit
-    allowed, current, limit = check_resource_limit(current_user.id, 'team_members')
-    if not allowed:
-        return jsonify({'error': f'Team member limit reached ({limit}). Upgrade your plan to invite more members.', 'upgrade_url': '/billing'}), 403
-
-    try:
-        data = request.get_json()
-        email = data.get('email', '').strip()
-        username = data.get('username', '').strip()
-        role = data.get('role', 'user').strip()
-
-        if not email or not username:
-            return jsonify({'error': 'Email and username are required'}), 400
-
-        # Validate role
-        valid_roles = ['admin', 'approver', 'user', 'viewer']
-        if role not in valid_roles:
-            return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
-
-        # Check if user already exists
-        existing_user = User.query.filter(
-            (User.email == email) | (User.username == username)
-        ).first()
-
-        if existing_user:
-            return jsonify({'error': 'A user with this email or username already exists'}), 400
-
-        # Create new user with a randomly generated secure password
-        import string
-        password_chars = string.ascii_letters + string.digits + '!@#$%^&*'
-        default_password = ''.join(secrets.choice(password_chars) for _ in range(16))
-
-        new_user = User(
-            username=username,
-            email=email,
-            role=role
-        )
-        new_user.set_password(default_password)
-        db.session.add(new_user)
-        db.session.commit()
-
-        # In a production app, you'd send an email invitation with a password reset link instead
-        return jsonify({
-            'success': True,
-            'message': f'Team member invited successfully. Temporary password: {default_password}',
-            'temporary_password': default_password,  # Admin will need to securely communicate this
-            'user': {
-                'id': new_user.id,
-                'username': new_user.username,
-                'email': new_user.email,
-                'role': new_user.role
-            }
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/team/users/<int:user_id>/role', methods=['PUT'])
-@login_required
-def update_user_role(user_id):
-    """Update a user's role."""
-    # Only admins can update roles
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Only administrators can update user roles'}), 403
-
-    # Can't change your own role
-    if user_id == current_user.id:
-        return jsonify({'error': 'You cannot change your own role'}), 400
-
-    try:
-        data = request.get_json()
-        new_role = data.get('role', '').strip()
-
-        # Validate role
-        valid_roles = ['admin', 'approver', 'user', 'viewer']
-        if new_role not in valid_roles:
-            return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
-
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-
-        old_role = user.role
-        user.role = new_role
-        db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'message': f'User role updated from {old_role} to {new_role}',
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'role': user.role
-            }
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/team/users/<int:user_id>', methods=['DELETE'])
-@login_required
-def remove_team_member(user_id):
-    """Remove a team member."""
-    # Only admins can remove members
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Only administrators can remove team members'}), 403
-
-    # Can't remove yourself
-    if user_id == current_user.id:
-        return jsonify({'error': 'You cannot remove yourself from the team'}), 400
-
-    try:
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-
-        username = user.username
-
-        # Delete user's related data — order matters for FK constraints
-        # Messages must go before conversations (no cascade on the FK)
-        ChatMessage.query.filter_by(user_id=user_id).delete()
-        Conversation.query.filter_by(user_id=user_id).delete()
-        InfrastructureResource.query.filter_by(user_id=user_id).delete()
-        CostOptimization.query.filter_by(user_id=user_id).delete()
-        SecurityFinding.query.filter_by(user_id=user_id).delete()
-        Alert.query.filter_by(user_id=user_id).delete()
-        UserSubscription.query.filter_by(user_id=user_id).delete()
-        UserPreferences.query.filter_by(user_id=user_id).delete()
-        UsageLog.query.filter_by(user_id=user_id).delete()
-
-        # Delete the user
-        db.session.delete(user)
-        db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'message': f'Team member {username} removed successfully'
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/aws-config', methods=['GET', 'POST', 'DELETE'])
@@ -5321,143 +5130,6 @@ def learning_scenarios():
 
 # ===== COMMAND TEMPLATES API =====
 
-@app.route('/api/templates', methods=['GET'])
-@login_required
-def get_templates():
-    """Get command templates (user's own + public templates)."""
-    try:
-        # Get user's own templates
-        user_templates = CommandTemplate.query.filter_by(user_id=current_user.id).order_by(CommandTemplate.use_count.desc()).all()
-
-        # Get public templates from other users
-        public_templates = CommandTemplate.query.filter_by(is_public=True).filter(
-            CommandTemplate.user_id != current_user.id
-        ).order_by(CommandTemplate.use_count.desc()).limit(10).all()
-
-        return jsonify({
-            'user_templates': [t.to_dict() for t in user_templates],
-            'public_templates': [t.to_dict() for t in public_templates]
-        })
-    except Exception as e:
-        logger.error(f"Error retrieving templates: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/templates', methods=['POST'])
-@login_required
-def create_template():
-    """Create a new command template."""
-    try:
-        data = request.get_json()
-        name = data.get('name')
-        command = data.get('command')
-
-        if not name or not command:
-            return jsonify({'error': 'Name and command are required'}), 400
-
-        template = CommandTemplate(
-            user_id=current_user.id,
-            name=name,
-            description=data.get('description'),
-            command=command,
-            category=data.get('category'),
-            is_public=data.get('is_public', False)
-        )
-
-        db.session.add(template)
-        db.session.commit()
-
-        return jsonify({'success': True, 'template': template.to_dict()})
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error creating template: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/templates/<int:template_id>', methods=['PUT'])
-@login_required
-def update_template(template_id):
-    """Update a command template."""
-    try:
-        template = CommandTemplate.query.get(template_id)
-
-        if not template:
-            return jsonify({'error': 'Template not found'}), 404
-
-        if template.user_id != current_user.id:
-            return jsonify({'error': 'Unauthorized'}), 403
-
-        data = request.get_json()
-
-        if 'name' in data:
-            template.name = data['name']
-        if 'description' in data:
-            template.description = data['description']
-        if 'command' in data:
-            template.command = data['command']
-        if 'category' in data:
-            template.category = data['category']
-        if 'is_public' in data:
-            template.is_public = data['is_public']
-
-        db.session.commit()
-
-        return jsonify({'success': True, 'template': template.to_dict()})
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error updating template: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/templates/<int:template_id>', methods=['DELETE'])
-@login_required
-def delete_template(template_id):
-    """Delete a command template."""
-    try:
-        template = CommandTemplate.query.get(template_id)
-
-        if not template:
-            return jsonify({'error': 'Template not found'}), 404
-
-        if template.user_id != current_user.id:
-            return jsonify({'error': 'Unauthorized'}), 403
-
-        db.session.delete(template)
-        db.session.commit()
-
-        return jsonify({'success': True})
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error deleting template: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/templates/<int:template_id>/use', methods=['POST'])
-@login_required
-def use_template(template_id):
-    """Use a template (increments use count and returns the command)."""
-    try:
-        template = CommandTemplate.query.get(template_id)
-
-        if not template:
-            return jsonify({'error': 'Template not found'}), 404
-
-        if template.user_id != current_user.id and not template.is_public:
-            return jsonify({'error': 'Unauthorized'}), 403
-
-        # Increment use count
-        template.increment_use_count()
-
-        return jsonify({
-            'success': True,
-            'command': template.command,
-            'template': template.to_dict()
-        })
-    except Exception as e:
-        logger.error(f"Error using template: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
 # ===== FEEDBACK API =====
 
 @app.route('/api/feedback', methods=['POST'])
@@ -5601,66 +5273,6 @@ def get_translations():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/webhooks/<source>', methods=['POST'])
-def receive_webhook(source):
-    """Receive webhooks from external services (GitHub, PagerDuty, etc.)."""
-    from services.webhook_handler import verify_webhook_signature, process_webhook
-
-    payload_bytes = request.get_data()
-
-    # Require a configured secret — reject unconfigured sources entirely
-    secret_key = os.environ.get(f'WEBHOOK_SECRET_{source.upper()}', '')
-    if not secret_key:
-        security_logger.warning(f"Webhook rejected: no secret configured for source '{source}' from {request.remote_addr}")
-        return jsonify({'error': 'Webhook source not configured'}), 401
-
-    sig_header = {
-        'github': 'X-Hub-Signature-256',
-        'pagerduty': 'X-PagerDuty-Signature',
-    }.get(source, 'X-Webhook-Signature')
-    signature = request.headers.get(sig_header, '')
-    if not verify_webhook_signature(payload_bytes, signature, secret_key, source):
-        security_logger.warning(f"Webhook rejected: invalid signature for source '{source}' from {request.remote_addr}")
-        return jsonify({'error': 'Invalid signature'}), 401
-
-    try:
-        payload = request.get_json(force=True)
-    except Exception:
-        return jsonify({'error': 'Invalid JSON payload'}), 400
-
-    event_type = request.headers.get('X-GitHub-Event', request.headers.get('X-Event-Type', ''))
-    result = process_webhook(source, payload, event_type)
-
-    webhook_logger = logging.getLogger('webhooks')
-    webhook_logger.info(f"[{source}] {result.get('summary', 'webhook received')}")
-
-    return jsonify({
-        'status': 'received',
-        'source': source,
-        'summary': result.get('summary', ''),
-        'suggested_actions': result.get('suggested_actions', []),
-    })
-
-
-@app.route('/api/webhooks', methods=['GET'])
-@login_required
-def list_webhook_endpoints():
-    """List available webhook endpoints."""
-    base = os.environ.get('BASE_URL', request.host_url.rstrip('/'))
-    return jsonify({
-        'endpoints': {
-            'github': f'{base}/api/webhooks/github',
-            'pagerduty': f'{base}/api/webhooks/pagerduty',
-            'generic': f'{base}/api/webhooks/generic',
-        },
-        'setup_instructions': {
-            'github': 'Add as a GitHub webhook URL. Set Content-Type to application/json. Optionally set WEBHOOK_SECRET_GITHUB env var for signature verification.',
-            'pagerduty': 'Add as a PagerDuty webhook endpoint. Set WEBHOOK_SECRET_PAGERDUTY env var for signature verification.',
-            'generic': 'POST JSON payloads with optional X-Webhook-Signature header.',
-        }
-    })
-
-
 @app.route('/api/memory', methods=['GET'])
 @login_required
 def get_memories():
@@ -5759,7 +5371,6 @@ def health():
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
     })
-
 
 
 @app.route('/init-database-secret-endpoint-12345', methods=['POST'])
