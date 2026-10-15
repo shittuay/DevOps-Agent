@@ -3309,3 +3309,10 @@ CloudFormation template's new default `Read` level uses AWS's `ViewOnlyAccess` +
 values; refused reads now ask for the service's List*/Describe* in one request. Existing stacks
 keep their level until the customer updates with `PolicyLevel=Read` or `Manage`. The template
 must be re-uploaded to S3 for the quick-create link to offer the new levels.
+
+## 2026-10-15 — Signup source tracking and sandbox-first onboarding
+
+No users yet; first TikTok ads reached ~5,000 people, but the admin page couldn't show which
+signups came from them or how far anyone got. Added `User.signup_source` (first-visit
+utm/ref/referrer), a 30-day signup funnel and per-user progress on `/admin/`, and made sandbox
+the primary first-run choice so new users can try the agent without connecting a cloud account.

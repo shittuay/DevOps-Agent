@@ -2291,6 +2291,21 @@ policy and ask the account owner yes/no, then retry. `services/aws_permissions.p
   stacks made before it existed; omitting resets to the safe `No`).
 - Tests: `tests/test_aws_permission_requests.py`, `tests/test_iam_policies.py`.
 
+### Signup source and sandbox-first onboarding (2026-10-15)
+
+Owner context: no users yet; TikTok ads started 2026-10-14 (~5,000 reach). Two changes:
+- **Where signups come from.** `services/signup_source.py`: an `app.py` before-request hook
+  (`_remember_signup_source`, logged-out GETs only) keeps the first visit's `utm_source`/`ref`/
+  `src` (+ `utm_campaign`) or else the referring site (`site:<host>`) in the session; signup
+  saves it to `User.signup_source`. First visit wins. The admin dashboard shows a 30-day funnel
+  (`signup_report`: signed up → verified email → finished setup → connected cloud / sandbox →
+  sent a message; admin accounts excluded), signups by source, and per-user progress under each
+  recent user (`user_progress`), visible on a phone without scrolling sideways. Ads and bio
+  links should use `https://devopsagent.io/?utm_source=tiktok&utm_campaign=<name>`.
+- **Sandbox first.** The onboarding welcome's primary button is now "Try it now — no cloud
+  account needed" (`startSandbox()`); connecting a cloud account is the secondary choice.
+- Guard: `tests/test_signup_source_and_sandbox_first.py`.
+
 ### Documentation layout
 
 User docs live in `docs/` (index: `docs/README.md`): `QUICK_START.md`,

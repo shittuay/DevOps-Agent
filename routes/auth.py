@@ -331,6 +331,7 @@ def signup():
                 email_verification_token=hashed_verification_token,
                 email_verification_sent_at=utcnow(),
                 role='user',
+                signup_source=session.get('signup_source'),
             )
             user.set_password(password)
 

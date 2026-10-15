@@ -648,6 +648,21 @@ _ONBOARDING_OK_ROUTES = {
 
 
 @app.before_request
+def _remember_signup_source():
+    """Note where a visitor came from (utm_source/ref, or the referring site) so
+    signup can save it; first visit wins. See services/signup_source.py."""
+    if request.method != 'GET' or current_user.is_authenticated:
+        return
+    if request.endpoint and request.endpoint.startswith('static'):
+        return
+    try:
+        from services.signup_source import remember
+        remember(session, request.args, request.referrer)
+    except Exception:
+        pass
+
+
+@app.before_request
 def enforce_two_factor():
     """Require all logged-in users to set up 2FA before accessing the app."""
     if app.config.get('TESTING'):

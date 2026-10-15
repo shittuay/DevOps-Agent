@@ -41,6 +41,10 @@ def admin_dashboard():
     # Recent signups
     recent_users = User.query.order_by(User.created_at.desc()).limit(10).all()
 
+    from services.signup_source import signup_report, user_progress
+    progress = user_progress(u.id for u in recent_users)
+    report = signup_report(30)
+
     # Get conversation count
     total_conversations = Conversation.query.count()
     total_messages = ChatMessage.query.count()
@@ -50,6 +54,8 @@ def admin_dashboard():
         active_users=active_users,
         users_by_role=users_by_role,
         recent_users=recent_users,
+        progress=progress,
+        report=report,
         total_conversations=total_conversations,
         total_messages=total_messages,
         roles=get_all_roles()
