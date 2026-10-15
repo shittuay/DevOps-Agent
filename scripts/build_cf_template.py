@@ -34,6 +34,35 @@ SECRET_VALUE_ACTIONS = ['secretsmanager:GetSecretValue', 'ssm:GetParameter', 'ss
                         'ssm:GetParametersByPath', 'ssm:GetParameterHistory']
 SELF_GRANT_ACTIONS = ['iam:PutRolePolicy', 'iam:DeleteRolePolicy']
 
+# Access levels (owner decision, 2026-10-15). Read/Manage rest on AWS-managed policies,
+# which AWS keeps current as it adds services, so the agent isn't refused on every
+# service our own list happened to leave out. ReadOnly/Management are the original
+# hand-written lists, kept as the "Strict" choice and so existing stacks don't change.
+POLICY_LEVELS = ['Read', 'Manage', 'ReadOnly', 'Management']
+AWS_MANAGED = {
+    'Read': ['job-function/ViewOnlyAccess', 'SecurityAudit'],
+    'Manage': ['PowerUserAccess'],
+}
+# Reads that return the contents of your data rather than its configuration. The Read
+# level never gets these, whatever an AWS-managed policy allows.
+DATA_READ_ACTIONS = ['s3:GetObject', 's3:GetObjectVersion', 'dynamodb:GetItem',
+                     'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:Scan',
+                     'lambda:GetFunction', 'kinesis:GetRecords', 'sqs:ReceiveMessage']
+
+
+def _managed_arns(level: str) -> list:
+    return [{'Fn::Sub': f'arn:${{AWS::Partition}}:iam::aws:policy/{name}'} for name in AWS_MANAGED[level]]
+
+
+def guard_policy(include_data: bool) -> dict:
+    """Explicit denies that hold whatever else the role is given."""
+    stmts = [{'Sid': 'NeverSecretValues', 'Effect': 'Deny', 'Action': SECRET_VALUE_ACTIONS,
+              'Resource': '*'}]
+    if include_data:
+        stmts.append({'Sid': 'MetadataNotData', 'Effect': 'Deny', 'Action': DATA_READ_ACTIONS,
+                      'Resource': '*'})
+    return {'Version': '2012-10-17', 'Statement': stmts}
+
 
 def build_boundary(management: dict) -> dict:
     """The most the role can ever do, whatever inline policies it gives itself."""
@@ -47,6 +76,8 @@ def build_boundary(management: dict) -> dict:
             {**by_sid['PassRoleToAwsServicesOnly']},
             {'Sid': 'EditOwnInlinePolicies', 'Effect': 'Allow',
              'Action': SELF_GRANT_ACTIONS, 'Resource': OWN_ROLE_ARN},
+            {'Sid': 'ServiceLinkedRoles', 'Effect': 'Allow',
+             'Action': ['iam:CreateServiceLinkedRole'], 'Resource': '*'},
             {'Sid': 'NeverSecretValues', 'Effect': 'Deny',
              'Action': SECRET_VALUE_ACTIONS, 'Resource': '*'},
         ],
@@ -92,12 +123,15 @@ def build_template() -> dict:
             },
             'PolicyLevel': {
                 'Type': 'String',
-                'AllowedValues': ['ReadOnly', 'Management'],
-                'Default': 'ReadOnly',
+                'AllowedValues': POLICY_LEVELS,
+                'Default': 'Read',
                 'Description': (
-                    'ReadOnly: discovery, cost and security scanning - metadata only, never your '
-                    'data. Management: the agent can also create/modify/delete resources (IAM '
-                    'stays read-only and secret values stay unreadable either way).'
+                    'Read (recommended): the agent can see the configuration of every AWS '
+                    'service (AWS ViewOnlyAccess + SecurityAudit), never your data or secret '
+                    'values. Manage: the agent can also create, change and delete resources in '
+                    'any service (AWS PowerUserAccess); it cannot change IAM or read secret '
+                    'values. ReadOnly / Management: the stricter, hand-picked lists of services '
+                    'DevOps Agent published before 2026-10-15.'
                 ),
             },
             'RoleName': {
@@ -118,7 +152,10 @@ def build_template() -> dict:
             },
         },
         'Conditions': {
-            'IsManagement': {'Fn::Equals': [{'Ref': 'PolicyLevel'}, 'Management']},
+            'IsStandardRead': {'Fn::Equals': [{'Ref': 'PolicyLevel'}, 'Read']},
+            'IsStandardManage': {'Fn::Equals': [{'Ref': 'PolicyLevel'}, 'Manage']},
+            'IsManagement': {'Fn::Or': [{'Fn::Equals': [{'Ref': 'PolicyLevel'}, 'Management']},
+                                        {'Condition': 'IsStandardManage'}]},
             'SelfGrant': {'Fn::Equals': [{'Ref': 'AllowSelfGrant'}, 'Yes']},
         },
         'Resources': {
@@ -139,6 +176,10 @@ def build_template() -> dict:
                     'MaxSessionDuration': 3600,
                     'PermissionsBoundary': {'Fn::If': ['SelfGrant', {'Ref': 'DevOpsAgentBoundary'},
                                                        {'Ref': 'AWS::NoValue'}]},
+                    'ManagedPolicyArns': {'Fn::If': [
+                        'IsStandardRead', _managed_arns('Read'),
+                        {'Fn::If': ['IsStandardManage', _managed_arns('Manage'), {'Ref': 'AWS::NoValue'}]},
+                    ]},
                     'AssumeRolePolicyDocument': {
                         'Version': '2012-10-17',
                         'Statement': [
@@ -158,6 +199,9 @@ def build_template() -> dict:
                         {'Fn::If': ['SelfGrant',
                                     {'PolicyName': 'DevOpsAgentSelfGrant', 'PolicyDocument': self_grant_policy()},
                                     {'Ref': 'AWS::NoValue'}]},
+                        {'PolicyName': 'DevOpsAgentGuardrails',
+                         'PolicyDocument': {'Fn::If': ['IsStandardRead', guard_policy(True),
+                                                       guard_policy(False)]}},
                     ],
                 },
             },

@@ -3298,3 +3298,14 @@ AccessDenied into a yes/no request with the exact minimal policy, and retries on
 added (by the owner, or by the agent within an opt-in permissions boundary). Design and
 invariants: CLAUDE.md "AWS permission requests". Follow-up needed by the owner: re-upload
 the CloudFormation template to S3 so quick-create offers `AllowSelfGrant`.
+
+## 2026-10-15 — AWS access levels built on AWS-managed policies
+
+Owner testing "check my GuardDuty": refused, because our hand-picked read-only policy had no
+GuardDuty, and the permission request then asked for one API call at a time. The owner's point:
+a hand-written service list means a permission prompt for every service it misses. Fix: the
+CloudFormation template's new default `Read` level uses AWS's `ViewOnlyAccess` + `SecurityAudit`
+(and `Manage` uses `PowerUserAccess`), with our own explicit denies for data reads and secret
+values; refused reads now ask for the service's List*/Describe* in one request. Existing stacks
+keep their level until the customer updates with `PolicyLevel=Read` or `Manage`. The template
+must be re-uploaded to S3 for the quick-create link to offer the new levels.

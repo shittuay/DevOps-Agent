@@ -19,9 +19,11 @@ when you connect the Claude.ai connector.
 
 Open **Settings → Cloud Credentials**.
 
-- **AWS (recommended: IAM role).** Click **Create role with CloudFormation**. It opens the AWS
-  console with a ready-made, least-privilege role and a generated External ID. Create the stack,
-  then paste the role ARN back into Settings. Access keys work too, as a fallback.
+- **AWS (recommended: IAM role).** Pick what DevOps Agent may do (**Read**, the default, lets it
+  see every AWS service but change nothing; **Manage** also lets it create, change and delete),
+  then click **Create role with CloudFormation**. It opens the AWS console with a ready-made role
+  and a generated External ID. Create the stack, then paste the role ARN back into Settings.
+  Access keys work too, as a fallback.
 - **Azure:** subscription ID, tenant ID, client ID and client secret of a service principal.
 - **GCP:** project ID and a service-account JSON key.
 

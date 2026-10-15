@@ -121,21 +121,42 @@ def parse_denial(tool_name: str, tool_input: Dict, result: Dict,
             'explicit_deny': explicit}
 
 
+_READ_VERBS = ('List', 'Describe', 'Get', 'BatchGet')
+# Wildcards that only ever list or describe configuration. Asked for alongside a refused
+# read, so one yes covers the service's reads instead of one request per call.
+_READ_WILDCARDS = ('List*', 'Describe*')
+
+
 def build_policy(action: str, resource: str = '*') -> Dict[str, Any]:
     """Smallest policy that allows `action`. A specific resource ARN is kept only for
     actions that change one existing resource; creates and lists need '*' because AWS
-    checks several related resources in turn (subnet, security group, image...)."""
-    verb = action.split(':', 1)[-1]
+    checks several related resources in turn (subnet, security group, image...).
+
+    A refused read also asks for the same service's List*/Describe* (metadata only), so
+    "check my GuardDuty" needs one yes, not one per API call (owner feedback, 2026-10-15).
+    """
+    svc, _, verb = action.partition(':')
     narrow = resource and resource != '*' and verb.startswith(_NARROW_VERBS)
+    actions = [action]
+    if verb.startswith(_READ_VERBS) and not action.startswith(SENSITIVE_PREFIXES):
+        actions += [f'{svc}:{w}' for w in _READ_WILDCARDS if f'{svc}:{w}' != action]
     sid = re.sub(r'[^A-Za-z0-9]', '', 'DevOpsAgent' + action.title())[:100]
     return {'Version': '2012-10-17',
-            'Statement': [{'Sid': sid, 'Effect': 'Allow', 'Action': [action],
+            'Statement': [{'Sid': sid, 'Effect': 'Allow', 'Action': actions,
                            'Resource': resource if narrow else '*'}]}
 
 
+def policy_actions(policy: Dict[str, Any]) -> list:
+    return [a for st in (policy or {}).get('Statement', []) for a in
+            ([st['Action']] if isinstance(st.get('Action'), str) else st.get('Action', []))]
+
+
 def is_sensitive(action: str) -> bool:
-    return (action.startswith(SENSITIVE_PREFIXES) or action in SENSITIVE_ACTIONS
-            or '*' in action)
+    if action.startswith(SENSITIVE_PREFIXES) or action in SENSITIVE_ACTIONS:
+        return True
+    if '*' in action:
+        return action.partition(':')[2] not in _READ_WILDCARDS
+    return False
 
 
 def _principal(user_id: int, principal_arn: Optional[str]) -> Dict[str, Optional[str]]:
@@ -178,7 +199,7 @@ def build_request(user_id: int, tool_name: str, tool_input: Dict, result: Dict,
     action = denial['action']
     policy = build_policy(action, denial['resource'])
     principal = _principal(user_id, denial.get('principal_arn'))
-    sensitive = is_sensitive(action)
+    sensitive = any(is_sensitive(a) for a in policy_actions(policy))
     mode = 'self' if principal['self_grant'] and principal['type'] == 'role' and not sensitive else 'manual'
     return {
         'action': action, 'resource': policy['Statement'][0]['Resource'], 'policy': policy,
@@ -196,8 +217,13 @@ def describe(req_input: Dict) -> str:
            'Add it in AWS (steps below), then confirm here and DevOps Agent retries.')
     warn = (' This is a sensitive permission (identity, keys or secret values); add it only if you '
             'mean the agent to have it.' if req_input['sensitive'] else '')
+    extra = [a for a in policy_actions(req_input.get('policy')) if a != action]
+    also = (f" It also covers this service's other list and describe reads ({', '.join(extra)}), "
+            "so you aren't asked again for each one." if extra else '')
+    level = (" Tip: with the CloudFormation access level 'Read' or 'Manage', DevOps Agent can "
+             "already read or manage every AWS service, so this rarely comes up.")
     return (f"AWS refused {tool}: the account is missing {action}. To finish what was asked, "
-            f"allow {action} on {req_input['resource']}. {how}{warn}")
+            f"allow {action} on {req_input['resource']}.{also} {how}{warn}{level}")
 
 
 def file_request(user_id: int, conversation_id: Optional[str], tool_name: str,
@@ -265,7 +291,7 @@ def execute_grant(req, run_tool) -> Dict[str, Any]:
     # the request was filed. Then it's a manual request: just retry.
     current = _principal(req.requester_id, None) if ti.get('mode') == 'self' else {}
     if current.get('self_grant') and current.get('type') == 'role':
-        if is_sensitive(ti.get('action', '')):
+        if any(is_sensitive(a) for a in [ti.get('action', '')] + policy_actions(ti.get('policy'))):
             return {'success': False, 'error': 'Refused: DevOps Agent never grants itself identity, '
                     'key or secret-value permissions. Add it by hand if you want it.'}
         try:

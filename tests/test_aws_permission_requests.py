@@ -238,3 +238,25 @@ def test_self_grant_setting_needs_role_and_boundary(app, db_session, test_user, 
     finally:
         db.session.delete(cred)
         db.session.commit()
+
+
+def test_a_refused_read_asks_for_the_service_reads_once():
+    """Owner feedback (2026-10-15): checking GuardDuty took one request per API call."""
+    denied = {'success': False, 'error_code': 'AccessDeniedException', 'error': (
+        'User: arn:aws:sts::188046727805:assumed-role/DevOpsAgentRole/devops-agent is not '
+        'authorized to perform: guardduty:ListDetectors on resource: '
+        'arn:aws:guardduty:us-east-1:188046727805:detector/*')}
+    d = ap.parse_denial('aws_api_read', {'service': 'guardduty'}, denied)
+    policy = ap.build_policy(d['action'], d['resource'])
+    assert policy['Statement'][0]['Action'] == ['guardduty:ListDetectors', 'guardduty:List*', 'guardduty:Describe*']
+    assert policy['Statement'][0]['Resource'] == '*'
+    get = ap.build_policy('guardduty:GetFindings')['Statement'][0]['Action']
+    assert get == ['guardduty:GetFindings', 'guardduty:List*', 'guardduty:Describe*']
+    assert not any(ap.is_sensitive(a) for a in get)
+
+
+def test_bundles_never_widen_writes_or_identity():
+    assert ap.build_policy('ec2:TerminateInstances')['Statement'][0]['Action'] == ['ec2:TerminateInstances']
+    assert ap.build_policy('iam:ListRoles')['Statement'][0]['Action'] == ['iam:ListRoles']
+    for a in ('ec2:*', 's3:Get*', 'iam:List*', 'secretsmanager:GetSecretValue'):
+        assert ap.is_sensitive(a), a

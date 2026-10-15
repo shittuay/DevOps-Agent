@@ -12,11 +12,13 @@
     "PolicyLevel": {
       "Type": "String",
       "AllowedValues": [
+        "Read",
+        "Manage",
         "ReadOnly",
         "Management"
       ],
-      "Default": "ReadOnly",
-      "Description": "ReadOnly: discovery, cost and security scanning - metadata only, never your data. Management: the agent can also create/modify/delete resources (IAM stays read-only and secret values stay unreadable either way)."
+      "Default": "Read",
+      "Description": "Read (recommended): the agent can see the configuration of every AWS service (AWS ViewOnlyAccess + SecurityAudit), never your data or secret values. Manage: the agent can also create, change and delete resources in any service (AWS PowerUserAccess); it cannot change IAM or read secret values. ReadOnly / Management: the stricter, hand-picked lists of services DevOps Agent published before 2026-10-15."
     },
     "RoleName": {
       "Type": "String",
@@ -34,12 +36,35 @@
     }
   },
   "Conditions": {
-    "IsManagement": {
+    "IsStandardRead": {
       "Fn::Equals": [
         {
           "Ref": "PolicyLevel"
         },
-        "Management"
+        "Read"
+      ]
+    },
+    "IsStandardManage": {
+      "Fn::Equals": [
+        {
+          "Ref": "PolicyLevel"
+        },
+        "Manage"
+      ]
+    },
+    "IsManagement": {
+      "Fn::Or": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "PolicyLevel"
+            },
+            "Management"
+          ]
+        },
+        {
+          "Condition": "IsStandardManage"
+        }
       ]
     },
     "SelfGrant": {
@@ -134,6 +159,14 @@
               }
             },
             {
+              "Sid": "ServiceLinkedRoles",
+              "Effect": "Allow",
+              "Action": [
+                "iam:CreateServiceLinkedRole"
+              ],
+              "Resource": "*"
+            },
+            {
               "Sid": "NeverSecretValues",
               "Effect": "Deny",
               "Action": [
@@ -165,6 +198,32 @@
             },
             {
               "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "ManagedPolicyArns": {
+          "Fn::If": [
+            "IsStandardRead",
+            [
+              {
+                "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess"
+              },
+              {
+                "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+              }
+            ],
+            {
+              "Fn::If": [
+                "IsStandardManage",
+                [
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+                  }
+                ],
+                {
+                  "Ref": "AWS::NoValue"
+                }
+              ]
             }
           ]
         },
@@ -513,6 +572,64 @@
                 "Ref": "AWS::NoValue"
               }
             ]
+          },
+          {
+            "PolicyName": "DevOpsAgentGuardrails",
+            "PolicyDocument": {
+              "Fn::If": [
+                "IsStandardRead",
+                {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Sid": "NeverSecretValues",
+                      "Effect": "Deny",
+                      "Action": [
+                        "secretsmanager:GetSecretValue",
+                        "ssm:GetParameter",
+                        "ssm:GetParameters",
+                        "ssm:GetParametersByPath",
+                        "ssm:GetParameterHistory"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Sid": "MetadataNotData",
+                      "Effect": "Deny",
+                      "Action": [
+                        "s3:GetObject",
+                        "s3:GetObjectVersion",
+                        "dynamodb:GetItem",
+                        "dynamodb:BatchGetItem",
+                        "dynamodb:Query",
+                        "dynamodb:Scan",
+                        "lambda:GetFunction",
+                        "kinesis:GetRecords",
+                        "sqs:ReceiveMessage"
+                      ],
+                      "Resource": "*"
+                    }
+                  ]
+                },
+                {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Sid": "NeverSecretValues",
+                      "Effect": "Deny",
+                      "Action": [
+                        "secretsmanager:GetSecretValue",
+                        "ssm:GetParameter",
+                        "ssm:GetParameters",
+                        "ssm:GetParametersByPath",
+                        "ssm:GetParameterHistory"
+                      ],
+                      "Resource": "*"
+                    }
+                  ]
+                }
+              ]
+            }
           }
         ]
       }

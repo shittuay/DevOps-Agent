@@ -6,12 +6,48 @@ DevOps Agent assumes. Both are published verbatim at:
 - `https://devopsagent.io/static/iam/devops-agent-readonly.json`
 - `https://devopsagent.io/static/iam/devops-agent-management.json`
 
-## Which one should I use?
+## Which access level should I use?
+
+You pick one when you create the role (the CloudFormation `PolicyLevel` parameter, or the
+choice next to "Create role with CloudFormation" in the app):
+
+| Level | What DevOps Agent may do | How |
+|---|---|---|
+| **Read** (default, recommended) | See the configuration of every AWS service. Change nothing, never read your data or secret values. | AWS-managed `ViewOnlyAccess` + `SecurityAudit`, the published read-only policy below, and an explicit deny on data reads (`s3:GetObject`, DynamoDB item reads, `lambda:GetFunction`, Kinesis/SQS message reads) and secret values. |
+| **Manage** | Also create, change and delete resources in any AWS service. Cannot change IAM; secret values stay blocked. | AWS-managed `PowerUserAccess`, the published management policy below (IAM read, `iam:PassRole` to AWS services only), and an explicit deny on secret values. |
+| **ReadOnly** (strict read) | The original hand-picked list of about 45 services, read-only. | `devops-agent-readonly.json` only. |
+| **Management** (strict manage) | The original hand-picked list, with changes. | `devops-agent-management.json` only. |
+
+**Why Read and Manage use AWS-managed policies (2026-10-15):** AWS keeps them current as it
+adds services, so the agent isn't refused on every service our own list happens to leave out.
+With the strict levels, anything outside the list (GuardDuty, for example) is refused, and the
+agent has to ask you for each missing permission.
+
+The explicit denies are what keep the Read promise ("metadata, not data") no matter what an
+AWS-managed policy allows; AWS evaluates a deny before any allow.
+
+**Existing roles keep the level they were created with.** To move to Read or Manage:
+
+```bash
+aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
+  --template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json \
+  --parameters ParameterKey=ExternalId,UsePreviousValue=true ParameterKey=PolicyLevel,ParameterValue=Read ParameterKey=RoleName,UsePreviousValue=true \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+(Use `ParameterValue=Manage` for Manage.) For a role you created by hand, attach the AWS-managed
+policies listed above and copy the deny statements from `cloudformation/devops-agent-role.json`
+(`DevOpsAgentGuardrails`).
+
+Azure and Google Cloud already work this way: the setup script assigns the built-in
+**Reader** / **Contributor** role (Azure) or **Viewer** / **Editor** role (Google Cloud).
+
+## The two published policies
 
 | Policy | Use case |
 |---|---|
-| `devops-agent-readonly.json` | **Recommended starting point.** Infrastructure discovery, cost analysis, security posture scanning, troubleshooting. The agent can see configuration and metrics but cannot change anything. |
-| `devops-agent-management.json` | Full agent capability — start/stop/create/delete resources, deploy, scale, remediate. Attach when you trust the agent to act, not just observe. |
+| `devops-agent-readonly.json` | The **ReadOnly** level on its own, and the base of **Read**. Infrastructure discovery, cost analysis, security posture scanning, troubleshooting. |
+| `devops-agent-management.json` | The **Management** level on its own, and the base of **Manage**. Start/stop/create/delete resources, deploy, scale, remediate. |
 
 ## What the read-only policy deliberately excludes
 
