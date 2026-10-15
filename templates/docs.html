@@ -1436,22 +1436,21 @@ Content-Type: application/json
     <!-- Teams -->
     <section id="teams">
       <h2 class="section-title">Teams</h2>
-      <p>The Teams tab is available on Starter plans and above. It lets an admin invite colleagues to the same workspace so they share access to cloud integrations and conversations.</p>
+      <p>Teams live in <a href="/organizations/">Organizations</a>. Create an organization, invite colleagues by email, and give each one a role. Organization owners and admins approve their team's risky agent actions on the <a href="/approvals">Approvals</a> page.</p>
 
-      <h3 class="subsection-title">Roles</h3>
+      <h3 class="subsection-title">Organization roles</h3>
       <table class="docs-table">
         <thead><tr><th>Role</th><th>Can do</th></tr></thead>
         <tbody>
-          <tr><td><span class="badge badge-orange">Admin</span></td><td>Invite/remove members, change roles, manage cloud credentials, full agent access</td></tr>
-          <tr><td><span class="badge badge-cyan">Approver</span></td><td>Review and approve high-risk operations flagged by the safety system</td></tr>
-          <tr><td><span class="badge badge-green">User</span></td><td>Full agent access, cannot manage team or credentials</td></tr>
-          <tr><td><span class="badge badge-gray">Viewer</span></td><td>Read-only access to conversations and dashboard</td></tr>
+          <tr><td><span class="badge badge-orange">Owner</span></td><td>Everything an admin can, plus organization settings</td></tr>
+          <tr><td><span class="badge badge-cyan">Admin</span></td><td>Invite and remove members, manage teams and SSO, approve members' risky actions</td></tr>
+          <tr><td><span class="badge badge-green">Member</span></td><td>Uses the agent; risky actions wait for an owner or admin</td></tr>
         </tbody>
       </table>
 
       <div class="alert alert-info">
         <span class="alert-icon">ℹ️</span>
-        <span>Each user has fully isolated conversations, cloud credentials, and credit balances — even within the same team workspace. One user cannot see another user's chat history.</span>
+        <span>Each user keeps their own conversations, cloud credentials and credits, even inside an organization. One user cannot see another user's chat history.</span>
       </div>
     </section>
 

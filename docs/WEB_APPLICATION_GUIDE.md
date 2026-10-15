@@ -80,8 +80,8 @@ Who is on call in OpsGenie right now?
   your plan allows.
 - **Artifacts (📄):** documents the agent generated (runbooks, reports), versioned, with Markdown
   export.
-- **Profile menu (👤):** Export Chat, Clear Chat, tools list, session stats, Billing, Teams, and
-  (admins) Webhooks.
+- **Profile menu (👤):** Export Chat, Clear Chat, tools list, session stats, Billing and Teams
+  (your organizations).
 
 Each reply costs credits; the balance is shown in the header, with a warning when it gets low.
 
@@ -255,15 +255,6 @@ the agent to "scan my account for security issues".
 
 **Settings → Notifications**: connect Slack and Teams channels, test them, and choose which
 events reach them (change requests, security findings, cost savings).
-
----------|--------------|
-| `/devops help` | List commands |
-| `/devops link <code>` | Link your Slack/Teams identity to your DevOps Agent account (generate the code on the ChatOps page) |
-| `/devops deployments [environment]` | Recent CI/CD deployments (admins only) |
-| `/devops oncall` | Points you to the PagerDuty/OpsGenie on-call tools |
-
-**Webhooks** (`/webhooks/`, admins): receive GitHub, GitLab and Bitbucket CI/CD events. GitHub
-requests are checked with an HMAC signature and GitLab with a secret token.
 
 ---
 
