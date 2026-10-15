@@ -571,7 +571,7 @@ Phase 8: Verification
 ─────────────────────
 "Re-run security scans"
 "Verify all critical issues resolved"
-"Generate compliance report"
+"Summarize the remaining findings"
 "Create Datadog event: Security audit completed"
 ```
 

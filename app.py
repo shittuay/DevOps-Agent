@@ -377,10 +377,6 @@ app.register_blueprint(analytics_bp)
 from routes.api_gateway import api_gateway_bp
 app.register_blueprint(api_gateway_bp)
 
-# Register Compliance blueprint
-from routes.compliance import compliance_bp
-app.register_blueprint(compliance_bp)
-
 # Register Organizations blueprint
 from routes.organizations import organizations_bp
 app.register_blueprint(organizations_bp)
@@ -4545,220 +4541,55 @@ def dismiss_recommendation(rec_id):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/compliance/summary', methods=['GET'])
+@app.route('/api/security/summary', methods=['GET'])
 @login_required
-def get_compliance_summary():
-    """Get compliance summary with framework scores and findings."""
-    try:
-        from services.compliance_service import ComplianceService
-        from models import SecurityFinding, ComplianceFrameworkModel
-
-        service = ComplianceService(current_user.id)
-
-        # Get frameworks and their latest scores (without re-running full scan)
-        frameworks = ComplianceFrameworkModel.query.filter_by(
-            user_id=current_user.id
-        ).all()
-
-        framework_data = []
-        for fw in frameworks:
-            controls = (fw.settings or {}).get('controls', [])
-            framework_data.append({
-                'id': fw.id,
-                'name': fw.name,
-                'display_name': fw.display_name or fw.name.upper(),
-                'score': fw.compliance_score,
-                'is_enabled': fw.is_enabled,
-                'last_assessed': fw.last_assessment_at.isoformat() if fw.last_assessment_at else None,
-                'controls_count': len(controls)
-            })
-
-        # Get open security findings
-        findings = SecurityFinding.query.filter_by(
-            user_id=current_user.id,
-            status='open'
-        ).order_by(SecurityFinding.risk_score.desc()).limit(100).all()
-
-        findings_data = [{
-            'id': f.id,
-            'type': f.finding_type,
-            'severity': f.severity,
-            'title': f.title,
-            'description': f.description,
-            'resource_type': f.affected_resource_type,
-            'resource_name': f.affected_resource_name,
-            'resource_id': f.affected_resource_id,
-            'risk_score': f.risk_score,
-            'remediation': f.remediation_steps,
-            'auto_fix': f.auto_remediation_available,
-            'frameworks': f.compliance_frameworks or [],
-            'first_detected': f.first_detected.isoformat() if f.first_detected else None
-        } for f in findings]
-
-        severity_counts = {
-            'critical': len([f for f in findings if f.severity == 'critical']),
-            'high': len([f for f in findings if f.severity == 'high']),
-            'medium': len([f for f in findings if f.severity == 'medium']),
-            'low': len([f for f in findings if f.severity == 'low'])
-        }
-
-        # Get active policies count
-        from models import CompliancePolicy
-        policies = CompliancePolicy.query.filter_by(
-            user_id=current_user.id,
-            is_active=True
-        ).all()
-
-        return jsonify({
-            'frameworks': framework_data,
-            'findings': findings_data,
-            'severity_counts': severity_counts,
-            'total_findings': len(findings),
-            'policies_active': len(policies)
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+def security_summary():
+    """Open findings from the AWS security checks, highest risk first."""
+    from services.security_scanner import get_security_summary
+    return jsonify(get_security_summary(current_user.id))
 
 
-@app.route('/api/compliance/scan', methods=['POST'])
+@app.route('/api/security/scan', methods=['POST'])
 @login_required
-def run_compliance_scan():
-    """Run compliance scan for a specific framework."""
+@limiter.limit("3 per minute")
+def security_scan():
+    """Run the AWS security checks now.
+
+    502 when no check could read the account: that is not a clean result, and the
+    page must say so rather than show "no issues".
+    """
+    from services.security_scanner import scan_aws_security, SecurityScanError
+    from models import UserCloudCredential
+    if not UserCloudCredential.query.filter_by(user_id=current_user.id, cloud_provider='aws',
+                                               is_active=True).first():
+        return jsonify({'success': False, 'no_cloud_account': True,
+                        'error': 'Connect an AWS account in Settings to run security checks.'}), 400
     try:
-        from services.compliance_service import ComplianceService
-        from services.tier_enforcement import check_compliance_framework
-
-        data = request.get_json() or {}
-        framework = data.get('framework', 'soc2')
-
-        if not check_compliance_framework(current_user.id, framework):
-            return jsonify({'error': f'The {framework.upper()} framework is not available on your plan. Upgrade to access it.', 'upgrade_url': '/billing'}), 403
-
-        service = ComplianceService(current_user.id)
-        report = service.run_compliance_check(current_user.id, framework)
-
-        return jsonify({
-            'success': True,
-            'report': {
-                'id': report.id,
-                'framework': report.framework,
-                'score': report.overall_score,
-                'controls_passed': report.controls_passed,
-                'controls_failed': report.controls_failed,
-                'findings': report.findings,
-                'summary': report.summary,
-                'generated_at': report.generated_at.isoformat() if report.generated_at else None
-            }
-        })
+        results = scan_aws_security(current_user.id)
+    except SecurityScanError as e:
+        return jsonify({'success': False, 'scan_failed': True, 'error': str(e)}), 502
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Security scan failed for user {current_user.id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'scan_failed': True, 'error': 'The security checks could not run.'}), 500
+    return jsonify({'success': True, **{k: results[k] for k in (
+        'critical', 'high', 'medium', 'low', 'total', 'checks', 'region', 'resolved', 'scanned_at')}})
 
 
-@app.route('/api/compliance/scan-all', methods=['POST'])
+@app.route('/api/security/findings/<int:finding_id>/dismiss', methods=['POST'])
 @login_required
-@limiter.limit("2 per minute")
-def run_all_compliance_scans():
-    """Run compliance scans for all supported frameworks."""
-    try:
-        from services.compliance_service import ComplianceService
-        service = ComplianceService(current_user.id)
-
-        results = {}
-        total_findings = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'total': 0}
-        for fw in ['soc2', 'hipaa', 'pci_dss']:
-            report = service.run_compliance_check(current_user.id, fw)
-            findings = report.findings or []
-            results[fw] = {
-                'score': report.overall_score,
-                'controls_passed': report.controls_passed,
-                'controls_failed': report.controls_failed,
-                'findings_count': len(findings)
-            }
-            for f in findings:
-                sev = f.get('severity', 'medium').lower()
-                total_findings[sev] = total_findings.get(sev, 0) + 1
-                total_findings['total'] += 1
-
-        # Notify if critical or high findings detected
-        if total_findings['critical'] > 0 or total_findings['high'] > 0:
-            try:
-                from services.notification_service import get_notification_service
-                svc = get_notification_service()
-                svc.send_security_notification(current_user.id, total_findings)
-            except Exception:
-                pass
-
-        return jsonify({'success': True, 'results': results})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/compliance/report/<framework>/pdf', methods=['GET'])
-@login_required
-def download_compliance_pdf(framework):
-    """Download compliance report as PDF."""
-    from services.tier_enforcement import check_feature
-    if not check_feature(current_user.id, 'has_pdf_export'):
-        return jsonify({'error': 'PDF export is available on Professional and Business plans.', 'upgrade_url': '/billing'}), 403
-
-    try:
-        from models import ComplianceReport
-        report = ComplianceReport.query.filter_by(
-            user_id=current_user.id,
-            framework=framework
-        ).order_by(ComplianceReport.generated_at.desc()).first()
-
-        if not report:
-            return jsonify({'error': f'No {framework.upper()} report found. Run a compliance scan first.'}), 404
-
-        report_data = {
-            'overall_score': report.overall_score,
-            'controls_passed': report.controls_passed,
-            'controls_failed': report.controls_failed,
-            'findings': report.findings or [],
-            'summary': report.summary,
-            'generated_at': report.generated_at.isoformat() if report.generated_at else None,
-        }
-
-        from services.pdf_service import generate_compliance_pdf
-        pdf_buffer = generate_compliance_pdf(current_user.id, framework, report_data)
-
-        filename = f"devops-agent-{framework}-report-{datetime.now().strftime('%Y%m%d')}.pdf"
-        return send_file(
-            pdf_buffer,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=filename
-        )
-    except ImportError as e:
-        return jsonify({'error': str(e)}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/compliance/findings/<int:finding_id>/resolve', methods=['POST'])
-@login_required
-def resolve_finding(finding_id):
-    """Resolve a security finding."""
-    try:
-        from models import SecurityFinding
-
-        finding = SecurityFinding.query.get_or_404(finding_id)
-        if finding.user_id != current_user.id:
-            return jsonify({'error': 'Unauthorized'}), 403
-
-        data = request.get_json() or {}
-        finding.status = 'resolved'
-        finding.resolved_at = utcnow()
-        finding.resolved_by = current_user.id
-        finding.resolution_notes = data.get('notes', '')
-        db.session.commit()
-
-        return jsonify({'success': True})
-    except HTTPException:
-        raise  # let get_or_404's 404 (and other HTTP errors) pass through
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+def dismiss_security_finding(finding_id):
+    """Hide a finding the user has decided to accept. Later scans leave it hidden."""
+    from models import SecurityFinding
+    finding = SecurityFinding.query.filter_by(id=finding_id, user_id=current_user.id).first()
+    if finding is None:
+        return jsonify({'error': 'Finding not found'}), 404
+    data = request.get_json(silent=True) or {}
+    finding.status = 'suppressed'
+    finding.resolved_at = utcnow()
+    finding.resolved_by = current_user.id
+    finding.resolution_notes = (data.get('notes') or 'Dismissed by the user')[:500]
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/api/tools', methods=['GET'])

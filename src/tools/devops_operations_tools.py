@@ -210,54 +210,97 @@ def list_change_requests(status: Optional[str] = None, limit: int = 10) -> Dict[
 # ── Security & Compliance Tools ──
 
 def run_security_scan() -> Dict[str, Any]:
-    """Run a real AWS security scan checking S3, security groups, RDS, and IAM."""
+    """Run the AWS security checks on the user's account (S3, security groups, RDS, IAM)."""
     uid, err = _require_user()
     if err:
         return err
     try:
-        from services.security_scanner import scan_aws_security
-        results = scan_aws_security(uid)
+        from services.security_scanner import scan_aws_security, SecurityScanError
+        try:
+            results = scan_aws_security(uid)
+        except SecurityScanError as e:
+            return {'success': False, 'error': str(e),
+                    'note': 'No check could read the account, so there is no result. Do not report it as clean.'}
         return {
             'success': True,
+            'region': results['region'],
+            'checks': {name: c['status'] if c['status'] == 'ok' else f"error: {c['error']}"
+                       for name, c in results['checks'].items()},
+            'warnings': [w for c in results['checks'].values() for w in c.get('warnings', [])][:20],
             'total_findings': results['total'],
             'critical': results['critical'],
             'high': results['high'],
             'medium': results['medium'],
             'low': results['low'],
+            'resolved_since_last_scan': results['resolved'],
             'findings': [{
                 'type': f.get('finding_type'),
                 'severity': f.get('severity'),
                 'title': f.get('title'),
                 'resource': f.get('affected_resource_name'),
                 'remediation': f.get('remediation_steps')
-            } for f in results.get('findings', [])[:15]]
+            } for f in results.get('findings', [])[:15]],
+            'note': 'A check marked error did not run; say so rather than calling that area clean.',
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
+# Framework controls the security checks can speak to. Everything else in a framework
+# (training, incident response, change management, audit logging...) is not checked
+# automatically, and the tool says so instead of passing it.
+_RELATED_CONTROLS = {
+    'soc2': {
+        'CC6.1 Logical access': ['open_s3_bucket', 'public_rds_instance'],
+        'CC6.2 Authentication': ['iam_user_without_mfa'],
+        'CC6.6 Boundary protection': ['overly_permissive_security_group', 'public_rds_instance'],
+        'CC6.7 Encryption': ['unencrypted_s3_bucket', 'unencrypted_database'],
+    },
+    'hipaa': {
+        '164.312(a) Access control': ['open_s3_bucket', 'overly_permissive_security_group', 'public_rds_instance'],
+        '164.312(c) Integrity': ['unversioned_s3_bucket', 'unencrypted_database'],
+        '164.312(d) Authentication': ['iam_user_without_mfa'],
+        '164.312(e) Transmission security': ['unencrypted_s3_bucket', 'unencrypted_database'],
+    },
+    'pci_dss': {
+        '1.1 Firewall configuration': ['overly_permissive_security_group', 'public_rds_instance'],
+        '3.4 Stored data encryption': ['open_s3_bucket', 'unencrypted_s3_bucket', 'unencrypted_database'],
+        '8.1 User identification': ['iam_user_without_mfa'],
+    },
+}
+
+
 def run_compliance_check(framework: str = 'soc2') -> Dict[str, Any]:
-    """Run compliance check against a framework (soc2, hipaa, pci_dss)."""
+    """Relate the AWS security checks to a framework's controls. Not an assessment."""
     uid, err = _require_user()
     if err:
         return err
+    controls = _RELATED_CONTROLS.get(framework)
+    if controls is None:
+        return {'success': False, 'error': f'Unknown framework {framework!r}; use soc2, hipaa or pci_dss'}
     try:
-        from services.compliance_service import ComplianceService
-        service = ComplianceService(uid)
-        report = service.run_compliance_check(uid, framework)
-
+        from services.security_scanner import scan_aws_security, SecurityScanError, CHECK_FOR_TYPE
+        try:
+            results = scan_aws_security(uid)
+        except SecurityScanError as e:
+            return {'success': False, 'error': str(e)}
+        ran = {n for n, c in results['checks'].items() if c['status'] == 'ok'}
+        by_type: Dict[str, list] = {}
+        for f in results['findings']:
+            by_type.setdefault(f['finding_type'], []).append(f.get('affected_resource_name'))
+        out = []
+        for control, types in controls.items():
+            issues = [{'type': t, 'resources': by_type[t]} for t in types if t in by_type]
+            unchecked = [t for t in types if CHECK_FOR_TYPE[t] not in ran]
+            status = 'issues found' if issues else ('not checked' if unchecked else 'no issues in the checks that ran')
+            out.append({'control': control, 'status': status, 'issues': issues})
         return {
             'success': True,
             'framework': framework,
-            'score': report.overall_score,
-            'controls_passed': report.controls_passed,
-            'controls_failed': report.controls_failed,
-            'controls': [{
-                'id': c['control_id'],
-                'title': c['control_title'],
-                'status': c['status'],
-                'findings': c['findings_count']
-            } for c in (report.findings or [])]
+            'controls': out,
+            'note': ('This is not a compliance assessment and gives no score. It relates a few AWS '
+                     'configuration checks to these controls; every other control in the framework '
+                     '(policies, training, incident response, logging, vendor management) is not checked.'),
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
@@ -455,7 +498,7 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'run_security_scan',
-            'description': 'Run a real security scan on AWS infrastructure. Checks S3 bucket access/encryption, security group rules, RDS encryption/public access, and IAM MFA status.',
+            'description': 'Run the AWS security checks on the connected account: S3 public access, encryption and versioning; security groups open to the internet; public or unencrypted RDS; IAM console users without MFA. Reports which checks ran.',
             'input_schema': {
                 'type': 'object',
                 'properties': {},
@@ -465,7 +508,7 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'run_compliance_check',
-            'description': 'Run compliance check against a specific framework. Maps real AWS security findings to framework controls and calculates compliance score.',
+            'description': 'Relate the AWS security checks to SOC 2, HIPAA or PCI DSS controls. Not a compliance assessment: no score, and most controls are not checked.',
             'input_schema': {
                 'type': 'object',
                 'properties': {

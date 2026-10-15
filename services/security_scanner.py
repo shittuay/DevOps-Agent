@@ -1,344 +1,313 @@
-"""Security scanning service for AWS infrastructure"""
+"""AWS security checks for the signed-in user's own account.
+
+Seven checks across four areas: public and unencrypted/unversioned S3 buckets,
+security groups open to the internet, public or unencrypted RDS databases, and IAM
+console users without MFA.
+
+Rules that matter (2026-10-14 audit):
+- **A check that could not read the account is not a clean result.** Every area
+  reports `ok` or `error` in `checks`; if no area could run at all the scan raises
+  `SecurityScanError` instead of returning "no findings". A per-item read failure
+  (one bucket's ACL) is a warning on that check, never a pass.
+- **Each finding is counted once.** The old loop appended to the list it was
+  iterating, so every new finding was counted twice.
+- **Fixed problems close.** An open finding that a check which ran successfully no
+  longer sees is marked resolved; findings from a check that failed are left alone.
+- Security groups and RDS are regional; the region scanned is reported.
+"""
 import logging
-from datetime import datetime
-from typing import List, Dict
-from models import db, SecurityFinding, InfrastructureResource
 import os as _os
+from typing import Dict, List, Tuple
+
+from botocore.exceptions import ClientError
+
+from models import db, SecurityFinding
 from services.notification_service import notify_security as _notify_security
 from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
+# finding_type -> the check that produces it (used to resolve findings the
+# check no longer sees, but only when that check ran).
+CHECK_FOR_TYPE = {
+    'open_s3_bucket': 's3',
+    'unencrypted_s3_bucket': 's3',
+    'unversioned_s3_bucket': 's3',
+    'overly_permissive_security_group': 'security_groups',
+    'public_rds_instance': 'rds',
+    'unencrypted_database': 'rds',
+    'iam_user_without_mfa': 'iam',
+}
 
-def _get_boto_client(service: str, user_id: int = None, region: str = None):
-    """Get boto3 client using per-user credentials."""
-    if user_id:
-        from services.credential_service import get_user_boto_client
-        return get_user_boto_client(user_id, service, region)
-    from src.tools.aws_tools import _get_boto_client as _aws_get_client
-    return _aws_get_client(service, region)
+CHECK_LABELS = {
+    's3': 'S3 buckets (public access, encryption, versioning)',
+    'security_groups': 'Security groups open to the internet',
+    'rds': 'RDS databases (public access, encryption)',
+    'iam': 'IAM console users without MFA',
+}
+
+
+class SecurityScanError(Exception):
+    """None of the checks could read the account; there is no result to report."""
+
+
+def _get_boto_client(service: str, user_id: int):
+    from services.credential_service import get_user_boto_client
+    return get_user_boto_client(user_id, service, None)
+
+
+def _short(e: Exception) -> str:
+    if isinstance(e, ClientError):
+        err = e.response.get('Error', {})
+        return f"{err.get('Code', 'Error')}: {err.get('Message', '')}"[:200]
+    return str(e)[:200]
 
 
 def scan_aws_security(user_id: int) -> Dict:
+    """Run every check, store the findings, and return what was found and what ran.
+
+    Raises SecurityScanError when no check could run (no AWS account connected,
+    credentials rejected, or every call denied).
     """
-    Run comprehensive security scan on AWS infrastructure.
+    checks: Dict[str, Dict] = {}
+    found: List[Dict] = []
+    region = None
 
-    Returns:
-        Dictionary with scan results and findings count
-    """
-    results = {
-        'findings': [],
-        'critical': 0,
-        'high': 0,
-        'medium': 0,
-        'low': 0,
-        'total': 0
-    }
+    for name, fn in (('s3', scan_s3_buckets), ('security_groups', scan_security_groups),
+                     ('rds', scan_rds), ('iam', scan_iam_issues)):
+        try:
+            items, warnings, check_region = fn(user_id)
+        except Exception as e:  # the whole area could not be read
+            logger.warning("Security check %s failed for user %s: %s", name, user_id, e)
+            checks[name] = {'status': 'error', 'error': _short(e), 'label': CHECK_LABELS[name]}
+            continue
+        checks[name] = {'status': 'ok', 'warnings': warnings, 'label': CHECK_LABELS[name]}
+        region = region or check_region
+        found.extend(items)
 
-    # Run all security checks
-    findings = []
-    findings.extend(scan_s3_buckets(user_id))
-    findings.extend(scan_security_groups(user_id))
-    findings.extend(scan_unencrypted_resources(user_id))
-    findings.extend(scan_iam_issues(user_id))
+    if not any(c['status'] == 'ok' for c in checks.values()):
+        first = next(iter(checks.values()))['error']
+        raise SecurityScanError(f"Couldn't read your AWS account: {first}")
 
-    # Save findings to database
-    for finding_data in findings:
-        # Check if finding already exists
+    # One finding per (type, resource).
+    unique: Dict[Tuple[str, str], Dict] = {}
+    for f in found:
+        unique.setdefault((f['finding_type'], f.get('affected_resource_id') or ''), f)
+
+    now = utcnow()
+    for (ftype, rid), data in unique.items():
         existing = SecurityFinding.query.filter_by(
-            user_id=user_id,
-            finding_type=finding_data['finding_type'],
-            affected_resource_id=finding_data.get('affected_resource_id')
+            user_id=user_id, finding_type=ftype, affected_resource_id=rid or None,
         ).first()
-
         if existing:
-            # Update existing finding
-            existing.last_detected = utcnow()
-            existing.status = 'open'  # Reopen if it was resolved
+            existing.last_detected = now
+            existing.severity = data['severity']
+            existing.title = data['title']
+            if existing.status == 'resolved':
+                existing.status = 'open'
+                existing.resolved_at = None
         else:
-            # Create new finding
-            finding = SecurityFinding(
-                user_id=user_id,
-                **finding_data
-            )
-            db.session.add(finding)
-            findings.append(finding_data)
+            db.session.add(SecurityFinding(user_id=user_id, **data))
 
-        # Count by severity
-        severity = finding_data.get('severity', 'low')
-        if severity == 'critical':
-            results['critical'] += 1
-        elif severity == 'high':
-            results['high'] += 1
-        elif severity == 'medium':
-            results['medium'] += 1
-        elif severity == 'low':
-            results['low'] += 1
+    # Close what successful checks no longer see.
+    ran = {name for name, c in checks.items() if c['status'] == 'ok'}
+    seen = set(unique)
+    resolved = 0
+    for f in SecurityFinding.query.filter_by(user_id=user_id, status='open').all():
+        if CHECK_FOR_TYPE.get(f.finding_type) in ran and (f.finding_type, f.affected_resource_id or '') not in seen:
+            f.status = 'resolved'
+            f.resolved_at = now
+            f.resolution_notes = 'No longer detected by the security checks'
+            resolved += 1
 
     db.session.commit()
 
-    results['total'] = len(findings)
-    results['findings'] = findings
-
-    _notify_security(
-        user_id,
-        results,
-        _os.environ.get('BASE_URL', 'https://devopsagent.io')
-    )
+    findings = list(unique.values())
+    counts = {sev: sum(1 for f in findings if f['severity'] == sev) for sev in ('critical', 'high', 'medium', 'low')}
+    results = {
+        **counts,
+        'total': len(findings),
+        'findings': findings,
+        'checks': checks,
+        'region': region,
+        'resolved': resolved,
+        'scanned_at': now.isoformat(),
+    }
+    _notify_security(user_id, results, _os.environ.get('BASE_URL', 'https://devopsagent.io'))
     return results
 
 
-def scan_s3_buckets(user_id: int) -> List[Dict]:
-    """Scan S3 buckets for public access and encryption issues"""
+def scan_s3_buckets(user_id: int):
+    """Public ACLs, default encryption and versioning on every bucket.
+
+    Returns (findings, warnings, region). Listing buckets failing raises; one
+    bucket's read failing is a warning, never a pass.
+    """
+    s3 = _get_boto_client('s3', user_id)
+    findings, warnings = [], []
+    for bucket in s3.list_buckets().get('Buckets', []):
+        name = bucket['Name']
+        base = {'cloud_provider': 'aws', 'affected_resource_type': 's3_bucket',
+                'affected_resource_id': name, 'affected_resource_name': name, 'compliance_frameworks': ['CIS']}
+
+        try:
+            acl = s3.get_bucket_acl(Bucket=name)
+            if any(g.get('Grantee', {}).get('Type') == 'Group' and 'AllUsers' in g.get('Grantee', {}).get('URI', '')
+                   for g in acl.get('Grants', [])):
+                findings.append({**base, 'finding_type': 'open_s3_bucket', 'severity': 'critical',
+                                 'title': f'Publicly readable S3 bucket: {name}',
+                                 'description': f'Bucket "{name}" grants access to everyone on the internet through its ACL.',
+                                 'cis_benchmark_id': 'CIS-2.1.5',
+                                 'remediation_steps': f'aws s3api put-bucket-acl --bucket {name} --acl private, then turn on Block Public Access',
+                                 'risk_score': 95, 'exploitability': 'high'})
+        except Exception as e:
+            warnings.append(f'{name}: could not read its access settings ({_short(e)})')
+
+        try:
+            s3.get_bucket_encryption(Bucket=name)
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code') == 'ServerSideEncryptionConfigurationNotFoundError':
+                findings.append({**base, 'finding_type': 'unencrypted_s3_bucket', 'severity': 'high',
+                                 'title': f'S3 bucket without default encryption: {name}',
+                                 'description': f'Bucket "{name}" has no default encryption setting.',
+                                 'cis_benchmark_id': 'CIS-2.1.1',
+                                 'remediation_steps': 'Turn on default encryption (SSE-S3 or SSE-KMS) for the bucket',
+                                 'risk_score': 75, 'exploitability': 'medium'})
+            else:
+                warnings.append(f'{name}: could not read its encryption setting ({_short(e)})')
+        except Exception as e:
+            warnings.append(f'{name}: could not read its encryption setting ({_short(e)})')
+
+        try:
+            if s3.get_bucket_versioning(Bucket=name).get('Status') != 'Enabled':
+                findings.append({**base, 'finding_type': 'unversioned_s3_bucket', 'severity': 'medium',
+                                 'title': f'S3 bucket without versioning: {name}',
+                                 'description': f'Bucket "{name}" does not keep old versions, so a deleted or overwritten object cannot be recovered.',
+                                 'cis_benchmark_id': 'CIS-2.1.3',
+                                 'remediation_steps': f'aws s3api put-bucket-versioning --bucket {name} --versioning-configuration Status=Enabled',
+                                 'risk_score': 55, 'exploitability': 'low'})
+        except Exception as e:
+            warnings.append(f'{name}: could not read its versioning setting ({_short(e)})')
+    return findings, warnings, None
+
+
+_SENSITIVE_PORTS = {22, 3389, 3306, 5432, 1433, 27017, 6379}
+
+
+def _rule_is_sensitive(rule: Dict) -> bool:
+    if rule.get('IpProtocol') == '-1':
+        return True
+    lo, hi = rule.get('FromPort'), rule.get('ToPort')
+    if lo is None:
+        return True
+    hi = lo if hi is None else hi
+    return any(lo <= p <= hi for p in _SENSITIVE_PORTS)
+
+
+def scan_security_groups(user_id: int):
+    """Security group rules that accept traffic from anywhere (IPv4 or IPv6)."""
+    ec2 = _get_boto_client('ec2', user_id)
+    region = getattr(getattr(ec2, 'meta', None), 'region_name', None)
     findings = []
-
-    try:
-        s3 = _get_boto_client('s3', user_id=user_id)
-        buckets = s3.list_buckets()
-
-        for bucket in buckets.get('Buckets', []):
-            bucket_name = bucket['Name']
-
-            # Check public access
-            try:
-                acl = s3.get_bucket_acl(Bucket=bucket_name)
-                for grant in acl.get('Grants', []):
-                    grantee = grant.get('Grantee', {})
-                    if grantee.get('Type') == 'Group' and 'AllUsers' in grantee.get('URI', ''):
-                        findings.append({
-                            'finding_type': 'open_s3_bucket',
-                            'severity': 'critical',
-                            'title': f'Publicly accessible S3 bucket: {bucket_name}',
-                            'description': f'S3 bucket "{bucket_name}" is publicly accessible. This could expose sensitive data to the internet.',
-                            'compliance_frameworks': ['CIS', 'SOC2', 'HIPAA', 'PCI-DSS'],
-                            'cis_benchmark_id': 'CIS-2.1.5',
-                            'cloud_provider': 'aws',
-                            'affected_resource_type': 's3_bucket',
-                            'affected_resource_id': bucket_name,
-                            'affected_resource_name': bucket_name,
-                            'finding_data': {'acl': acl},
-                            'remediation_steps': f'Run: aws s3api put-bucket-acl --bucket {bucket_name} --acl private',
-                            'auto_remediation_available': True,
-                            'risk_score': 95,
-                            'exploitability': 'high'
-                        })
-            except Exception as e:
-                # A failed ACL check must not look like "checked, not public" —
-                # that's how a permissions/throttling error silently drops a
-                # critical public-bucket finding from the report.
-                logger.warning(f"Could not check ACL for S3 bucket {bucket_name}: {e}")
-
-            # Check encryption
-            try:
-                encryption = s3.get_bucket_encryption(Bucket=bucket_name)
-            except Exception:
-                findings.append({
-                    'finding_type': 'unencrypted_s3_bucket',
-                    'severity': 'high',
-                    'title': f'Unencrypted S3 bucket: {bucket_name}',
-                    'description': f'S3 bucket "{bucket_name}" does not have default encryption enabled.',
-                    'compliance_frameworks': ['CIS', 'SOC2', 'HIPAA'],
-                    'cis_benchmark_id': 'CIS-2.1.1',
-                    'cloud_provider': 'aws',
-                    'affected_resource_type': 's3_bucket',
-                    'affected_resource_id': bucket_name,
-                    'affected_resource_name': bucket_name,
-                    'remediation_steps': f'Enable S3 bucket encryption with AWS KMS',
-                    'auto_remediation_available': True,
-                    'risk_score': 75,
-                    'exploitability': 'medium'
-                })
-
-            # Check versioning
-            try:
-                versioning = s3.get_bucket_versioning(Bucket=bucket_name)
-                if versioning.get('Status') != 'Enabled':
-                    findings.append({
-                        'finding_type': 'unversioned_s3_bucket',
-                        'severity': 'medium',
-                        'title': f'S3 bucket without versioning: {bucket_name}',
-                        'description': f'S3 bucket "{bucket_name}" does not have versioning enabled. Data loss from accidental deletion or overwrites cannot be recovered.',
-                        'compliance_frameworks': ['CIS', 'SOC2'],
-                        'cis_benchmark_id': 'CIS-2.1.3',
-                        'cloud_provider': 'aws',
-                        'affected_resource_type': 's3_bucket',
-                        'affected_resource_id': bucket_name,
-                        'affected_resource_name': bucket_name,
-                        'remediation_steps': f'aws s3api put-bucket-versioning --bucket {bucket_name} --versioning-configuration Status=Enabled',
-                        'auto_remediation_available': True,
-                        'risk_score': 55,
-                        'exploitability': 'low'
-                    })
-            except Exception as e:
-                logger.warning(f"Could not check versioning for S3 bucket {bucket_name}: {e}")
-
-    except Exception as e:
-        logger.error(f'Error scanning S3 buckets: {e}')
-
-    return findings
+    for page in ec2.get_paginator('describe_security_groups').paginate():
+        for sg in page.get('SecurityGroups', []):
+            sg_id, sg_name = sg['GroupId'], sg.get('GroupName', sg['GroupId'])
+            open_rules = [r for r in sg.get('IpPermissions', [])
+                          if any(x.get('CidrIp') == '0.0.0.0/0' for x in r.get('IpRanges', []))
+                          or any(x.get('CidrIpv6') == '::/0' for x in r.get('Ipv6Ranges', []))]
+            if not open_rules:
+                continue
+            ports = sorted({'all' if r.get('IpProtocol') == '-1' else f"{r.get('FromPort')}-{r.get('ToPort')}"
+                            for r in open_rules})
+            sensitive = any(_rule_is_sensitive(r) for r in open_rules)
+            findings.append({
+                'finding_type': 'overly_permissive_security_group',
+                'severity': 'high' if sensitive else 'medium',
+                'title': f'Security group open to the internet: {sg_name}',
+                'description': f'Security group "{sg_name}" ({sg_id}) accepts traffic from anywhere on ports {", ".join(ports)}.',
+                'compliance_frameworks': ['CIS'], 'cis_benchmark_id': 'CIS-5.2',
+                'cloud_provider': 'aws', 'affected_resource_type': 'security_group',
+                'affected_resource_id': sg_id, 'affected_resource_name': sg_name, 'region': region,
+                'finding_data': {'ports': ports},
+                'remediation_steps': f'Limit {sg_id} to the addresses that need it instead of 0.0.0.0/0',
+                'risk_score': 85 if sensitive else 65, 'exploitability': 'high'})
+    return findings, [], region
 
 
-def scan_security_groups(user_id: int) -> List[Dict]:
-    """Scan security groups for overly permissive rules"""
+def scan_rds(user_id: int):
+    """RDS databases that are publicly accessible or unencrypted."""
+    rds = _get_boto_client('rds', user_id)
+    region = getattr(getattr(rds, 'meta', None), 'region_name', None)
     findings = []
-
-    try:
-        ec2 = _get_boto_client('ec2', user_id=user_id)
-        response = ec2.describe_security_groups()
-
-        for sg in response.get('SecurityGroups', []):
-            sg_id = sg['GroupId']
-            sg_name = sg.get('GroupName', sg_id)
-
-            # Check for 0.0.0.0/0 ingress rules
-            for rule in sg.get('IpPermissions', []):
-                for ip_range in rule.get('IpRanges', []):
-                    if ip_range.get('CidrIp') == '0.0.0.0/0':
-                        port_range = f"{rule.get('FromPort', 'all')}-{rule.get('ToPort', 'all')}"
-                        findings.append({
-                            'finding_type': 'overly_permissive_security_group',
-                            'severity': 'high' if rule.get('FromPort') in [22, 3389, 3306, 5432] else 'medium',
-                            'title': f'Security group allows unrestricted access: {sg_name}',
-                            'description': f'Security group "{sg_name}" ({sg_id}) allows inbound traffic from 0.0.0.0/0 on ports {port_range}.',
-                            'compliance_frameworks': ['CIS', 'SOC2'],
-                            'cis_benchmark_id': 'CIS-5.2',
-                            'cloud_provider': 'aws',
-                            'affected_resource_type': 'security_group',
-                            'affected_resource_id': sg_id,
-                            'affected_resource_name': sg_name,
-                            'finding_data': {'rule': rule, 'ports': port_range},
-                            'remediation_steps': f'Restrict security group {sg_id} to specific IP ranges instead of 0.0.0.0/0',
-                            'auto_remediation_available': False,
-                            'risk_score': 85 if rule.get('FromPort') in [22, 3389] else 65,
-                            'exploitability': 'high'
-                        })
-
-    except Exception as e:
-        print(f'Error scanning security groups: {e}')
-
-    return findings
+    for page in rds.get_paginator('describe_db_instances').paginate():
+        for inst in page.get('DBInstances', []):
+            db_id = inst['DBInstanceIdentifier']
+            base = {'cloud_provider': 'aws', 'affected_resource_type': 'rds', 'affected_resource_id': db_id,
+                    'affected_resource_name': db_id, 'region': region, 'compliance_frameworks': ['CIS'],
+                    'finding_data': {'engine': inst.get('Engine')}}
+            if inst.get('PubliclyAccessible'):
+                findings.append({**base, 'finding_type': 'public_rds_instance', 'severity': 'critical',
+                                 'title': f'Publicly accessible database: {db_id}',
+                                 'description': f'RDS database "{db_id}" can be reached from the internet.',
+                                 'cis_benchmark_id': 'CIS-2.3.3',
+                                 'remediation_steps': f'Modify {db_id} to turn off public access',
+                                 'risk_score': 90, 'exploitability': 'high'})
+            if not inst.get('StorageEncrypted'):
+                findings.append({**base, 'finding_type': 'unencrypted_database', 'severity': 'high',
+                                 'title': f'Unencrypted database: {db_id}',
+                                 'description': f'RDS database "{db_id}" stores data unencrypted.',
+                                 'cis_benchmark_id': 'CIS-2.3.1',
+                                 'remediation_steps': 'Copy a snapshot with encryption on and restore from it',
+                                 'risk_score': 80, 'exploitability': 'medium'})
+    return findings, [], region
 
 
-def scan_unencrypted_resources(user_id: int) -> List[Dict]:
-    """Scan for unencrypted RDS instances and EBS volumes"""
-    findings = []
-
-    try:
-        # Check RDS instances
-        rds = _get_boto_client('rds', user_id=user_id)
-        response = rds.describe_db_instances()
-
-        for db_instance in response.get('DBInstances', []):
-            db_id = db_instance['DBInstanceIdentifier']
-
-            # Check public access
-            if db_instance.get('PubliclyAccessible', False):
-                findings.append({
-                    'finding_type': 'public_rds_instance',
-                    'severity': 'critical',
-                    'title': f'Publicly accessible RDS: {db_id}',
-                    'description': f'RDS database "{db_id}" is publicly accessible. Databases should not be exposed to the internet.',
-                    'compliance_frameworks': ['CIS', 'SOC2', 'HIPAA', 'PCI-DSS'],
-                    'cis_benchmark_id': 'CIS-3.2',
-                    'cloud_provider': 'aws',
-                    'affected_resource_type': 'rds',
-                    'affected_resource_id': db_id,
-                    'affected_resource_name': db_id,
-                    'finding_data': {'engine': db_instance.get('Engine')},
-                    'remediation_steps': f'Modify RDS instance {db_id} to disable public access',
-                    'auto_remediation_available': False,
-                    'risk_score': 90,
-                    'exploitability': 'high'
-                })
-
-            # Check encryption
-            if not db_instance.get('StorageEncrypted', False):
-                findings.append({
-                    'finding_type': 'unencrypted_database',
-                    'severity': 'high',
-                    'title': f'Unencrypted RDS database: {db_id}',
-                    'description': f'RDS database "{db_id}" does not have encryption enabled.',
-                    'compliance_frameworks': ['CIS', 'SOC2', 'HIPAA', 'PCI-DSS'],
-                    'cis_benchmark_id': 'CIS-3.1',
-                    'cloud_provider': 'aws',
-                    'affected_resource_type': 'rds',
-                    'affected_resource_id': db_id,
-                    'affected_resource_name': db_id,
-                    'finding_data': {'engine': db_instance.get('Engine')},
-                    'remediation_steps': 'Create encrypted snapshot and restore to new encrypted instance',
-                    'auto_remediation_available': False,
-                    'risk_score': 80,
-                    'exploitability': 'medium'
-                })
-
-    except Exception as e:
-        print(f'Error scanning RDS instances: {e}')
-
-    return findings
-
-
-def scan_iam_issues(user_id: int) -> List[Dict]:
-    """Scan IAM for security issues"""
-    findings = []
-
-    try:
-        iam = _get_boto_client('iam', user_id=user_id)
-
-        # Check for root account usage
-        credential_report = iam.generate_credential_report()
-
-        # Check for users without MFA
-        users = iam.list_users()
-        for user in users.get('Users', []):
+def scan_iam_issues(user_id: int):
+    """IAM users with a console password but no MFA device."""
+    iam = _get_boto_client('iam', user_id)
+    findings, warnings = [], []
+    for page in iam.get_paginator('list_users').paginate():
+        for user in page.get('Users', []):
             username = user['UserName']
-            mfa_devices = iam.list_mfa_devices(UserName=username)
-
-            if len(mfa_devices.get('MFADevices', [])) == 0:
-                findings.append({
-                    'finding_type': 'iam_user_without_mfa',
-                    'severity': 'medium',
-                    'title': f'IAM user without MFA: {username}',
-                    'description': f'IAM user "{username}" does not have MFA enabled.',
-                    'compliance_frameworks': ['CIS', 'SOC2'],
-                    'cis_benchmark_id': 'CIS-1.2',
-                    'cloud_provider': 'aws',
-                    'affected_resource_type': 'iam_user',
-                    'affected_resource_id': username,
-                    'affected_resource_name': username,
-                    'remediation_steps': f'Enable MFA for IAM user {username}',
-                    'auto_remediation_available': False,
-                    'risk_score': 60,
-                    'exploitability': 'medium'
-                })
-
-    except Exception as e:
-        print(f'Error scanning IAM: {e}')
-
-    return findings
+            try:
+                iam.get_login_profile(UserName=username)
+            except ClientError as e:
+                if e.response.get('Error', {}).get('Code') == 'NoSuchEntity':
+                    continue  # no console password, so console MFA does not apply
+                warnings.append(f'{username}: could not read console access ({_short(e)})')
+                continue
+            try:
+                if not iam.list_mfa_devices(UserName=username).get('MFADevices'):
+                    findings.append({
+                        'finding_type': 'iam_user_without_mfa', 'severity': 'medium',
+                        'title': f'Console user without MFA: {username}',
+                        'description': f'IAM user "{username}" can sign in to the console without MFA.',
+                        'compliance_frameworks': ['CIS'], 'cis_benchmark_id': 'CIS-1.10',
+                        'cloud_provider': 'aws', 'affected_resource_type': 'iam_user',
+                        'affected_resource_id': username, 'affected_resource_name': username,
+                        'remediation_steps': f'Assign an MFA device to {username}',
+                        'risk_score': 60, 'exploitability': 'medium'})
+            except Exception as e:
+                warnings.append(f'{username}: could not read MFA devices ({_short(e)})')
+    return findings, warnings, None
 
 
 def get_security_summary(user_id: int) -> Dict:
-    """Get security summary for dashboard"""
-    findings = SecurityFinding.query.filter_by(
-        user_id=user_id,
-        status='open'
-    ).all()
-
+    """Open findings for the signed-in user, highest risk first."""
+    findings = (SecurityFinding.query.filter_by(user_id=user_id, status='open')
+                .order_by(SecurityFinding.risk_score.desc()).all())
+    last = max((f.last_detected for f in findings if f.last_detected), default=None)
     summary = {
         'total_findings': len(findings),
-        'critical': len([f for f in findings if f.severity == 'critical']),
-        'high': len([f for f in findings if f.severity == 'high']),
-        'medium': len([f for f in findings if f.severity == 'medium']),
-        'low': len([f for f in findings if f.severity == 'low']),
+        'critical': sum(1 for f in findings if f.severity == 'critical'),
+        'high': sum(1 for f in findings if f.severity == 'high'),
+        'medium': sum(1 for f in findings if f.severity == 'medium'),
+        'low': sum(1 for f in findings if f.severity == 'low'),
         'by_type': {},
-        'recent_findings': [f.to_dict() for f in findings[:10]]
+        'findings': [f.to_dict() for f in findings],
+        'last_detected': last.isoformat() if last else None,
     }
-
-    # Group by type
-    for finding in findings:
-        finding_type = finding.finding_type
-        if finding_type not in summary['by_type']:
-            summary['by_type'][finding_type] = 0
-        summary['by_type'][finding_type] += 1
-
+    for f in findings:
+        summary['by_type'][f.finding_type] = summary['by_type'].get(f.finding_type, 0) + 1
+    summary['recent_findings'] = summary['findings'][:10]
     return summary
