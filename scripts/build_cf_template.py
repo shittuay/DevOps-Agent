@@ -18,6 +18,7 @@ adds, AWS grants only what is inside that boundary.
 """
 import json
 import os
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,13 +26,23 @@ IAM_DIR = ROOT / 'static' / 'iam'
 OUTPUT = ROOT / 'cloudformation' / 'devops-agent-role.json'
 PLATFORM_ACCOUNT_ID = os.environ.get('PLATFORM_AWS_ACCOUNT_ID', '188046727805')
 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# Same list services/aws_permissions.py uses to decide whether a missing permission
+# is too sensitive to self-grant without a warning. Importing it (instead of keeping a
+# second hand-maintained copy here) is what keeps the actual AWS-enforced boundary and
+# the app-level sensitivity check from drifting apart — they drifted once already:
+# ec2:GetPasswordData and the redshift credential-vending actions were absent from
+# both until the 2026-10-15 scheduled security review caught it (see CLAUDE_RUNBOOK.md).
+from services.aws_permissions import SENSITIVE_ACTIONS  # noqa: E402
+
 
 OWN_ROLE_ARN = {'Fn::Sub': 'arn:aws:iam::${AWS::AccountId}:role/${RoleName}'}
 
 # Prefixes the boundary never allows except for the read and self-manage statements below.
 BOUNDARY_EXCLUDED = ['iam:*', 'sts:*', 'organizations:*', 'account:*', 'sso:*', 'identitystore:*']
-SECRET_VALUE_ACTIONS = ['secretsmanager:GetSecretValue', 'ssm:GetParameter', 'ssm:GetParameters',
-                        'ssm:GetParametersByPath', 'ssm:GetParameterHistory']
+SECRET_VALUE_ACTIONS = sorted(SENSITIVE_ACTIONS)
 SELF_GRANT_ACTIONS = ['iam:PutRolePolicy', 'iam:DeleteRolePolicy']
 
 

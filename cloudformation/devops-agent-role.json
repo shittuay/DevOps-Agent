@@ -137,11 +137,16 @@
               "Sid": "NeverSecretValues",
               "Effect": "Deny",
               "Action": [
+                "ec2:GetPasswordData",
+                "lambda:GetFunction",
+                "redshift-serverless:GetCredentials",
+                "redshift:GetClusterCredentials",
+                "s3:GetObject",
                 "secretsmanager:GetSecretValue",
                 "ssm:GetParameter",
+                "ssm:GetParameterHistory",
                 "ssm:GetParameters",
-                "ssm:GetParametersByPath",
-                "ssm:GetParameterHistory"
+                "ssm:GetParametersByPath"
               ],
               "Resource": "*"
             }

@@ -46,7 +46,13 @@ _CODE = re.compile(r'An error occurred \((\w+)\)')
 SENSITIVE_PREFIXES = ('iam:', 'organizations:', 'sts:', 'account:', 'kms:', 'billing:',
                       'aws-portal:', 'sso:', 'identitystore:')
 SENSITIVE_ACTIONS = {'secretsmanager:GetSecretValue', 'ssm:GetParameter', 'ssm:GetParameters',
-                     'ssm:GetParametersByPath', 'lambda:GetFunction', 's3:GetObject'}
+                     'ssm:GetParametersByPath', 'ssm:GetParameterHistory', 'lambda:GetFunction',
+                     's3:GetObject',
+                     # Return live credential material the same way GetSecretValue does
+                     # (decrypted instance password / temporary DB login), reachable with
+                     # no other confirmation gate via the aws_api_read escape hatch.
+                     'ec2:GetPasswordData', 'redshift:GetClusterCredentials',
+                     'redshift-serverless:GetCredentials'}
 
 # Tool category (src/agent/tool_selection.py) -> IAM service prefix, used only when
 # AWS's message doesn't name the action itself.

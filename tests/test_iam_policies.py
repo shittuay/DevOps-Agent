@@ -164,6 +164,12 @@ def test_self_grant_is_off_by_default_and_boundary_capped():
     assert 'Condition' in by_sid['PassRoleToAwsServicesOnly']
     assert by_sid['NeverSecretValues']['Effect'] == 'Deny'
     assert 'secretsmanager:GetSecretValue' in by_sid['NeverSecretValues']['Action']
+    # 2026-10-15 scheduled security review: these credential-vending reads were missing
+    # from both this boundary and services.aws_permissions.SENSITIVE_ACTIONS, so the
+    # self-grant feature could acquire and use them with no "sensitive" warning.
+    for action in ('ec2:GetPasswordData', 'redshift:GetClusterCredentials',
+                   'redshift-serverless:GetCredentials'):
+        assert action in by_sid['NeverSecretValues']['Action'], action
 
     self_policy = role['Policies'][1]['Fn::If'][1]['PolicyDocument']
     allow = [s for s in self_policy['Statement'] if s['Effect'] == 'Allow']
