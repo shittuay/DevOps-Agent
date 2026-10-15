@@ -232,44 +232,6 @@ def test_team_statistics():
         print(f"\n  [OK] Team statistics generated")
 
 
-def test_api_endpoints():
-    """Test that API endpoints are registered"""
-    print_section("Testing API Endpoints")
-
-    with app.app_context():
-        # Get all registered routes
-        routes = []
-        for rule in app.url_map.iter_rules():
-            if 'team' in rule.rule or rule.rule == '/teams':
-                routes.append({
-                    'endpoint': rule.rule,
-                    'methods': ', '.join(rule.methods - {'HEAD', 'OPTIONS'})
-                })
-
-        print(f"\nRegistered Team-Related Endpoints:")
-        for route in routes:
-            print(f"  {route['methods']:10} {route['endpoint']}")
-
-        expected_endpoints = [
-            '/teams',
-            '/api/team/invite',
-            '/api/team/users/<int:user_id>/role',
-            '/api/team/users/<int:user_id>'
-        ]
-
-        registered_endpoints = [r['endpoint'] for r in routes]
-
-        print(f"\nEndpoint Verification:")
-        for endpoint in expected_endpoints:
-            # Check if endpoint pattern is registered
-            found = any(endpoint.replace('<int:user_id>', str(1)) in r or
-                       endpoint.split('/<')[0] in r for r in registered_endpoints)
-            status = "[OK]" if found else "[MISSING]"
-            print(f"  {status} {endpoint}")
-
-        print(f"\n  [OK] API endpoints registered")
-
-
 def main():
     """Run all tests"""
     print("\n" + "=" * 80)
@@ -283,13 +245,11 @@ def main():
         test_user_authentication()
         test_role_hierarchy()
         test_team_statistics()
-        test_api_endpoints()
 
         print("\n" + "=" * 80)
         print("  ALL TEAM TESTS COMPLETED SUCCESSFULLY")
         print("=" * 80)
         print("\n[OK] Team collaboration features are fully functional!\n")
-        print("Access the team management page at: http://localhost:5000/teams")
         print()
 
     except Exception as e:

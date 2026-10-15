@@ -17,8 +17,7 @@ def test_monitoring_route_is_gone(authenticated_client):
 
 
 @pytest.mark.parametrize('path', [
-    '/dashboard', '/chat', '/chatops/', '/drift/',
-    '/notifications/', '/webhooks/',
+    '/dashboard', '/chat', '/drift/',
 ])
 def test_pages_render_without_monitoring_link(authenticated_client, path):
     resp = authenticated_client.get(path, follow_redirects=True)
@@ -37,8 +36,3 @@ def test_engine_and_scheduler_tick_are_gone():
     assert 'monitoring_tick' not in inspect.getsource(scheduler)
 
 
-def test_chatops_no_longer_offers_monitoring_commands():
-    from services.chatops_service import ChatOpsService
-
-    names = set(ChatOpsService().commands)
-    assert not names & {'alerts', 'metrics'}

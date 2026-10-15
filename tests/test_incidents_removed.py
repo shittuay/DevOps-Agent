@@ -30,8 +30,7 @@ def test_removed_modules_are_gone(module):
 
 
 @pytest.mark.parametrize('path', [
-    '/dashboard', '/chat', '/chatops/', '/drift/', '/notifications/',
-    '/webhooks/', '/settings', '/analytics/', '/status', '/docs', '/developers',
+    '/dashboard', '/chat', '/drift/', '/settings', '/analytics/', '/status', '/docs', '/developers',
     '/api-gateway/docs',
 ])
 def test_pages_render_without_incident_or_analysis_links(authenticated_client, path):
@@ -49,25 +48,9 @@ def test_status_page_no_longer_lists_incidents(client):
     assert 'Recent Incidents' not in body
 
 
-def test_chatops_offers_no_incident_commands():
-    from services.chatops_service import ChatOpsService
-
-    names = set(ChatOpsService().commands)
-    assert not names & {'status', 'incidents', 'incident', 'ack', 'resolve',
-                        'playbooks', 'execute', 'analyze', 'rca'}
-    assert {'help', 'deployments', 'oncall', 'link'} <= names
-
-
 def test_developer_api_has_no_incident_endpoints(app):
     rules = {r.rule for r in app.url_map.iter_rules()}
     assert not any('/v1/incidents' in r for r in rules)
-
-
-def test_webhook_failures_no_longer_create_incidents():
-    import inspect
-    from services import webhook_integrations
-
-    assert '_handle_failure_event' not in inspect.getsource(webhook_integrations)
 
 
 def test_health_score_ignores_incidents():

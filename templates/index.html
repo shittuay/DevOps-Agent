@@ -2324,22 +2324,14 @@
                             <div class="dropdown-item" onclick="window.location.href='/curriculum'">
                                 <i class="fa-solid fa-graduation-cap"></i> DevOps Curriculum
                             </div>
-                            <div class="dropdown-item" onclick="window.location.href='/teams'">
+                            <div class="dropdown-item" onclick="window.location.href='/organizations/'">
                                 <i class="fa-solid fa-users"></i> Teams
                             </div>
                             <div class="dropdown-divider"></div>
-                            {% if current_user.is_authenticated and current_user.role == 'admin' %}
-                            <div class="dropdown-item" onclick="window.location.href='/webhooks'">
-                                <i class="fa-solid fa-link"></i> Webhooks
-                            </div>
-                            {% endif %}
-                            <div class="dropdown-item" onclick="window.location.href='/chatops'">
-                                <i class="fa-solid fa-comments"></i> ChatOps
-                            </div>
                             <div class="dropdown-item" onclick="window.location.href='/drift'">
                                 <i class="fa-solid fa-code-branch"></i> Drift Detection
                             </div>
-                            <div class="dropdown-item" onclick="window.location.href='/notifications'">
+                            <div class="dropdown-item" onclick="window.location.href='/settings#notifications'">
                                 <i class="fa-solid fa-bell"></i> Notifications
                             </div>
                             <div class="dropdown-divider"></div>
