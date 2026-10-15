@@ -234,7 +234,7 @@ instance is found.
 - Conversations, messages, credentials are per-user
 - Cloud operations use per-user encrypted credentials
 - **A service class constructed with a `user_id` must apply it on every read, not just writes.**
-  `services/compliance_service.py`'s `ComplianceService.__init__` always stores `self.user_id`
+  `services/compliance_service.py` (removed 2026-10-14)'s `ComplianceService.__init__` always stores `self.user_id`
   (every real call site — `routes/compliance.py`, `app.py`, `tasks/security_tasks.py` — passes a
   real one), but `get_policy()`/`get_compliance_report()` did a bare `Model.query.get(id)` with no
   `user_id` filter, so `toggle_policy`/`delete_policy`/`update_policy`/`get_report`/`export_report`
@@ -2058,6 +2058,18 @@ Step 2 done: public pages and plan features only promise what the app does. The 
 change what anyone pays. `tests/test_public_claims.py` holds the banned-phrase list (SOC 2/HIPAA,
 resource/team-member limits, auto-remediation, the 23% figure, HMAC webhooks, Monitoring & Alerts)
 for landing, About, Docs, chat and every plan; add a phrase there when a feature is removed.
+
+Step 3 done: **Compliance is gone** (`routes/compliance.py`, `services/compliance_service.py`,
+`services/pdf_service.py`, `tasks/security_tasks.py`, its templates). Its SOC 2 scored 100% with no
+AWS account and "Add evidence" did nothing. In its place the Dashboard has **Security checks**
+backed by `services/security_scanner.py`: `scan_aws_security()` runs S3 / security-group / RDS /
+IAM checks through the user's own credentials, records per-area `checks` (`ok`/`error`), raises
+`SecurityScanError` when no area could be read (route returns 502 `scan_failed`, never "clean"),
+de-duplicates and upserts `SecurityFinding` rows, and auto-resolves findings a successful check no
+longer sees. Routes: `GET /api/security/summary`, `POST /api/security/scan`,
+`POST /api/security/findings/<id>/dismiss` (user-scoped, else 404). The agent's
+`run_compliance_check` tool now lists related controls without a score and says it is not a
+compliance assessment; the system prompt forbids claiming SOC 2/HIPAA/PCI compliance.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
