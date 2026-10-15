@@ -82,10 +82,14 @@ Cost, performance and resource views built from your AWS Cost Explorer and Cloud
 the app's own records. Shows zeros or empty charts when there is no data; it never invents
 numbers. Export as JSON or CSV.
 
-## Compliance (`/compliance/`)
+## Security checks (Dashboard)
 
-Frameworks (SOC 2, HIPAA, PCI DSS, GDPR, ISO 27001, NIST, CIS), policies you can enable and
-edit, evidence uploads, and exportable reports.
+Real checks on the connected AWS account: S3 (public access, encryption), security groups (open
+to the internet on sensitive or all ports, IPv4 and IPv6), RDS (public, unencrypted) and IAM
+(console users without MFA, access keys over 90 days). Findings are stored per user, re-checked on
+each run, auto-resolved when gone, and can be dismissed. An area that could not be read is
+reported as not checked, never as clean. The Compliance page was removed on 2026-10-14: its
+framework scores were not real assessments.
 
 ---
 
@@ -167,7 +171,7 @@ Details: [API reference](API_REFERENCE.md).
 | SonarQube | 12 |
 | Nexus | 12 |
 | Pentest (off by default) | 12 |
-| DevOps operations (cost, compliance, change governance) | 10 |
+| DevOps operations (cost, security checks, change governance) | 10 |
 | Command | 2 |
 | Verification (`http_check`, `tcp_check`) | 2 |
 | **Total** | **749** |

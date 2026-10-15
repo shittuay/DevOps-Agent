@@ -15,7 +15,7 @@ For a five-minute start, see [QUICK_START.md](QUICK_START.md).
 6. [Approvals and change requests](#approvals-and-change-requests)
 7. [Infrastructure pages](#infrastructure-pages)
 8. [Analytics](#analytics)
-9. [Compliance](#compliance)
+9. [Security checks](#security-checks)
 10. [Notifications, ChatOps and webhooks](#notifications-chatops-and-webhooks)
 11. [Developer API and the Claude.ai connector](#developer-api-and-the-claudeai-connector)
 12. [Organizations and teams](#organizations-and-teams)
@@ -237,18 +237,17 @@ records of your resources and tool runs; without data it shows zeros, never inve
 
 ---
 
-## Compliance
+## Security checks
 
-`/compliance/` supports SOC 2, HIPAA, PCI DSS, GDPR, ISO 27001, NIST and CIS.
+The Dashboard's **Security checks** section reads your connected AWS account and lists what it
+finds: public S3 buckets or buckets without encryption, security groups open to the internet on
+sensitive ports, public or unencrypted RDS databases, and IAM console users without MFA or with
+old access keys. **Run checks** re-reads the account; findings that are fixed drop off on the next
+run, and **Dismiss** hides one you have accepted. If an area could not be read (for example, a
+missing permission), it says so instead of reporting it as clean.
 
-- **Frameworks:** enable the ones you care about.
-- **Controls:** per-control status (compliant, non-compliant, partial, not applicable, pending)
-  and evidence.
-- **Policies:** create, edit and toggle your own policies.
-- **Reports:** generate and download compliance reports.
-- **Audit log:** your account's actions.
-
-You can also ask the agent to "run a compliance check" or "scan my account for security issues".
+This is not a compliance assessment. There are no SOC 2, HIPAA or PCI scores. You can also ask
+the agent to "scan my account for security issues".
 
 ---
 

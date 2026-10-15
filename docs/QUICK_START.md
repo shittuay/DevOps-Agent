@@ -73,7 +73,7 @@ Response, IaC, CI/CD and On-Call.
 | Map | `/infrastructure/map` | Visual map of your synced resources |
 | Drift | `/drift/` | Compare live AWS state against a baseline |
 | Analytics | `/analytics/` | Cost, resource and usage analytics |
-| Compliance | `/compliance/` | Frameworks, policies and reports |
+| Security checks | `/dashboard` | Real checks on your connected AWS account (S3, security groups, RDS, IAM) |
 | My requests | `/approvals/mine` | Confirm or cancel your own pending risky actions |
 | Approvals | `/approvals` | Approve or reject your team's pending risky actions (organization owners and admins) |
 | Changes | `/changes` | Change requests and the change audit trail |
