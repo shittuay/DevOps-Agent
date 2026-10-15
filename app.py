@@ -637,8 +637,7 @@ _2FA_EXEMPT_ROUTES = {
     'auth.verify_email', 'auth.resend_verification',
     'auth.forgot_password', 'auth.reset_password',
     'register_redirect', 'usage_policy', 'privacy_policy', 'docs',
-    'status_page', 'status_confirm', 'status_unsubscribe',
-    'api_status_subscribe', 'api_status_health',
+    'status_page', 'status_unsubscribe', 'api_status_health',
 }
 
 _ONBOARDING_OK_ROUTES = {
@@ -678,8 +677,7 @@ _EMAIL_VERIFY_EXEMPT_ROUTES = {
     'auth.forgot_password', 'auth.reset_password', 'static', 'page_not_found',
     'handle_exception', 'ensure_clean_transaction', 'register_redirect',
     'usage_policy', 'privacy_policy', 'docs',
-    'status_page', 'status_confirm', 'status_unsubscribe',
-    'api_status_subscribe', 'api_status_health',
+    'status_page', 'status_unsubscribe', 'api_status_health',
     # 2FA setup routes must also be exempt — otherwise new users loop between
     # "verify email" and "setup 2FA" before they can do either
     'auth.setup_2fa_page', 'auth.verify_2fa', 'auth.api_2fa_setup', 'auth.api_2fa_verify_setup',
@@ -1849,40 +1847,23 @@ def usage_policy():
 
 @app.route('/status')
 def status_page():
-    """Public status page — no login required."""
+    """Public status page — no login required. Checks are cached (status_service.CACHE_SECONDS)."""
     services = status_service.check_health()
     overall = status_service.get_overall_status(services)
-    return render_template('status.html', services=services, overall=overall)
-
-
-@app.route('/status/confirm/<token>')
-def status_confirm(token):
-    """Confirm a status-page email subscription."""
-    ok, email = status_service.confirm(token)
-    if ok:
-        return render_template('status.html',
-            services=status_service.check_health(),
-            overall=status_service.get_overall_status(),
-            flash_msg='You are now subscribed to status notifications.',
-            flash_type='success',
-        )
-    return render_template('status.html',
-        services=status_service.check_health(),
-        overall=status_service.get_overall_status(),
-        flash_msg='Invalid or expired confirmation link.',
-        flash_type='error',
-    )
+    return render_template('status.html', services=services, overall=overall,
+                           checked_at=status_service.checked_at())
 
 
 @app.route('/status/unsubscribe/<token>')
 def status_unsubscribe(token):
-    """Unsubscribe from status-page emails."""
+    """Unsubscribe from status-page emails (sign-ups were removed 2026-10-14; old links still work)."""
     ok, email = status_service.unsubscribe(token)
-    msg = 'You have been unsubscribed.' if ok else 'Invalid unsubscribe link.'
+    services = status_service.check_health()
     return render_template('status.html',
-        services=status_service.check_health(),
-        overall=status_service.get_overall_status(),
-        flash_msg=msg,
+        services=services,
+        overall=status_service.get_overall_status(services),
+        checked_at=status_service.checked_at(),
+        flash_msg='You have been unsubscribed.' if ok else 'Invalid unsubscribe link.',
         flash_type='success' if ok else 'error',
     )
 
@@ -1902,28 +1883,16 @@ def email_unsubscribe():
     return '<html><body style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Unsubscribed</h2><p style="color:#94a3b8">You will no longer receive onboarding or weekly digest emails from DevOps Agent. Budget alerts you set up are not affected.</p></div></body></html>'
 
 
-@app.route('/api/status/subscribe', methods=['POST'])
-def api_status_subscribe():
-    """Subscribe an email to status page notifications."""
-    data = request.get_json(silent=True) or {}
-    email = (data.get('email') or '').strip().lower()
-    if not email or '@' not in email:
-        return jsonify({'error': 'Valid email required'}), 400
-    ok, msg = status_service.subscribe(email)
-    if msg == 'already_subscribed':
-        return jsonify({'error': 'Already subscribed'}), 409
-    if ok:
-        return jsonify({'message': 'Confirmation email sent. Check your inbox.'}), 200
-    return jsonify({'error': 'Subscription failed. Please try again.'}), 500
-
-
 @app.route('/api/status/health')
 def api_status_health():
     """JSON health check for external monitors (e.g. UptimeRobot)."""
     services = status_service.check_health()
     overall = status_service.get_overall_status(services)
     code = 200 if overall == 'operational' else 503
-    return jsonify({'status': overall, 'services': services, 'ts': utcnow().isoformat()}), code
+    checked = status_service.checked_at()
+    return jsonify({'status': overall, 'services': services,
+                    'checked_at': checked.isoformat() + 'Z' if checked else None,
+                    'ts': utcnow().isoformat()}), code
 
 
 @app.route('/api/notifications')
