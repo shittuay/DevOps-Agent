@@ -2117,10 +2117,19 @@ Step 6 done: alerts that were promised now go out.
 - The scheduler's `cost_check` / `security_scan` jobs (log-only, matched nobody) are gone.
 Guard: `tests/test_real_alerts.py`.
 
+Step 7 done: the public `/status` page probes what it reports (`services/status_service.py`):
+database `SELECT 1`; Kimi and Claude `GET /v1/models`; Stripe `GET /v1/balance`; Brevo
+`/v3/account`, SendGrid `/v3/scopes` or an SMTP `NOOP`. Results are cached `CACHE_SECONDS`
+(120) under a lock so the public page can't hammer providers; public `detail` text is a fixed
+phrase, never exception text. The page shows the server's check time (`checked_at`), and
+`/api/status/health` returns it. The "Get notified" sign-up (`/api/status/subscribe`,
+`/status/confirm`) is gone because nothing emailed subscribers; `/status/unsubscribe/<token>` still
+works for old links. Deploy health checks use `/health`, not this endpoint. Guard:
+`tests/test_status_page_real.py`.
+
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
-- **The public `/status` page's "Get notified" box** promises incident emails nothing sends.
 
 ### AI Infrastructure box fixed; Predictive Scaling removed (2026-10-14)
 
