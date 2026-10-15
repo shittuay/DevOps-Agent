@@ -16,6 +16,48 @@ from api.v1 import auth, resources, conversations, users, api_keys, health, tool
 
 
 # ==========================================
+# Deprecation (2026-10-14): /api-gateway/v1 is the one developer API.
+# Every response says so; nothing is removed before the Sunset date.
+# ==========================================
+
+import os as _os
+from datetime import datetime as _dt, timezone as _tz
+from email.utils import format_datetime as _fmt_http_date
+
+API_V1_SUNSET = _os.environ.get('API_V1_SUNSET', '2027-01-12')  # ISO date; change to move the date
+
+# Old path prefix -> new path prefix, for the successor-version Link header.
+_SUCCESSORS = [
+    ('/api/v1/auth/me', '/api-gateway/v1/me'),
+    ('/api/v1/users/me', '/api-gateway/v1/me'),
+    ('/api/v1/resources/security', '/api-gateway/v1/security/findings'),
+    ('/api/v1/tools/execute', '/api-gateway/v1/execute'),
+    ('/api/v1/chat/stream', '/api-gateway/v1/agent/stream'),
+    ('/api/v1/', '/api-gateway/v1/'),
+]
+
+
+def _successor(path: str) -> str:
+    for old, new in _SUCCESSORS:
+        if path.startswith(old):
+            return new + path[len(old):]
+    return '/api-gateway/v1/'
+
+
+@api_v1_bp.after_request
+def _deprecation_headers(response):
+    try:
+        sunset = _dt.strptime(API_V1_SUNSET, '%Y-%m-%d').replace(tzinfo=_tz.utc)
+        response.headers['Sunset'] = _fmt_http_date(sunset, usegmt=True)
+    except ValueError:
+        pass
+    response.headers['Deprecation'] = 'true'
+    response.headers['Link'] = (f'<{_successor(request.path)}>; rel="successor-version", '
+                                '<https://devopsagent.io/developers>; rel="deprecation"')
+    return response
+
+
+# ==========================================
 # OpenAPI Specification
 # ==========================================
 

@@ -14,6 +14,10 @@ services.approval_service.is_visible_to_approver(), which compares org
 membership against the request's *requester* rather than a stored column —
 see test_approval_org_scope.py for that coverage. This file only asserts on
 the InfrastructureChange leak.
+
+Since 2026-10-14 change requests use the same rule as agent requests: visibility
+follows the *requester's* organizations, so each change here is filed by a member
+of the org it belongs to.
 """
 import pytest
 
@@ -61,9 +65,16 @@ def two_orgs_with_pending_changes(app, db_session, approver_user, test_user):
     db.session.add_all([org_mine, org_other])
     db.session.commit()
 
-    db.session.add(OrganizationMember(
-        organization_id=org_mine.id, user_id=approver_user.id, role='admin', is_active=True
-    ))
+    from models import User
+    outsider = User(email='outsider-approvals@example.com', username='outsider_approvals')
+    outsider.set_password('OutsiderPassword123!')
+    db.session.add(outsider)
+    db.session.commit()
+    db.session.add_all([
+        OrganizationMember(organization_id=org_mine.id, user_id=approver_user.id, role='admin', is_active=True),
+        OrganizationMember(organization_id=org_mine.id, user_id=test_user.id, role='member', is_active=True),
+        OrganizationMember(organization_id=org_other.id, user_id=outsider.id, role='owner', is_active=True),
+    ])
     db.session.commit()
 
     change_mine = InfrastructureChange(
@@ -72,7 +83,7 @@ def two_orgs_with_pending_changes(app, db_session, approver_user, test_user):
         status='pending'
     )
     change_other = InfrastructureChange(
-        user_id=test_user.id, organization_id=org_other.id,
+        user_id=outsider.id, organization_id=org_other.id,
         action_type='terminate', resource_type='ec2', title='Terminate instance (other org)',
         status='pending'
     )
@@ -85,7 +96,9 @@ def two_orgs_with_pending_changes(app, db_session, approver_user, test_user):
         InfrastructureChange.query.filter(
             InfrastructureChange.id.in_([change_mine.id, change_other.id])
         ).delete(synchronize_session=False)
-        OrganizationMember.query.filter_by(organization_id=org_mine.id).delete()
+        OrganizationMember.query.filter(
+            OrganizationMember.organization_id.in_([org_mine.id, org_other.id])).delete(synchronize_session=False)
+        User.query.filter_by(id=outsider.id).delete()
         Organization.query.filter(
             Organization.id.in_([org_mine.id, org_other.id])
         ).delete(synchronize_session=False)

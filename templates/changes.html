@@ -973,9 +973,10 @@
             badge.className = 'badge badge-risk-' + risk;
 
             if (risk === 'low') note.textContent = 'Auto-approved';
-            else if (risk === 'medium') note.textContent = 'Requires single approval';
-            else note.textContent = 'Requires approval, no self-approve';
+            else note.textContent = 'Waits in Approvals for an owner or admin of your organization (you confirm it yourself if nobody else can)';
         }
+
+        const CURRENT_USER_ID = {{ user.id | tojson }};
 
         // ── Fetch data ──
         async function fetchChanges(status, page) {
@@ -1116,8 +1117,9 @@
             // Action buttons
             html += '<div class="detail-actions">';
             if (c.status === 'pending') {
-                html += '<button class="btn btn-success btn-sm" onclick="event.stopPropagation(); confirmApprove(' + c.id + ')">Approve</button>';
-                html += '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); confirmReject(' + c.id + ')">Reject</button>';
+                // Decisions happen in one place: Approvals (2026-10-14).
+                const where = c.user_id === CURRENT_USER_ID ? '/approvals/mine' : '/approvals';
+                html += '<a class="btn btn-success btn-sm" href="' + where + '" onclick="event.stopPropagation();">Decide in Approvals</a>';
             }
             if (c.status === 'approved') {
                 html += '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); confirmExecute(' + c.id + ')">Execute Change</button>';

@@ -56,6 +56,22 @@ def _create_medium_risk_change(client, active_org_id=None):
 def org_governance_setup(app, db_session):
     from models import db, Organization, OrganizationMember, InfrastructureChange, User
 
+    # The suite shares one database: clear anything an earlier run of this fixture left.
+    db.session.rollback()
+    emails = ['org-requester@example.com', 'org-approver@example.com',
+              'outside-approver@example.com', 'gov-admin@example.com', 'org-plain-member@example.com']
+    stale = [u.id for u in User.query.filter(User.email.in_(emails)).all()]
+    old_org = Organization.query.filter_by(slug='acme-gov-scope-test').first()
+    if old_org:
+        OrganizationMember.query.filter_by(organization_id=old_org.id).delete(synchronize_session=False)
+        Organization.query.filter_by(id=old_org.id).delete(synchronize_session=False)
+    if stale:
+        InfrastructureChange.query.filter(InfrastructureChange.user_id.in_(stale)).delete(synchronize_session=False)
+        OrganizationMember.query.filter(OrganizationMember.user_id.in_(stale)).delete(synchronize_session=False)
+        User.query.filter(User.id.in_(stale)).delete(synchronize_session=False)
+    db.session.commit()
+    db.session.expunge_all()
+
     requester = _make_user(db_session, 'org-requester@example.com', role='user')
     org_approver = _make_user(db_session, 'org-approver@example.com', role='approver')
     outside_approver = _make_user(db_session, 'outside-approver@example.com', role='approver')
@@ -91,6 +107,7 @@ def org_governance_setup(app, db_session):
         db.session.commit()
     except Exception:
         db.session.rollback()
+    db.session.expunge_all()  # drop stale objects so later tests don't touch deleted rows
 
 
 def test_change_stamped_with_active_organization(app, org_governance_setup):
@@ -140,17 +157,28 @@ def test_outside_approver_cannot_see_or_act_on_foreign_org_change(app, org_gover
     assert resp.status_code == 403
 
 
-def test_solo_change_without_org_requires_admin(app, org_governance_setup):
+def test_unstamped_change_is_still_reviewed_by_the_requesters_org(app, org_governance_setup):
+    """Since 2026-10-14 visibility follows the requester's organizations (the same
+    rule as agent requests), not the organization stamped from the session. A
+    change filed without an active org is still reviewed by the requester's
+    org-mate approver; outsiders still can't touch it."""
     setup = org_governance_setup
     requester_client = _login(app, 'org-requester@example.com')
     change = _create_medium_risk_change(requester_client, active_org_id=None)
     assert change['organization_id'] is None
 
-    # Even the requester's own org-mate approver can't act on it — it was
-    # never stamped to the org, so there's nothing to scope against.
-    org_approver_client = _login(app, 'org-approver@example.com')
-    resp = org_approver_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'nope'})
+    outside_client = _login(app, 'outside-approver@example.com')
+    resp = outside_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'nope'})
     assert resp.status_code == 403
+
+    org_approver_client = _login(app, 'org-approver@example.com')
+    resp = org_approver_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'ok'})
+    assert resp.status_code == 200, resp.get_json()
+
+
+def test_admin_can_approve_unstamped_change(app, org_governance_setup):
+    requester_client = _login(app, 'org-requester@example.com')
+    change = _create_medium_risk_change(requester_client, active_org_id=None)
 
     admin_client = _login(app, 'gov-admin@example.com')
     resp = admin_client.post(f"/api/changes/{change['id']}/approve", json={'comment': 'ok'})

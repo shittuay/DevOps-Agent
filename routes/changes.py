@@ -41,6 +41,26 @@ def _change_visible_to_approver(change, user) -> bool:
     return change.organization_id in _user_active_org_ids(user)
 
 
+def _can_review(change, user) -> bool:
+    """Someone else's change: same reviewer rules as agent requests (2026-10-14)."""
+    from services.approval_service import can_review_change
+    return can_review_change(change, user)
+
+
+def _can_confirm_own(change, user) -> bool:
+    """The requester's own change, when nobody else could review it."""
+    from services.approval_service import can_confirm_own_change
+    return can_confirm_own_change(change, user)
+
+
+def _can_see(change, user) -> bool:
+    if change.user_id == user.id or user_is_admin(user):
+        return True
+    from services.approval_service import reviewable_requester_ids
+    visible = reviewable_requester_ids(user)
+    return visible is None or change.user_id in visible
+
+
 def _notify_change(change, event):
     """Send notification for change events (best-effort, never fails the request)."""
     try:
@@ -200,23 +220,12 @@ def list_changes():
 
     query = InfrastructureChange.query
 
-    # Admins see everything platform-wide. Approvers see their own changes plus
-    # any change stamped with an organization they belong to — never every
-    # tenant's changes just because they hold the approver role.
-    user_role = getattr(current_user, 'role', 'viewer')
-    if user_role == 'admin':
-        pass  # See all changes
-    elif user_role in ('approver', 'operator'):
-        org_ids = _user_active_org_ids(current_user)
-        if org_ids:
-            query = query.filter(db.or_(
-                InfrastructureChange.user_id == current_user.id,
-                InfrastructureChange.organization_id.in_(org_ids)
-            ))
-        else:
-            query = query.filter_by(user_id=current_user.id)
-    else:
-        query = query.filter_by(user_id=current_user.id)
+    # Your own changes, plus those of everyone you review (organization owners and
+    # admins, platform approvers in their orgs); platform admins see all.
+    from services.approval_service import reviewable_requester_ids
+    visible = reviewable_requester_ids(current_user)
+    if visible is not None:
+        query = query.filter(InfrastructureChange.user_id.in_(visible | {current_user.id}))
 
     if status_filter:
         query = query.filter_by(status=status_filter)
@@ -239,12 +248,7 @@ def get_change(change_id):
     """Get a specific change request with full details."""
     change = InfrastructureChange.query.get_or_404(change_id)
 
-    user_role = getattr(current_user, 'role', 'viewer')
-    authorized = change.user_id == current_user.id or user_role == 'admin'
-    if not authorized and user_role in ('approver', 'operator'):
-        authorized = _change_visible_to_approver(change, current_user)
-
-    if not authorized:
+    if not _can_see(change, current_user):
         return jsonify({'error': 'Unauthorized'}), 403
 
     return jsonify(change.to_dict())
@@ -252,17 +256,15 @@ def get_change(change_id):
 
 @changes_bp.route('/pending', methods=['GET'])
 @login_required
-@approver_required
 def list_pending_approvals():
-    """List changes awaiting approval. Admins see all; approvers see their organization's."""
-    user_role = getattr(current_user, 'role', 'viewer')
+    """Changes awaiting a decision from you: ones you review, and your own you confirm."""
+    from services.approval_service import reviewable_requester_ids
     query = InfrastructureChange.query.filter_by(status='pending')
-    if user_role != 'admin':
-        org_ids = _user_active_org_ids(current_user)
-        if not org_ids:
-            return jsonify({'pending': [], 'count': 0})
-        query = query.filter(InfrastructureChange.organization_id.in_(org_ids))
-    changes = query.order_by(InfrastructureChange.created_at.asc()).all()
+    visible = reviewable_requester_ids(current_user)
+    if visible is not None:
+        query = query.filter(InfrastructureChange.user_id.in_(visible | {current_user.id}))
+    changes = [c for c in query.order_by(InfrastructureChange.created_at.asc()).all()
+               if _can_review(c, current_user) or _can_confirm_own(c, current_user)]
 
     return jsonify({
         'pending': [c.to_dict() for c in changes],
@@ -272,22 +274,18 @@ def list_pending_approvals():
 
 @changes_bp.route('/<int:change_id>/approve', methods=['POST'])
 @login_required
-@approver_required
 def approve_change(change_id):
-    """Approve a pending change request."""
+    """Approve someone else's change you review, or confirm your own when nobody else can."""
     change = InfrastructureChange.query.get_or_404(change_id)
 
     if change.status != 'pending':
         return jsonify({'error': f'Change is already {change.status}'}), 400
 
-    # Non-admin approvers may only act on changes within their own organization
-    if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
-        return jsonify({'error': 'This change is outside your organization'}), 403
-
-    # Non-admin users can't approve their own high-risk changes
-    risk_level = (change.change_details or {}).get('risk_level', 'medium')
-    if change.user_id == current_user.id and risk_level == 'high' and not user_is_admin(current_user):
-        return jsonify({'error': 'Cannot self-approve high-risk changes. An admin must approve this.'}), 403
+    if change.user_id == current_user.id:
+        if not _can_confirm_own(change, current_user):
+            return jsonify({'error': 'An owner or admin of your organization approves this change.'}), 403
+    elif not _can_review(change, current_user):
+        return jsonify({'error': 'You can\'t approve this change.'}), 403
 
     data = request.get_json() or {}
     change.status = 'approved'
@@ -308,17 +306,15 @@ def approve_change(change_id):
 
 @changes_bp.route('/<int:change_id>/reject', methods=['POST'])
 @login_required
-@approver_required
 def reject_change(change_id):
-    """Reject a pending change request."""
+    """Reject a change you review, or cancel your own."""
     change = InfrastructureChange.query.get_or_404(change_id)
 
     if change.status != 'pending':
         return jsonify({'error': f'Change is already {change.status}'}), 400
 
-    # Non-admin approvers may only act on changes within their own organization
-    if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
-        return jsonify({'error': 'This change is outside your organization'}), 403
+    if change.user_id != current_user.id and not _can_review(change, current_user):
+        return jsonify({'error': 'You can\'t reject this change.'}), 403
 
     data = request.get_json() or {}
     reason = data.get('reason', '')
@@ -351,18 +347,10 @@ def execute_change(change_id):
     """
     change = InfrastructureChange.query.get_or_404(change_id)
 
-    if change.user_id != current_user.id:
-        # Executing someone else's change requires approver-or-higher privilege,
-        # same as approve/reject — _change_visible_to_approver is an org-membership
-        # check only and does not by itself imply approver privilege (any org
-        # member, including plain 'user' role, is "visible to" a change in their
-        # org). Requiring user_is_approver() here closes a privilege escalation
-        # where a non-approver org member could execute (actually run, e.g.
-        # terminate/delete) another user's already-approved infrastructure change.
-        if not user_is_admin(current_user) and not (
-            user_is_approver(current_user) and _change_visible_to_approver(change, current_user)
-        ):
-            return jsonify({'error': 'Unauthorized'}), 403
+    if change.user_id != current_user.id and not _can_review(change, current_user):
+        # Running someone else's approved change needs the same standing as
+        # approving it: plain org members can't run a teammate's change.
+        return jsonify({'error': 'Unauthorized'}), 403
 
     if change.status != 'approved':
         return jsonify({'error': f'Change must be approved before execution (current: {change.status})'}), 400
@@ -439,14 +427,15 @@ def execute_change(change_id):
 
 @changes_bp.route('/<int:change_id>/rollback', methods=['POST'])
 @login_required
-@approver_required
 def rollback_change(change_id):
     """Rollback an executed change using saved rollback data."""
     change = InfrastructureChange.query.get_or_404(change_id)
 
-    # Non-admin approvers may only act on changes within their own organization
-    if not user_is_admin(current_user) and not _change_visible_to_approver(change, current_user):
-        return jsonify({'error': 'This change is outside your organization'}), 403
+    if change.user_id == current_user.id:
+        if not (_can_confirm_own(change, current_user) or user_is_admin(current_user)):
+            return jsonify({'error': 'An owner or admin of your organization rolls back this change.'}), 403
+    elif not _can_review(change, current_user):
+        return jsonify({'error': 'You can\'t roll back this change.'}), 403
 
     if change.status != 'executed':
         return jsonify({'error': 'Only executed changes can be rolled back'}), 400

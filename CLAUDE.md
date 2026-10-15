@@ -2127,6 +2127,25 @@ phrase, never exception text. The page shows the server's check time (`checked_a
 works for old links. Deploy health checks use `/health`, not this endpoint. Guard:
 `tests/test_status_page_real.py`.
 
+Step 8 done (agreed with the owner first):
+- **One approval queue.** Change requests (`InfrastructureChange`) use the agent-request rules:
+  `approval_service.can_review_change()` / `can_confirm_own_change()` wrap `can_approve()` /
+  `can_self_confirm()` with the change's `user_id` as requester, and `reviewable_requester_ids()`
+  scopes lists. Visibility now follows the **requester's** organizations, not the
+  `organization_id` stamped from the session. `/api/changes/<id>/approve` doubles as "confirm my
+  own"; `/reject` is also the requester's cancel. `/approvals` and `/approvals/mine` show both
+  kinds; `/changes` is history plus execute/rollback, and its pending rows link to Approvals.
+  `@approver_required` is no longer used in `routes/changes.py`. Guards:
+  `tests/test_change_approvals_unified.py` and the updated org-scope tests.
+- **One developer API.** `/api-gateway/v1` serves everything `/api/v1` offered via
+  `routes/api_gateway.V1_PARITY_ROUTES` (same handlers and `api_key_service.require_api_key`, so
+  scopes, IP allow-lists and the daily limit behave identically; don't also wrap them in the
+  gateway's `api_key_required`, which would count each request twice). `GET /v1/openapi.json` is
+  generated from the live URL map (the old `/api/v1` spec had empty `paths`). `/api/v1` responses
+  carry `Deprecation`, `Sunset` (`API_V1_SUNSET`, default 2027-01-12) and a successor `Link`.
+  **Removing `/api/v1` is a separate change on or after that date.** Guard:
+  `tests/test_one_developer_api.py`.
+
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
@@ -2206,7 +2225,7 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
 - Pinned by `tests/test_approval_self_confirm.py`, `tests/test_org_admin_approvals.py` and
 `tests/test_approval_consistency.py`.
 
-Still open: change requests on `/changes` still need the platform `approver` role; the CLI (no
+Still open: the CLI (no
 signed-in user) runs risky tools unconfirmed; an approver's medium-risk call through either API
 runs directly without verification/audit (it skips the approval service).
 

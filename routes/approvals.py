@@ -28,20 +28,8 @@ def _reviewer_required(f):
 
 
 def _reviewable_requester_ids(user):
-    """Requesters whose decided agent requests this reviewer may see in history,
-    or None for platform admins (everyone)."""
-    if user_is_admin(user):
-        return None
-    org_ids = set(user_admin_org_ids(user.id))
-    if user_is_approver(user):
-        org_ids |= user_active_org_ids(user.id)
-    if not org_ids:
-        return set()
-    rows = db.session.query(OrganizationMember.user_id).filter(
-        OrganizationMember.organization_id.in_(org_ids),
-        OrganizationMember.is_active.is_(True),
-    ).all()
-    return {r[0] for r in rows}
+    from services.approval_service import reviewable_requester_ids
+    return reviewable_requester_ids(user)
 
 
 @approvals_bp.route('/approvals')
@@ -52,26 +40,25 @@ def queue_page():
 
 
 def _org_scoped_change_query(query):
-    """Restrict an InfrastructureChange query to the current approver's organizations.
+    """Restrict an InfrastructureChange query to requesters this reviewer covers.
 
-    Mirrors routes/changes.py's list_pending_approvals(): admins see every
-    organization's changes; non-admin approvers only see changes belonging to
-    an organization they're an active member of. ApprovalRequest (agent tool-call
-    approvals) has no organization_id column of its own — its visibility is scoped
-    separately, via services.approval_service.is_visible_to_approver() comparing
-    org membership against the *requester* — so this helper only applies to
-    InfrastructureChange queries.
+    Since 2026-10-14 change requests follow the same reviewer rules as agent
+    requests (organization owners/admins, platform approvers in the org, platform
+    admins), scoped by the *requester's* organizations, not the change's stamp.
     """
-    if current_user.role == 'admin':
+    visible = _reviewable_requester_ids(current_user)
+    if visible is None:
         return query
-    if not user_is_approver(current_user):
-        # Organization owners/admins review agent requests only; change requests
-        # are approved through /changes, which still needs the platform role.
+    if not visible:
         return query.filter(db.false())
-    org_ids = user_active_org_ids(current_user.id)
-    if not org_ids:
-        return query.filter(db.false())
-    return query.filter(InfrastructureChange.organization_id.in_(org_ids))
+    return query.filter(InfrastructureChange.user_id.in_(visible))
+
+
+def _pending_changes_for_reviewer():
+    from services.approval_service import can_review_change
+    rows = _org_scoped_change_query(InfrastructureChange.query.filter_by(status='pending'))
+    return [c for c in rows.order_by(InfrastructureChange.created_at.asc()).all()
+            if can_review_change(c, current_user)]
 
 
 @approvals_bp.route('/api/approvals/pending')
@@ -89,11 +76,7 @@ def get_pending():
         result.append(d)
 
     # Manually-submitted change requests awaiting human approval
-    changes_query = _org_scoped_change_query(
-        InfrastructureChange.query.filter_by(status='pending')
-    )
-    changes = changes_query.order_by(InfrastructureChange.created_at.asc()).all()
-    for c in changes:
+    for c in _pending_changes_for_reviewer():
         details = c.change_details or {}
         requester = User.query.get(c.user_id)
         tool_label = f"{c.action_type} {c.resource_type}"
@@ -121,10 +104,7 @@ def get_pending():
 def get_count():
     from services import approval_service
     reqs = approval_service.get_pending_for_approver(current_user.id)
-    pending_changes = _org_scoped_change_query(
-        InfrastructureChange.query.filter_by(status='pending')
-    ).count()
-    return jsonify({'count': len(reqs) + pending_changes})
+    return jsonify({'count': len(reqs) + len(_pending_changes_for_reviewer())})
 
 
 @approvals_bp.route('/api/approvals/<int:approval_id>/status')
@@ -157,8 +137,25 @@ def get_mine():
     result = []
     for r in approval_service.get_pending_for_requester(current_user.id):
         d = r.to_dict()
+        d['_type'] = 'agent'
         d['can_confirm'] = approval_service.can_self_confirm(r)
         result.append(d)
+    own_changes = (InfrastructureChange.query
+                   .filter_by(user_id=current_user.id, status='pending')
+                   .order_by(InfrastructureChange.created_at.asc()).all())
+    for c in own_changes:
+        details = c.change_details or {}
+        label = f"{c.action_type} {c.resource_type}" + (f" ({c.resource_name})" if c.resource_name else '')
+        result.append({
+            '_type': 'change',
+            'id': c.id,
+            'tool_name': label,
+            'risk_level': details.get('risk_level', 'medium'),
+            'risk_reason': c.title,
+            'status': c.status,
+            'created_at': c.created_at.isoformat() + 'Z',
+            'can_confirm': approval_service.can_confirm_own_change(c, current_user),
+        })
     return jsonify(result)
 
 

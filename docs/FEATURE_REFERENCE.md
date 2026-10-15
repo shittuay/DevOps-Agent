@@ -128,7 +128,7 @@ pages were removed on 2026-10-14: the first saved nothing real alerts used, Chat
 | Interface | Base path | Auth |
 |-----------|-----------|------|
 | Developer API | `/api-gateway/v1` | `X-API-Key` header |
-| Programmatic API | `/api/v1` | `X-API-Key` header or Bearer |
+| Old programmatic API (deprecated, sunset 2027-01-12) | `/api/v1` | `X-API-Key` header or Bearer |
 | Claude.ai connector (MCP) | `/mcp` | OAuth sign-in (with 2FA), or an API key |
 
 API keys are created at `/api-gateway/keys` with scopes `read`, `write`, `delete` and `admin`.
