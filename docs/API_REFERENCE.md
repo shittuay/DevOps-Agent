@@ -8,7 +8,6 @@ DevOps Agent has three public interfaces:
 | [Programmatic API](#programmatic-api) | `https://devopsagent.io/api/v1` | Managing conversations, resources, keys and your account; has an OpenAPI spec |
 | [Claude.ai connector (MCP)](#claudeai-connector-mcp) | `https://devopsagent.io/mcp` | Using DevOps Agent tools from Claude |
 
-Plus [inbound Git webhooks](#inbound-git-webhooks) for GitHub, GitLab and Bitbucket.
 
 The other `/api/...` endpoints the web app calls (chat, dashboard, settings) use your browser
 session and CSRF protection. They are internal and can change without notice; don't build on them.
@@ -180,18 +179,6 @@ reports the server status.
 
 Risky tools called through the connector follow the same approval rules as chat (see
 [Approvals](WEB_APPLICATION_GUIDE.md#approvals-and-change-requests)).
-
----
-
-## Inbound Git webhooks
-
-| Provider | URL | Verification |
-|----------|-----|--------------|
-| GitHub | `POST /webhooks/github` | `X-Hub-Signature-256` HMAC |
-| GitLab | `POST /webhooks/gitlab` | `X-Gitlab-Token` secret |
-| Bitbucket | `POST /webhooks/bitbucket` | `X-Event-Key` header |
-
-Secrets are configured by an admin; received events appear on the admin-only `/webhooks/` page.
 
 ---
 

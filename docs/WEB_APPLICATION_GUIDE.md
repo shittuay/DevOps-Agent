@@ -16,7 +16,7 @@ For a five-minute start, see [QUICK_START.md](QUICK_START.md).
 7. [Infrastructure pages](#infrastructure-pages)
 8. [Analytics](#analytics)
 9. [Security checks](#security-checks)
-10. [Notifications, ChatOps and webhooks](#notifications-chatops-and-webhooks)
+10. [Notifications](#notifications)
 11. [Developer API and the Claude.ai connector](#developer-api-and-the-claudeai-connector)
 12. [Organizations and teams](#organizations-and-teams)
 13. [Learning](#learning)
@@ -203,7 +203,7 @@ on `/changes` still need the platform Approver role.
 
 ## Infrastructure pages
 
-**Templates** (`/templates`): curated starter infrastructure templates you can launch from chat.
+**Templates** (`/ai/templates`): curated starter infrastructure templates you can preview and copy.
 
 **Map** (`/infrastructure/map`): a pan-and-zoom map of your synced resources. Hover a resource and
 choose **Investigate** to open chat about it. Plain scroll pans; Ctrl/⌘ + scroll zooms.
@@ -251,15 +251,12 @@ the agent to "scan my account for security issues".
 
 ---
 
-## Notifications, ChatOps and webhooks
+## Notifications
 
-**Notifications** (`/notifications/`): connect Slack and Teams channels, test them, and send a
-manual message.
+**Settings → Notifications**: connect Slack and Teams channels, test them, and choose which
+events reach them (change requests, security findings, cost savings).
 
-**ChatOps** (`/chatops/`): connect a Slack app or a Teams bot. In Slack the command is `/devops`:
-
-| Command | What it does |
-|---------|--------------|
+---------|--------------|
 | `/devops help` | List commands |
 | `/devops link <code>` | Link your Slack/Teams identity to your DevOps Agent account (generate the code on the ChatOps page) |
 | `/devops deployments [environment]` | Recent CI/CD deployments (admins only) |
@@ -293,9 +290,6 @@ organization role (owner, admin, member). Organizations also have teams and, for
 
 Organization membership decides which approvers can see your approval requests and change
 requests.
-
-**Teams** (`/teams`): admins see and manage every user's platform role; everyone else sees their
-own account.
 
 ---
 

@@ -69,7 +69,7 @@ Response, IaC, CI/CD and On-Call.
 | Chat | `/chat` | Talk to the agent |
 | Dashboard | `/dashboard` | Health score, costs and resources from your synced accounts |
 | Workflows | `/workflows` | Pre-built step-by-step jobs |
-| Templates | `/templates` | Starter infrastructure templates |
+| Templates | `/ai/templates` | Starter infrastructure templates |
 | Map | `/infrastructure/map` | Visual map of your synced resources |
 | Drift | `/drift/` | Compare live AWS state against a baseline |
 | Analytics | `/analytics/` | Cost, resource and usage analytics |
