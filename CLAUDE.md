@@ -2051,6 +2051,14 @@ missing `/api-gateway/api/webhooks` JSON list the developer pages call was added
 **InfrastructureResource's fields are `resource_name`, `cloud_provider`, `resource_metadata`** —
 there are no `name`/`provider`/`metadata` aliases (and `.metadata` is SQLAlchemy's MetaData).
 
+Step 2 done: public pages and plan features only promise what the app does. The plan list
+(`TIER_DEFINITIONS`) now lives once, in `services/subscription_tiers.py`; `/init-database` and the
+`__main__` block call `upsert_all_tiers()`, and an import-time `sync_tier_features()` (under
+`seed_lock`) refreshes **only `features` and `description`** on existing rows, so a deploy can never
+change what anyone pays. `tests/test_public_claims.py` holds the banned-phrase list (SOC 2/HIPAA,
+resource/team-member limits, auto-remediation, the 23% figure, HMAC webhooks, Monitoring & Alerts)
+for landing, About, Docs, chat and every plan; add a phrase there when a feature is removed.
+
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
