@@ -2041,6 +2041,16 @@ endpoints and every page that linked to them.
 
 ---
 
+### 2026-10-14 app audit
+
+A full audit (Keep / Fix / Remove per area, with evidence) was written up for the owner and is
+being worked through in eight steps. Step 1 done: the developer API's resource endpoints read
+fields `InfrastructureResource` doesn't have (`name`/`provider`/`metadata`) and returned 500 for
+anyone with a synced resource; they now go through `routes/api_gateway._resource_json()`, and the
+missing `/api-gateway/api/webhooks` JSON list the developer pages call was added.
+**InfrastructureResource's fields are `resource_name`, `cloud_provider`, `resource_metadata`** —
+there are no `name`/`provider`/`metadata` aliases (and `.metadata` is SQLAlchemy's MetaData).
+
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
 - **`docker-compose.yml`'s `app` service has `build: .` but there is no Dockerfile.**
