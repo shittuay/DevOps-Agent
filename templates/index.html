@@ -2918,11 +2918,21 @@
                                 // ===== APPROVAL REQUIRED =====
                                 const approvalId = evt.approval_id;
                                 const toolLabel = evt.tool_name.replace(/_/g, ' ');
+                                // An AWS permission request: show the exact policy and how it gets added.
+                                const perm = evt.permission || null;
+                                const permHtml = perm ? `
+                                        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Policy to add:</div>
+                                        <pre style="font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:pre-wrap;overflow-x:auto;background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin:0 0 10px;">${escapeHtml(JSON.stringify(perm.policy, null, 2))}</pre>
+                                        ${perm.sensitive ? `<div style="font-size:13px;color:#ef4444;margin-bottom:10px;">&#9888; Sensitive permission (identity, keys or secret values). DevOps Agent never adds these itself; add it only if you mean the agent to have it.</div>` : ''}
+                                        ${perm.mode === 'self'
+                                            ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">On yes, DevOps Agent adds this to its own role (within the permissions boundary you set) and retries.</div>`
+                                            : `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">To approve: add it in AWS, then confirm here and DevOps Agent retries.<br>Console: ${escapeHtml((perm.manual||{}).console||'')}</div>
+                                               ${(perm.manual||{}).cli ? `<pre style="font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin:0 0 14px;">${escapeHtml(perm.manual.cli)}</pre>` : ''}`}` : '';
                                 textDiv.innerHTML = `
                                     <div id="approval-card-${approvalId}" style="border:1px solid rgba(245,158,11,0.4);border-radius:12px;padding:20px;background:rgba(245,158,11,0.08);">
-                                        <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#f59e0b;">&#9203; Approval Required</div>
-                                        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--accent-primary);margin-bottom:6px;">${escapeHtml(evt.tool_name)}</div>
-                                        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">${escapeHtml(evt.risk_reason)}</div>
+                                        <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#f59e0b;">${perm ? '&#128273; AWS permission needed' : '&#9203; Approval Required'}</div>
+                                        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--accent-primary);margin-bottom:6px;">${escapeHtml(perm ? perm.action : evt.tool_name)}</div>
+                                        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">${escapeHtml(evt.risk_reason)}</div>${permHtml}
                                         <div id="approval-wait-${approvalId}" style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
                                             Waiting for an approver
                                             <span class="approval-dots">&#8226;&#8226;&#8226;</span>
@@ -2934,9 +2944,9 @@
                                     const wait = document.getElementById(`approval-wait-${approvalId}`);
                                     if (!wait) return;
                                     wait.innerHTML = `
-                                        <span>This action needs your confirmation before it runs.</span>
-                                        <button type="button" data-act="confirm" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.15);color:#10b981;font-weight:600;cursor:pointer;">Confirm &amp; run</button>
-                                        <button type="button" data-act="cancel" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#ef4444;font-weight:600;cursor:pointer;">Cancel</button>`;
+                                        <span>${perm ? 'Add this permission and retry?' : 'This action needs your confirmation before it runs.'}</span>
+                                        <button type="button" data-act="confirm" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.15);color:#10b981;font-weight:600;cursor:pointer;">${perm ? (perm.mode === 'self' ? 'Yes, add it &amp; retry' : 'I added it, retry') : 'Confirm &amp; run'}</button>
+                                        <button type="button" data-act="cancel" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#ef4444;font-weight:600;cursor:pointer;">${perm ? 'No' : 'Cancel'}</button>`;
                                     wait.style.flexWrap = 'wrap';
                                     wait.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
                                         wait.querySelectorAll('button').forEach(b => b.disabled = true);

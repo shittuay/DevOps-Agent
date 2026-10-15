@@ -114,7 +114,8 @@ def test_cloudformation_template_embeds_published_policies():
     files. If this fails, re-run scripts/build_cf_template.py and re-upload."""
     template = _load(CF_TEMPLATE)
     policies = template['Resources']['DevOpsAgentRole']['Properties']['Policies']
-    assert len(policies) == 1
+    assert len(policies) == 2  # the main policy, plus the self-grant one only when AllowSelfGrant=Yes
+    assert policies[1]['Fn::If'][0] == 'SelfGrant'
     branches = policies[0]['PolicyDocument']['Fn::If']
     assert branches[0] == 'IsManagement'
     assert branches[1] == _load(MANAGEMENT), 'template management policy out of sync'
@@ -128,3 +129,43 @@ def test_cloudformation_template_trust_policy_requires_external_id():
     trust = template['Resources']['DevOpsAgentRole']['Properties']['AssumeRolePolicyDocument']
     condition = trust['Statement'][0]['Condition']['StringEquals']
     assert condition['sts:ExternalId'] == {'Ref': 'ExternalId'}
+
+
+def test_cloudformation_template_matches_build_script():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('build_cf', ROOT / 'scripts' / 'build_cf_template.py')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert _load(CF_TEMPLATE) == mod.build_template(), 're-run scripts/build_cf_template.py'
+
+
+def test_self_grant_is_off_by_default_and_boundary_capped():
+    """AllowSelfGrant (2026-10-15): the role may edit only its own inline policies, and a
+    boundary it can't change keeps IAM writes, sts and secret values out of reach."""
+    t = _load(CF_TEMPLATE)
+    assert t['Parameters']['AllowSelfGrant']['Default'] == 'No'
+    role = t['Resources']['DevOpsAgentRole']['Properties']
+    assert role['PermissionsBoundary']['Fn::If'][0] == 'SelfGrant'
+    boundary_res = t['Resources']['DevOpsAgentBoundary']
+    assert boundary_res['Condition'] == 'SelfGrant'
+    boundary = boundary_res['Properties']['PolicyDocument']
+    assert len(re.sub(r'\s', '', json.dumps(boundary))) <= IAM_MANAGED_POLICY_CHAR_LIMIT
+
+    by_sid = {s['Sid']: s for s in boundary['Statement']}
+    assert set(by_sid['AllServicesExceptIdentity']['NotAction']) >= {'iam:*', 'sts:*', 'organizations:*'}
+    iam_allows = [a for s in boundary['Statement'] if s['Effect'] == 'Allow' and 'Action' in s
+                  for a in ([s['Action']] if isinstance(s['Action'], str) else s['Action'])
+                  if a.startswith('iam:')]
+    for a in iam_allows:
+        assert a.split(':')[1].startswith(('Get', 'List', 'Generate')) or a in (
+            'iam:PassRole', 'iam:PutRolePolicy', 'iam:DeleteRolePolicy'), a
+    own_role = {'Fn::Sub': 'arn:aws:iam::${AWS::AccountId}:role/${RoleName}'}
+    assert by_sid['EditOwnInlinePolicies']['Resource'] == own_role
+    assert 'Condition' in by_sid['PassRoleToAwsServicesOnly']
+    assert by_sid['NeverSecretValues']['Effect'] == 'Deny'
+    assert 'secretsmanager:GetSecretValue' in by_sid['NeverSecretValues']['Action']
+
+    self_policy = role['Policies'][1]['Fn::If'][1]['PolicyDocument']
+    allow = [s for s in self_policy['Statement'] if s['Effect'] == 'Allow']
+    assert allow == [{'Sid': 'EditOwnInlinePolicies', 'Effect': 'Allow',
+                      'Action': ['iam:PutRolePolicy', 'iam:DeleteRolePolicy'], 'Resource': own_role}]

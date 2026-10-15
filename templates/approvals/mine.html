@@ -58,6 +58,9 @@ async function load() {
             <div class="card req-card" id="req-${key}">
                 <div class="req-tool">${esc(r.tool_name)}</div>
                 <div class="req-reason">${esc(r.risk_reason)}</div>
+                ${r.tool_name === 'grant_aws_permission' && r.tool_input && r.tool_input.policy
+                    ? `<pre style="font-size:12px;white-space:pre-wrap;word-break:break-all;margin:6px 0;">${esc(JSON.stringify(r.tool_input.policy, null, 2))}</pre>${r.tool_input.mode !== 'self' && r.tool_input.manual && r.tool_input.manual.cli ? `<pre style="font-size:12px;white-space:pre-wrap;word-break:break-all;margin:6px 0;">${esc(r.tool_input.manual.cli)}</pre>` : ''}`
+                    : ''}
                 <div class="req-meta">${meta}</div>
                 <div class="req-actions">
                     ${r.can_confirm

@@ -186,6 +186,14 @@ Every tool call is classified by risk before it runs:
 - **Through the API:** the developer API (and the deprecated `/api/v1`) apply the same rules; see the
   [API reference](API_REFERENCE.md#risky-tools-and-approvals).
 - **Sandbox mode:** never creates approval requests; everything is simulated.
+- **Missing AWS permissions:** when AWS refuses an action because DevOps Agent's role lacks a
+  permission, the chat shows an **AWS permission needed** card with the exact policy. It is
+  approved like any high-risk request. On yes, either you add the policy in AWS (the card shows
+  the console path and a CLI command) and click **I added it, retry**, or, if you turned on
+  self-grant in Settings → AWS Configuration (needs the CloudFormation stack with
+  `AllowSelfGrant=Yes`), the agent adds it to its own role and retries. If AWS then needs
+  another permission for the same task, a new card appears. See
+  [IAM policies](iam-policies.md#letting-the-agent-add-missing-permissions-allowselfgrant).
 
 **My requests** (`/approvals/mine`, everyone): your own pending agent requests and change
 requests, with Confirm (when nobody else could approve) and Cancel.

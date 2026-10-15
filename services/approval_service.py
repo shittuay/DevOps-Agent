@@ -521,6 +521,19 @@ def _execute_tool(req) -> dict:
     they must be set alongside it and cleared in the same finally, and the
     per-turn trackers reset first (agent._reset_turn_tool_state()).
     """
+    from services.aws_permissions import PERMISSION_TOOL
+    if req.tool_name == PERMISSION_TOOL:
+        # A missing AWS permission (never an agent-callable tool): add it or trust the
+        # owner did, then retry the original call through this same instrumented path.
+        from types import SimpleNamespace
+        from services.aws_permissions import execute_grant
+
+        def _run(name, tool_input):
+            return _execute_tool(SimpleNamespace(
+                id=req.id, tool_name=name, tool_input=tool_input,
+                requester_id=req.requester_id, conversation_id=req.conversation_id))
+        return execute_grant(req, _run)
+
     try:
         from app import agent
         tool_name = req.tool_name

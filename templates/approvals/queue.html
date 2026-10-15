@@ -217,6 +217,9 @@ function renderQueue() {
                 <div>${typeBadge}</div>
                 <div class="tool-name">${escHtml(r.tool_name)}</div>
                 <div class="risk-reason">${escHtml(r.risk_reason)}</div>
+                ${r.tool_name === 'grant_aws_permission' && r.tool_input && r.tool_input.policy
+                    ? `<pre style="font-size:12px;white-space:pre-wrap;word-break:break-all;margin:6px 0;">${escHtml(JSON.stringify(r.tool_input.policy, null, 2))}</pre>${r.tool_input.mode !== 'self' && r.tool_input.manual && r.tool_input.manual.cli ? `<pre style="font-size:12px;white-space:pre-wrap;word-break:break-all;margin:6px 0;">${escHtml(r.tool_input.manual.cli)}</pre>` : ''}`
+                    : ''}
             </td>
             <td><span class="risk-${r.risk_level}">${r.risk_level.toUpperCase()}</span></td>
             <td class="age">${timeAgo(r.created_at)}</td>

@@ -1975,6 +1975,7 @@ def aws_config():
                 result['auth_mode'] = 'role_arn'
                 result['role_arn'] = credentials['role_arn']
                 result['has_external_id'] = bool(credentials.get('external_id'))
+                result['self_grant'] = bool(credentials.get('self_grant'))
             else:
                 result['auth_mode'] = 'access_key'
                 access_key = credentials.get('access_key', '')
@@ -2035,6 +2036,20 @@ def test_aws_connection():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 502
+
+
+@app.route('/api/aws/self-grant', methods=['PUT'])
+@login_required
+def aws_self_grant():
+    """Turn on/off letting the agent add owner-approved permissions to its own role."""
+    from services.credential_service import set_aws_self_grant
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data.get('enabled'), bool):
+        return jsonify({'error': 'enabled must be true or false'}), 400
+    ok, message = set_aws_self_grant(current_user.id, data['enabled'])
+    if ok:
+        return jsonify({'success': True, 'self_grant': data['enabled'], 'message': message})
+    return jsonify({'error': message}), 400
 
 
 @app.route('/api/aws/policy-check', methods=['GET'])

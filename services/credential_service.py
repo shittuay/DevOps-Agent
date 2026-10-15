@@ -48,7 +48,8 @@ def get_user_aws_credentials(user_id: int) -> Optional[Dict[str, str]]:
             'auth_mode': 'role_arn',
             'role_arn': credentials['role_arn'],
             'external_id': credentials.get('external_id', ''),
-            'region': region
+            'region': region,
+            'self_grant': bool(credentials.get('self_grant')),
         }
 
     if credentials.get('access_key') and credentials.get('secret_key'):
@@ -450,6 +451,45 @@ def save_user_aws_credentials(
     except Exception as e:
         db.session.rollback()
         return False, f"Failed to save credentials: {str(e)}"
+
+
+def set_aws_self_grant(user_id: int, enabled: bool) -> Tuple[bool, str]:
+    """Let the agent add missing permissions to its own role after the owner says yes.
+
+    Only for role-ARN connections, and only when the role has a permissions boundary
+    (the CloudFormation template sets one when launched with AllowSelfGrant=Yes): the
+    boundary is what stops the role granting itself more than the owner allowed.
+    Saving new AWS credentials turns it off again.
+    """
+    from models import UserCloudCredential, db
+
+    cred = UserCloudCredential.query.filter_by(user_id=user_id, cloud_provider='aws',
+                                               is_active=True).first()
+    if not cred:
+        return False, "Connect an AWS account first"
+    stored = cred.get_credentials()
+    if not stored.get('role_arn'):
+        return False, "Only available when DevOps Agent connects with an IAM role (Role ARN), not access keys"
+
+    if enabled:
+        role_name = stored['role_arn'].rsplit('/', 1)[-1]
+        try:
+            role = get_user_boto_client(user_id, 'iam').get_role(RoleName=role_name)['Role']
+        except Exception as e:
+            return False, f"Couldn't read the role to check its permissions boundary: {e}"
+        if not role.get('PermissionsBoundary'):
+            return False, ("The role has no permissions boundary. Update the CloudFormation stack with "
+                           "AllowSelfGrant=Yes (it adds the boundary and the self-grant permission), then try again.")
+
+    try:
+        stored['self_grant'] = bool(enabled)
+        cred.set_credentials(stored)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return False, f"Failed to save setting: {e}"
+    return True, ("DevOps Agent will add approved permissions to its role itself" if enabled
+                  else "You'll add approved permissions in AWS yourself")
 
 
 def save_user_azure_credentials(
