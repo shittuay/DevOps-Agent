@@ -251,7 +251,8 @@ instance is found.
   service class with a security-relevant `user_id` needs *every* getter audited when the class is
   touched again, not just the ones a bug report happens to point at.
 - **A non-Flask-session entry point (a bot, webhook, or CLI) that calls a per-user service still
-  needs a real app `user_id` from somewhere — it doesn't get one for free.** Every method on
+  needs a real app `user_id` from somewhere — it doesn't get one for free.** (ChatOps itself was
+  removed 2026-10-14; the lesson stands for any future bot or webhook entry point.) Every method on
   `IncidentResponseEngine`/`RootCauseAnalyzer`/`ProactiveMonitoringService` (all since removed) required `user_id` as
   its first positional arg, same as any other per-user service in this app. `services/chatops_service.py`
   (Slack/Teams bot commands) called all of them with no `user_id` at all, or with the Slack-typed
@@ -615,7 +616,7 @@ function in `monitoring_tools.py`, `git_tools._validate_git_url` (resolves both 
 `git@host:` forms before `git_clone_repository`/`git_add_remote` will use them — git's HTTP
 transport otherwise issues a real outbound GET to `/info/refs` against whatever host it's given),
 `services/notification_service.py`'s `SlackClient.send_webhook`/`TeamsClient.send` (the
-`webhook_url` is user-configured via `routes/notifications.py`), and
+`webhook_url` is user-configured in Settings → Notifications), and
 `services/api_gateway.py`'s `test_webhook()` (now matches the same `_is_safe_webhook_url()` guard
 `trigger_webhook()` already had — `test_webhook()` had been skipping it and echoing the raw
 response body back to the caller, which made it an SSRF response oracle), and
@@ -1763,7 +1764,6 @@ Enforced by `@admin_required` / `@approver_required` decorators in `services/rba
 | `/admin/users` | List, search, filter all users |
 | `/admin/users/<id>` | View user detail, change role, lock/unlock, delete |
 | `/admin/audit-log` | Usage log audit trail |
-| `/admin/settings` | System-wide settings |
 
 ### Granting Admin Access
 
@@ -2070,6 +2070,18 @@ longer sees. Routes: `GET /api/security/summary`, `POST /api/security/scan`,
 `POST /api/security/findings/<id>/dismiss` (user-scoped, else 404). The agent's
 `run_compliance_check` tool now lists related controls without a score and says it is not a
 compliance assessment; the system prompt forbids claiming SOC 2/HIPAA/PCI compliance.
+
+Step 4 done: pages that did nothing for customers were removed: `/notifications` (saved Slack/
+Teams settings in per-process memory that real alerts never read; channels live in Settings →
+Notifications, `UserNotificationChannel`), `/teams` (staff user list; teams are Organizations),
+`/templates` (saved prompts, linked from nowhere), Admin › System settings (fixed "Connected"
+badges), ChatOps (`routes/chatops.py`, `services/chatops_service.py`), the inbound CI webhook
+receivers (`routes/webhooks.py`, one server-wide secret, fed nothing), AI Deployments /
+Recommendations / Optimize, Analytics › Performance, and `services/audit_service.py` /
+`services/websocket_service.py`. `NotificationService` (the in-memory store) is gone; change
+requests now notify through `notify_change_event()` → `_send_async()`, so they are actually
+delivered. Guard: `tests/test_shell_pages_removed.py` (routes 404, modules unimportable, no page
+links to them).
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
