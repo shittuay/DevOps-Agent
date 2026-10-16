@@ -1543,6 +1543,10 @@ Keep these two equal, or emailed codes expire on the screen while still valid.
 `_check_mfa_code` strips whitespace and dashes before checking. The code box must not
 cap input at 6 characters: a pasted "123 456" would be cut to 5 digits. Both MFA
 screens show which account is signing in. Pinned by `tests/test_2fa_code_acceptance.py`.
+Both email-code screens offer **Resend code** with a 60s cooldown (`User.can_resend_otp()`):
+login uses `/api/2fa/resend-otp`, setup uses `/api/mfa/resend-setup-code` (signed in, 3 per 5
+min, refused once email codes are on). Setup had none until 2026-10-16, so an expired code meant
+starting over. Pinned by `tests/test_mfa_setup_resend.py`.
 
 - Email (`services/email_service.py`): set `EMAIL_PROVIDER` (`brevo|smtp|sendgrid`)
   + `EMAIL_FROM`, then one of: `BREVO_API_KEY`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`; `SENDGRID_API_KEY`.

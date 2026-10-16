@@ -375,6 +375,11 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        .resend-row { margin: 14px 0 0; font-size: 14px; color: var(--text-secondary); text-align: center; }
+        .resend-row a { color: var(--accent-primary); font-weight: 600; text-decoration: none; margin-left: 4px; }
+        .resend-row a:hover { text-decoration: underline; }
+        #setupResendTimer { margin-left: 4px; color: var(--text-tertiary, var(--text-secondary)); }
+        .resend-note { margin: 8px 0 0; font-size: 13px; color: var(--text-secondary); text-align: center; }
         .hidden { display: none !important; }
 
         @media (max-width: 480px) {
@@ -466,9 +471,15 @@
                 <div id="otpVerifyError" class="alert alert-error hidden"></div>
                 <div class="form-group">
                     <label for="otpVerifyCode">Verification Code</label>
-                    <input type="text" id="otpVerifyCode" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code" />
+                    <input type="text" id="otpVerifyCode" placeholder="000000" maxlength="12" inputmode="numeric" autocomplete="one-time-code" />
                 </div>
                 <button class="btn-primary" id="otpVerifyBtn" onclick="verifyMethodOtp()">Enable MFA</button>
+                <p class="resend-row">
+                    Didn't get it, or did it expire?
+                    <a href="#" id="setupResendBtn" onclick="resendSetupCode(); return false;">Resend code</a>
+                    <span id="setupResendTimer" class="hidden"></span>
+                </p>
+                <p id="setupResendNote" class="resend-note hidden"></p>
             </div>
 
             <!-- TOTP Step 1: Scan QR Code -->
@@ -627,6 +638,7 @@
                         document.getElementById('otpStepNum').textContent = '1';
                         document.getElementById('stepOtpVerify').classList.remove('hidden');
                         document.getElementById('otpVerifyCode').focus();
+                        startSetupResendTimer();
                     }
                 } else {
                     showError('step0Error', data.error || 'Failed to set method.');
@@ -636,9 +648,61 @@
         }
 
         // --- Email OTP Verify (final activation) ---
+        // --- Resend the setup code (60s cooldown, matches the server) ---
+        let setupResendInterval = null;
+        function startSetupResendTimer() {
+            const btn = document.getElementById('setupResendBtn');
+            const timer = document.getElementById('setupResendTimer');
+            let left = 60;
+            btn.classList.add('hidden');
+            timer.classList.remove('hidden');
+            timer.textContent = `Resend in ${left}s`;
+            clearInterval(setupResendInterval);
+            setupResendInterval = setInterval(() => {
+                left--;
+                if (left <= 0) {
+                    clearInterval(setupResendInterval);
+                    timer.classList.add('hidden');
+                    btn.classList.remove('hidden');
+                } else {
+                    timer.textContent = `Resend in ${left}s`;
+                }
+            }, 1000);
+        }
+
+        function resendSetupCode() {
+            const note = document.getElementById('setupResendNote');
+            const timer = document.getElementById('setupResendTimer');
+            document.getElementById('setupResendBtn').classList.add('hidden');
+            timer.classList.remove('hidden');
+            timer.textContent = 'Sending...';
+            hideError('otpVerifyError');
+
+            fetch('/api/mfa/resend-setup-code', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        note.textContent = 'New code sent. Check your email (and spam). Older codes no longer work.';
+                        note.classList.remove('hidden');
+                        document.getElementById('otpVerifyCode').value = '';
+                        document.getElementById('otpVerifyCode').focus();
+                        startSetupResendTimer();
+                    } else {
+                        timer.classList.add('hidden');
+                        document.getElementById('setupResendBtn').classList.remove('hidden');
+                        showError('otpVerifyError', data.error || 'Could not send a new code.');
+                    }
+                })
+                .catch(() => {
+                    timer.classList.add('hidden');
+                    document.getElementById('setupResendBtn').classList.remove('hidden');
+                    showError('otpVerifyError', 'Network error. Please try again.');
+                });
+        }
+
         function verifyMethodOtp() {
-            const code = document.getElementById('otpVerifyCode').value.trim();
-            if (!code || code.length !== 6) { showError('otpVerifyError', 'Enter a 6-digit code.'); return; }
+            const code = document.getElementById('otpVerifyCode').value.replace(/[\s-]/g, '');
+            if (!/^\d{6}$/.test(code)) { showError('otpVerifyError', 'Enter the 6-digit code from the email.'); return; }
             hideError('otpVerifyError');
 
             const btn = document.getElementById('otpVerifyBtn');
