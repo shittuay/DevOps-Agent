@@ -6,7 +6,7 @@ https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxM
 ## Server Details
 
 - **Server Name:** DevOps Agent
-- **Description:** Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more from Claude. 702 tools across 13 modules including monitoring and alerting.
+- **Description:** Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more from Claude. 704 tools across 13 modules including monitoring and alerting.
 - **Integration URL:** `https://devopsagent.io/mcp/`
 - **SSE Endpoint:** `https://devopsagent.io/mcp/sse`
 - **Health Check:** `https://devopsagent.io/mcp/health`

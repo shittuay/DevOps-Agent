@@ -2322,6 +2322,18 @@ Owner context: no users yet; TikTok ads started 2026-10-14 (~5,000 reach). Two c
   account needed" (`startSandbox()`); connecting a cloud account is the secondary choice.
 - Guard: `tests/test_signup_source_and_sandbox_first.py`.
 
+### npm package `@devopsagent/mcp-server` (`mcp/`)
+
+A ~85-line stdio bridge (`mcp/bin/server.js`) that forwards JSON-RPC to
+`https://devopsagent.io/mcp/` with the user's `DEVOPSAGENT_API_KEY`. **Server-side changes reach
+npm users without a release**; publish only when the bridge or its docs change. Keep the version
+the same in `mcp/package.json`, both places in `mcp/server.json` and `SERVER_VERSION` in
+`routes/mcp.py`, with a `mcp/CHANGELOG.md` entry (`tests/test_mcp_package_version.py`). The tool
+count in its docs is the MCP subset (`MCP_MODULES` in `tests/test_tool_counts.py`), not the
+platform total. Publishing needs the owner's npm login (`npm publish --access public` from
+`mcp/`); this repo has no npm token or publish workflow. MCP calls run tools directly, so AWS
+permission requests (chat only) don't happen there.
+
 ### Documentation layout
 
 User docs live in `docs/` (index: `docs/README.md`): `QUICK_START.md`,
