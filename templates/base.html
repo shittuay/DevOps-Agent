@@ -186,6 +186,57 @@
             box-shadow: 0 6px 24px rgba(255, 107, 53, 0.5);
         }
 
+        .account-menu { position: relative; }
+        .account-menu .profile-button {
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        .account-menu-label { display: none; }
+        .account-menu-list {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 8px);
+            min-width: 230px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+            padding: 6px;
+            z-index: 1100;
+        }
+        .account-menu.open .account-menu-list { display: block; }
+        .account-menu-who {
+            padding: 10px 12px;
+            font-weight: 700;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 4px;
+            overflow-wrap: anywhere;
+        }
+        .account-menu-who span {
+            display: block;
+            font-weight: 400;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .account-menu-list a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .account-menu-list a i { width: 16px; text-align: center; color: var(--text-secondary); }
+        .account-menu-list a:hover, .account-menu-list a.active { background: rgba(255, 107, 53, 0.1); color: var(--accent-primary); }
+        .account-menu-list .account-menu-logout { border-top: 1px solid var(--border-subtle); margin-top: 4px; border-radius: 0 0 8px 8px; }
+
         .header-theme-toggle {
             position: static;
             padding: 4px;
@@ -555,7 +606,10 @@
             }
             .header-right.open { display: flex; }
             .header-button { width: 100%; justify-content: flex-start; }
-            .profile-button { width: 100%; height: 44px; border-radius: 10px; }
+            .profile-button { width: 100%; height: 44px; border-radius: 10px; gap: 10px; font-size: 16px; }
+            .account-menu-label { display: inline; font-size: 15px; font-weight: 600; }
+            .profile-button:hover { transform: none; }
+            .account-menu-list { position: static; min-width: 0; box-shadow: none; margin-top: 8px; }
             .main-content { padding: 20px 16px; }
             .page-header { flex-direction: column; gap: 16px; align-items: flex-start; }
             .metrics-grid { grid-template-columns: 1fr; }
@@ -578,7 +632,6 @@
                 <a href="/chat" class="header-button{% if request.path.startswith('/chat') %} active{% endif %}"><i class="fa-solid fa-terminal"></i> Chat</a>
                 <a href="/dashboard" class="header-button{% if request.path.startswith('/dashboard') %} active{% endif %}"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
                 <a href="/workflows" class="header-button{% if request.path.startswith('/workflows') %} active{% endif %}"><i class="fa-solid fa-diagram-project"></i> Workflows</a>
-                <a href="/settings" class="header-button{% if request.path.startswith('/settings') %} active{% endif %}"><i class="fa-solid fa-gear"></i> Settings</a>
                 {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
                 <a href="/approvals" class="header-button" id="approvalsNavBtn" style="position:relative;">
                     <span>&#9203;</span> Approvals
@@ -602,7 +655,18 @@
                     <button class="theme-toggle-btn" data-theme="dark" title="Dark mode"><i class="fa-solid fa-moon"></i></button>
                     <button class="theme-toggle-btn" data-theme="light" title="Light mode"><i class="fa-solid fa-sun"></i></button>
                 </div>
-                <a href="/profile" class="profile-button" title="Profile"><i class="fa-solid fa-user"></i></a>
+                {% if current_user.is_authenticated %}
+                <div class="account-menu" id="accountMenu">
+                    <button type="button" class="profile-button" id="accountMenuButton" title="Account" aria-haspopup="true" aria-expanded="false" aria-controls="accountMenuList"><i class="fa-solid fa-user"></i><span class="account-menu-label">Account</span></button>
+                    <div class="account-menu-list" id="accountMenuList" role="menu">
+                        <div class="account-menu-who">{{ current_user.full_name or current_user.username }}<span>{{ current_user.email }}</span></div>
+                        <a role="menuitem" href="/settings"{% if request.path.startswith('/settings') %} class="active"{% endif %}><i class="fa-solid fa-gear"></i> Settings</a>
+                        <a role="menuitem" href="/billing"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits</a>
+                        <a role="menuitem" href="/organizations/"><i class="fa-solid fa-users"></i> Teams</a>
+                        <a role="menuitem" href="/logout" class="account-menu-logout"><i class="fa-solid fa-right-from-bracket"></i> Log out</a>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -614,6 +678,27 @@
     {% endblock %}
 
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script>
+    (function() {
+        var menu = document.getElementById('accountMenu');
+        var button = document.getElementById('accountMenuButton');
+        if (!menu || !button) return;
+        function setOpen(open) {
+            menu.classList.toggle('open', open);
+            button.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        button.addEventListener('click', function(e) {
+            e.stopPropagation();
+            setOpen(!menu.classList.contains('open'));
+        });
+        document.addEventListener('click', function(e) {
+            if (!menu.contains(e.target)) setOpen(false);
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && menu.classList.contains('open')) { setOpen(false); button.focus(); }
+        });
+    })();
+    </script>
     <script>
     (function() {
         var toggle = document.getElementById('mobileNavToggle');

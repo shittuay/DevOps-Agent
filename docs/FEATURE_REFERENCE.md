@@ -20,7 +20,7 @@ say so and do nothing, unless you turn on Sandbox mode, where results are simula
 - Artifacts panel: save generated runbooks, reports and specs as versioned documents and
   download them as Markdown.
 - Context links: pages such as the infrastructure map can open chat already focused on a resource.
-- Skills (`/settings/skills`): built-in expertise (AWS cost optimisation, Kubernetes
+- Skills (Settings → Skills): built-in expertise (AWS cost optimisation, Kubernetes
   troubleshooting, security hardening, incident runbooks, Terraform) added to the agent when your
   message matches, plus a summary of your synced infrastructure.
 

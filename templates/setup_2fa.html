@@ -398,7 +398,7 @@
                 <span class="logo-text">DevOps Agent</span>
             </div>
             {% if user.has_mfa_enabled() %}
-            <a href="/profile" class="back-button">&#8592; Back to Profile</a>
+            <a href="/settings#security" class="back-button">&#8592; Back to Settings</a>
             {% else %}
             <span class="back-button" style="cursor:default; opacity:0.5;">MFA Setup Required</span>
             {% endif %}
@@ -418,7 +418,7 @@
                     (method: <strong>{{ user.mfa_method|upper }}</strong>).
                     You can manage it from your profile page.
                 </p>
-                <a href="/profile" class="btn-secondary" style="display:block; text-align:center; text-decoration:none;">Go to Profile</a>
+                <a href="/settings#security" class="btn-secondary" style="display:block; text-align:center; text-decoration:none;">Go to Settings</a>
             </div>
             {% else %}
 
@@ -574,8 +574,8 @@
                 </div>
 
                 <div style="margin-top:20px;">
-                    <a href="/profile" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">
-                        Done - Go to Dashboard
+                    <a href="/settings#security" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">
+                        Done - Back to Settings
                     </a>
                 </div>
             </div>

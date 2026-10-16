@@ -729,7 +729,7 @@
     <!-- Learning Mode -->
     <section id="learning-mode">
       <h2 class="section-title">Learning Mode</h2>
-      <p>Enable Learning Mode in <strong>Settings → Preferences</strong> to have the agent explain every action it takes as it takes it. Ideal if you're new to a cloud provider or want to build knowledge while getting work done.</p>
+      <p>Enable Learning Mode in <strong>Settings → Learning</strong> to have the agent explain every action it takes as it takes it. Ideal if you're new to a cloud provider or want to build knowledge while getting work done.</p>
 
       <h3 class="subsection-title">Experience levels</h3>
       <table class="docs-table">
@@ -751,7 +751,7 @@
 
       <div class="alert alert-warn">
         <span class="alert-icon">⚠️</span>
-        <span>When Sandbox Mode is active, a banner appears at the top of the chat. No real API calls are made to AWS, Azure, GCP, or Kubernetes. Toggle it off in <strong>Settings → Preferences</strong> when you're ready to work with live infrastructure.</span>
+        <span>When Sandbox Mode is active, a banner appears at the top of the chat. No real API calls are made to AWS, Azure, GCP, or Kubernetes. Toggle it off in <strong>Settings → Learning</strong> (or the Sandbox switch in the chat sidebar) when you're ready to work with live infrastructure.</span>
       </div>
 
       <p>Sandbox Mode simulates realistic failure scenarios too — disk full, pod crash loops, service downtime — so you can practice incident response without manufacturing real outages.</p>
@@ -1463,13 +1463,15 @@ Content-Type: application/json
       <table class="docs-table">
         <thead><tr><th>Setting</th><th>Where</th><th>What it does</th></tr></thead>
         <tbody>
-          <tr><td>Cloud Credentials</td><td>Settings → Cloud</td><td>Add or update AWS, Azure, GCP credentials. Each provider has a Test Connection button.</td></tr>
-          <tr><td>Learning Mode</td><td>Settings → Preferences</td><td>Agent explains every action inline. Tracks proficiency per topic.</td></tr>
-          <tr><td>Sandbox Mode</td><td>Settings → Preferences</td><td>All tool calls return simulated results. No real cloud calls made.</td></tr>
-          <tr><td>Experience Level</td><td>Settings → Preferences</td><td>Beginner / Intermediate / Advanced — controls explanation depth in Learning Mode.</td></tr>
+          <tr><td>Cloud Credentials</td><td>Settings → Cloud Credentials</td><td>Add or update AWS, Azure, GCP credentials. Each provider has a Test Connection button.</td></tr>
+          <tr><td>Learning Mode</td><td>Settings → Learning</td><td>Agent explains every action inline. Tracks proficiency per topic.</td></tr>
+          <tr><td>Sandbox Mode</td><td>Settings → Learning, or the chat sidebar</td><td>All tool calls return simulated results. No real cloud calls made.</td></tr>
+          <tr><td>Experience Level</td><td>Settings → Learning</td><td>Beginner / Intermediate / Advanced — controls explanation depth in Learning Mode.</td></tr>
           <tr><td>Model Override</td><td>Chat toolbar</td><td>Force Kimi or Claude regardless of your subscription tier default.</td></tr>
           <tr><td>Two-Factor Auth</td><td>Settings → Security</td><td>Enable TOTP or email OTP for login.</td></tr>
-          <tr><td>Password</td><td>Settings → Security</td><td>Change your login password.</td></tr>
+          <tr><td>Password</td><td>Sign-in page → Forgot password</td><td>Sends a reset link to your email. There is no in-app password change yet.</td></tr>
+          <tr><td>Profile</td><td>Settings → Profile</td><td>Name, bio, avatar colour and theme.</td></tr>
+          <tr><td>Skills</td><td>Settings → Skills</td><td>Turn built-in expertise packs on or off.</td></tr>
           <tr><td>Notifications</td><td>Settings → Notifications</td><td>Add Slack channels for new cost savings, security findings and change approvals.</td></tr>
         </tbody>
       </table>

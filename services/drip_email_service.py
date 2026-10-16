@@ -326,7 +326,7 @@ def _html_day14(username: str, base_url: str, unsub_url: str) -> str:
           </table>
 
           <div style="text-align:center;margin:28px 0 0">
-            <a href="{base_url}/settings" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">Open Settings</a>
+            <a href="{base_url}/settings#cloud" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">Open Settings</a>
           </div>"""
     return _email_wrapper(content, unsub_url)
 

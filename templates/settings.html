@@ -47,6 +47,26 @@
         }
 
         .settings-section[data-tab-panel] { display: none; }
+        .settings-tab-link .fa-arrow-up-right-from-square { font-size: 10px; opacity: 0.6; }
+        .settings-notice { padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; font-size: 14px; border: 1px solid; }
+        .settings-notice.ok { background: rgba(16, 185, 129, 0.1); color: var(--accent-success, #10b981); border-color: rgba(16, 185, 129, 0.3); }
+        .settings-notice.err { background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
+        .settings-textarea {
+            width: 100%; padding: 14px 18px; background: rgba(255, 255, 255, 0.03);
+            border: 2px solid var(--glass-border); border-radius: 10px; font-size: 15px;
+            font-family: 'Outfit', sans-serif; color: var(--text-primary); resize: vertical; box-sizing: border-box;
+        }
+        .profile-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .settings-color { height: 52px; padding: 6px; cursor: pointer; }
+        .account-facts { margin-top: 20px; display: grid; gap: 8px; font-size: 14px; }
+        .account-facts div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); overflow-wrap: anywhere; }
+        .account-facts span { color: var(--text-secondary); }
+        .security-box { margin-top: 20px; padding: 18px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-secondary); }
+        .security-box p { margin-top: 0; }
+        .backup-codes-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 12px 0; }
+        .backup-codes-grid div { font-family: 'IBM Plex Mono', monospace; text-align: center; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; letter-spacing: 1px; }
+        .btn-danger { padding: 12px 20px; border-radius: 10px; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.12); color: #ef4444; font-weight: 600; cursor: pointer; }
+        @media (max-width: 600px) { .profile-row { grid-template-columns: 1fr; } }
         .settings-section.tab-visible { display: block; }
 
         .page-title {
@@ -91,11 +111,6 @@
             animation: fadeSlideUp 0.6s ease;
         }
 
-        .settings-section:nth-child(3) { animation-delay: 0.2s; animation-fill-mode: both; }
-        .settings-section:nth-child(4) { animation-delay: 0.3s; animation-fill-mode: both; }
-        .settings-section:nth-child(5) { animation-delay: 0.4s; animation-fill-mode: both; }
-        .settings-section:nth-child(6) { animation-delay: 0.5s; animation-fill-mode: both; }
-        .settings-section:nth-child(7) { animation-delay: 0.6s; animation-fill-mode: both; }
 
         .integration-grid {
             display: grid;
@@ -529,22 +544,147 @@
 </head>
     <div class="settings-page">
         <div class="container">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
-                <div>
-                    <h1 class="page-title">Settings</h1>
-                    <p class="page-subtitle">Cloud credentials, alerts, learning, and API access.</p>
-                </div>
-                <a href="/organizations/" class="btn btn-secondary" style="margin-top:12px;"><i class="fa-solid fa-users"></i> Team</a>
+            <div>
+                <h1 class="page-title">Settings</h1>
+                <p class="page-subtitle">Everything about your account in one place.</p>
             </div>
 
             <nav class="settings-tabs" id="settingsTabs">
-                <a href="#cloud" class="settings-tab active" data-tab="cloud"><i class="fa-solid fa-cloud"></i> Cloud Credentials</a>
+                <a href="#profile" class="settings-tab active" data-tab="profile"><i class="fa-solid fa-user"></i> Profile</a>
+                <a href="#security" class="settings-tab" data-tab="security"><i class="fa-solid fa-shield-halved"></i> Security</a>
+                <a href="#cloud" class="settings-tab" data-tab="cloud"><i class="fa-solid fa-cloud"></i> Cloud Credentials</a>
+                <a href="#integrations" class="settings-tab" data-tab="integrations"><i class="fa-solid fa-plug"></i> Integrations</a>
                 <a href="#notifications" class="settings-tab" data-tab="notifications"><i class="fa-solid fa-bell"></i> Notifications</a>
                 <a href="#budgets" class="settings-tab" data-tab="budgets"><i class="fa-solid fa-coins"></i> Budgets</a>
                 <a href="#learning" class="settings-tab" data-tab="learning"><i class="fa-solid fa-graduation-cap"></i> Learning</a>
-                <a href="#integrations" class="settings-tab" data-tab="integrations"><i class="fa-solid fa-plug"></i> Integrations</a>
+                <a href="#skills" class="settings-tab" data-tab="skills"><i class="fa-solid fa-wand-magic-sparkles"></i> Skills</a>
                 <a href="#api-keys" class="settings-tab" data-tab="api-keys"><i class="fa-solid fa-key"></i> API Keys</a>
+                <a href="/billing" class="settings-tab settings-tab-link"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+                <a href="/organizations/" class="settings-tab settings-tab-link"><i class="fa-solid fa-users"></i> Teams <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
             </nav>
+
+            <!-- Profile -->
+            <div class="settings-section" data-tab-panel="profile">
+                <div class="section-header">
+                    <h2>Profile</h2>
+                </div>
+                {% if request.args.get('saved') == 'profile' %}
+                <div class="settings-notice ok">Profile saved.</div>
+                {% elif request.args.get('error') == 'profile' %}
+                <div class="settings-notice err">Your profile could not be saved. Please try again.</div>
+                {% endif %}
+                <form method="POST" action="/profile">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label for="full_name">Full name</label>
+                        <input type="text" id="full_name" name="full_name" value="{{ user.full_name or '' }}" placeholder="Your name" maxlength="120">
+                    </div>
+                    <div class="form-group">
+                        <label for="profileEmail">Email</label>
+                        <input type="email" id="profileEmail" value="{{ user.email }}" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label for="profileUsername">Username</label>
+                        <input type="text" id="profileUsername" value="{{ user.username }}" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label for="bio">Bio</label>
+                        <textarea id="bio" name="bio" rows="3" placeholder="A line about you (optional)" class="settings-textarea">{{ user.bio or '' }}</textarea>
+                    </div>
+                    <div class="profile-row">
+                        <div class="form-group">
+                            <label for="avatar_color">Avatar colour</label>
+                            <input type="color" id="avatar_color" name="avatar_color" value="{{ user.avatar_color or '#cd7c48' }}" class="settings-color">
+                        </div>
+                        <div class="form-group">
+                            <label for="theme">Theme</label>
+                            <select id="theme" name="theme">
+                                <option value="light" {% if user.theme == 'light' %}selected{% endif %}>Light</option>
+                                <option value="dark" {% if user.theme == 'dark' %}selected{% endif %}>Dark</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="submit" class="btn-primary">Save profile</button>
+                    </div>
+                </form>
+                <div class="account-facts">
+                    <div><span>Account ID</span>{{ user.id }}</div>
+                    <div><span>Created</span>{{ user.created_at.strftime('%B %d, %Y') if user.created_at else 'N/A' }}</div>
+                    {% if user.last_login %}<div><span>Last sign-in</span>{{ user.last_login.strftime('%B %d, %Y at %I:%M %p') }} UTC</div>{% endif %}
+                </div>
+            </div>
+
+            <!-- Security -->
+            <div class="settings-section" data-tab-panel="security">
+                <div class="section-header">
+                    <h2>Two-factor sign-in</h2>
+                    {% if user.has_mfa_enabled() %}
+                    <span class="status-badge configured">On</span>
+                    {% else %}
+                    <span class="status-badge not-configured">Off</span>
+                    {% endif %}
+                </div>
+                {% if user.has_mfa_enabled() %}
+                <div class="account-facts">
+                    <div><span>Method</span>{% if user.mfa_method == 'email' %}Email code{% elif user.mfa_method == 'totp' %}Authenticator app{% else %}{{ user.mfa_method }}{% endif %}</div>
+                    <div><span>On since</span>{{ user.two_factor_verified_at.strftime('%B %d, %Y') if user.two_factor_verified_at else 'N/A' }}</div>
+                    <div><span>Backup codes left</span><b id="backupCodesCount">{{ user.backup_codes|length if user.backup_codes else 0 }}</b></div>
+                </div>
+                {% else %}
+                <p>Add a second step when you sign in: a code from your email or an authenticator app.</p>
+                {% endif %}
+
+                <div id="twoFactorAlert" class="settings-notice" style="display:none;"></div>
+
+                <div class="button-group">
+                    {% if user.has_mfa_enabled() %}
+                    <button type="button" class="btn-primary" onclick="window.location.href='/setup-2fa'">Change method</button>
+                    <button type="button" class="btn-secondary" onclick="secRegenerate()">New backup codes</button>
+                    <button type="button" class="btn-danger" onclick="secShow('disable2faForm')">Turn off</button>
+                    {% else %}
+                    <button type="button" class="btn-primary" onclick="window.location.href='/setup-2fa'">Turn on two-factor sign-in</button>
+                    {% endif %}
+                </div>
+
+                <div id="disable2faForm" class="security-box" style="display:none;">
+                    <p>Enter your password to turn off two-factor sign-in. Your account will be less safe.</p>
+                    <div class="form-group">
+                        <label for="disable2faPassword">Password</label>
+                        <input type="password" id="disable2faPassword" autocomplete="current-password">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn-danger" id="confirmDisableBtn" onclick="secDisable()">Turn off</button>
+                        <button type="button" class="btn-secondary" onclick="secHide('disable2faForm')">Cancel</button>
+                    </div>
+                </div>
+
+                <div id="regenPasswordForm" class="security-box" style="display:none;">
+                    <p>Enter your password to make new backup codes. Your old codes stop working.</p>
+                    <div class="form-group">
+                        <label for="regenPassword">Password</label>
+                        <input type="password" id="regenPassword" autocomplete="current-password">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn-primary" id="confirmRegenBtn" onclick="secConfirmRegen()">Make new codes</button>
+                        <button type="button" class="btn-secondary" onclick="secHide('regenPasswordForm')">Cancel</button>
+                    </div>
+                </div>
+
+                <div id="newBackupCodes" class="security-box" style="display:none;">
+                    <p><strong>Save these codes now.</strong> Each works once. Your old codes no longer work.</p>
+                    <div id="newBackupCodesGrid" class="backup-codes-grid"></div>
+                    <div class="button-group">
+                        <button type="button" class="btn-secondary" onclick="secCopyCodes()">Copy</button>
+                        <button type="button" class="btn-secondary" onclick="secDownloadCodes()">Download</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Skills -->
+            <div class="settings-section" data-tab-panel="skills">
+                {% include 'settings/_skills_panel.html' %}
+            </div>
 
             <!-- AWS Configuration -->
             <div class="settings-section" data-tab-panel="cloud">
@@ -2298,11 +2438,93 @@
         loadIntegrations();
     })();
 
+    // Security tab: two-factor sign-in controls (moved here from the old /profile page)
+    let secNewCodes = [];
+    function secAlert(message, ok) {
+        const el = document.getElementById('twoFactorAlert');
+        el.textContent = message;
+        el.className = 'settings-notice ' + (ok ? 'ok' : 'err');
+        el.style.display = 'block';
+        setTimeout(() => { el.style.display = 'none'; }, 6000);
+    }
+    function secShow(id) {
+        document.getElementById(id).style.display = 'block';
+        const input = document.querySelector('#' + id + ' input');
+        if (input) input.focus();
+    }
+    function secHide(id) {
+        document.getElementById(id).style.display = 'none';
+        const input = document.querySelector('#' + id + ' input');
+        if (input) input.value = '';
+    }
+    function secRegenerate() {
+        document.getElementById('newBackupCodes').style.display = 'none';
+        secShow('regenPasswordForm');
+    }
+    function secPost(url, password, btn, busyText, doneText, onSuccess) {
+        if (!password) { secAlert('Please enter your password.', false); return; }
+        btn.disabled = true;
+        btn.textContent = busyText;
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: password })
+        })
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.textContent = doneText;
+            if (data.success) onSuccess(data);
+            else secAlert(data.error || 'That did not work. Please try again.', false);
+        })
+        .catch(() => {
+            btn.disabled = false;
+            btn.textContent = doneText;
+            secAlert('Network error. Please try again.', false);
+        });
+    }
+    function secDisable() {
+        secPost('/api/2fa/disable', document.getElementById('disable2faPassword').value,
+            document.getElementById('confirmDisableBtn'), 'Turning off...', 'Turn off',
+            () => { window.location.hash = 'security'; window.location.reload(); });
+    }
+    function secConfirmRegen() {
+        secPost('/api/2fa/regenerate-backup-codes', document.getElementById('regenPassword').value,
+            document.getElementById('confirmRegenBtn'), 'Making codes...', 'Make new codes',
+            (data) => {
+                secNewCodes = data.backup_codes || [];
+                secHide('regenPasswordForm');
+                const grid = document.getElementById('newBackupCodesGrid');
+                grid.textContent = '';
+                secNewCodes.forEach(c => {
+                    const d = document.createElement('div');
+                    d.textContent = c;
+                    grid.appendChild(d);
+                });
+                document.getElementById('newBackupCodes').style.display = 'block';
+                const count = document.getElementById('backupCodesCount');
+                if (count) count.textContent = secNewCodes.length;
+                secAlert('New backup codes made. Save them now.', true);
+            });
+    }
+    function secCopyCodes() {
+        navigator.clipboard.writeText(secNewCodes.join('\n')).then(() => secAlert('Codes copied.', true));
+    }
+    function secDownloadCodes() {
+        const text = 'DevOps Agent - two-factor backup codes\n\nEach code works once.\n\n' + secNewCodes.join('\n') + '\n';
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'devops-agent-backup-codes.txt';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
     // Section tabs: hash-driven show/hide of settings sections
     (function() {
-        const validTabs = ['cloud', 'notifications', 'budgets', 'learning', 'integrations', 'api-keys'];
+        const validTabs = ['profile', 'security', 'cloud', 'integrations', 'notifications', 'budgets', 'learning', 'skills', 'api-keys'];
         function activateTab(tab) {
-            if (!validTabs.includes(tab)) tab = 'cloud';
+            if (!validTabs.includes(tab)) tab = 'profile';
             document.querySelectorAll('.settings-tab').forEach(t =>
                 t.classList.toggle('active', t.dataset.tab === tab));
             document.querySelectorAll('.settings-section[data-tab-panel]').forEach(s =>
