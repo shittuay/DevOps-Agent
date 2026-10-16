@@ -2378,7 +2378,7 @@ POST   /api/skills/refresh-learned       → regenerate from latest infrastructu
 
 ### App Shell — `templates/base.html`
 All logged-in pages MUST extend `templates/base.html` (unified branded header with
-Font Awesome icon nav + active states, in-header theme toggle, mobile nav, shared
+Font Awesome icon nav + active states, profile menu (with the Light/Dark row), mobile nav, shared
 card/btn/badge/form components, Syne/IBM Plex Mono/Outfit type system). Pattern:
 `{% extends "base.html" %}` + `{% block title %}` + `{% block content %}` with
 page-specific `<style>` inside the content block. Do NOT build bespoke headers or
@@ -2402,8 +2402,15 @@ screen. Plain wheel scrolls natively; ctrl/⌘+wheel zooms.
 `index.html` (chat) keeps its own app-frame layout but its header nav and icons
 are aligned with the shell. Full audit + PR sequence:
 `vault/architecture/ui-rebuild-plan-2026-07.md`.
-Theme toggle: `static/js/theme.js` uses a delegated click handler; pages with an
-in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
+Theme switch (2026-10-16, owner request: "put it somewhere it doesn't disturb anything"):
+signed-in pages have a **Theme: Light / Dark** row in the profile menu (base.html
+`#accountMenuList` and the chat page's `#mainMenu`, both marked `data-theme-menu`, buttons
+`.theme-choice-btn`). Neither header has a toggle any more. `static/js/theme.js` handles
+`.theme-toggle-btn` and `.theme-choice-btn` with one delegated click handler and injects a
+floating switch only when the page has neither a `.theme-toggle` nor a `[data-theme-menu]`; that
+leftover switch (`.theme-toggle-floating`, on pages with their own header such as Billing, Changes,
+Admin, Learn and the sign-in pages) is small and sits in the bottom-left corner. It used to float at
+top-right, over page content. Guard: `tests/test_theme_toggle_placement.py`.
 
 ### Settings in one place (2026-10-16, owner request)
 Settings is reached from the **profile icon** (base.html `#accountMenu`: Settings, Billing & credits,
@@ -2423,7 +2430,7 @@ in-app password change (only Forgot password). Guard: `tests/test_settings_in_on
 **Header layout (3 zones):**
 - Left: sidebar toggle (☰)
 - Center: primary nav (Chat / Dashboard / Workflows / Approvals) | secondary nav (Map / Learn); Settings is in the profile menu — orange underline on hover
-- Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
+- Right: Learning badge, credits, 🔔 bell, 📄 artifacts, 👤 profile menu (Light/Dark theme is a row in this menu)
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.
 

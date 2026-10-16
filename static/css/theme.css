@@ -113,16 +113,38 @@ input, select, textarea, button {
     background: rgba(255, 255, 255, 0.1);
 }
 
+/* Pages without the profile menu get a small switch tucked into the bottom-left corner,
+   away from headers, buttons and the chat box (it used to float over the top-right). */
+.theme-toggle.theme-toggle-floating {
+    top: auto;
+    right: auto;
+    bottom: 16px;
+    left: 16px;
+    padding: 3px;
+    gap: 2px;
+    opacity: 0.7;
+}
+
+.theme-toggle.theme-toggle-floating:hover,
+.theme-toggle.theme-toggle-floating:focus-within {
+    opacity: 1;
+}
+
+.theme-toggle-floating .theme-toggle-btn {
+    width: 28px;
+    height: 28px;
+}
+
 /* Mobile adjustments for theme toggle */
 @media (max-width: 768px) {
-    .theme-toggle {
+    .theme-toggle:not(.theme-toggle-floating) {
         top: auto;
         bottom: 20px;
         right: 20px;
         padding: 6px;
     }
 
-    .theme-toggle-btn {
+    .theme-toggle:not(.theme-toggle-floating) .theme-toggle-btn {
         width: 36px;
         height: 36px;
         font-size: 16px;

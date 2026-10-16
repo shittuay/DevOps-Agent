@@ -186,6 +186,15 @@
             box-shadow: 0 6px 24px rgba(255, 107, 53, 0.5);
         }
 
+        .theme-choice { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
+        .theme-choice-label { font-size: 13px; color: var(--text-secondary); margin-right: auto; }
+        .theme-choice-btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px;
+            border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary);
+            font: 600 12px 'Outfit', sans-serif; text-transform: none; letter-spacing: normal; cursor: pointer;
+        }
+        .theme-choice-btn:hover { color: var(--text-primary); }
+        .theme-choice-btn.active { background: rgba(255, 107, 53, 0.12); border-color: rgba(255, 107, 53, 0.4); color: var(--accent-primary); }
         .account-menu { position: relative; }
         .account-menu .profile-button {
             padding: 0;
@@ -236,18 +245,6 @@
         .account-menu-list a i { width: 16px; text-align: center; color: var(--text-secondary); }
         .account-menu-list a:hover, .account-menu-list a.active { background: rgba(255, 107, 53, 0.1); color: var(--accent-primary); }
         .account-menu-list .account-menu-logout { border-top: 1px solid var(--border-subtle); margin-top: 4px; border-radius: 0 0 8px 8px; }
-
-        .header-theme-toggle {
-            position: static;
-            padding: 4px;
-            box-shadow: none;
-        }
-
-        .header-theme-toggle .theme-toggle-btn {
-            width: 32px;
-            height: 32px;
-            font-size: 14px;
-        }
 
         .main-content {
             flex: 1;
@@ -651,15 +648,16 @@
                 })();
                 </script>
                 {% endif %}
-                <div class="theme-toggle header-theme-toggle">
-                    <button class="theme-toggle-btn" data-theme="dark" title="Dark mode"><i class="fa-solid fa-moon"></i></button>
-                    <button class="theme-toggle-btn" data-theme="light" title="Light mode"><i class="fa-solid fa-sun"></i></button>
-                </div>
                 {% if current_user.is_authenticated %}
                 <div class="account-menu" id="accountMenu">
                     <button type="button" class="profile-button" id="accountMenuButton" title="Account" aria-haspopup="true" aria-expanded="false" aria-controls="accountMenuList"><i class="fa-solid fa-user"></i><span class="account-menu-label">Account</span></button>
                     <div class="account-menu-list" id="accountMenuList" role="menu">
                         <div class="account-menu-who">{{ current_user.full_name or current_user.username }}<span>{{ current_user.email }}</span></div>
+                        <div class="theme-choice" data-theme-menu role="group" aria-label="Theme">
+                            <span class="theme-choice-label">Theme</span>
+                            <button type="button" class="theme-choice-btn" data-theme="light"><i class="fa-solid fa-sun"></i> Light</button>
+                            <button type="button" class="theme-choice-btn" data-theme="dark"><i class="fa-solid fa-moon"></i> Dark</button>
+                        </div>
                         <a role="menuitem" href="/settings"{% if request.path.startswith('/settings') %} class="active"{% endif %}><i class="fa-solid fa-gear"></i> Settings</a>
                         <a role="menuitem" href="/billing"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits</a>
                         <a role="menuitem" href="/organizations/"><i class="fa-solid fa-users"></i> Teams</a>
