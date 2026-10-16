@@ -3316,3 +3316,15 @@ No users yet; first TikTok ads reached ~5,000 people, but the admin page couldn'
 signups came from them or how far anyone got. Added `User.signup_source` (first-visit
 utm/ref/referrer), a 30-day signup funnel and per-user progress on `/admin/`, and made sandbox
 the primary first-run choice so new users can try the agent without connecting a cloud account.
+
+## 2026-10-15: Settings AWS self-grant option broke the page on phones
+
+On a phone, Settings → Cloud showed the "Let DevOps Agent add missing permissions itself"
+option as a wide white bar with its description in uppercase monospace, and the page scrolled
+sideways. Cause: `settings.html` styles **every** `label` (uppercase IBM Plex Mono) and **every**
+`input` (`width: 100%`, padding), and the option was a bare `<label>`/checkbox inside the Current
+Configuration box, so it inherited both. The role ARN in the same box also had no wrap point.
+Fix: a `.self-grant-option` class resets the label's font/case and sizes the checkbox to 18px;
+`.current-config p` gets `overflow-wrap: anywhere`. **Any checkbox or inline label added to
+settings.html needs its own class for the same reason.** Guard:
+`tests/test_settings_selfgrant_mobile.py`.

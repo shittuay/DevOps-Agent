@@ -250,6 +250,35 @@
             font-size: 14px;
             margin: 8px 0;
             font-family: 'IBM Plex Mono', monospace;
+            overflow-wrap: anywhere;
+        }
+
+        .self-grant-option {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            cursor: pointer;
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 400;
+            font-size: 14px;
+            text-transform: none;
+            letter-spacing: normal;
+            color: var(--text-primary);
+        }
+
+        .self-grant-option input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            padding: 0;
+            margin-top: 2px;
+            flex-shrink: 0;
+            accent-color: var(--accent-primary);
+        }
+
+        .self-grant-option span {
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         /* Info Box */
@@ -533,9 +562,9 @@
                     <p><strong>Mode:</strong> <span id="currentAuthMode"></span></p>
                     <p><strong>Identity:</strong> <span id="currentIdentity"></span></p>
                     <p><strong>Region:</strong> <span id="currentRegion"></span></p>
-                    <div id="selfGrantBox" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
-                        <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
-                            <input type="checkbox" id="selfGrantToggle" onchange="setSelfGrant(this.checked)" style="margin-top:3px;" />
+                    <div id="selfGrantBox" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--glass-border);">
+                        <label class="self-grant-option">
+                            <input type="checkbox" id="selfGrantToggle" onchange="setSelfGrant(this.checked)" />
                             <span><strong>Let DevOps Agent add missing permissions itself, after I say yes</strong><br>
                             <small>When AWS refuses an action for lack of a permission, the agent always shows you the exact policy and asks first. With this on, a yes adds it to the agent's own role and it retries; with it off, you add it in AWS and then confirm. Needs the CloudFormation stack launched with <code>AllowSelfGrant=Yes</code>, which caps the role with a permissions boundary. Identity, key and secret-value permissions are never added automatically.</small></span>
                         </label>
