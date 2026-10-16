@@ -458,17 +458,47 @@ def _get_tool_annotations(tool_name: str) -> Dict[str, Any]:
     return {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True}
 
 
+_TITLE_WORDS = {
+    'ec2': 'EC2', 'ebs': 'EBS', 'ecs': 'ECS', 'eks': 'EKS', 'ecr': 'ECR', 'efs': 'EFS',
+    'rds': 'RDS', 's3': 'S3', 'iam': 'IAM', 'vpc': 'VPC', 'vpcs': 'VPCs', 'ami': 'AMI',
+    'sns': 'SNS', 'sqs': 'SQS', 'ssm': 'SSM', 'acm': 'ACM', 'waf': 'WAF', 'msk': 'MSK',
+    'nat': 'NAT', 'nacl': 'NACL', 'eni': 'ENI', 'enis': 'ENIs', 'oidc': 'OIDC', 'api': 'API',
+    'gcp': 'GCP', 'gke': 'GKE', 'gcs': 'GCS', 'sql': 'SQL', 'nsg': 'NSG', 'vm': 'VM',
+    'vms': 'VMs', 'k8s': 'Kubernetes', 'hpa': 'HPA', 'hpas': 'HPAs', 'pvc': 'PVC',
+    'pvs': 'PVs', 'pvcs': 'PVCs', 'ip': 'IP', 'ips': 'IPs', 'cidr': 'CIDR', 'url': 'URL',
+    'aws': 'AWS', 'tcp': 'TCP', 'http': 'HTTP', 'mcp': 'MCP', 'sso': 'SSO', 'cors': 'CORS',
+    'opsgenie': 'OpsGenie', 'pagerduty': 'PagerDuty', 'github': 'GitHub', 'gitlab': 'GitLab',
+    'sonarqube': 'SonarQube', 'devopsagent': 'DevOps Agent', 'dynamodb': 'DynamoDB',
+    'cloudwatch': 'CloudWatch', 'cloudformation': 'CloudFormation', 'cloudfront': 'CloudFront',
+    'cloudtrail': 'CloudTrail', 'elasticache': 'ElastiCache', 'opensearch': 'OpenSearch',
+    'documentdb': 'DocumentDB', 'appsync': 'AppSync', 'bigquery': 'BigQuery',
+    'eventbridge': 'EventBridge', 'pubsub': 'Pub/Sub', 'xray': 'X-Ray', 'tf': 'Terraform',
+}
+
+
+def _tool_title(name: str) -> str:
+    """Human-readable title for a tool name, e.g. get_ec2_instances -> Get EC2 Instances."""
+    return ' '.join(_TITLE_WORDS.get(w, w.capitalize()) for w in name.split('_') if w)
+
+
 def _to_mcp_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert an internal tool definition to MCP tool format with safety annotations."""
+    """Convert an internal tool definition to MCP tool format with safety annotations.
+
+    The Connectors Directory requires every tool to have a title plus readOnlyHint or
+    destructiveHint. `title` is set both on the tool (newer MCP versions) and in
+    `annotations` (2025-03-26, the version this server speaks).
+    """
+    title = tool.get('title') or _tool_title(tool["name"])
     return {
         "name": tool["name"],
+        "title": title,
         "description": tool.get("description", ""),
         "inputSchema": tool.get("input_schema", {
             "type": "object",
             "properties": {},
             "required": []
         }),
-        "annotations": _get_tool_annotations(tool["name"]),
+        "annotations": {"title": title, **_get_tool_annotations(tool["name"])},
     }
 
 
@@ -596,9 +626,11 @@ def _handle_tools_list(req_id: Any, params: Dict, user_id: int) -> Dict:
     tools, _ = _get_all_tools()
     health_tool = {
         "name": "devopsagent_health",
+        "title": "DevOps Agent Health",
         "description": "Returns server status, protocol version, and tool count. No cloud credentials required.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
-        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+        "annotations": {"title": "DevOps Agent Health", "readOnlyHint": True,
+                        "destructiveHint": False, "openWorldHint": False},
     }
     return _ok(req_id, {
         "tools": [health_tool] + [_to_mcp_tool(t) for t in tools],

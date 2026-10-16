@@ -1,7 +1,12 @@
 # Claude.ai Connector Submission — DevOps Agent
 
-## Submission Form
-https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxMKSw1CzDkqA/viewform
+## Where to submit
+Developer portal: https://claude.ai/directory/manage → **Submit new** → **MCP connector**
+(needs a paid Claude plan). Guide: https://claude.com/docs/connectors/building/submission.
+Status and reviewer feedback appear in the same portal; escalations go to `mcp-review@anthropic.com`.
+
+The old Google Form is closed ("[deprecated] MCP Directory Submission Form"). An April 2026
+entry went to the MCPB Desktop Extensions form, which is for local servers and is also deprecated.
 
 ## Server Details
 
@@ -11,7 +16,7 @@ https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxM
 - **SSE Endpoint:** `https://devopsagent.io/mcp/sse`
 - **Health Check:** `https://devopsagent.io/mcp/health`
 - **MCP Protocol Version:** 2025-03-26
-- **Authentication:** OAuth 2.0 (Authorization Code + PKCE)
+- **Authentication:** OAuth 2.0 (Authorization Code + PKCE) with dynamic client registration (`/mcp/oauth/register`). In the portal's Authentication step choose **OAuth with dynamic client registration**.
 
 ## Required Links
 
@@ -27,7 +32,8 @@ https://docs.google.com/forms/d/e/1FAIpQLSeafJF2NDI7oYx1r8o0ycivCSVLNq92Mpc1FPxM
 
 ## Test Account for Reviewers
 
-Credentials shared privately with the review team (never commit secrets to git).
+Credentials go in the portal's **Test & launch** step, which only reviewers see (never commit secrets to git).
+Use a dedicated account with Sandbox on and two-factor off, so reviewers aren't stopped at the code step.
 - **OAuth URL:** https://devopsagent.io/mcp/oauth/authorize
 
 ## 3 Working Usage Examples
@@ -49,18 +55,18 @@ Credentials shared privately with the review team (never commit secrets to git).
 
 ## Safety Annotations
 
-All 702 tools have MCP safety annotations:
-- **230 tools** marked `readOnlyHint: true` (list, get, describe operations)
-- **114 tools** marked `destructiveHint: true` (delete, terminate operations)
-- **299 tools** marked as mutating (create, update, medium-risk operations)
-- **All tools** marked `openWorldHint: true` (interact with cloud APIs)
+Every tool returned by `tools/list` has a `title` (on the tool and in `annotations`) plus
+`readOnlyHint`, `destructiveHint` and `openWorldHint`, derived from the same risk
+classification the agent uses (`routes/mcp.py`, `_to_mcp_tool`). The directory requires a
+title and a read-only/destructive hint on every tool; `tests/test_mcp_tool_titles.py` checks it.
 
-Destructive operations also go through the SafetyValidator which classifies risk levels and requires confirmation for high-risk actions.
+Risky calls also need approval before they run (see "Approvals and connected tools" in
+`mcp/README.md`).
 
 ## OAuth 2.0 Flow
 
 1. Claude.ai redirects to `https://devopsagent.io/mcp/oauth/authorize`
-2. User logs in with their devopsagent.io credentials
+2. User logs in with their devopsagent.io credentials (and a two-factor code if the account has 2FA on)
 3. Server issues authorization code → redirects back to Claude.ai
 4. Claude.ai exchanges code for access token at `https://devopsagent.io/mcp/oauth/token`
 5. PKCE (S256) is supported
