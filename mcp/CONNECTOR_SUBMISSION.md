@@ -34,12 +34,12 @@ Credentials shared privately with the review team (never commit secrets to git).
 
 ### Example 1: List EC2 Instances
 **Prompt:** "Show me all EC2 instances in us-east-1"
-**Tool called:** `list_ec2_instances`
+**Tool called:** `get_ec2_instances` with region=us-east-1
 **What happens:** Returns a JSON list of all EC2 instances with their IDs, types, states, and tags. Read-only operation, no side effects.
 
 ### Example 2: Check Kubernetes Pod Health
 **Prompt:** "Are there any pods in CrashLoopBackOff in the production namespace?"
-**Tool called:** `list_pods` with namespace=production
+**Tool called:** `get_pods` with namespace=production
 **What happens:** Lists all pods with their status. The agent identifies any unhealthy pods and explains the issue. Read-only.
 
 ### Example 3: Terraform Plan Review
