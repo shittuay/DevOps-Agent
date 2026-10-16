@@ -23,7 +23,7 @@ compatible_providers: [aws, azure, gcp, kubernetes]
 6. **Document** — write postmortem within 48 hours
 
 ## Common Mitigations
-- **Traffic spike → 503**: Scale up replicas (`update_deployment` with increased `replicas`)
+- **Traffic spike → 503**: Scale up replicas (`scale_deployment` with increased `replicas`)
 - **Bad deploy**: Roll back deployment (`describe_deployment`, then `update_deployment_image` with previous tag)
 - **Database overload**: Enable RDS read replicas; route read traffic away
 - **Memory leak**: Restart pods with rolling restart; add memory alert for early warning next time
@@ -37,7 +37,7 @@ compatible_providers: [aws, azure, gcp, kubernetes]
 5. Is it isolated or cascading? (check service map / distributed traces)
 
 ## DevOps Agent Commands
-- `list_incidents` to see current active incidents
+- `pagerduty_list_incidents` or `opsgenie_list_alerts` to see current active incidents (needs PagerDuty or OpsGenie connected in Settings > Integrations)
 - `get_pod_logs` for Kubernetes service investigation
-- `get_aws_cloudwatch_logs` for application logs
+- `get_cloudwatch_logs` for application logs
 - `get_infrastructure_summary` for resource state overview

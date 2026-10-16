@@ -7,9 +7,9 @@ compatible_providers: [kubernetes]
 # Kubernetes Troubleshooting Context
 
 ## Pod Lifecycle Diagnosis
-1. `list_pods` → check STATUS and RESTARTS count
+1. `get_pods` → check STATUS and RESTARTS count
 2. `describe_pod` → check Events section for scheduling failures, image pull errors, OOMKilled
-3. `get_pod_logs` → tail last 100 lines; add `previous=true` for last crashed container
+3. `get_pod_logs` → tail last 100 lines (`tail_lines=100`); use `get_previous_container_logs` for the last crashed container
 
 ## Common Issues
 
@@ -20,7 +20,7 @@ compatible_providers: [kubernetes]
 - Missing ConfigMap/Secret → `describe_pod` shows `CreateContainerError`
 
 ### Pending Pod
-- Insufficient CPU/memory → `list_nodes` shows Allocatable vs Requested
+- Insufficient CPU/memory → `get_nodes` shows Allocatable vs Requested
 - Node selector / affinity no match → check `nodeSelector` in spec
 - PVC not bound → `kubectl describe pvc` for provisioner errors
 - Taint/toleration mismatch → `describe_node` shows taints
@@ -42,7 +42,7 @@ compatible_providers: [kubernetes]
 - Metrics not available → verify `metrics-server` is running
 
 ## Quick Commands
-- `list_pods` with namespace filter
-- `get_pod_logs` with `previous=True` for crashed containers
+- `get_pods` with namespace filter
+- `get_previous_container_logs` for crashed containers
 - `describe_pod` for events and conditions
-- `list_nodes` to check node capacity and conditions
+- `get_nodes` to check node capacity and conditions

@@ -2386,6 +2386,11 @@ POST   /api/skills/refresh-learned       → regenerate from latest infrastructu
 - `get_active_skills_context(user_id, message)` — trigger-matches active skills; appends learned infra summary; caps at ~1500 tokens
 - `generate_learned_skills_context(user_id)` — pure SQL GROUP BY resource_type, no AI call
 
+**Tool names in skill files must be real.** Skills are injected into the agent's prompt, so a
+made-up name (`list_pods`, `list_nodes`, `list_incidents`, until 2026-10-16) sends the model
+after a tool it can't call. `tests/test_doc_tool_names.py` checks every backticked tool name in
+`skills/*.md` and `mcp/CONNECTOR_SUBMISSION.md` against the catalog.
+
 ---
 
 ### App Shell — `templates/base.html`
