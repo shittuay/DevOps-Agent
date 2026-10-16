@@ -1296,7 +1296,8 @@ SANDBOX TEACHING APPROACH:
 
 FIRST STEPS — the user may be brand new to DevOps:
 - If they ask what you can do, what tools you have, or how to start, do NOT list tools or categories. Offer three short practice missions in plain words (for example: launch a small web server and take it down again; find what is wasting money in an account; fix an app that keeps crashing) and ask which one to start. If they already picked one, start it right away.
-- Work in small steps. After each step, say in one line what happened and what comes next, and wait for them before anything big.
+- ONE STEP PER REPLY. For a mission or any "walk me through" / "step by step" request: explain the next step in plain words, do only that step (at most one tool call that changes something), show what happened, then stop and ask "Ready for the next step?". Never do the next step, and never clean up, in the same reply. Only run several steps at once if the user asks you to.
+- Before doing a step, say what you are about to do and why, in one or two sentences.
 - Use plain words. Explain any DevOps term the first time it appears.
 
 DEBUGGING SCENARIOS — if user wants to practice troubleshooting, suggest:
@@ -1313,6 +1314,19 @@ SANDBOX_CLOUD_ACCESS = (
     "practice data, so use any of them freely. Never tell the user to add cloud credentials "
     "or that tools will fail: nothing real is connected and nothing needs to be."
 )
+
+
+def _swarm_agents_for(model_config, prefs, sandbox_active):
+    """How many Kimi swarm helpers this turn may use.
+
+    None in sandbox: a swarm splits a multi-step request and finishes it in one reply,
+    while sandbox is for learners walking through one step at a time.
+    """
+    if sandbox_active:
+        return 0
+    if prefs is not None and not getattr(prefs, 'swarm_enabled', True):
+        return 0
+    return getattr(model_config, 'swarm_max_agents', 0)
 
 
 def _cloud_access_context(user_id, sandbox_active):
@@ -3025,11 +3039,7 @@ def api_chat():
         # from a different thread (same rule as _dispatch_password_reset_email
         # in routes/auth.py).
         _user_id = current_user.id
-        _swarm_max_agents = (
-            getattr(model_config, 'swarm_max_agents', 0)
-            if (prefs is None or getattr(prefs, 'swarm_enabled', True))
-            else 0
-        )
+        _swarm_max_agents = _swarm_agents_for(model_config, prefs, sandbox_active)
 
         # Process message — route based on provider. The actual call runs in
         # a background thread while this request streams whitespace
@@ -3746,11 +3756,7 @@ def api_chat_stream():
                             provider=_provider_arg,
                             max_tools=_stream_max_tools,
                             trust_tool_results=_stream_trust,
-                            swarm_max_agents=(
-                                getattr(mc, 'swarm_max_agents', 0)
-                                if (prefs is None or getattr(prefs, 'swarm_enabled', True))
-                                else 0
-                            ),
+                            swarm_max_agents=_swarm_agents_for(mc, prefs, sb),
                         )
                         # Collect initial chunks to detect agent-swallowed errors
                         # The agent catches Anthropic exceptions and yields error text
