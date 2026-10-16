@@ -1437,6 +1437,11 @@ Users enable in Settings > Preferences:
   three practice missions (`SANDBOX_MISSIONS` / `renderSandboxWelcome()` in `index.html`) instead of
   the "Available Tools" card, and `SANDBOX_MODE_ADDENDUM` tells the agent to offer missions, not a
   tool list. Guard: `tests/test_sandbox_first_run.py`.
+- **Sandbox goes one step per reply (2026-10-16).** The web-server mission once launched, tested
+  and deleted everything in one reply. `SANDBOX_MODE_ADDENDUM` now says ONE STEP PER REPLY, the
+  mission prompts ask for a pause, and `app._swarm_agents_for()` turns Kimi swarm off in sandbox
+  (both chat routes use it). Practice ids are hex like real AWS ids (`learning_sandbox._rand_id`).
+  Guard: `tests/test_sandbox_step_by_step.py`.
 - **Learning Level** (`UserPreferences.learning_level`): `beginner`, `intermediate`, `advanced`
 
 ## Billing & Payments
@@ -2410,6 +2415,12 @@ in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 - Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.
+
+**Reply formatting.** `formatMessage()` in `index.html` is a small markdown renderer: code
+blocks, `#` headings, `|` tables (need the `|---|` row), `-`/`1.` lists, `---` rules, `code`
+and **bold**. It escapes everything first (`escapeHtml` is a pure string function), so model
+output can never inject HTML. Until 2026-10-16 it only handled code and bold, and every heading
+and table showed as raw `##` and `|`. Tested in node by `tests/test_sandbox_step_by_step.py`.
 
 **Phones in landscape (fixed 2026-10-14).** A sideways phone is wide but short, so
 width-only media queries gave it the desktop layout and the message box fell off the

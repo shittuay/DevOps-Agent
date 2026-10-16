@@ -4,14 +4,17 @@ when sandbox mode is active. Allows learners to practice without touching
 real cloud infrastructure.
 """
 import random
-import string
 from datetime import datetime, timedelta
 from typing import Dict, Any
 from src.utils.timeutils import utcnow
 
 
+_HEX = '0123456789abcdef'
+
+
 def _rand_id(prefix: str = '', length: int = 17) -> str:
-    return prefix + ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+    """Hex, like real AWS ids (i-0a1b..., sg-..., ami-...), so practice ids teach the real shape."""
+    return prefix + ''.join(random.choices(_HEX, k=length))
 
 
 def _rand_ip() -> str:

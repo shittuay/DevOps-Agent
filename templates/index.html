@@ -819,6 +819,17 @@
             position: relative;
         }
 
+        .message-content .md-heading { font-family: 'Syne', sans-serif; font-weight: 700; margin: 14px 0 6px; line-height: 1.3; }
+        .message-content h3.md-heading { font-size: 17px; }
+        .message-content h4.md-heading { font-size: 15px; }
+        .message-content .md-list { margin: 6px 0 6px 20px; padding: 0; }
+        .message-content .md-list li { margin: 3px 0; }
+        .message-content .md-rule { border: none; border-top: 1px solid var(--glass-border, rgba(128,128,128,0.25)); margin: 12px 0; }
+        .message-content .md-table-wrap { max-width: 100%; overflow-x: auto; margin: 8px 0; }
+        .message-content .md-table { border-collapse: collapse; font-size: 14px; min-width: 60%; }
+        .message-content .md-table th, .message-content .md-table td { border: 1px solid var(--glass-border, rgba(128,128,128,0.25)); padding: 6px 10px; text-align: left; vertical-align: top; }
+        .message-content .md-table th { background: rgba(255,107,53,0.08); font-weight: 600; }
+
         .message.user .message-content {
             background: rgba(99,102,241,0.05);
             border: 1px solid rgba(99,102,241,0.1);
@@ -2559,10 +2570,10 @@
         const SANDBOX_MISSIONS = [
             {icon: 'fa-server', title: 'Launch a web server',
              text: 'Build a small Ubuntu server on AWS, put a website on it, check it works, then clean up.',
-             prompt: "I'm new to this and I'm in sandbox. Walk me through launching a small Ubuntu web server on AWS, one step at a time: create it, allow web traffic only from my IP, check the website answers, then delete everything. Explain each step in plain words before you do it."},
+             prompt: "I'm new to this and I'm in sandbox. Walk me through launching a small Ubuntu web server on AWS, one step at a time: create it, allow web traffic only from my IP, check the website answers, then delete everything. Explain each step in plain words before you do it, do just that one step, then stop and wait for me to say go on."},
             {icon: 'fa-magnifying-glass-dollar', title: 'Find wasted money',
              text: 'Look around a practice AWS account for things that cost money and do nothing.',
-             prompt: "I'm in sandbox. Look around my practice AWS account and find things that cost money but aren't being used, like idle servers, unattached disks and old snapshots. For each one, explain why it matters and what I would do about it."},
+             prompt: "I'm in sandbox. Look around my practice AWS account and find things that cost money but aren't being used, like idle servers, unattached disks and old snapshots. Show me one finding at a time: explain why it matters and what I would do about it, then wait for me before the next."},
             {icon: 'fa-bug', title: 'Fix a broken app',
              text: 'A Kubernetes app keeps crashing. Find out why and fix it, with hints.',
              prompt: "I'm in sandbox. Simulate a Kubernetes pod stuck in CrashLoopBackOff and coach me through finding and fixing the cause. Go one step at a time and let me guess before you tell me the answer."}
@@ -3130,19 +3141,94 @@
             if (elem) elem.remove();
         }
 
+        // Small markdown renderer: code blocks, headings, tables, lists, rules, `code`, **bold**.
+        // Everything is escaped first; only the tags built here reach the page.
         function formatMessage(text) {
-            text = escapeHtml(text);
-            text = text.replace(/```([\s\S]*?)```/g, '<pre data-lang="code"><code>$1</code></pre>');
-            text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-            text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-            text = text.replace(/\n/g, '<br>');
-            return text;
+            const parts = String(text == null ? '' : text).split('```');
+            return parts.map(function (part, i) {
+                if (i % 2 === 1) {
+                    const body = part.replace(/^[\w+.-]*\n/, '');
+                    return '<pre data-lang="code"><code>' + escapeHtml(body) + '</code></pre>';
+                }
+                return formatBlocks(part);
+            }).join('');
+        }
+
+        function formatInline(line) {
+            let s = escapeHtml(line);
+            s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+            s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            return s;
+        }
+
+        const MD_TABLE_ROW = /^\s*\|.*\|\s*$/;
+        const MD_TABLE_SEP = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+        const MD_HEADING = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
+        const MD_BULLET = /^\s*[-*•]\s+(.*)$/;
+        const MD_NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
+        const MD_RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
+
+        function mdCells(row) {
+            return row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+        }
+
+        function formatBlocks(text) {
+            const lines = text.split('\n');
+            const out = [];
+            let i = 0;
+            while (i < lines.length) {
+                const line = lines[i];
+                if (MD_TABLE_ROW.test(line) && i + 1 < lines.length && MD_TABLE_SEP.test(lines[i + 1])) {
+                    const head = mdCells(line);
+                    i += 2;
+                    const rows = [];
+                    while (i < lines.length && MD_TABLE_ROW.test(lines[i])) { rows.push(mdCells(lines[i])); i++; }
+                    let html = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+                    head.forEach(function (c) { html += '<th>' + formatInline(c) + '</th>'; });
+                    html += '</tr></thead><tbody>';
+                    rows.forEach(function (r) {
+                        html += '<tr>';
+                        head.forEach(function (_, k) { html += '<td>' + formatInline(r[k] || '') + '</td>'; });
+                        html += '</tr>';
+                    });
+                    out.push({block: html + '</tbody></table></div>'});
+                    continue;
+                }
+                const h = line.match(MD_HEADING);
+                if (h) {
+                    const tag = h[1].length <= 2 ? 'h3' : 'h4';
+                    out.push({block: '<' + tag + ' class="md-heading">' + formatInline(h[2]) + '</' + tag + '>'});
+                    i++;
+                    continue;
+                }
+                if (MD_RULE.test(line)) { out.push({block: '<hr class="md-rule">'}); i++; continue; }
+                const listRe = MD_BULLET.test(line) ? MD_BULLET : (MD_NUMBERED.test(line) ? MD_NUMBERED : null);
+                if (listRe) {
+                    const tag = listRe === MD_BULLET ? 'ul' : 'ol';
+                    let html = '<' + tag + ' class="md-list">';
+                    while (i < lines.length && listRe.test(lines[i])) {
+                        html += '<li>' + formatInline(lines[i].match(listRe)[1]) + '</li>';
+                        i++;
+                    }
+                    out.push({block: html + '</' + tag + '>'});
+                    continue;
+                }
+                out.push({text: formatInline(line)});
+                i++;
+            }
+            let html = '';
+            out.forEach(function (item, k) {
+                if (item.block) { html += item.block; return; }
+                html += item.text;
+                const next = out[k + 1];
+                if (next && !next.block) html += '<br>';
+            });
+            return html;
         }
 
         function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+            return String(text == null ? '' : text)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
         function scrollToBottom() {
