@@ -2339,6 +2339,8 @@ permission requests (chat only) don't happen there.
 requires every tool to have a `title` and a `readOnlyHint`/`destructiveHint`: `_to_mcp_tool()`
 sets `title` on the tool and in `annotations` (`_tool_title()` turns `get_ec2_instances` into
 "Get EC2 Instances"; add acronyms to `_TITLE_WORDS`). Guard: `tests/test_mcp_tool_titles.py`.
+Read-only hints come from name prefixes plus whole-segment suffixes (`_list`, `_status`...); a
+plain substring test once marked `create_listener` read-only.
 Field answers and the reviewer test-account notes are in `mcp/CONNECTOR_SUBMISSION.md`.
 
 ### Documentation layout
