@@ -2333,7 +2333,7 @@ not maintained. When a feature is added or removed, update those six guides plus
 `docs/FEATURE_REFERENCE.md` and `MCP_REGISTRY_SUBMISSION.md`.
 
 ### Skills System
-**Access:** `/settings/skills` — toggle built-in skills on/off, view learned infrastructure summary
+**Access:** Settings → Skills tab (`templates/settings/_skills_panel.html`; the old `/settings/skills` URL redirects there) — toggle built-in skills on/off, view learned infrastructure summary
 
 **What it does:** Injects domain expertise into the agent's system prompt when the user's message contains a trigger keyword. "Learned Skills" auto-generates a summary from your synced `InfrastructureResource` records so the agent always knows what you have deployed.
 
@@ -2384,8 +2384,8 @@ card/btn/badge/form components, Syne/IBM Plex Mono/Outfit type system). Pattern:
 page-specific `<style>` inside the content block. Do NOT build bespoke headers or
 load other fonts (JetBrains Mono/Comfortaa are legacy — replace on sight).
 Migrated 2026-07-16: `dashboard_live.html`, `incidents/dashboard.html` (since removed),
-`optimization/prevention.html`, `settings/skills.html`, `settings.html` (hash-tab
-sections: #cloud/#notifications/#budgets/#learning/#api-keys),
+`optimization/prevention.html`, `settings.html` (hash-tab sections, see "Settings in one
+place" below),
 `infrastructure/map.html`. Full-bleed pages (canvas/app-frame) override
 `{% block main %}` instead of `content` — base wraps `.main-content` in that
 block; see map.html for the pattern (flex column shell, `flex:1` viewport).
@@ -2405,13 +2405,24 @@ are aligned with the shell. Full audit + PR sequence:
 Theme toggle: `static/js/theme.js` uses a delegated click handler; pages with an
 in-markup `.theme-toggle` (like base.html's header) suppress the floating pill.
 
+### Settings in one place (2026-10-16, owner request)
+Settings is reached from the **profile icon** (base.html `#accountMenu`: Settings, Billing & credits,
+Teams, Log out; the chat page's profile menu has one Settings entry). It is **not** a top-bar tab.
+`/settings` tabs: Profile, Security (two-factor), Cloud Credentials, Integrations, Notifications,
+Budgets, Learning, Skills, API Keys, plus link-tabs to `/billing` and `/organizations/`. Default
+tab is Profile. `/profile` GET and `/settings/skills` redirect to their tab; the profile form
+still POSTs to `/profile`, which validates colour/theme and redirects to
+`/settings?saved=profile#profile`. `profile.html` and `settings/skills.html` are gone. When
+adding a setting, add a tab panel (`data-tab-panel` + `validTabs`), not a new page. There is no
+in-app password change (only Forgot password). Guard: `tests/test_settings_in_one_place.py`.
+
 ### Chat UI — Terminal Aesthetic
 **Fonts:** Syne 800 (headings), IBM Plex Mono (code/mono), Outfit (body)
 **Theme:** Dark terminal with animated grid background, orange accent `#ff6b35`
 
 **Header layout (3 zones):**
 - Left: sidebar toggle (☰)
-- Center: primary nav (Dashboard / Workflows / Settings) | secondary nav (Map / Learn) — orange underline on hover
+- Center: primary nav (Chat / Dashboard / Workflows / Approvals) | secondary nav (Map / Learn); Settings is in the profile menu — orange underline on hover
 - Right: Learning badge, credits, 🔔 bell, 📄 artifacts, theme toggle, 👤 profile menu
 
 **Export Chat** and **Clear Chat** moved to the profile (👤) dropdown menu.

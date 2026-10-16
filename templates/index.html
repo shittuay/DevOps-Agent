@@ -1231,6 +1231,23 @@
             display: block;
         }
 
+        .dropdown-header.account-who {
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-transform: none;
+            letter-spacing: 0;
+            overflow-wrap: anywhere;
+        }
+        .dropdown-header.account-who span {
+            display: block;
+            font-weight: 400;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
         .dropdown-header {
             padding: 10px 14px 7px;
             font-family: 'IBM Plex Mono', monospace;
@@ -2203,7 +2220,6 @@
                     <a href="/chat" class="header-button active-nav"><i class="fa-solid fa-terminal"></i> Chat</a>
                     <a href="/dashboard" class="header-button"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
                     <a href="/workflows" class="header-button"><i class="fa-solid fa-diagram-project"></i> Workflows</a>
-                    <a href="/settings" class="header-button"><i class="fa-solid fa-gear"></i> Settings</a>
                     <a href="/approvals" class="header-button" id="approvalsNavLink" style="display:none">Approvals<span id="approvalsNavBadge" style="display:none; background:rgba(239,68,68,0.8); color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; margin-left:5px; font-family:'IBM Plex Mono',monospace; vertical-align:middle;"></span></a>
                     <div class="nav-sep"></div>
                     <a href="/infrastructure/map" class="header-button"><i class="fa-solid fa-map"></i> Map</a>
@@ -2234,8 +2250,9 @@
                             <i class="fa-solid fa-user"></i>
                         </button>
                         <div class="dropdown" id="mainMenu">
-                            <div class="dropdown-header">
-                                Menu
+                            <div class="dropdown-header account-who">
+                                {{ (current_user.full_name or current_user.username) if current_user.is_authenticated else 'Menu' }}
+                                {% if current_user.is_authenticated %}<span>{{ current_user.email }}</span>{% endif %}
                             </div>
                             <div class="dropdown-item" onclick="exportChat(); toggleMenu();">
                                 <i class="fa-solid fa-download"></i> Export Chat
@@ -2251,14 +2268,11 @@
                                 <i class="fa-solid fa-chart-simple"></i> Statistics
                             </div>
                             <div class="dropdown-divider"></div>
-                            <div class="dropdown-item" onclick="window.location.href='/billing'">
-                                <i class="fa-solid fa-credit-card"></i> Billing &amp; Credits
-                            </div>
-                            <div class="dropdown-item" onclick="window.location.href='/profile'">
-                                <i class="fa-solid fa-user"></i> Profile
-                            </div>
                             <div class="dropdown-item" onclick="window.location.href='/settings'">
                                 <i class="fa-solid fa-gear"></i> Settings
+                            </div>
+                            <div class="dropdown-item" onclick="window.location.href='/billing'">
+                                <i class="fa-solid fa-credit-card"></i> Billing &amp; Credits
                             </div>
                             <div class="dropdown-item" onclick="openContactModal(); toggleMenu();">
                                 <i class="fa-solid fa-envelope"></i> Contact us
@@ -2272,9 +2286,6 @@
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" onclick="window.location.href='/drift'">
                                 <i class="fa-solid fa-code-branch"></i> Drift Detection
-                            </div>
-                            <div class="dropdown-item" onclick="window.location.href='/settings#notifications'">
-                                <i class="fa-solid fa-bell"></i> Notifications
                             </div>
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" onclick="showAbout(); toggleMenu();">

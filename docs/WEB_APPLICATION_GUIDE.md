@@ -133,20 +133,23 @@ With no cloud account connected, it shows zeros rather than sample data.
 
 ## Settings
 
-`/settings` has six tabs.
+Open it from the profile icon (top right) → **Settings**. Everything about your account is on
+`/settings`, in these tabs:
 
 | Tab | What it does |
 |-----|--------------|
+| **Profile** | Your name, bio, avatar colour and theme, plus account ID and last sign-in. |
+| **Security** | Two-factor sign-in: turn it on or off, change method, make new backup codes. |
 | **Cloud Credentials** | Connect AWS, Azure and GCP. AWS: IAM role (recommended; one-click CloudFormation quick-create with a generated External ID) or access keys. Azure: subscription ID, tenant ID, client ID and secret of a service principal, default location. GCP: project ID, service-account JSON key, default region. Each offers a read level and a manage level: AWS Read/Manage (built on AWS-managed policies, so every service is covered; stricter hand-picked lists are also offered), Azure Reader/Contributor, GCP Viewer/Editor. |
 | **Notifications** | Slack or Teams channels for new cost savings, security findings, change requests and budget alerts. |
 | **Budgets** | Monthly, weekly or daily spend thresholds, checked once a day against AWS billing (Cost Explorer must be on). Going over sends an email, a Slack/Teams message and a `cost.threshold` webhook, once per period. |
 | **Learning** | Learning mode (the agent explains concepts), level (beginner, intermediate, advanced), Sandbox mode, and practice scenarios. |
 | **Integrations** | GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog, SonarQube and Nexus. Secrets are write-only: never shown again after saving. A saved secret is only ever sent to the server URL you saved with it. |
+| **Skills** | Turns built-in expertise packs on or off (AWS cost optimization, Kubernetes troubleshooting, security hardening, incident runbooks, Terraform best practices) and shows the summary the agent keeps of your synced infrastructure. |
 | **API Keys** | Keys for the developer API and the programmatic API. |
 
-**Skills** (`/settings/skills`) turns built-in expertise packs on or off (AWS cost optimization,
-Kubernetes troubleshooting, security hardening, incident runbooks, Terraform best practices) and
-shows the summary the agent keeps of your synced infrastructure.
+The tab row also links to **Billing & credits** and **Teams**, which are their own pages. The old
+`/profile` and `/settings/skills` addresses open the matching tab.
 
 **Sandbox mode** simulates every tool result (labelled `[Sandbox]`), so nothing touches a real
 account. It's for learning and demos, and is not a substitute for a connected account.

@@ -1703,22 +1703,24 @@ def changes_page():
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
-    """User profile page."""
+    """Profile now lives in Settings; this keeps old links and the profile form working."""
     if request.method == 'POST':
         try:
-            current_user.full_name = request.form.get('full_name', '').strip() or None
-            current_user.bio = request.form.get('bio', '').strip() or None
-            current_user.avatar_color = request.form.get('avatar_color', '#cd7c48')
-            current_user.theme = request.form.get('theme', 'light')
-            current_user.language = request.form.get('language', 'en')
+            current_user.full_name = (request.form.get('full_name', '').strip() or None)
+            current_user.bio = (request.form.get('bio', '').strip() or None)
+            color = request.form.get('avatar_color', '').strip()
+            if re.fullmatch(r'#[0-9a-fA-F]{6}', color):
+                current_user.avatar_color = color
+            theme = request.form.get('theme', '')
+            if theme in ('light', 'dark'):
+                current_user.theme = theme
             db.session.commit()
-
-            return render_template('profile.html', user=current_user, success='Profile updated successfully!')
-        except Exception as e:
+            return redirect('/settings?saved=profile#profile')
+        except Exception:
             db.session.rollback()
-            return render_template('profile.html', user=current_user, error=f'Error updating profile: {str(e)}')
-
-    return render_template('profile.html', user=current_user)
+            logger.exception('Profile update failed')
+            return redirect('/settings?error=profile#profile')
+    return redirect('/settings#profile')
 
 
 @app.route('/doctor')
@@ -1887,8 +1889,8 @@ def settings():
 @app.route('/settings/skills')
 @login_required
 def settings_skills():
-    """Skills management settings page."""
-    return render_template('settings/skills.html', user=current_user)
+    """Skills now live in a Settings tab."""
+    return redirect('/settings#skills')
 
 
 @app.route('/docs')

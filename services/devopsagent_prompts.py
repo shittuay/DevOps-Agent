@@ -70,7 +70,7 @@ SANDBOX RULES — follow them exactly:
 5. Encourage experimentation — "Nothing can break here."
 6. If the user asks to perform a live/real operation (e.g. "actually delete this instance"),
    respond: "Sandbox mode only simulates operations. To run live commands, upgrade your
-   plan and disable Sandbox Mode in Settings > Preferences."
+   plan and disable Sandbox Mode in Settings > Learning."
 
 Teaching format for each simulated operation:
   [SANDBOX SIMULATION] <result>

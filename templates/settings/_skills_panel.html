@@ -1,10 +1,8 @@
-{% extends "base.html" %}
-{% block title %}Skills — DevOps Agent{% endblock %}
-{% block content %}
+{# Skills settings panel, shown in the Settings page's Skills tab. #}
 <style>
-    .skills-container { max-width: 900px; margin: 0 auto; }
-    .section { margin-bottom: 2.5rem; }
-    .section-title {
+    .skills-panel { max-width: 100%; }
+    .skills-block { margin-bottom: 2.5rem; }
+    .skills-section-title {
         font-family: 'Syne', sans-serif;
         font-size: 1.1rem;
         font-weight: 700;
@@ -12,7 +10,7 @@
         padding-bottom: 0.5rem;
         border-bottom: 1px solid var(--border-subtle);
     }
-    .section-desc { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem; }
+    .skills-section-desc { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem; }
     .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
     .skill-card {
         background: var(--glass-bg);
@@ -70,48 +68,46 @@
         font-family: 'IBM Plex Mono', monospace;
         color: var(--text-secondary);
     }
-    .providers {
+    .skills-providers {
         font-size: 0.75rem;
         color: var(--text-secondary);
     }
-    .learned-section {
+    .skills-learned {
         background: var(--glass-bg);
         border: 1px solid var(--border-subtle);
         border-radius: 16px;
         padding: 1.25rem;
     }
-    .learned-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-    .learned-content {
+    .skills-learned-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .skills-learned-content {
         font-size: 0.85rem;
         line-height: 1.7;
         color: var(--text-secondary);
         white-space: pre-wrap;
     }
-    .empty { color: var(--text-secondary); font-size: 0.85rem; }
+    .skills-empty { color: var(--text-secondary); font-size: 0.85rem; }
 </style>
 
-<div class="skills-container">
-    <div class="page-header">
-        <h1>Skills</h1>
-    </div>
+<div class="skills-panel">
+    <div class="section-header"><h2>Skills</h2></div>
 
-    <div class="section">
-        <div class="section-title">Built-in Skills</div>
-        <p class="section-desc">Skills inject domain expertise into the agent when your message matches a trigger keyword. Toggle them on or off per your needs.</p>
+    <div class="skills-block">
+        <div class="skills-section-title">Built-in Skills</div>
+        <p class="skills-section-desc">Skills inject domain expertise into the agent when your message matches a trigger keyword. Toggle them on or off per your needs.</p>
         <div class="skills-grid" id="skills-grid">
-            <p class="empty">Loading skills...</p>
+            <p class="skills-empty">Loading skills...</p>
         </div>
     </div>
 
-    <div class="section">
-        <div class="section-title">Learned Skills</div>
-        <p class="section-desc">Auto-generated from your synced infrastructure — tells the agent exactly what you have deployed.</p>
-        <div class="learned-section">
-            <div class="learned-header">
+    <div class="skills-block">
+        <div class="skills-section-title">Learned Skills</div>
+        <p class="skills-section-desc">Auto-generated from your synced infrastructure — tells the agent exactly what you have deployed.</p>
+        <div class="skills-learned">
+            <div class="skills-learned-header">
                 <span style="font-size:0.9rem;font-weight:600">Your Infrastructure Context</span>
                 <button class="btn btn-secondary" onclick="refreshLearned()">Refresh</button>
             </div>
-            <div class="learned-content" id="learned-content">Loading...</div>
+            <div class="skills-learned-content" id="learned-content">Loading...</div>
         </div>
     </div>
 </div>
@@ -123,30 +119,30 @@ async function loadSkills() {
         const data = await resp.json();
         renderSkills(data.skills || []);
     } catch(e) {
-        document.getElementById('skills-grid').innerHTML = '<p class="empty">Failed to load skills</p>';
+        document.getElementById('skills-grid').innerHTML = '<p class="skills-empty">Failed to load skills</p>';
     }
 }
 
 function renderSkills(skills) {
     const grid = document.getElementById('skills-grid');
     if (!skills.length) {
-        grid.innerHTML = '<p class="empty">No skills are available right now. Check back soon — new skills are added regularly.</p>';
+        grid.innerHTML = '<p class="skills-empty">No skills are available right now. Check back soon — new skills are added regularly.</p>';
         return;
     }
     grid.innerHTML = skills.map(s => `
         <div class="skill-card ${s.is_active ? 'active' : ''}" id="skill-card-${s.id}">
             <div class="skill-card-header">
-                <span class="skill-name">${escapeHtml(s.name)}</span>
+                <span class="skill-name">${skillsEscape(s.name)}</span>
                 <label class="skill-toggle">
                     <input type="checkbox" ${s.is_active ? 'checked' : ''} onchange="toggleSkill('${s.id}', this.checked)">
                     <span class="skill-toggle-slider"></span>
                 </label>
             </div>
             ${s.compatible_providers && s.compatible_providers.length ? `
-            <div class="providers">Providers: ${s.compatible_providers.map(p => p.toUpperCase()).join(', ')}</div>
+            <div class="skills-providers">Providers: ${s.compatible_providers.map(p => p.toUpperCase()).join(', ')}</div>
             ` : ''}
             <div class="skill-triggers">
-                ${(s.triggers || []).slice(0, 8).map(t => `<span class="trigger-chip">${escapeHtml(t)}</span>`).join('')}
+                ${(s.triggers || []).slice(0, 8).map(t => `<span class="trigger-chip">${skillsEscape(t)}</span>`).join('')}
                 ${s.triggers && s.triggers.length > 8 ? `<span class="trigger-chip">+${s.triggers.length - 8} more</span>` : ''}
             </div>
         </div>
@@ -190,11 +186,10 @@ async function refreshLearned() {
     }
 }
 
-function escapeHtml(str) {
+function skillsEscape(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 loadSkills();
 loadLearnedSkills();
 </script>
-{% endblock %}
