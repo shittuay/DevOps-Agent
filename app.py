@@ -1291,8 +1291,13 @@ SANDBOX TEACHING APPROACH:
 - Explain what would be DIFFERENT in production: real costs, eventual consistency, IAM permissions required, risk of mistakes
 - Actively encourage experimentation: "Nothing can break here. Try deleting that instance, creating a new VPC, changing security group rules — learn by doing!"
 - When a user runs a destructive action (delete/terminate), execute it AND explain: "In a real environment, you'd want to double-check this and possibly create a snapshot first. In sandbox, practicing this workflow is exactly right."
-- Mention real-world costs: "A real t3.medium runs about $0.042/hour (~$30/month on-demand, ~$18/month reserved)"
+- When real-world cost matters, say it is an estimate and point to the provider's pricing page. Never quote a price as fact.
 - Mention real-world permissions: "To run this in real AWS, your IAM user would need the ec2:DescribeInstances permission"
+
+FIRST STEPS — the user may be brand new to DevOps:
+- If they ask what you can do, what tools you have, or how to start, do NOT list tools or categories. Offer three short practice missions in plain words (for example: launch a small web server and take it down again; find what is wasting money in an account; fix an app that keeps crashing) and ask which one to start. If they already picked one, start it right away.
+- Work in small steps. After each step, say in one line what happened and what comes next, and wait for them before anything big.
+- Use plain words. Explain any DevOps term the first time it appears.
 
 DEBUGGING SCENARIOS — if user wants to practice troubleshooting, suggest:
 - "Simulate a pod in CrashLoopBackOff" — Kubernetes debugging workflow
@@ -1302,6 +1307,40 @@ DEBUGGING SCENARIOS — if user wants to practice troubleshooting, suggest:
 - "Simulate OOMKilled pod" — memory limit tuning
 - "Simulate database connection refused" — security group + networking debug
 """
+
+SANDBOX_CLOUD_ACCESS = (
+    "CLOUD ACCESS: SANDBOX. Every AWS, Azure, GCP and Kubernetes tool returns simulated "
+    "practice data, so use any of them freely. Never tell the user to add cloud credentials "
+    "or that tools will fail: nothing real is connected and nothing needs to be."
+)
+
+
+def _cloud_access_context(user_id, sandbox_active):
+    """What the agent may assume about cloud access for this turn.
+
+    In sandbox every provider is simulated, so the real-credentials status (which says
+    "NOT configured, do not call these tools") would contradict sandbox and the agent
+    would tell a new user to go add credentials instead of letting them practise.
+    """
+    if sandbox_active:
+        return SANDBOX_CLOUD_ACCESS
+    try:
+        from services.credential_service import get_user_configured_providers
+        configured = get_user_configured_providers(user_id)
+    except Exception:
+        return None
+    configured_list = [p.upper() for p, v in configured.items() if v]
+    not_configured = [p.upper() for p, v in configured.items() if not v]
+    cred_status = f"CLOUD CREDENTIALS STATUS: Configured and ready: {', '.join(configured_list) if configured_list else 'none'}."
+    if not_configured:
+        cred_status += (
+            f" NOT configured: {', '.join(not_configured)}."
+            f" Do NOT call {'/'.join(not_configured)} tools — they will fail."
+            f" If the user asks for {'/'.join(not_configured)} operations, tell them to add credentials in Settings > Cloud Credentials first."
+            + (f" You CAN and SHOULD use {', '.join(configured_list)} tools freely." if configured_list else "")
+        )
+    return cred_status
+
 
 # ---------------------------------------------------------------------------
 # Structured learning curriculum (used by /api/learning/paths)
@@ -2935,23 +2974,10 @@ def api_chat():
         except Exception:
             pass
 
-        # Inject cloud credential status so the agent knows upfront what's configured
-        try:
-            from services.credential_service import get_user_configured_providers
-            configured = get_user_configured_providers(current_user.id)
-            configured_list = [p.upper() for p, v in configured.items() if v]
-            not_configured = [p.upper() for p, v in configured.items() if not v]
-            cred_status = f"CLOUD CREDENTIALS STATUS: Configured and ready: {', '.join(configured_list) if configured_list else 'none'}."
-            if not_configured:
-                cred_status += (
-                    f" NOT configured: {', '.join(not_configured)}."
-                    f" Do NOT call {'/'.join(not_configured)} tools — they will fail."
-                    f" If the user asks for {'/'.join(not_configured)} operations, tell them to add credentials in Settings > Cloud Credentials first."
-                    + (f" You CAN and SHOULD use {', '.join(configured_list)} tools freely." if configured_list else "")
-                )
-            preferences_context = (preferences_context or '') + '\n\n' + cred_status
-        except Exception:
-            pass
+        # Tell the agent which clouds it can use (sandbox: all of them, simulated)
+        _cred_ctx = _cloud_access_context(current_user.id, sandbox_active)
+        if _cred_ctx:
+            preferences_context = (preferences_context or '') + '\n\n' + _cred_ctx
 
         # Build trial context for free-tier users
         trial_context = None
@@ -3620,23 +3646,10 @@ def api_chat_stream():
         except Exception:
             pass
 
-        # Inject cloud credential status so the agent knows upfront what's configured
-        try:
-            from services.credential_service import get_user_configured_providers
-            configured = get_user_configured_providers(current_user.id)
-            configured_list = [p.upper() for p, v in configured.items() if v]
-            not_configured = [p.upper() for p, v in configured.items() if not v]
-            cred_status = f"CLOUD CREDENTIALS STATUS: Configured and ready: {', '.join(configured_list) if configured_list else 'none'}."
-            if not_configured:
-                cred_status += (
-                    f" NOT configured: {', '.join(not_configured)}."
-                    f" Do NOT call {'/'.join(not_configured)} tools — they will fail."
-                    f" If the user asks for {'/'.join(not_configured)} operations, tell them to add credentials in Settings > Cloud Credentials first."
-                    + (f" You CAN and SHOULD use {', '.join(configured_list)} tools freely." if configured_list else "")
-                )
-            preferences_context = (preferences_context or '') + '\n\n' + cred_status
-        except Exception:
-            pass
+        # Tell the agent which clouds it can use (sandbox: all of them, simulated)
+        _cred_ctx = _cloud_access_context(current_user.id, sandbox_active)
+        if _cred_ctx:
+            preferences_context = (preferences_context or '') + '\n\n' + _cred_ctx
 
         # Build trial context for free-tier users
         uid = current_user.id

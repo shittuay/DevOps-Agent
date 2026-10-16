@@ -357,6 +357,11 @@
         }
 
         /* Learning Mode Badge */
+        .sandbox-welcome { margin-top: 8px; }
+        .sandbox-welcome-intro { margin-bottom: 4px; }
+        .sandbox-welcome-foot { font-size: 13px; margin-top: 14px; color: var(--text-tertiary); }
+        .sandbox-welcome-foot a { color: var(--accent-primary); }
+
         .learning-badge {
             display: inline-flex;
             align-items: center;
@@ -2152,8 +2157,8 @@
                     <span class="toggle-slider"></span>
                 </label>
             </div>
-            <div class="learning-toggle-row sandbox-toggle-row" id="sandboxRow" style="display:none;">
-                <label for="sandboxModeToggle">Sandbox</label>
+            <div class="learning-toggle-row sandbox-toggle-row" id="sandboxRow">
+                <label for="sandboxModeToggle" title="Practice on simulated infrastructure. Nothing real changes.">Sandbox (practice)</label>
                 <label class="toggle-switch">
                     <input type="checkbox" id="sandboxModeToggle" onchange="toggleSandboxMode(this.checked)">
                     <span class="toggle-slider"></span>
@@ -2201,7 +2206,7 @@
                         <button class="theme-toggle-btn" data-theme="light" title="Light Mode"><i class="fa-solid fa-sun"></i></button>
                     </div>
                     <div id="learningBadge" class="learning-badge" style="display:none;">
-                        Learning<span id="sandboxBadgeTag"></span>
+                        <span id="learningBadgeText">Learning</span><span id="sandboxBadgeTag"></span>
                     </div>
                     <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
                         <i class="fa-solid fa-coins"></i> <span id="credits-count">{{ initial_credits if initial_credits is defined else '--' }}</span> credits
@@ -2548,6 +2553,59 @@
                 event.preventDefault();
                 sendMessage();
             }
+        }
+
+        // Sandbox first run: concrete practice missions instead of a tool list
+        const SANDBOX_MISSIONS = [
+            {icon: 'fa-server', title: 'Launch a web server',
+             text: 'Build a small Ubuntu server on AWS, put a website on it, check it works, then clean up.',
+             prompt: "I'm new to this and I'm in sandbox. Walk me through launching a small Ubuntu web server on AWS, one step at a time: create it, allow web traffic only from my IP, check the website answers, then delete everything. Explain each step in plain words before you do it."},
+            {icon: 'fa-magnifying-glass-dollar', title: 'Find wasted money',
+             text: 'Look around a practice AWS account for things that cost money and do nothing.',
+             prompt: "I'm in sandbox. Look around my practice AWS account and find things that cost money but aren't being used, like idle servers, unattached disks and old snapshots. For each one, explain why it matters and what I would do about it."},
+            {icon: 'fa-bug', title: 'Fix a broken app',
+             text: 'A Kubernetes app keeps crashing. Find out why and fix it, with hints.',
+             prompt: "I'm in sandbox. Simulate a Kubernetes pod stuck in CrashLoopBackOff and coach me through finding and fixing the cause. Go one step at a time and let me guess before you tell me the answer."}
+        ];
+
+        function renderSandboxWelcome(on) {
+            const welcome = document.querySelector('#chatContainer .welcome');
+            if (!welcome) return;
+            let banner = welcome.querySelector('.sandbox-welcome');
+            const examples = welcome.querySelector('.welcome-examples');
+            if (!on) {
+                if (banner) banner.remove();
+                if (examples) examples.style.display = '';
+                return;
+            }
+            if (examples) examples.style.display = 'none';
+            if (banner) return;
+            banner = document.createElement('div');
+            banner.className = 'sandbox-welcome';
+            const intro = document.createElement('p');
+            intro.className = 'sandbox-welcome-intro';
+            intro.innerHTML = '<strong>You\'re in Sandbox.</strong> Everything here is a safe practice copy of real cloud infrastructure, so try anything. Pick a mission to start:';
+            banner.appendChild(intro);
+            const grid = document.createElement('div');
+            grid.className = 'welcome-examples';
+            SANDBOX_MISSIONS.forEach(function (m) {
+                const card = document.createElement('div');
+                card.className = 'example-card sandbox-mission';
+                card.onclick = function () { sendExample(m.prompt); };
+                const icon = document.createElement('span');
+                icon.className = 'example-icon';
+                icon.innerHTML = '<i class="fa-solid ' + m.icon + '"></i>';
+                const h = document.createElement('h3'); h.textContent = m.title;
+                const t = document.createElement('p'); t.textContent = m.text;
+                card.append(icon, h, t);
+                grid.appendChild(card);
+            });
+            banner.appendChild(grid);
+            const foot = document.createElement('p');
+            foot.className = 'sandbox-welcome-foot';
+            foot.innerHTML = 'Ready for your own account? Turn off <em>Sandbox</em> in the sidebar and connect it in <a href="/settings#cloud">Settings</a>.';
+            banner.appendChild(foot);
+            welcome.appendChild(banner);
         }
 
         function sendExample(text) {
@@ -3464,6 +3522,8 @@
                         </div>
                     `;
 
+                    renderSandboxWelcome(document.getElementById('sandboxModeToggle').checked);
+
                     // Reload conversations list
                     loadConversations();
                 }
@@ -3786,8 +3846,8 @@
                     document.getElementById('learningModeToggle').checked = lm;
                     document.getElementById('sandboxModeToggle').checked = sb;
                     document.getElementById('swarmModeToggle').checked = sw;
-                    document.getElementById('sandboxRow').style.display = lm ? 'flex' : 'none';
                     updateLearningBadge(lm, sb);
+                    renderSandboxWelcome(sb);
                 })
                 .catch(() => {});
         }
@@ -3797,13 +3857,20 @@
             const sandboxTag = document.getElementById('sandboxBadgeTag');
             const endBtn = document.getElementById('endSessionBtn');
             var voiceBtn = document.getElementById('voiceToggle');
+            var badgeText = document.getElementById('learningBadgeText');
+            if (!learning && sandbox) {
+                badge.style.display = 'inline-flex';
+                badgeText.textContent = 'Sandbox';
+                sandboxTag.textContent = '';
+            }
             if (learning) {
                 badge.style.display = 'inline-flex';
+                badgeText.textContent = 'Learning';
                 sandboxTag.textContent = sandbox ? ' + Sandbox' : '';
                 endBtn.style.display = 'inline-block';
                 if (voiceBtn) voiceBtn.style.display = 'inline-flex';
             } else {
-                badge.style.display = 'none';
+                if (!sandbox) badge.style.display = 'none';
                 endBtn.style.display = 'none';
                 if (voiceBtn) voiceBtn.style.display = 'none';
                 voiceEnabled = false;
@@ -3826,11 +3893,6 @@
                 return r.json();
             }).then(function(data) {
                 if (data.error) throw new Error(data.error);
-                document.getElementById('sandboxRow').style.display = enabled ? 'flex' : 'none';
-                if (!enabled) {
-                    document.getElementById('sandboxModeToggle').checked = false;
-                    toggleSandboxMode(false);
-                }
                 updateLearningBadge(enabled, document.getElementById('sandboxModeToggle').checked);
                 if (typeof showToast === 'function') showToast('Learning Mode ' + (enabled ? 'enabled' : 'disabled'), 'success');
             }).catch(function(err) {
@@ -3850,7 +3912,8 @@
             }).then(function(data) {
                 if (data.error) throw new Error(data.error);
                 updateLearningBadge(document.getElementById('learningModeToggle').checked, enabled);
-                if (typeof showToast === 'function') showToast('Sandbox Mode ' + (enabled ? 'enabled' : 'disabled'), 'success');
+                renderSandboxWelcome(enabled);
+                if (typeof showToast === 'function') showToast(enabled ? 'Sandbox on: practice freely, nothing real changes' : 'Sandbox off: the agent now works on your real cloud accounts', 'success');
             }).catch(function(err) {
                 document.getElementById('sandboxModeToggle').checked = !enabled;
                 if (typeof showToast === 'function') showToast('Failed to save: ' + err.message, 'error');

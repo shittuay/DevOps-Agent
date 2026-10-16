@@ -3337,3 +3337,19 @@ phone users had no way to reach Contact us at all. It is now a **Contact us** it
 profile (👤) menu, which opens the same modal on every screen size; the floating button and its
 CSS are gone. Don't put fixed bottom-right elements on the chat page: that corner belongs to the
 message box. Guard: `tests/test_chat_contact_in_menu.py`.
+
+## 2026-10-16: Sandbox first run showed a tool list and asked for credentials
+
+The owner made a new account and chose "Try it now — no cloud account needed". The chat then
+listed tool categories and said AWS/Azure/GCP credentials were not configured. Three causes:
+- Both chat routes appended the real **credential status** ("NOT configured ... Do NOT call these
+  tools ... tell them to add credentials") even in sandbox, which overrode `SANDBOX_MODE_ADDENDUM`.
+  Now `_cloud_access_context(user_id, sandbox_active)` returns a sandbox note instead.
+- The welcome's third card sent "What tools are available?", the worst first message for a
+  beginner. In sandbox the welcome now shows three practice missions; the addendum also tells the
+  agent to offer missions rather than list tools.
+- The **Sandbox switch was hidden** until Learning Mode was on, and turning Learning off also
+  turned Sandbox off. It is now always visible and independent; the header badge shows "Sandbox"
+  on its own.
+The addendum's hardcoded "$0.042/hour" price was replaced with the estimates rule.
+Guard: `tests/test_sandbox_first_run.py`.
