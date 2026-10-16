@@ -3328,3 +3328,12 @@ Fix: a `.self-grant-option` class resets the label's font/case and sizes the che
 `.current-config p` gets `overflow-wrap: anywhere`. **Any checkbox or inline label added to
 settings.html needs its own class for the same reason.** Guard:
 `tests/test_settings_selfgrant_mobile.py`.
+
+## 2026-10-15: Floating "Contact us" button covered Send in chat
+
+The chat page had a fixed 60px envelope button at the bottom-right (`.contact-widget`), right
+where the Send button sits on desktop. On phones it was hidden to avoid the same overlap, so
+phone users had no way to reach Contact us at all. It is now a **Contact us** item in the chat
+profile (👤) menu, which opens the same modal on every screen size; the floating button and its
+CSS are gone. Don't put fixed bottom-right elements on the chat page: that corner belongs to the
+message box. Guard: `tests/test_chat_contact_in_menu.py`.
