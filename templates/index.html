@@ -1231,6 +1231,16 @@
             display: block;
         }
 
+        .theme-choice { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
+        .theme-choice-label { font-size: 13px; color: var(--text-secondary); margin-right: auto; }
+        .theme-choice-btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px;
+            border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary);
+            font: 600 12px 'Outfit', sans-serif; text-transform: none; letter-spacing: normal; cursor: pointer;
+        }
+        .theme-choice-btn:hover { color: var(--text-primary); }
+        .theme-choice-btn.active { background: rgba(255, 107, 53, 0.12); border-color: rgba(255, 107, 53, 0.4); color: var(--accent-primary); }
+
         .dropdown-header.account-who {
             font-family: 'Outfit', sans-serif;
             font-size: 14px;
@@ -2228,10 +2238,6 @@
 
                 <!-- Right: status + utilities -->
                 <div class="header-actions">
-                    <div class="theme-toggle">
-                        <button class="theme-toggle-btn active" data-theme="dark" title="Dark Mode"><i class="fa-solid fa-moon"></i></button>
-                        <button class="theme-toggle-btn" data-theme="light" title="Light Mode"><i class="fa-solid fa-sun"></i></button>
-                    </div>
                     <div id="learningBadge" class="learning-badge" style="display:none;">
                         <span id="learningBadgeText">Learning</span><span id="sandboxBadgeTag"></span>
                     </div>
@@ -2253,6 +2259,11 @@
                             <div class="dropdown-header account-who">
                                 {{ (current_user.full_name or current_user.username) if current_user.is_authenticated else 'Menu' }}
                                 {% if current_user.is_authenticated %}<span>{{ current_user.email }}</span>{% endif %}
+                            </div>
+                            <div class="theme-choice" data-theme-menu role="group" aria-label="Theme">
+                                <span class="theme-choice-label">Theme</span>
+                                <button type="button" class="theme-choice-btn" data-theme="light"><i class="fa-solid fa-sun"></i> Light</button>
+                                <button type="button" class="theme-choice-btn" data-theme="dark"><i class="fa-solid fa-moon"></i> Dark</button>
                             </div>
                             <div class="dropdown-item" onclick="exportChat(); toggleMenu();">
                                 <i class="fa-solid fa-download"></i> Export Chat
@@ -2443,7 +2454,7 @@
             localStorage.setItem('theme', theme);
 
             // Update button states
-            document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+            document.querySelectorAll('.theme-toggle-btn, .theme-choice-btn').forEach(btn => {
                 if (btn.getAttribute('data-theme') === theme) {
                     btn.classList.add('active');
                 } else {
@@ -2459,7 +2470,7 @@
         }
 
         // Theme toggle button click handlers
-        document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+        document.querySelectorAll('.theme-toggle-btn, .theme-choice-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const theme = btn.getAttribute('data-theme');
                 setTheme(theme);
