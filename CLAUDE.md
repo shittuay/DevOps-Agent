@@ -1430,6 +1430,13 @@ Users can override tier default via chat toolbar toggle (`/api/model/switch`).
 Users enable in Settings > Preferences:
 - **Learning Mode** (`UserPreferences.learning_mode`): AI explains DevOps concepts, tracks proficiency
 - **Sandbox Mode** (`UserPreferences.sandbox_mode`): Simulated tool results from `services/learning_sandbox.py`
+- **Sandbox stands alone (2026-10-16).** The chat sidebar's Sandbox switch is always visible and
+  turning Learning off no longer turns Sandbox off. In sandbox, `app._cloud_access_context()` sends
+  `SANDBOX_CLOUD_ACCESS` instead of the real credential status, which said "NOT configured, do not
+  call these tools" and made the agent send new users to add credentials. The chat welcome shows
+  three practice missions (`SANDBOX_MISSIONS` / `renderSandboxWelcome()` in `index.html`) instead of
+  the "Available Tools" card, and `SANDBOX_MODE_ADDENDUM` tells the agent to offer missions, not a
+  tool list. Guard: `tests/test_sandbox_first_run.py`.
 - **Learning Level** (`UserPreferences.learning_level`): `beginner`, `intermediate`, `advanced`
 
 ## Billing & Payments
