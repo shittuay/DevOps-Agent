@@ -917,14 +917,14 @@ def api_mfa_verify_method():
     from services.two_factor_service import two_factor_service
 
     data = request.get_json()
-    code = (data or {}).get('code', '').strip()
+    code = re.sub(r'[\s-]', '', (data or {}).get('code', '') or '')
     method = (data or {}).get('method', '').strip().lower()
 
     if not code or method != 'email':
         return jsonify({'error': 'Code and method are required.'}), 400
 
     if not current_user.verify_mfa_otp(code):
-        return jsonify({'error': 'Invalid or expired code. Please try again.'}), 400
+        return jsonify({'error': 'Invalid or expired code. Check the latest email, or tap Resend code.'}), 400
 
     current_user.clear_mfa_otp()
     current_user.mfa_method = method
@@ -941,6 +941,23 @@ def api_mfa_verify_method():
 
     security_logger.info(f"MFA ({method}) enabled for {current_user.email}")
     return jsonify({'success': True, 'backup_codes': backup_codes})
+
+
+@auth_bp.route('/api/mfa/resend-setup-code', methods=['POST'])
+@login_required
+@limiter.limit("3 per 5 minutes")
+def api_mfa_resend_setup_code():
+    """Send a fresh code while setting up email MFA (the first one may have expired)."""
+    if current_user.two_factor_enabled and current_user.mfa_method == 'email':
+        return jsonify({'error': 'Email codes are already turned on.'}), 400
+
+    if not current_user.can_resend_otp():
+        return jsonify({'error': 'Please wait 60 seconds before asking for another code.'}), 429
+
+    if not _send_email_otp(current_user):
+        return jsonify({'error': _EMAIL_SEND_FAILED}), 503
+
+    return jsonify({'success': True, 'message': 'A new code is on its way.'})
 
 
 @auth_bp.route('/api/2fa/resend-otp', methods=['POST'])

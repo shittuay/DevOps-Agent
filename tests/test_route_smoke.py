@@ -44,6 +44,8 @@ ALLOWED_5XX = {
     # Stripe price IDs aren't configured in the test env, so a real checkout
     # attempt fails; validation (bad pack size, disabled Stripe) still 4xx/503.
     'billing.create_credits_checkout_session': {500},
+    # No email provider in the test env, so sending a fresh 2FA setup code fails (503).
+    'auth.api_mfa_resend_setup_code': {503},
 }
 
 
