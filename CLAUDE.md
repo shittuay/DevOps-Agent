@@ -2334,6 +2334,13 @@ platform total. Publishing needs the owner's npm login (`npm publish --access pu
 `mcp/`); this repo has no npm token or publish workflow. MCP calls run tools directly, so AWS
 permission requests (chat only) don't happen there.
 
+**Connectors Directory listing.** Submit through the developer portal at
+`claude.ai/directory/manage` (**MCP connector**); the old Google Forms are closed. The portal
+requires every tool to have a `title` and a `readOnlyHint`/`destructiveHint`: `_to_mcp_tool()`
+sets `title` on the tool and in `annotations` (`_tool_title()` turns `get_ec2_instances` into
+"Get EC2 Instances"; add acronyms to `_TITLE_WORDS`). Guard: `tests/test_mcp_tool_titles.py`.
+Field answers and the reviewer test-account notes are in `mcp/CONNECTOR_SUBMISSION.md`.
+
 ### Documentation layout
 
 User docs live in `docs/` (index: `docs/README.md`): `QUICK_START.md`,
