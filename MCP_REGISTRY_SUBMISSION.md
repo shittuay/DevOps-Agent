@@ -35,7 +35,7 @@ The `server.json` manifest is available at:
 
 Key details:
 - **Name**: `io.github.shittuay/devops-agent` (reverse-DNS format)
-- **Version**: 1.0.4
+- **Version**: 1.0.7
 - **Title**: DevOps Agent
 - **Description**: Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 704 tools.
 - **Website**: https://devopsagent.io
@@ -115,7 +115,7 @@ npx @devopsagent/mcp-server
 
 Package details:
 - **Name**: `@devopsagent/mcp-server`
-- **Version**: 1.0.4
+- **Version**: 1.0.7
 - **Registry**: npm
 - **Transport**: stdio
 - **Repository**: https://github.com/shittuay/DevOps-Agent/tree/main/mcp/npm-package

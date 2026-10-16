@@ -7,7 +7,7 @@ const API_KEY  = process.env.DEVOPSAGENT_API_KEY  || '';
 if (!API_KEY) {
   process.stderr.write(
     '[devops-agent] ERROR: DEVOPSAGENT_API_KEY is not set.\n' +
-    '[devops-agent] Get your key at https://devopsagent.io/api-gateway/keys\n' +
+    '[devops-agent] Get your key at https://devopsagent.io/settings#api-keys (Settings > API Keys)\n' +
     '[devops-agent] Add to Claude Desktop config: "env": { "DEVOPSAGENT_API_KEY": "doa_live_..." }\n'
   );
   process.exit(1);

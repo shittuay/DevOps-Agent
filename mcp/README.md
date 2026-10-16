@@ -72,7 +72,7 @@ Expected response:
   "id": 1,
   "result": {
     "protocolVersion": "2025-03-26",
-    "serverInfo": { "name": "DevOps Agent", "version": "1.0.3" },
+    "serverInfo": { "name": "DevOps Agent", "version": "1.0.7" },
     "capabilities": { "tools": { "listChanged": false } }
   }
 }
@@ -124,11 +124,11 @@ You should see the JSON response above. Press `Ctrl+C` to exit.
 
 | Module | Count | What you can do |
 |--------|-------|-----------------|
-| AWS | 351 | EC2, S3, RDS, Lambda, ECS, EKS, IAM, VPC, CloudWatch, DynamoDB, and more |
+| AWS | 352 | EC2, S3, RDS, Lambda, ECS, EKS, IAM, VPC, CloudWatch, DynamoDB, and more |
 | Kubernetes | 76 | Pods, Deployments, Services, Namespaces, Ingress, Jobs, Nodes |
 | Azure | 38 | VMs, Storage, SQL, NSGs, Container Instances, VNets, Public IPs |
 | GCP | 42 | Compute, GCS, Cloud SQL, GKE, Cloud Run, Pub/Sub, BigQuery, Functions |
-| CI/CD | 35 | Jenkins + GitHub Actions |
+| CI/CD | 36 | Jenkins, GitHub Actions and GitLab |
 | Docker | 22 | Containers, images, volumes, networks, compose, build, push |
 | Terraform | 26 | init, plan, apply, destroy, state, workspaces, import |
 | Ansible | 13 | Playbooks, ad-hoc, inventory, vault, galaxy |
@@ -137,6 +137,21 @@ You should see the JSON response above. Press `Ctrl+C` to exit.
 | SonarQube | 12 | Projects, quality gates, issues, analysis |
 | Nexus | 12 | Repositories, components, assets |
 | Git | 47 | Clone, branch, commit, push, pull, merge, rebase, tags, stash, search |
+
+## Approvals and connected tools
+
+- **Risky actions wait for approval.** Deletes, terminations, firewall and IAM changes and other
+  medium/high-risk tools don't run straight away. The call returns `isError: true` with an
+  `approval_id` and a message saying who confirms it: your organization's owner or admin, or
+  you yourself at [devopsagent.io/approvals/mine](https://devopsagent.io/approvals/mine) if no
+  one else can. Run the tool again once it is approved.
+- **CI/CD, alerting, monitoring and code-quality tools use your own connections.** Connect
+  GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog, SonarQube or Nexus under
+  **Settings → Integrations** at devopsagent.io. Without one, those tools say so instead of
+  running.
+- **Cloud tools use the AWS, Azure or GCP account you connected** under
+  **Settings → Cloud Credentials**. If AWS refuses an action, the tool returns AWS's error; the
+  in-app chat can turn that into a permission request, MCP calls can't yet.
 
 ## Environment Variables
 

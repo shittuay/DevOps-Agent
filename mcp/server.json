@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.shittuay/devops-agent",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "title": "DevOps Agent",
   "description": "Manage AWS, Azure, GCP, Kubernetes, CI/CD, Docker, Terraform and more. 704 tools.",
   "websiteUrl": "https://devopsagent.io",
@@ -25,7 +25,7 @@
     {
       "registryType": "npm",
       "identifier": "@devopsagent/mcp-server",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "transport": { "type": "stdio" }
     }
   ],

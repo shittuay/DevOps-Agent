@@ -89,7 +89,7 @@ _SESSION_TTL_SECONDS = 600
 
 MCP_PROTOCOL_VERSION = "2025-03-26"
 SERVER_NAME = "DevOps Agent"
-SERVER_VERSION = "1.0.4"
+SERVER_VERSION = "1.0.7"
 
 # ── OAuth 2.0 Authorization Server ───────────────────────────────────────────
 # A single built-in OAuth client for Claude.ai / Claude Desktop connectors.
