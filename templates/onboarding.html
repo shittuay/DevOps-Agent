@@ -727,12 +727,14 @@
                 </div>
 
                 <div class="btn-group">
-                    <button class="btn btn-primary" onclick="goTo(1)">
-                        Connect my cloud account
+                    <button class="btn btn-primary" id="try-sandbox" onclick="startSandbox()">
+                        Try it now &mdash; no cloud account needed
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                     </button>
+                    <button class="btn btn-secondary" onclick="goTo(1)">Connect my cloud account</button>
                     <button class="btn-skip" onclick="skipOnboarding()">Skip for now</button>
                 </div>
+                <p class="field-hint" style="margin-top:10px;">Sandbox runs the real agent on simulated infrastructure, so you can try anything safely. Connect your own AWS, Azure or Google Cloud account whenever you're ready, in Settings.</p>
             </div>
 
             <!-- ────────────────────────────────────────────────────────── -->

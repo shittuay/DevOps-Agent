@@ -21,6 +21,7 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=utcnow)
     last_login = db.Column(db.DateTime)
     last_digest_sent_at = db.Column(db.DateTime)  # weekly digest email, one per week
+    signup_source = db.Column(db.String(110))  # first-visit utm_source/ref or referring site
 
     # Profile settings
     avatar_color = db.Column(db.String(7), default='#cd7c48')  # Hex color for avatar

@@ -141,6 +141,14 @@
             margin-top: 0.25rem;
         }
     
+        .sub { display: block; font-size: 0.75rem; color: var(--text-tertiary); margin-top: 2px; white-space: normal; }
+        .steps span { display: inline-block; margin-right: 6px; font-size: 0.75rem; }
+        .steps .yes { color: #10b981; }
+        .steps .no { color: var(--text-tertiary); opacity: 0.6; }
+        .funnel-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-subtle); }
+        .funnel-row .n { font-weight: 700; color: var(--text-primary); }
+        .hint { font-size: 0.8rem; color: var(--text-tertiary); margin: 0.5rem 0 0; }
+
         @media (max-width: 768px) {
             .header { flex-direction: column; align-items: flex-start; gap: 12px; padding: 1rem; }
             .header nav { display: flex; flex-wrap: wrap; gap: 8px 16px; }
@@ -206,6 +214,25 @@
 
         <div class="section">
             <div class="section-header">
+                <h2>Signups, last {{ report.days }} days</h2>
+            </div>
+            <p class="hint">Admin accounts are left out. Each line counts people who got at least that far.</p>
+            {% for label, n in report.funnel %}
+            <div class="funnel-row"><span>{{ label }}</span><span class="n">{{ n }}</span></div>
+            {% endfor %}
+            <h3 style="margin:1.5rem 0 0.5rem;font-size:1rem;">Where they came from</h3>
+            {% if report.by_source %}
+                {% for src, row in report.by_source %}
+                <div class="funnel-row"><span>{{ src }}</span><span><span class="n">{{ row.signups }}</span> signed up &middot; {{ row.chatted }} chatted</span></div>
+                {% endfor %}
+            {% else %}
+                <p class="hint">No signups yet.</p>
+            {% endif %}
+            <p class="hint">Tag your links so this works: add <code>?utm_source=tiktok</code> (and optionally <code>&amp;utm_campaign=video1</code>) to the link in your bio or ad, e.g. <code>https://devopsagent.io/?utm_source=tiktok</code>. Signups that came in before this was added show as "unknown".</p>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
                 <h2>Recent Users</h2>
                 <a href="{{ url_for('admin.list_users') }}" class="btn btn-secondary">View All</a>
             </div>
@@ -226,6 +253,14 @@
                             <a href="{{ url_for('admin.view_user', user_id=user.id) }}" style="color: var(--accent-primary); text-decoration: none;">
                                 {{ user.username }}
                             </a>
+                            <span class="sub">Joined {{ user.created_at.strftime('%b %d, %Y') if user.created_at else 'N/A' }} &middot; {{ user.signup_source or 'source unknown' }}</span>
+                            {% set p = progress.get(user.id, {}) %}
+                            <span class="sub steps">
+                                <span class="{{ 'yes' if p.verified else 'no' }}">{{ '&#10003;'|safe if p.verified else '&middot;'|safe }} email</span>
+                                <span class="{{ 'yes' if p.connected else 'no' }}">{{ '&#10003;'|safe if p.connected else '&middot;'|safe }} cloud</span>
+                                <span class="{{ 'yes' if p.sandbox else 'no' }}">{{ '&#10003;'|safe if p.sandbox else '&middot;'|safe }} sandbox</span>
+                                <span class="{{ 'yes' if p.messages else 'no' }}">{{ p.messages or 0 }} msgs</span>
+                            </span>
                         </td>
                         <td>{{ user.email }}</td>
                         <td>
