@@ -102,7 +102,8 @@ python main.py tools           # list tools
 ```
 
 The CLI has no signed-in user, so AWS, Azure and GCP tools refuse to run there (they only use
-per-user credentials). Kubernetes (your local kubeconfig), local Git, Docker and Terraform work,
+per-user credentials). Kubernetes works with your local kubeconfig when you set
+`K8S_USE_LOCAL_KUBECONFIG=true` (on the hosted site it reaches the user's EKS clusters instead); local Git, Docker and Terraform work,
 and integration tools work when you pass a token explicitly. See [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ## Tests

@@ -103,6 +103,29 @@ DLAMI docs. It backs the AI/ML workflows below.
 ### Kubernetes (76 tools)
 Pods (list, describe, logs, delete, exec), Deployments (list, describe, create, update image, delete), Services (list, create, delete), Namespaces (list, get, create, delete), ConfigMaps (create, delete), Secrets (create, delete), Ingress (create, delete), Nodes (list, cordon, uncordon), Jobs (create, delete).
 
+**Which cluster a call reaches (`src/tools/k8s_access.py`, 2026-10-17).** On the hosted site the
+tools reach the signed-in user's **EKS clusters through their connected AWS account**: describe the
+cluster with their boto credentials, then sign a token ourselves (a presigned STS
+`GetCallerIdentity` URL with the `x-k8s-aws-id` header, never the `aws` CLI, which would use the
+server's own credentials). The server's kubeconfig is **never** read unless
+`K8S_USE_LOCAL_KUBECONFIG=true` (self-hosted installs and the CLI). Before this, all 76 tools
+called `config.load_kube_config()`: on the hosted site they either failed or would have handed every
+user whatever cluster the server could reach, and the process-wide config could cross between
+concurrent users.
+- `context` is an EKS cluster name, `region/name` or ARN; blank works only when the account has
+  exactly one cluster in its default region (otherwise the error lists them). `list_contexts`
+  lists the user's clusters.
+- Every call builds its own `ApiClient`; `_get_k8s_client()` returns CoreV1/AppsV1 bound to it and
+  `_k8s_api_client()` gives it to other API groups. **Never** construct `client.XxxApi()` with no
+  argument or call `load_kube_config` in this module (`tests/test_eks_cluster_access.py` fails).
+- Refused: private-only endpoints, clusters not ACTIVE, an endpoint that isn't `*.eks.amazonaws.com`.
+- The cluster must let the customer's DevOps Agent role in through an **EKS access entry**
+  (`AmazonEKSViewPolicy` for read-only). A 401/403 result gets a `hint` naming the role ARN and the
+  `create_eks_access_entry` / `associate_eks_access_policy` calls (`_with_access_hint` in `get_tools()`).
+- Tokens and endpoints are cached 10 minutes per (user, region, cluster). GKE, AKS, other clusters
+  and private EKS endpoints are not supported yet (scoped 2026-10-17: saved token connections next,
+  an in-cluster agent only if asked for).
+
 ### Azure (38 tools)
 VMs (list, describe, start, stop, restart, create, delete), Storage (list accounts, create, delete, list keys, regenerate key), SQL (list servers, create server, delete server, delete database, firewall rules), NSGs (list, create, create rule, delete), Container Instances (list, create, delete, restart), Disks (list, create, delete), VNets (list, create), Public IPs (list, delete).
 
@@ -1332,9 +1355,8 @@ def my_tool(param: str, region: Optional[str] = None) -> Dict[str, Any]:
 def my_tool(param: str, namespace: str = 'default', context: Optional[str] = None) -> Dict[str, Any]:
     try:
         v1, apps_v1 = _get_k8s_client(context)
-        # For NetworkingV1Api or BatchV1Api, create inline:
-        # networking_v1 = client.NetworkingV1Api()
-        # batch_v1 = client.BatchV1Api()
+        # Other API groups: bind them to this call's client
+        # batch_v1 = client.BatchV1Api(_k8s_api_client())
         result = v1.api_call(...)
         return {'success': True, 'message': '...', ...}
     except ApiException as e:
@@ -1344,7 +1366,7 @@ def my_tool(param: str, namespace: str = 'default', context: Optional[str] = Non
         logger.error(f"Error: {str(e)}", exc_info=True)
         return {'success': False, 'error': str(e)}
 ```
-- `_get_k8s_client()` returns `(CoreV1Api, AppsV1Api)` only. For other API groups, create the client inline after calling the helper (it loads kubeconfig as a side effect).
+- `_get_k8s_client()` returns `(CoreV1Api, AppsV1Api)` bound to this call's own `ApiClient`. For other API groups use `client.BatchV1Api(_k8s_api_client())` after calling it; never `client.BatchV1Api()` with no argument (that is the process-wide default config, not the user's cluster).
 
 ### Azure Pattern
 ```python
@@ -2359,8 +2381,8 @@ not maintained. When a feature is added or removed, update those six guides plus
 The public `/docs` page was rewritten on 2026-10-16 (it promised env-var setup, invented Jenkins/GitHub
 tool names, a Proficiency Radar and a sandbox banner, and printed the MCP OAuth client secret).
 It must not show that secret, and every tool name inside `<code>` on it must exist
-(`tests/test_doc_tool_names.py`). Docker, Terraform, Ansible and Kubernetes run on the DevOps
-Agent host, so the page says they're for self-hosted installs.
+(`tests/test_doc_tool_names.py`). Docker, Terraform and Ansible run on the DevOps Agent host, so the
+page says they're for self-hosted installs; Kubernetes reaches the user's EKS clusters (2026-10-17).
 
 ### Skills System
 **Access:** Settings → Skills tab (`templates/settings/_skills_panel.html`; the old `/settings/skills` URL redirects there) — toggle built-in skills on/off, view learned infrastructure summary

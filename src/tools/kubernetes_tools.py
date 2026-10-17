@@ -1,36 +1,54 @@
-"""Kubernetes tools for DevOps Agent."""
+"""Kubernetes tools for DevOps Agent.
+
+Which cluster a call reaches, and with whose credentials, is decided in k8s_access:
+the signed-in user's EKS clusters on the hosted site, or this machine's kubeconfig on a
+self-hosted install that opts in. Every call builds its own API client; nothing here may
+use the kubernetes package's process-wide default configuration.
+"""
+import functools
+import threading
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
 from src.utils.timeutils import utcnow
+from . import k8s_access
+from .k8s_access import ClusterAccessError
 
 
 logger = get_logger(__name__)
 
+_k8s_local = threading.local()
+
 
 def _get_k8s_client(context: Optional[str] = None):
     """
-    Get Kubernetes API client.
+    Connect to the cluster for this call.
 
     Args:
-        context: Kubernetes context to use
+        context: EKS cluster (name, region/name or ARN), or a kubeconfig context on
+            self-hosted installs that set K8S_USE_LOCAL_KUBECONFIG
 
     Returns:
-        Tuple of (CoreV1Api, AppsV1Api)
+        Tuple of (CoreV1Api, AppsV1Api), both bound to this call's own API client.
+        Other API groups use _k8s_api_client() afterwards.
     """
     try:
-        if context:
-            config.load_kube_config(context=context)
-        else:
-            config.load_kube_config()
-
-        v1 = client.CoreV1Api()
-        apps_v1 = client.AppsV1Api()
-        return v1, apps_v1
-
+        api = k8s_access.api_client(context)
+    except ClusterAccessError:
+        raise
     except Exception as e:
-        raise Exception(f"Failed to load Kubernetes config: {str(e)}")
+        raise Exception(f"Failed to connect to the Kubernetes cluster: {str(e)}")
+    _k8s_local.api_client = api
+    return client.CoreV1Api(api), client.AppsV1Api(api)
+
+
+def _k8s_api_client() -> client.ApiClient:
+    """The API client _get_k8s_client() built for the current call on this thread."""
+    api = getattr(_k8s_local, 'api_client', None)
+    if api is None:
+        raise Exception("No Kubernetes connection for this call")
+    return api
 
 
 def get_pods(
@@ -1027,7 +1045,7 @@ def create_ingress(
     """Create a Kubernetes Ingress for HTTP routing."""
     try:
         v1, _ = _get_k8s_client(context)
-        networking_v1 = client.NetworkingV1Api()
+        networking_v1 = client.NetworkingV1Api(_k8s_api_client())
 
         annotations = {}
         if ingress_class:
@@ -1082,7 +1100,7 @@ def delete_ingress(
     """Delete a Kubernetes Ingress."""
     try:
         v1, _ = _get_k8s_client(context)
-        networking_v1 = client.NetworkingV1Api()
+        networking_v1 = client.NetworkingV1Api(_k8s_api_client())
         networking_v1.delete_namespaced_ingress(name=ingress_name, namespace=namespace)
         return {
             'success': True, 'ingress': ingress_name, 'namespace': namespace,
@@ -1159,7 +1177,7 @@ def create_job(
     """Create a Kubernetes Job for one-off or batch workloads."""
     try:
         v1, _ = _get_k8s_client(context)
-        batch_v1 = client.BatchV1Api()
+        batch_v1 = client.BatchV1Api(_k8s_api_client())
 
         container = client.V1Container(name=name, image=image)
         if command:
@@ -1205,7 +1223,7 @@ def delete_job(
     """Delete a Kubernetes Job and its pods."""
     try:
         v1, _ = _get_k8s_client(context)
-        batch_v1 = client.BatchV1Api()
+        batch_v1 = client.BatchV1Api(_k8s_api_client())
         batch_v1.delete_namespaced_job(
             name=job_name, namespace=namespace,
             body=client.V1DeleteOptions(propagation_policy=propagation_policy)
@@ -1885,7 +1903,7 @@ def top_nodes(context: Optional[str] = None) -> Dict[str, Any]:
     try:
         from kubernetes import client as k8s_client
         v1, _ = _get_k8s_client(context)
-        custom_api = k8s_client.CustomObjectsApi()
+        custom_api = k8s_client.CustomObjectsApi(_k8s_api_client())
         metrics = custom_api.list_cluster_custom_object(
             group='metrics.k8s.io', version='v1beta1', plural='nodes'
         )
@@ -1909,7 +1927,7 @@ def top_pods(namespace: str = 'default', context: Optional[str] = None) -> Dict[
     try:
         from kubernetes import client as k8s_client
         _, _ = _get_k8s_client(context)
-        custom_api = k8s_client.CustomObjectsApi()
+        custom_api = k8s_client.CustomObjectsApi(_k8s_api_client())
         metrics = custom_api.list_namespaced_custom_object(
             group='metrics.k8s.io', version='v1beta1', plural='pods', namespace=namespace
         )
@@ -1938,7 +1956,7 @@ def list_jobs(namespace: str = 'default', context: Optional[str] = None) -> Dict
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        batch_v1 = k8s_client.BatchV1Api()
+        batch_v1 = k8s_client.BatchV1Api(_k8s_api_client())
         response = batch_v1.list_namespaced_job(namespace=namespace)
         jobs = []
         for job in response.items:
@@ -1975,7 +1993,7 @@ def create_cronjob(
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        batch_v1 = k8s_client.BatchV1Api()
+        batch_v1 = k8s_client.BatchV1Api(_k8s_api_client())
         container = k8s_client.V1Container(name=name, image=image, command=command)
         pod_spec = k8s_client.V1PodSpec(containers=[container], restart_policy='OnFailure')
         pod_template = k8s_client.V1PodTemplateSpec(
@@ -2009,7 +2027,7 @@ def list_cronjobs(namespace: str = 'default', context: Optional[str] = None) -> 
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        batch_v1 = k8s_client.BatchV1Api()
+        batch_v1 = k8s_client.BatchV1Api(_k8s_api_client())
         response = batch_v1.list_namespaced_cron_job(namespace=namespace)
         cronjobs = []
         for cj in response.items:
@@ -2033,7 +2051,7 @@ def delete_cronjob(name: str, namespace: str = 'default', context: Optional[str]
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        batch_v1 = k8s_client.BatchV1Api()
+        batch_v1 = k8s_client.BatchV1Api(_k8s_api_client())
         batch_v1.delete_namespaced_cron_job(name=name, namespace=namespace)
         return {'success': True, 'name': name, 'namespace': namespace,
                 'message': f'CronJob {name} deleted'}
@@ -2053,7 +2071,7 @@ def suspend_cronjob(
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        batch_v1 = k8s_client.BatchV1Api()
+        batch_v1 = k8s_client.BatchV1Api(_k8s_api_client())
         batch_v1.patch_namespaced_cron_job(
             name=name, namespace=namespace,
             body={'spec': {'suspend': suspend}}
@@ -2082,7 +2100,7 @@ def create_hpa(
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        autoscaling_v2 = k8s_client.AutoscalingV2Api()
+        autoscaling_v2 = k8s_client.AutoscalingV2Api(_k8s_api_client())
         metric = k8s_client.V2MetricSpec(
             type='Resource',
             resource=k8s_client.V2ResourceMetricSource(
@@ -2120,7 +2138,7 @@ def list_hpas(namespace: str = 'default', context: Optional[str] = None) -> Dict
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        autoscaling_v2 = k8s_client.AutoscalingV2Api()
+        autoscaling_v2 = k8s_client.AutoscalingV2Api(_k8s_api_client())
         response = autoscaling_v2.list_namespaced_horizontal_pod_autoscaler(namespace=namespace)
         hpas = []
         for hpa in response.items:
@@ -2145,7 +2163,7 @@ def delete_hpa(name: str, namespace: str = 'default', context: Optional[str] = N
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        autoscaling_v2 = k8s_client.AutoscalingV2Api()
+        autoscaling_v2 = k8s_client.AutoscalingV2Api(_k8s_api_client())
         autoscaling_v2.delete_namespaced_horizontal_pod_autoscaler(name=name, namespace=namespace)
         return {'success': True, 'name': name, 'namespace': namespace,
                 'message': f'HPA {name} deleted'}
@@ -2266,7 +2284,7 @@ def create_role(
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        rbac_v1 = k8s_client.RbacAuthorizationV1Api()
+        rbac_v1 = k8s_client.RbacAuthorizationV1Api(_k8s_api_client())
         policy_rules = [
             k8s_client.V1PolicyRule(
                 api_groups=r.get('api_groups', ['']),
@@ -2305,7 +2323,7 @@ def create_role_binding(
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        rbac_v1 = k8s_client.RbacAuthorizationV1Api()
+        rbac_v1 = k8s_client.RbacAuthorizationV1Api(_k8s_api_client())
         k8s_subjects = [
             k8s_client.V1Subject(
                 kind=s['kind'], name=s['name'],
@@ -2336,7 +2354,7 @@ def list_roles(namespace: str = 'default', context: Optional[str] = None) -> Dic
     try:
         from kubernetes import client as k8s_client
         _get_k8s_client(context)
-        rbac_v1 = k8s_client.RbacAuthorizationV1Api()
+        rbac_v1 = k8s_client.RbacAuthorizationV1Api(_k8s_api_client())
         roles = rbac_v1.list_namespaced_role(namespace=namespace)
         bindings = rbac_v1.list_namespaced_role_binding(namespace=namespace)
         return {
@@ -2455,34 +2473,50 @@ def get_cluster_events(
 # ---- Context & Cluster Management ----
 
 def list_contexts(context: Optional[str] = None) -> Dict[str, Any]:
-    """List all kubeconfig contexts."""
+    """List the clusters this user can reach: their EKS clusters, or local kubeconfig contexts."""
     try:
-        from kubernetes import config as k8s_config
-        contexts, active_context = k8s_config.list_kube_config_contexts()
+        if k8s_access.local_kubeconfig_enabled():
+            contexts, active_context = config.list_kube_config_contexts()
+            return {
+                'success': True,
+                'source': 'kubeconfig',
+                'contexts': [{'name': c['name'], 'cluster': c['context'].get('cluster'), 'namespace': c['context'].get('namespace')} for c in contexts],
+                'active_context': active_context['name'] if active_context else None,
+                'count': len(contexts)
+            }
+        region_arg = context if context and k8s_access._REGION_RE.match(context.strip()) else None
+        region, names = k8s_access.list_user_clusters(region_arg)
         return {
             'success': True,
-            'contexts': [{'name': c['name'], 'cluster': c['context'].get('cluster'), 'namespace': c['context'].get('namespace')} for c in contexts],
-            'active_context': active_context['name'] if active_context else None,
-            'count': len(contexts)
+            'source': 'eks',
+            'region': region,
+            'contexts': [{'name': f'{region}/{n}', 'cluster': n} for n in names],
+            'count': len(names),
+            'message': (f'{len(names)} EKS cluster(s) in {region}. Pass one as context. '
+                        'To list another region, pass that region (for example us-west-2) as context.'),
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
 def get_current_context(context: Optional[str] = None) -> Dict[str, Any]:
-    """Get the currently active kubeconfig context."""
+    """Which cluster a call with this context (or none) would reach."""
     try:
-        from kubernetes import config as k8s_config
-        contexts, active_context = k8s_config.list_kube_config_contexts()
-        if not active_context:
-            return {'success': False, 'error': 'No active context found'}
-        return {
-            'success': True,
-            'current_context': active_context['name'],
-            'cluster': active_context['context'].get('cluster'),
-            'namespace': active_context['context'].get('namespace', 'default'),
-            'user': active_context['context'].get('user'),
-        }
+        if k8s_access.local_kubeconfig_enabled():
+            contexts, active_context = config.list_kube_config_contexts()
+            if not active_context:
+                return {'success': False, 'error': 'No active context found'}
+            return {
+                'success': True,
+                'source': 'kubeconfig',
+                'current_context': active_context['name'],
+                'cluster': active_context['context'].get('cluster'),
+                'namespace': active_context['context'].get('namespace', 'default'),
+                'user': active_context['context'].get('user'),
+            }
+        region, name = k8s_access.resolve_cluster(context)
+        return {'success': True, 'source': 'eks', 'current_context': f'{region}/{name}',
+                'cluster': name, 'region': region}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
@@ -2496,7 +2530,7 @@ def apply_manifest(
     try:
         from kubernetes import client as k8s_client, utils as k8s_utils
         _get_k8s_client(context)
-        api_client = k8s_client.ApiClient()
+        api_client = _k8s_api_client()
         kind = manifest.get('kind', 'Unknown')
         name = manifest.get('metadata', {}).get('name', 'unknown')
         # Inject namespace into metadata if not set
@@ -2567,7 +2601,7 @@ def k8s_api_read(
         return {'success': False, 'error': f'Unknown api_group "{api_group}". Valid: {", ".join(_K8S_API_CLIENTS)}'}
     try:
         _get_k8s_client(context)  # loads kubeconfig
-        api_instance = getattr(client, api_cls_name)()
+        api_instance = getattr(client, api_cls_name)(_k8s_api_client())
         method_fn = getattr(api_instance, method)
         result = method_fn(**(params or {}))
         # Convert response object to serializable dict
@@ -2604,7 +2638,7 @@ def k8s_api_write(
         return {'success': False, 'error': f'Unknown api_group "{api_group}". Valid: {", ".join(_K8S_API_CLIENTS)}'}
     try:
         _get_k8s_client(context)  # loads kubeconfig
-        api_instance = getattr(client, api_cls_name)()
+        api_instance = getattr(client, api_cls_name)(_k8s_api_client())
         method_fn = getattr(api_instance, method)
         result = method_fn(**(params or {}))
         if hasattr(result, 'to_dict'):
@@ -2617,7 +2651,7 @@ def k8s_api_write(
         return {'success': False, 'error': str(e)}
 
 
-def get_tools() -> List[Dict[str, Any]]:
+def _tool_definitions() -> List[Dict[str, Any]]:
     """
     Get Kubernetes tool definitions.
 
@@ -3746,7 +3780,7 @@ def get_tools() -> List[Dict[str, Any]]:
         # ---- Context / Manifest ----
         {
             'name': 'list_contexts',
-            'description': 'List all available Kubernetes contexts from the kubeconfig file.',
+            'description': 'List the Kubernetes clusters you can manage: the EKS clusters in your connected AWS account (one region at a time), or kubeconfig contexts on self-hosted installs.',
             'input_schema': {
                 'type': 'object',
                 'properties': {
@@ -3757,7 +3791,7 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'get_current_context',
-            'description': 'Get the currently active Kubernetes context.',
+            'description': 'Show which Kubernetes cluster calls will use when no cluster is named.',
             'input_schema': {
                 'type': 'object',
                 'properties': {
@@ -3825,3 +3859,30 @@ def get_tools() -> List[Dict[str, Any]]:
             'handler': k8s_api_write
         },
     ]
+
+
+def _with_access_hint(handler):
+    """Add a plain next step when EKS refuses the call (missing or too narrow access entry)."""
+    @functools.wraps(handler)
+    def wrapper(*args, **kwargs):
+        result = handler(*args, **kwargs)
+        if isinstance(result, dict) and not result.get('success') and result.get('status_code') in (401, 403):
+            try:
+                hint = k8s_access.access_hint(result['status_code'], kwargs.get('context'))
+            except Exception:
+                hint = None
+            if hint:
+                result['hint'] = hint
+        return result
+    return wrapper
+
+
+def get_tools() -> List[Dict[str, Any]]:
+    """Kubernetes tool definitions, each reaching the caller's own cluster."""
+    tools = _tool_definitions()
+    for tool in tools:
+        tool['handler'] = _with_access_hint(tool['handler'])
+        context_prop = tool.get('input_schema', {}).get('properties', {}).get('context')
+        if isinstance(context_prop, dict):
+            context_prop['description'] = k8s_access.CONTEXT_DESCRIPTION
+    return tools

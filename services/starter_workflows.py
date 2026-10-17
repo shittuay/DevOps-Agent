@@ -66,10 +66,10 @@ _GCP_PROJECT = {'key': 'gcp_project', 'label': 'GCP project ID', 'type': 'text',
                 'pattern_hint': 'A GCP project ID: 6-30 lowercase letters, digits and hyphens.'}
 _GCP_REGION = {'key': 'gcp_region', 'label': 'GCP region', 'type': 'text', 'default': 'us-central1',
                'pattern': r'[a-z]+-[a-z]+\d', 'pattern_hint': 'A GCP region, e.g. us-central1.'}
-_KUBE_CONTEXT = {'key': 'kube_context', 'label': 'kubeconfig context', 'type': 'text', 'required': False,
+_KUBE_CONTEXT = {'key': 'kube_context', 'label': 'Kubernetes cluster', 'type': 'text', 'required': False,
                  'pattern': r'[A-Za-z0-9@:/._-]{1,120}',
-                 'pattern_hint': 'A context name from kubectl config get-contexts.',
-                 'help': 'Leave blank to use the current context.'}
+                 'pattern_hint': 'An EKS cluster name, region/name or ARN (or a kubeconfig context on self-hosted installs).',
+                 'help': 'Leave blank if your AWS account has one EKS cluster.'}
 _K8S_NAME = r'[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?'
 _K8S_NAME_HINT = 'Lowercase letters, digits and hyphens (a Kubernetes name).'
 _IMAGE_PATTERN = r'[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?'
@@ -464,18 +464,18 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
         'category': 'AI/ML',
         'estimated_minutes': 25,
         'inputs': [
-            {'key': 'kube_context', 'label': 'kubeconfig context', 'type': 'text', 'required': False,
+            {'key': 'kube_context', 'label': 'Kubernetes cluster', 'type': 'text', 'required': False,
              'pattern': r'[A-Za-z0-9@:/._-]{1,120}',
-             'pattern_hint': 'A context name from kubectl config get-contexts.',
-             'help': 'Leave blank to use the current context.'},
+             'pattern_hint': 'An EKS cluster name, region/name or ARN (or a kubeconfig context on self-hosted installs).',
+             'help': 'Leave blank if your AWS account has one EKS cluster.'},
             dict(_MODEL_INPUT),
             dict(_API_KEY_INPUT),
             {'key': 'internet_access', 'label': 'Can the cluster download from Hugging Face?',
              'type': 'select', 'options': ['Yes', 'No (air-gapped)'], 'default': 'Yes'},
         ],
         'steps': [
-            'Use kubeconfig context "{kube_context}" for every Kubernetes call ("not specified" means the '
-            'current context). Cluster can download model weights from Hugging Face: {internet_access}. If '
+            'Use cluster "{kube_context}" as the context for every Kubernetes call ("not specified" means my '
+            'only EKS cluster). Cluster can download model weights from Hugging Face: {internet_access}. If '
             'it is air-gapped, stop after the readiness check and explain that the weights must be '
             'pre-staged on a PersistentVolume first.',
             'Check GPU readiness with get_nodes and describe_node: report which nodes show allocatable '
@@ -1242,7 +1242,7 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
              'min': 20, 'max': 90},
         ],
         'steps': [
-            'Use kubeconfig context "{kube_context}" ("not specified" means the current context). If '
+            'Use cluster "{kube_context}" as the context ("not specified" means my only EKS cluster). If '
             '{min_replicas} is not below {max_replicas}, stop and ask me to fix the numbers.',
             'describe_deployment {deployment} in {namespace}. Every container must set resources.requests.cpu: '
             'the autoscaler measures CPU as a percentage of the request, and without one it can never act. If '
@@ -1280,7 +1280,7 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
              'pattern_hint': 'A full URL such as https://api.example.com/health.'},
         ],
         'steps': [
-            'Use kubeconfig context "{kube_context}" ("not specified" means the current context). '
+            'Use cluster "{kube_context}" as the context ("not specified" means my only EKS cluster). '
             'describe_deployment {deployment} in {namespace} and rollout_history. Record the current image and '
             'revision; that is what a rollback returns to.',
             'Pre-flight: if the strategy is not RollingUpdate, or the containers have no readinessProbe, warn '
@@ -1307,8 +1307,8 @@ STARTER_WORKFLOWS: List[Dict[str, Any]] = [
         'estimated_minutes': 5,
         'inputs': [_KUBE_CONTEXT],
         'steps': [
-            'Read-only: change nothing. Use kubeconfig context "{kube_context}" ("not specified" means the '
-            'current context) and say which cluster that is.',
+            'Read-only: change nothing. Use cluster "{kube_context}" as the context ("not specified" means my '
+            'only EKS cluster) and say which cluster that is.',
             'Nodes: get_nodes and top_nodes. Flag NotReady nodes, MemoryPressure/DiskPressure/PIDPressure '
             'conditions (describe_node), cordoned nodes, and any node above 85% CPU or memory.',
             'Workloads: k8s_api_read (method "list_pod_for_all_namespaces") and flag pods not Running/Succeeded, '
