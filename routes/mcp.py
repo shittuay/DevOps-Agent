@@ -483,6 +483,64 @@ def _tool_title(name: str) -> str:
     return ' '.join(_TITLE_WORDS.get(w, w.capitalize()) for w in name.split('_') if w)
 
 
+# Connectors Directory policy: tool descriptions may not instruct the model about other
+# tools or about its own behaviour. The chat agent's descriptions do both on purpose (they
+# stop it guessing an AMI id, for example), so the connector gets plain versions of those.
+_ALL_REGIONS = ('List {what} across all AWS regions in parallel, for questions about '
+                '{what} "across all regions", "globally" or "everywhere".')
+_MCP_DESCRIPTIONS = {
+    'list_lambda_all_regions': _ALL_REGIONS.format(what='Lambda functions'),
+    'list_rds_all_regions': _ALL_REGIONS.format(what='RDS instances'),
+    'list_ecs_all_regions': _ALL_REGIONS.format(what='ECS clusters'),
+    'list_eks_all_regions': _ALL_REGIONS.format(what='EKS clusters'),
+    'list_vpcs_all_regions': _ALL_REGIONS.format(what='VPCs'),
+    'list_security_groups_all_regions': _ALL_REGIONS.format(what='security groups'),
+    'create_ec2_instance': (
+        'Create EC2 instances from a concrete AMI ID (it does not look up an AMI from an OS '
+        'name). Creates one instance unless count is given. Setup that must happen at launch '
+        '(installing packages, starting a service, writing files) goes in user_data.'),
+    'manage_ec2_instance': (
+        'Start, stop, reboot or terminate an existing EC2 instance by instance_id. It does '
+        'not create instances.'),
+    'find_ami': (
+        'Find the newest official AMI ID for a distribution (ubuntu, amazon-linux, debian, '
+        'rhel, suse, windows) or the AWS Deep Learning Base GPU AMI (dlami-gpu: Ubuntu with '
+        'the NVIDIA driver, Docker and the NVIDIA container toolkit, for GPU instances). '
+        'Results come only from the distribution vendor\'s own AWS account, so lookalike '
+        'public images are never returned.'),
+    'delete_cloudwatch_alarm': 'Delete one or more CloudWatch alarms by exact name.',
+    'cleanup_ebs_volume': 'Detach an EBS volume if it is attached, then delete it, in one step.',
+    'aws_api_read': (
+        'Call any read-only AWS API operation (describe/list/get/head) for services without '
+        'a dedicated tool. Examples: describe_task_definition (ECS), list_hosted_zones '
+        '(Route53), list_certificates (ACM), get_function_configuration (Lambda). Read-only: '
+        'it does not create, change or delete anything.'),
+    'aws_api_write': (
+        'Call any AWS API operation that creates, changes or deletes resources, for services '
+        'without a dedicated tool. Examples: modify_db_instance (RDS), '
+        'update_function_configuration (Lambda), change_resource_record_sets (Route53), '
+        'put_bucket_lifecycle_configuration (S3). Calls wait for approval before they run.'),
+    'k8s_api_read': (
+        'Call any read-only Kubernetes API for resources without a dedicated tool. api_group '
+        'selects the client: core (pods/services/configmaps/PVCs/nodes), apps '
+        '(deployments/statefulsets/daemonsets), batch (jobs/cronjobs), networking '
+        '(ingresses/networkpolicies), rbac (roles/bindings), autoscaling (HPAs), policy '
+        '(PodDisruptionBudgets), storage (storageclasses), custom (CRDs). Read-only.'),
+    'azure_api_read': (
+        'Call any read-only Azure SDK operation (list/get/check) for resources without a '
+        'dedicated tool. client_type: compute, storage, network, resource, monitor, '
+        'container, sql. operation_path is the dot-separated SDK path, e.g. '
+        '"virtual_machine_scale_sets.list". Read-only.'),
+    'gcp_api_read': (
+        'Call any read-only GCP API (list/get) for services without a dedicated tool, e.g. '
+        'Cloud DNS managed zones, Memorystore Redis instances, Cloud Scheduler jobs, '
+        'Artifact Registry repositories. Read-only.'),
+    'terraform_job_status': (
+        'Check the status of a long-running Terraform job by job_id: running, complete or '
+        'failed.'),
+}
+
+
 def _to_mcp_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
     """Convert an internal tool definition to MCP tool format with safety annotations.
 
@@ -494,7 +552,7 @@ def _to_mcp_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "name": tool["name"],
         "title": title,
-        "description": tool.get("description", ""),
+        "description": _MCP_DESCRIPTIONS.get(tool["name"], tool.get("description", "")),
         "inputSchema": tool.get("input_schema", {
             "type": "object",
             "properties": {},
