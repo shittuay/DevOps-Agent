@@ -1000,12 +1000,9 @@
         }
 
         function updateStats(data) {
-            const all = data.total || 0;
-            document.getElementById('statTotal').textContent = all;
-
-            // Count by status from current visible data (approximation since we paginate)
-            // For accurate counts, we rely on the total from different status queries
-            // We'll fire a few quick fetches for stats
+            // Every card counts all changes, whatever filter tab is selected. The total used
+            // to come from the filtered list, so the Pending tab showed "Total changes 0".
+            fetchStatCount('', 'statTotal');
             fetchStatCount('pending', 'statPending');
             fetchStatCount('executed', 'statExecuted');
             fetchStatCounts(['rejected', 'failed'], 'statRejected');
@@ -1041,6 +1038,7 @@
                     '<div class="empty-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
                     '<h3>No changes found</h3>' +
                     '<p>' + (currentFilter ? 'No changes with status "' + currentFilter + '". Try a different filter.' : 'Create your first infrastructure change request to get started with governed deployments.') + '</p>' +
+                    (currentFilter === 'pending' ? '<p>Actions the agent asked to run from chat wait on the <a href="/approvals">Approvals</a> page, not here.</p>' : '') +
                     (currentFilter ? '' : '<button class="btn btn-primary" onclick="openCreateModal()">New Change Request</button>') +
                     '</div>';
                 return;
