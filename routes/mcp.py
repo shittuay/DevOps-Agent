@@ -435,9 +435,11 @@ def _get_tool_annotations(tool_name: str) -> Dict[str, Any]:
     )
     _READ_ONLY_SUBSTRINGS = ('_list', '_status', '_info', '_health', '_logs', '_history', '_usage')
 
+    # Match whole name segments: a plain substring test made create_listener read-only.
+    padded = name + '_'
     is_read_only = (
         any(name.startswith(p) for p in _READ_ONLY_PREFIXES)
-        or any(s in name for s in _READ_ONLY_SUBSTRINGS)
+        or any(s + '_' in padded for s in _READ_ONLY_SUBSTRINGS)
     )
 
     is_destructive = (

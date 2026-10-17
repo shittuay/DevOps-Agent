@@ -30,3 +30,15 @@ def test_titles_are_readable():
     assert mcp._tool_title('list_eks_clusters') == 'List EKS Clusters'
     titles = {t['name']: t['title'] for t in _listed_tools()}
     assert titles['devopsagent_health'] == 'DevOps Agent Health'
+
+
+def test_create_tools_are_never_read_only():
+    tools = {t['name']: t['annotations'] for t in _listed_tools()}
+    assert tools['create_listener']['readOnlyHint'] is False
+    writes = [n for n, a in tools.items()
+              if a.get('readOnlyHint') and n.split('_')[0] in
+              ('create', 'delete', 'update', 'put', 'set', 'run', 'terminate', 'modify')]
+    assert not writes, writes
+    # still read-only
+    for n in ('docker_list_containers', 'rollout_status', 'pagerduty_list_incidents'):
+        assert tools[n]['readOnlyHint'] is True, n
