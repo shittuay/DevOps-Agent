@@ -2195,7 +2195,9 @@ Step 8 done (agreed with the owner first):
   `organization_id` stamped from the session. `/api/changes/<id>/approve` doubles as "confirm my
   own"; `/reject` is also the requester's cancel. `/approvals` and `/approvals/mine` show both
   kinds; `/changes` is history plus execute/rollback, and its pending rows link to Approvals.
-  `@approver_required` is no longer used in `routes/changes.py`. Guards:
+  `@approver_required` is no longer used in `routes/changes.py`. The page's summary cards each
+  fetch their own unfiltered count (the Total card once showed the filtered list's size), and the
+  empty Pending tab points to `/approvals`, where chat requests wait (`tests/test_changes_page_stats.py`). Guards:
   `tests/test_change_approvals_unified.py` and the updated org-scope tests.
 - **One developer API.** `/api-gateway/v1` serves everything `/api/v1` offered via
   `routes/api_gateway.V1_PARITY_ROUTES` (same handlers and `api_key_service.require_api_key`, so
