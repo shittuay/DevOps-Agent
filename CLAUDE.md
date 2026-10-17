@@ -2356,6 +2356,11 @@ only. `docs/archive/`, `docs/superpowers/`, `docs/designs/` and `docs/blog/` are
 not maintained. When a feature is added or removed, update those six guides plus the in-app
 `templates/docs.html`; `tests/test_tool_counts.py` checks tool totals in templates, `README.md`,
 `docs/FEATURE_REFERENCE.md` and `MCP_REGISTRY_SUBMISSION.md`.
+The public `/docs` page was rewritten on 2026-10-16 (it promised env-var setup, invented Jenkins/GitHub
+tool names, a Proficiency Radar and a sandbox banner, and printed the MCP OAuth client secret).
+It must not show that secret, and every tool name inside `<code>` on it must exist
+(`tests/test_doc_tool_names.py`). Docker, Terraform, Ansible and Kubernetes run on the DevOps
+Agent host, so the page says they're for self-hosted installs.
 
 ### Skills System
 **Access:** Settings → Skills tab (`templates/settings/_skills_panel.html`; the old `/settings/skills` URL redirects there) — toggle built-in skills on/off, view learned infrastructure summary

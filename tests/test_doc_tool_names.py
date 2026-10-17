@@ -21,12 +21,29 @@ def _catalog():
 
 
 def _named_tools(text):
-    return {t for t in re.findall(r'`([a-z][a-z0-9_]+)`', text) if t.startswith(VERBS)}
+    found = re.findall(r'`([a-z][a-z0-9_]+)`', text)
+    for code in re.findall(r'<code>([^<]+)</code>', text):
+        found += re.findall(r'\b[a-z][a-z0-9_]+\b', code)
+    return {t for t in found if t.startswith(VERBS) and '_' in t}
 
 
 def test_tool_names_in_skills_and_submission_exist():
     catalog = _catalog()
-    files = sorted((ROOT / 'skills').glob('*.md')) + [ROOT / 'mcp' / 'CONNECTOR_SUBMISSION.md']
+    files = (sorted((ROOT / 'skills').glob('*.md'))
+             + [ROOT / 'mcp' / 'CONNECTOR_SUBMISSION.md', ROOT / 'templates' / 'docs.html'])
     missing = {f'{f.relative_to(ROOT)}: {t}'
                for f in files for t in _named_tools(f.read_text()) if t not in catalog}
     assert not missing, sorted(missing)
+
+
+def test_docs_page_does_not_publish_oauth_client_secret():
+    """Connectors use Dynamic Client Registration; the docs page once printed the secret."""
+    docs = (ROOT / 'templates' / 'docs.html').read_text()
+    assert 'devopsagent-mcp-secret' not in docs
+    assert 'OAuth Client Secret' not in docs
+
+
+def test_docs_page_renders(client):
+    resp = client.get('/docs')
+    assert resp.status_code == 200
+    assert b'Settings \xe2\x86\x92 Integrations' in resp.data

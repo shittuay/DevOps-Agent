@@ -98,9 +98,9 @@ OAUTH_CLIENT_ID     = os.environ.get('MCP_OAUTH_CLIENT_ID',     'claude-connecto
 OAUTH_CLIENT_SECRET = os.environ.get('MCP_OAUTH_CLIENT_SECRET', 'devopsagent-mcp-secret-2026')
 
 # Redirect URIs the built-in client is allowed to send an authorization code
-# to. Both OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET are published in
-# templates/docs.html for the self-service "Connect via Claude.ai
-# (Connectors)" flow, so this client cannot rely on the secret as its actual
+# to. OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET were published in
+# templates/docs.html until 2026-10-16 (connectors now use Dynamic Client
+# Registration), so this client cannot rely on the secret as its actual
 # security boundary — the redirect_uri allowlist below is what actually
 # stops an attacker from pointing a victim's authorization code at an
 # attacker-controlled origin (see CLAUDE_RUNBOOK.md's 2026-08-30 entry).

@@ -551,7 +551,7 @@
     </div>
     <div class="sidebar-section">
       <div class="sidebar-heading">DevOps Tools</div>
-      <a href="#cicd" class="sidebar-link">CI/CD — Jenkins & GitHub</a>
+      <a href="#cicd" class="sidebar-link">CI/CD — Jenkins, GitHub &amp; GitLab</a>
       <a href="#docker" class="sidebar-link">Docker</a>
       <a href="#terraform" class="sidebar-link">Terraform</a>
       <a href="#sonarqube" class="sidebar-link">SonarQube</a>
@@ -591,7 +591,7 @@
       <h1 class="docs-title">DevOps Agent<br><span>Docs</span></h1>
       <p class="docs-intro">
         Everything you need to connect your cloud infrastructure, automate deployments,
-        and manage incidents — all through a natural language chat interface.
+        and work with your CI/CD and on-call tools — all through a natural language chat interface.
       </p>
 
       <div class="card-grid">
@@ -608,7 +608,7 @@
         <div class="card">
           <div class="card-icon"><i class="fa-solid fa-shield-halved"></i></div>
           <div class="card-title">Safe by default</div>
-          <div class="card-desc">Destructive operations require explicit confirmation. All credentials are encrypted at rest.</div>
+          <div class="card-desc">Risky actions wait for approval before they run. All credentials are encrypted at rest.</div>
         </div>
         <div class="card">
           <div class="card-icon"><i class="fa-solid fa-book-open"></i></div>
@@ -628,14 +628,14 @@
           <div class="step-num">1</div>
           <div class="step-body">
             <div class="step-title">Create your account</div>
-            <div class="step-desc">Go to <a href="/signup" style="color:var(--orange2);text-decoration:none;">/signup</a> and register with your email address. You'll receive a verification email — click the link to activate your account.</div>
+            <div class="step-desc">Go to <a href="/signup" style="color:var(--orange2);text-decoration:none;">/signup</a> and register with your email address. You'll receive a verification email — click the link to activate your account. Then set up two-factor authentication (an authenticator app or emailed codes); it's required for every account.</div>
           </div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
           <div class="step-body">
             <div class="step-title">Complete onboarding</div>
-            <div class="step-desc">After email verification you'll be taken through a short onboarding flow. Choose your experience level (Beginner / Intermediate / Advanced) and the cloud providers you use.</div>
+            <div class="step-desc">Next comes a short onboarding flow. You can start straight away in <strong>Sandbox</strong> (practice with simulated results, no cloud account needed) or connect a cloud account first.</div>
           </div>
         </div>
         <div class="step">
@@ -685,7 +685,7 @@
 
       <h3 class="subsection-title">Confirmation for risky operations</h3>
       <p>Every tool call is risk-classified. Medium- and high-risk actions (deleting resources, terminating or stopping instances, changing IAM policies or firewall rules) don't run straight away: for accounts with the default User role they wait for confirmation. On a personal account you confirm them yourself with <strong>Confirm &amp; run</strong> in the chat (or on <a href="/approvals/mine">My requests</a>); in an organization, the organization's owners and admins approve them on the Approvals page. Accounts with the Approver or Admin role run medium-risk actions directly and confirm their own high-risk ones with <strong>Confirm &amp; run</strong>. Sandbox mode simulates everything instead.</p>
-      <p>If AWS refuses an action because DevOps Agent's role is missing a permission, the chat shows the exact policy needed and asks you yes or no. Add it in AWS and click <strong>I added it, retry</strong>, or, if you launched the CloudFormation stack with <code>AllowSelfGrant=Yes</code> and turned on self-grant in Settings → AWS Configuration, the agent adds it to its own role (capped by a permissions boundary you control) and retries. Identity, key and secret-value permissions are never added automatically.</p>
+      <p>If AWS refuses an action because DevOps Agent's role is missing a permission, the chat shows the exact policy needed and asks you yes or no. Add it in AWS and click <strong>I added it, retry</strong>, or, if you launched the CloudFormation stack with <code>AllowSelfGrant=Yes</code> and turned on self-grant in Settings → Cloud Credentials → AWS Configuration, the agent adds it to its own role (capped by a permissions boundary you control) and retries. Identity, key and secret-value permissions are never added automatically.</p>
       <p>This should be rare. When you create the AWS role, pick <strong>Read</strong> (the default: DevOps Agent can see every AWS service but change nothing, and never reads your data or secret values) or <strong>Manage</strong> (it can also create, change and delete resources, but not IAM). Both are built on AWS's own managed policies, so new AWS services are covered automatically.</p>
 
       <h3 class="subsection-title">Model selector</h3>
@@ -741,7 +741,7 @@
         </tbody>
       </table>
 
-      <p>Your proficiency per topic is tracked automatically. Check <strong>Settings → Learning → Proficiency Radar</strong> to see where you're strongest and where there are gaps.</p>
+      <p>Your proficiency per topic is tracked automatically and shown under <strong>Settings → Learning</strong>.</p>
     </section>
 
     <!-- Sandbox Mode -->
@@ -751,10 +751,10 @@
 
       <div class="alert alert-warn">
         <span class="alert-icon">⚠️</span>
-        <span>When Sandbox Mode is active, a banner appears at the top of the chat. No real API calls are made to AWS, Azure, GCP, or Kubernetes. Toggle it off in <strong>Settings → Learning</strong> (or the Sandbox switch in the chat sidebar) when you're ready to work with live infrastructure.</span>
+        <span>When Sandbox Mode is on, the chat opens with practice missions and works one step at a time. No real API calls are made to AWS, Azure, GCP, or Kubernetes. Toggle it off in <strong>Settings → Learning</strong> (or the Sandbox switch in the chat sidebar) when you're ready to work with live infrastructure.</span>
       </div>
 
-      <p>Sandbox Mode simulates realistic failure scenarios too — disk full, pod crash loops, service downtime — so you can practice incident response without manufacturing real outages.</p>
+      <p>Sandbox Mode simulates realistic failure scenarios too — pods in CrashLoopBackOff or OOMKilled, node disk pressure, a blocked security group, an instance at 98% CPU — so you can practice troubleshooting without causing real outages.</p>
     </section>
 
     <div class="divider"></div>
@@ -791,7 +791,7 @@
       </div>
 
       <h3 class="subsection-title">Connecting AWS — IAM Role mode (enterprise)</h3>
-      <p>Best for enterprise setups and cross-account access. Instead of long-lived access keys, the agent assumes an IAM Role using STS. Under Settings → AWS → switch to <strong>Role ARN mode</strong> and provide:</p>
+      <p>Best for enterprise setups and cross-account access. Instead of long-lived access keys, the agent assumes an IAM Role using STS. This is the recommended mode. In <strong>Settings → Cloud Credentials → AWS</strong>, click <strong>Create role with CloudFormation</strong> to create the role in your AWS account with <strong>Read</strong> (see everything, change nothing) or <strong>Manage</strong> access, then paste the role ARN. Or switch to <strong>Role ARN mode</strong> and provide:</p>
       <table class="docs-table">
         <thead><tr><th>Field</th><th>Example</th></tr></thead>
         <tbody>
@@ -805,7 +805,7 @@
     <!-- Azure -->
     <section id="azure">
       <h2 class="section-title">Microsoft Azure</h2>
-      <p>DevOps Agent supports <strong>36 Azure tools</strong> covering Virtual Machines, Storage, SQL, NSGs, Container Instances, Disks, VNets, and Public IPs.</p>
+      <p>DevOps Agent supports <strong>38 Azure tools</strong> covering Virtual Machines, Storage, SQL, NSGs, Container Instances, Disks, VNets, and Public IPs.</p>
 
       <h3 class="subsection-title">Connecting Azure</h3>
       <p>Navigate to <strong>Settings → Cloud Credentials → Azure</strong> and provide:</p>
@@ -829,7 +829,7 @@
     <!-- GCP -->
     <section id="gcp">
       <h2 class="section-title">Google Cloud Platform</h2>
-      <p>DevOps Agent supports <strong>40 GCP tools</strong> covering Compute Engine, Cloud Storage, Cloud SQL, GKE, Cloud Run, Pub/Sub, Secret Manager, BigQuery, Cloud Functions, and Cloud Logs.</p>
+      <p>DevOps Agent supports <strong>42 GCP tools</strong> covering Compute Engine, Cloud Storage, Cloud SQL, GKE, Cloud Run, Pub/Sub, Secret Manager, BigQuery, Cloud Functions, and Cloud Logs.</p>
 
       <h3 class="subsection-title">Connecting GCP</h3>
       <div class="steps">
@@ -860,11 +860,11 @@
     <!-- Kubernetes -->
     <section id="kubernetes">
       <h2 class="section-title">Kubernetes</h2>
-      <p>DevOps Agent supports <strong>28 Kubernetes tools</strong> covering pods, deployments, services, namespaces, ConfigMaps, secrets, ingress, nodes, and jobs.</p>
+      <p>DevOps Agent supports <strong>76 Kubernetes tools</strong> covering pods, deployments, services, namespaces, ConfigMaps, secrets, ingress, nodes, and jobs.</p>
 
       <h3 class="subsection-title">Connecting a cluster</h3>
-      <p>DevOps Agent uses your local <code>kubeconfig</code> file. Ensure the machine running the agent has a valid kubeconfig at <code>~/.kube/config</code> (or the path set in <code>KUBECONFIG</code>) with credentials for the cluster you want to manage.</p>
-
+      <p>Kubernetes tools read a kubeconfig file (<code>~/.kube/config</code> or the path in <code>KUBECONFIG</code>) on the machine where DevOps Agent runs.</p>
+      <div class="alert alert-warn"><span class="alert-icon">⚠️</span><span>Kubernetes tools run on the server where DevOps Agent itself runs. On devopsagent.io that is our server, not your machine, so they are meant for self-hosted installs of DevOps Agent.</span></div>
       <p>To use a specific context, include the context name in your message:</p>
       <div class="code-block">
         Show pods in the production namespace using context prod-cluster
@@ -889,51 +889,29 @@
 
     <!-- CI/CD -->
     <section id="cicd">
-      <h2 class="section-title">CI/CD — Jenkins &amp; GitHub Actions</h2>
-      <p>DevOps Agent supports <strong>21 CI/CD tools</strong> — 11 for Jenkins and 10 for GitHub Actions — covering pipelines, builds, jobs, and workflow runs.</p>
+      <h2 class="section-title">CI/CD — Jenkins, GitHub Actions &amp; GitLab</h2>
+      <p>DevOps Agent supports <strong>36 CI/CD tools</strong> for Jenkins, GitHub Actions and GitLab CI, plus deployment helpers. Connect each service in <strong>Settings → Integrations</strong> before using its tools. Credentials are stored encrypted, per user; a saved token is only ever sent to the server URL you saved it for.</p>
 
-      <h3 class="subsection-title">Jenkins (11 tools)</h3>
-      <p>Set your Jenkins URL and credentials in <strong>Settings → CI/CD</strong> before using Jenkins tools. The agent uses the Jenkins REST API with Basic auth.</p>
-      <table class="docs-table">
-        <thead><tr><th>Tool</th><th>Description</th></tr></thead>
-        <tbody>
-          <tr><td><code>list_jenkins_jobs</code></td><td>List all jobs on the Jenkins server</td></tr>
-          <tr><td><code>get_jenkins_job_status</code></td><td>Get the current status of a job</td></tr>
-          <tr><td><code>get_jenkins_build_logs</code></td><td>Retrieve console output for a specific build</td></tr>
-          <tr><td><code>trigger_jenkins_build</code></td><td>Trigger a job build (optionally with parameters)</td></tr>
-          <tr><td><code>stop_jenkins_build</code></td><td>Abort a running build</td></tr>
-          <tr><td><code>list_jenkins_pipelines</code></td><td>List all pipeline jobs</td></tr>
-          <tr><td><code>get_jenkins_pipeline_status</code></td><td>Get pipeline run status</td></tr>
-          <tr><td><code>create_jenkins_pipeline</code></td><td>Create a new pipeline job from a Jenkinsfile</td></tr>
-          <tr><td><code>delete_jenkins_job</code></td><td>Delete a job (high-risk, requires confirmation)</td></tr>
-          <tr><td><code>get_jenkins_queue</code></td><td>View the build queue</td></tr>
-          <tr><td><code>get_jenkins_server_info</code></td><td>Retrieve server version and health info</td></tr>
-        </tbody>
-      </table>
+      <h3 class="subsection-title">Jenkins</h3>
+      <p>Needs your Jenkins URL, username and a user API token (People → you → Configure → API Token).</p>
+      <table class="docs-table"><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>list_jenkins_jobs</code></td><td>List jobs</td></tr><tr><td><code>get_jenkins_job_status</code></td><td>Status of a job and its last build</td></tr><tr><td><code>get_jenkins_build_logs</code></td><td>Console output of a build</td></tr><tr><td><code>trigger_jenkins_job</code></td><td>Start a build, optionally with parameters</td></tr><tr><td><code>abort_jenkins_build</code></td><td>Stop a running build (high-risk)</td></tr><tr><td><code>enable_jenkins_job / disable_jenkins_job</code></td><td>Turn a job on or off</td></tr><tr><td><code>get_jenkins_job_config</code></td><td>Read a job's configuration</td></tr><tr><td><code>get_jenkins_queue</code></td><td>View the build queue</td></tr><tr><td><code>list_jenkins_nodes</code></td><td>List build agents</td></tr><tr><td><code>delete_jenkins_build</code></td><td>Delete a build record (high-risk)</td></tr></tbody></table>
 
-      <h3 class="subsection-title">GitHub Actions (10 tools)</h3>
-      <p>Set your GitHub token (<code>GITHUB_TOKEN</code>) in Settings. The token needs <code>actions:read</code> and <code>actions:write</code> scopes.</p>
-      <table class="docs-table">
-        <thead><tr><th>Tool</th><th>Description</th></tr></thead>
-        <tbody>
-          <tr><td><code>list_github_workflows</code></td><td>List all workflows in a repository</td></tr>
-          <tr><td><code>get_github_workflow_runs</code></td><td>Get recent runs for a workflow</td></tr>
-          <tr><td><code>trigger_github_workflow</code></td><td>Trigger a workflow dispatch event</td></tr>
-          <tr><td><code>cancel_github_workflow_run</code></td><td>Cancel a running workflow</td></tr>
-          <tr><td><code>get_github_workflow_run_logs</code></td><td>Download logs from a workflow run</td></tr>
-          <tr><td><code>list_github_actions_secrets</code></td><td>List Actions secrets for a repo</td></tr>
-          <tr><td><code>create_github_actions_secret</code></td><td>Create or update an Actions secret</td></tr>
-          <tr><td><code>delete_github_actions_secret</code></td><td>Delete an Actions secret</td></tr>
-          <tr><td><code>get_github_repo_info</code></td><td>Get repository metadata and stats</td></tr>
-          <tr><td><code>list_github_branches</code></td><td>List branches in a repository</td></tr>
-        </tbody>
-      </table>
+      <h3 class="subsection-title">GitHub Actions</h3>
+      <p>Needs a fine-grained personal access token scoped to the repositories you want managed.</p>
+      <table class="docs-table"><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>list_github_workflows</code></td><td>Workflows in a repository</td></tr><tr><td><code>get_github_workflow_runs</code></td><td>Recent runs</td></tr><tr><td><code>get_github_workflow_run</code></td><td>Details of one run</td></tr><tr><td><code>get_github_run_jobs</code></td><td>Jobs, failed steps and the end of failed-job logs</td></tr><tr><td><code>trigger_github_workflow</code></td><td>Start a workflow_dispatch run</td></tr><tr><td><code>cancel_github_workflow_run</code></td><td>Cancel a run</td></tr><tr><td><code>rerun_failed_github_jobs</code></td><td>Re-run failed jobs</td></tr><tr><td><code>list_github_runners</code></td><td>Self-hosted runners</td></tr><tr><td><code>list_github_secrets</code></td><td>Secret names (never values)</td></tr><tr><td><code>list_github_environments</code></td><td>Deployment environments</td></tr><tr><td><code>get_github_workflow_usage</code></td><td>Billable minutes</td></tr></tbody></table>
+
+      <h3 class="subsection-title">GitLab CI</h3>
+      <p>Needs a personal or project access token with the <code>api</code> scope, and your GitLab URL if it isn't gitlab.com.</p>
+      <table class="docs-table"><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>list_gitlab_pipelines / get_gitlab_pipeline</code></td><td>Pipelines and their status</td></tr><tr><td><code>list_gitlab_jobs / get_gitlab_job_log</code></td><td>Jobs and job logs</td></tr><tr><td><code>trigger_gitlab_pipeline</code></td><td>Start a pipeline</td></tr><tr><td><code>retry_gitlab_pipeline / cancel_gitlab_pipeline</code></td><td>Retry or cancel a pipeline</td></tr><tr><td><code>approve_gitlab_deployment</code></td><td>Approve a protected deployment</td></tr><tr><td><code>create_gitlab_pipeline_trigger</code></td><td>Create a pipeline trigger token</td></tr></tbody></table>
+
+      <h3 class="subsection-title">Deployment helpers</h3>
+      <table class="docs-table"><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>get_deployment_rollout_status</code></td><td>Rollout progress</td></tr><tr><td><code>blue_green_switch</code></td><td>Switch traffic between blue and green</td></tr><tr><td><code>canary_update_weight</code></td><td>Change canary traffic weight</td></tr><tr><td><code>run_smoke_test</code></td><td>HTTP smoke test of a URL</td></tr><tr><td><code>auto_rollback_deployment</code></td><td>Roll back if health checks fail</td></tr></tbody></table>
 
       <h3 class="subsection-title">Example prompts</h3>
-      <div class="code-block">Show me all failing Jenkins jobs
-Trigger a build for the deploy-prod pipeline with branch=main
+      <pre class="code-block">Why did the last GitHub Actions run on my-org/api fail?
+Show me all failing Jenkins jobs
 Get the last 50 lines of logs from build #142 of the api-service job
-Cancel the workflow run #9823 on the deploy.yml workflow in org/repo</div>
+Retry the failed pipeline on my GitLab project</pre>
     </section>
 
     <div class="divider"></div>
@@ -944,7 +922,8 @@ Cancel the workflow run #9823 on the deploy.yml workflow in org/repo</div>
       <p>DevOps Agent supports <strong>22 Docker tools</strong> covering container lifecycle, image management, volumes, networks, and Docker Compose.</p>
 
       <h3 class="subsection-title">Requirements</h3>
-      <p>Docker must be installed and running on the machine where the agent runs. The agent communicates with the Docker daemon via the Docker SDK for Python (<code>docker</code> package).</p>
+      <p>Docker must be installed and running on the machine where DevOps Agent runs; the agent talks to that Docker daemon.</p>
+      <div class="alert alert-warn"><span class="alert-icon">⚠️</span><span>Docker tools run on the server where DevOps Agent itself runs. On devopsagent.io that is our server, not your machine, so they are meant for self-hosted installs of DevOps Agent.</span></div>
 
       <h3 class="subsection-title">Supported operations</h3>
       <table class="docs-table">
@@ -974,7 +953,8 @@ Run docker compose up -d in /opt/myapp</div>
       <p>DevOps Agent supports <strong>16 Terraform tools</strong> for managing infrastructure-as-code: workspaces, state, plans, and module operations.</p>
 
       <h3 class="subsection-title">How it works</h3>
-      <p>Terraform tools operate on a <code>working_dir</code> — the directory containing your <code>.tf</code> files. Terraform must be installed on the machine where the agent runs.</p>
+      <p>Terraform tools operate on a <code>working_dir</code> — the directory containing your <code>.tf</code> files. Terraform must be installed on the machine where DevOps Agent runs.</p>
+      <div class="alert alert-warn"><span class="alert-icon">⚠️</span><span>Terraform tools run on the server where DevOps Agent itself runs. On devopsagent.io that is our server, not your machine, so they are meant for self-hosted installs of DevOps Agent.</span></div>
 
       <h3 class="subsection-title">Supported operations</h3>
       <table class="docs-table">
@@ -1006,7 +986,7 @@ Show the output values from the networking module</div>
       <p>DevOps Agent supports <strong>12 SonarQube tools</strong> for code quality analysis, quality gate checks, and issue management.</p>
 
       <h3 class="subsection-title">Configuration</h3>
-      <p>Set <code>SONAR_TOKEN</code> and <code>SONAR_BASE_URL</code> (e.g., <code>https://sonarqube.yourcompany.com</code>) in your environment. The token needs at minimum <em>Browse</em> permission on projects you want to inspect.</p>
+      <p>Connect SonarQube in <strong>Settings → Integrations</strong> with your server URL (e.g. <code>https://sonarqube.yourcompany.com</code>) and a user token from My Account → Security. Credentials are stored encrypted, per user, and never shown again after saving. The token needs at least <em>Browse</em> permission on the projects you want to inspect.</p>
 
       <h3 class="subsection-title">Supported operations</h3>
       <table class="docs-table">
@@ -1034,7 +1014,7 @@ Are there any critical security vulnerabilities in my codebase?</div>
       <p>DevOps Agent supports <strong>12 Nexus Repository Manager tools</strong> for artifact management, repository administration, and component search.</p>
 
       <h3 class="subsection-title">Configuration</h3>
-      <p>Set <code>NEXUS_BASE_URL</code>, <code>NEXUS_USERNAME</code>, and <code>NEXUS_PASSWORD</code> in your environment. The agent uses the Nexus REST API v1 with Basic authentication.</p>
+      <p>Connect Nexus in <strong>Settings → Integrations</strong> with your server URL, a username and password (use a Nexus user with only the privileges you want the agent to have). Credentials are stored encrypted, per user, and never shown again after saving.</p>
 
       <h3 class="subsection-title">Supported operations</h3>
       <table class="docs-table">
@@ -1062,7 +1042,8 @@ Check the health status of our Nexus instance</div>
       <p>DevOps Agent supports <strong>13 Ansible tools</strong> for playbook execution, inventory management, and role discovery.</p>
 
       <h3 class="subsection-title">Requirements</h3>
-      <p>Ansible must be installed on the machine where the agent runs. Playbook tools operate on a <code>working_dir</code> containing your playbooks and inventory.</p>
+      <p>Ansible must be installed on the machine where DevOps Agent runs. Playbook tools operate on a <code>working_dir</code> containing your playbooks and inventory.</p>
+      <div class="alert alert-warn"><span class="alert-icon">⚠️</span><span>Ansible tools run on the server where DevOps Agent itself runs. On devopsagent.io that is our server, not your machine, so they are meant for self-hosted installs of DevOps Agent.</span></div>
 
       <h3 class="subsection-title">Supported operations</h3>
       <table class="docs-table">
@@ -1090,7 +1071,7 @@ Ping all hosts in the staging group and show results</div>
       <p>DevOps Agent supports <strong>16 alerting tools</strong> — 8 for PagerDuty and 8 for OpsGenie — for incident management, on-call schedules, and alert routing.</p>
 
       <h3 class="subsection-title">PagerDuty (8 tools)</h3>
-      <p>Set <code>PAGERDUTY_API_KEY</code> in your environment. Requires a REST API key from PagerDuty's API Access section.</p>
+      <p>Connect PagerDuty in <strong>Settings → Integrations</strong> with a REST API key. Creating or updating incidents also needs the email of a PagerDuty user. Credentials are stored encrypted, per user, and never shown again after saving.</p>
       <table class="docs-table">
         <thead><tr><th>Category</th><th>Operations</th></tr></thead>
         <tbody>
@@ -1102,7 +1083,7 @@ Ping all hosts in the staging group and show results</div>
       </table>
 
       <h3 class="subsection-title">OpsGenie (8 tools)</h3>
-      <p>Set <code>OPSGENIE_API_KEY</code> in your environment.</p>
+      <p>Connect OpsGenie in <strong>Settings → Integrations</strong> with an API integration key and your region (US or EU). Credentials are stored encrypted, per user, and never shown again after saving.</p>
       <table class="docs-table">
         <thead><tr><th>Category</th><th>Operations</th></tr></thead>
         <tbody>
@@ -1142,7 +1123,7 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
           <tr><td>Ansible</td><td><span class="badge badge-cyan">13</span></td><td>Playbooks, inventory, ad-hoc commands, roles, Galaxy</td></tr>
           <tr><td>Monitoring</td><td><span class="badge badge-green">12</span></td><td>Prometheus, Datadog and Grafana: queries, monitors, dashboards, alerts</td></tr>
           <tr><td>Alerting</td><td><span class="badge badge-gray">16</span></td><td>PagerDuty (incidents, on-call, services), OpsGenie (alerts, teams, schedules)</td></tr>
-          <tr><td>Pentest</td><td><span class="badge badge-orange">12</span></td><td>Port scanning, SSL checks, HTTP security headers, DNS enumeration</td></tr>
+          <tr><td>Pentest</td><td><span class="badge badge-orange">12</span></td><td>Port scanning, SSL checks, HTTP security headers, DNS enumeration. Off by default; only available where an administrator has turned it on for approved targets.</td></tr>
           <tr><td>Git</td><td><span class="badge badge-cyan">47</span></td><td>Clone, branch, commit, push, pull, merge, rebase, tags, stash, search, maintenance</td></tr>
           <tr><td>GitHub</td><td><span class="badge badge-green">19</span></td><td>Repos, issues, PRs, branches, releases, workflows, collaborators</td></tr>
           <tr><td>DevOps Operations</td><td><span class="badge badge-gray">10</span></td><td>Infrastructure operations, deployment workflows, cross-service orchestration</td></tr>
@@ -1157,8 +1138,8 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
         <thead><tr><th>Level</th><th>Examples</th><th>Behaviour</th></tr></thead>
         <tbody>
           <tr><td><span class="badge badge-green">Low</span></td><td>List, describe, get, read operations</td><td>Executes immediately</td></tr>
-          <tr><td><span class="badge badge-cyan">Medium</span></td><td>Update, restart, scale, IAM changes</td><td>Agent asks for confirmation</td></tr>
-          <tr><td><span class="badge badge-orange">High</span></td><td>Delete, terminate, drop, purge operations</td><td>Requires explicit yes/no confirmation. Escalates to Critical if targeting production.</td></tr>
+          <tr><td><span class="badge badge-cyan">Medium</span></td><td>Update, restart, scale, IAM changes</td><td>Waits for approval before it runs</td></tr>
+          <tr><td><span class="badge badge-orange">High</span></td><td>Delete, terminate, drop, purge operations</td><td>Waits for approval before it runs. Treated as Critical when it targets production.</td></tr>
         </tbody>
       </table>
     </section>
@@ -1205,8 +1186,8 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
   -H "X-API-Key: YOUR_API_KEY"</pre>
       <pre class="code-block">{
   "resources": [
-    { "id": 1, "name": "prod-web-01", "type": "ec2", "status": "running", "region": "us-east-1" },
-    { "id": 2, "name": "prod-db",     "type": "rds", "status": "available", "region": "us-east-1" }
+    { "id": 1, "name": "prod-web-01", "type": "ec2", "provider": "aws", "status": "running", "region": "us-east-1" },
+    { "id": 2, "name": "prod-db",     "type": "rds", "provider": "aws", "status": "available", "region": "us-east-1" }
   ]
 }</pre>
     </section>
@@ -1216,7 +1197,7 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
     <!-- MCP Server -->
     <section id="mcp-server">
       <h2 class="section-title">MCP Server</h2>
-      <p>DevOps Agent exposes all cloud tools as an <strong>MCP (Model Context Protocol)</strong> server registered on the <a href="https://registry.modelcontextprotocol.io" target="_blank">official MCP Registry</a>. Connect any MCP-compatible AI client — Claude Desktop, Claude.ai, or custom agents — and manage your infrastructure without leaving your AI assistant.</p>
+      <p>DevOps Agent exposes 704 of its tools (cloud, Kubernetes, CI/CD, Docker, Terraform, Git, monitoring, Ansible and alerting) as an <strong>MCP (Model Context Protocol)</strong> server registered on the <a href="https://registry.modelcontextprotocol.io" target="_blank">official MCP Registry</a>. Connect any MCP-compatible AI client — Claude Desktop, Claude.ai, or custom agents — and manage your infrastructure without leaving your AI assistant.</p>
 
       <h3 class="subsection-title">Registry</h3>
       <p>The server is published on the official MCP Registry and npm:</p>
@@ -1228,32 +1209,34 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
         </tbody>
       </table>
 
-      <h3 class="subsection-title">Connect via Claude.ai (Connectors)</h3>
-      <p>Go to <strong>Claude.ai → Settings → Connectors → Add custom connector</strong> and fill in:</p>
+      <h3 class="subsection-title">Connect via Claude (Connectors)</h3>
+      <p>In Claude, open <strong>Settings → Connectors</strong>, choose <strong>Add custom connector</strong> and enter:</p>
       <table class="docs-table">
         <thead><tr><th>Field</th><th>Value</th></tr></thead>
         <tbody>
           <tr><td>Name</td><td><code>DevOps Agent</code></td></tr>
-          <tr><td>Remote MCP server URL</td><td><code>https://devopsagent.io/mcp</code></td></tr>
-          <tr><td>OAuth Client ID</td><td><code>claude-connector</code></td></tr>
-          <tr><td>OAuth Client Secret</td><td><code>devopsagent-mcp-secret-2026</code></td></tr>
+          <tr><td>Remote MCP server URL</td><td><code>https://devopsagent.io/mcp/</code></td></tr>
         </tbody>
       </table>
-      <p>Click <strong>Add</strong>. Claude will open a DevOps Agent login page — sign in with your DevOps Agent credentials to authorize the connection. All your tools will be available in Claude immediately after.</p>
+      <p>Leave the OAuth client ID and secret empty: Claude registers itself automatically. Click <strong>Add</strong>, then <strong>Connect</strong>. A DevOps Agent sign-in page opens; sign in with your DevOps Agent email and password and enter your two-factor code. Menu names in Claude may change over time.</p>
 
-      <h3 class="subsection-title">Connect via Claude Desktop</h3>
-      <p>Generate an API key at <a href="/api-gateway/keys">/api-gateway/keys</a>, then edit your <code>claude_desktop_config.json</code> (macOS: <code>~/Library/Application Support/Claude/</code>, Windows: <code>%APPDATA%\Claude\</code>):</p>
+      <h3 class="subsection-title">Connect via Claude Desktop (npm)</h3>
+      <p>Create an API key in <a href="/settings#api-keys">Settings → API Keys</a>. Then add this to <code>claude_desktop_config.json</code> (macOS: <code>~/Library/Application Support/Claude/</code>, Windows: <code>%APPDATA%\Claude\</code>). It needs Node.js 18 or later.</p>
       <pre class="code-block">{
   "mcpServers": {
     "devops-agent": {
-      "url": "https://devopsagent.io/mcp/sse",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
+      "command": "npx",
+      "args": ["-y", "@devopsagent/mcp-server"],
+      "env": {
+        "DEVOPSAGENT_API_KEY": "YOUR_API_KEY"
       }
     }
   }
 }</pre>
-      <p>Restart Claude Desktop — all DevOps Agent tools appear in the tool list automatically.</p>
+      <p>Restart Claude Desktop and the DevOps Agent tools appear in its tool list.</p>
+
+      <h3 class="subsection-title">Before you start</h3>
+      <p>Tools act on the accounts you've connected in DevOps Agent: cloud accounts in <strong>Settings → Cloud Credentials</strong>, and GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog, SonarQube and Nexus in <strong>Settings → Integrations</strong>. Sandbox Mode applies to the web chat only; tool calls through MCP always use your real connected accounts.</p>
 
       <h3 class="subsection-title">Endpoints</h3>
       <table class="docs-table">
@@ -1271,11 +1254,11 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
       <table class="docs-table">
         <thead><tr><th>Method</th><th>How</th><th>Used by</th></tr></thead>
         <tbody>
-          <tr><td>OAuth 2.0</td><td>Authorization Code flow with PKCE. Client ID + Secret in connector settings.</td><td>Claude.ai connectors</td></tr>
+          <tr><td>OAuth 2.0</td><td>Authorization Code flow with PKCE. Clients register themselves (Dynamic Client Registration); accounts with two-factor on are asked for their code.</td><td>Claude.ai connectors</td></tr>
           <tr><td>API Key</td><td><code>Authorization: Bearer YOUR_API_KEY</code> header, or <code>?api_key=</code> query param.</td><td>Claude Desktop, custom clients</td></tr>
         </tbody>
       </table>
-      <p>Generate API keys at <a href="/api-gateway/keys">/api-gateway/keys</a>.</p>
+      <p>Create API keys in <a href="/settings#api-keys">Settings → API Keys</a>.</p>
 
       <h3 class="subsection-title">OAuth 2.0 Endpoints</h3>
       <table class="docs-table">
@@ -1284,7 +1267,8 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
           <tr><td><code>/.well-known/oauth-protected-resource</code></td><td>Resource metadata (RFC 9728) — advertises the authorization server URL.</td></tr>
           <tr><td><code>/.well-known/oauth-authorization-server</code></td><td>Authorization server metadata (RFC 8414) — lists all OAuth endpoints.</td></tr>
           <tr><td><code>/mcp/oauth/authorize</code></td><td>Authorization endpoint — shows login page, issues auth code on success.</td></tr>
-          <tr><td><code>/mcp/oauth/token</code></td><td>Token endpoint — exchanges auth code for access token. Supports <code>client_secret_post</code> and <code>client_secret_basic</code>.</td></tr>
+          <tr><td><code>/mcp/oauth/register</code></td><td>Dynamic Client Registration (RFC 7591).</td></tr>
+          <tr><td><code>/mcp/oauth/token</code></td><td>Token endpoint — exchanges an auth code (with the PKCE verifier) for an access token, and refreshes tokens.</td></tr>
         </tbody>
       </table>
 
@@ -1309,7 +1293,7 @@ Content-Type: application/json
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "list_ec2_instances",
+    "name": "get_ec2_instances",
     "arguments": { "region": "us-east-1" }
   }
 }</pre>
@@ -1324,11 +1308,11 @@ Content-Type: application/json
 
       <div class="alert alert-info">
         <span class="alert-icon">ℹ️</span>
-        <span>All tool calls go through the same safety validator as the chat interface. High-risk operations (delete, terminate) include a warning in the response so the calling model can re-confirm with the user.</span>
+        <span>Tool calls go through the same safety checks as the chat. A medium- or high-risk call (create, change, delete) doesn't run straight away: it returns an <code>approval_id</code> and waits for approval on the <a href="/approvals/mine">Approvals</a> page, by your organization's owners or admins, or by you on a personal account.</span>
       </div>
 
       <h3 class="subsection-title">Protocol</h3>
-      <p>Implements MCP protocol version <code>2025-03-26</code>. SSE sessions expire after 10 minutes of inactivity with keepalive comments every 15 seconds. OAuth access tokens are valid for 30 days.</p>
+      <p>Implements MCP protocol version <code>2025-03-26</code>. SSE sessions expire after 10 minutes of inactivity with keepalive comments every 15 seconds. OAuth access tokens are valid for 30 days and refresh tokens for 90.</p>
     </section>
 
     <div class="divider"></div>
@@ -1368,7 +1352,7 @@ Content-Type: application/json
       <h2 class="section-title">Security & 2FA</h2>
 
       <h3 class="subsection-title">Two-factor authentication</h3>
-      <p>Enable 2FA in <strong>Settings → Security → Two-Factor Authentication</strong>. DevOps Agent supports both:</p>
+      <p>Two-factor authentication is required for every account: you set it up right after verifying your email, and you can change the method in <strong>Settings → Security</strong>. DevOps Agent supports:</p>
       <table class="docs-table">
         <thead><tr><th>Method</th><th>How to set up</th></tr></thead>
         <tbody>
