@@ -2298,6 +2298,8 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
   `onclick` with a quoted link was a syntax error, so none were clickable); and
   `_approval_status_context()` puts the user's last 24 hours of requests with their real status
   into the prompt, after the agent claimed requests were approved and then "flipped back".
+  `build_risk_reason()` names the call for the `*_api_write` escape hatches ("This will call
+  iam create_role: RoleName=..."); they used to read only "This will execute: aws api write".
   Guard: `tests/test_approval_chat_visibility.py`.
 
 Still open: the CLI (no

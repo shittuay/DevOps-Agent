@@ -87,7 +87,20 @@ jobs:
           ANTHROPIC_API_KEY: test-api-key
           REDIS_URL: redis://localhost:6379/0
         run: |
-          pytest tests/ -v --cov=. --cov-report=xml --cov-report=html --cov-report=term-missing
+          set -o pipefail
+          pytest tests/ -v -rfE --cov=. --cov-report=xml --cov-report=html --cov-report=term-missing 2>&1 | tee pytest-output.txt
+
+      - name: Report failing tests as annotations
+        # Failed tests appear as check-run annotations, readable through the GitHub API
+        # when the raw log can't be downloaded (it lives in blob storage some tools can't reach).
+        if: failure()
+        run: |
+          grep -E '^(FAILED|ERROR) ' pytest-output.txt | head -20 | while IFS= read -r line; do
+            echo "::error title=pytest::${line}"
+          done
+          grep -E '^E ' pytest-output.txt | head -15 | while IFS= read -r line; do
+            echo "::error title=pytest detail::${line}"
+          done
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
