@@ -180,13 +180,47 @@ def waiting_message(req) -> str:
     )
 
 
+def _canonical(value) -> str:
+    import json
+    return json.dumps(value or {}, sort_keys=True, default=str)
+
+
+def _matching_pending_request(requester_id: int, tool_name: str, tool_input: dict, now):
+    from models import ApprovalRequest
+    wanted = _canonical(tool_input)
+    candidates = (
+        ApprovalRequest.query
+        .filter(
+            ApprovalRequest.requester_id == requester_id,
+            ApprovalRequest.tool_name == tool_name,
+            ApprovalRequest.status == 'pending',
+            ApprovalRequest.expires_at > now,
+        )
+        .order_by(ApprovalRequest.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    for req in candidates:
+        if _canonical(req.tool_input) == wanted:
+            return req
+    return None
+
+
 def create_request(tool_name: str, tool_input: dict, risk_level: str,
                    risk_reason: str, requester_id: int,
                    conversation_id: Optional[str] = None):
-    """Create a pending ApprovalRequest and notify approvers."""
+    """Create a pending ApprovalRequest and notify approvers.
+
+    An identical request (same requester, tool and input) that is still pending is
+    returned instead of filing a duplicate: the model re-calls the tool when the user
+    types "approve" in chat, which used to stack up copies of the same action.
+    """
     from models import ApprovalRequest, db
 
     now = utcnow()
+    existing = _matching_pending_request(requester_id, tool_name, tool_input, now)
+    if existing is not None:
+        return existing
     req = ApprovalRequest(
         requester_id=requester_id,
         conversation_id=conversation_id,

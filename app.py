@@ -3225,6 +3225,11 @@ def api_chat():
                 response_data['download_url'] = download_url
                 response_data['download_filename'] = download_storage[download_token]['filename']
 
+            # Risky actions filed for approval this turn: the page shows a confirm card
+            # for each, as the streaming path does with its approval_required event.
+            if _agent_result.get('approvals'):
+                response_data['approvals'] = _agent_result['approvals']
+
             return response_data
 
         def _run_agent_call():
@@ -3295,6 +3300,10 @@ def api_chat():
                 agent.pending_download = None
             except Exception:
                 _agent_result['pending_download'] = None
+            try:
+                _agent_result['approvals'] = list(getattr(agent, '_filed_approvals', []) or [])
+            except Exception:
+                _agent_result['approvals'] = []
 
             # Persist the turn from this thread as well, so it survives the
             # client disconnecting or the response being closed out early by
