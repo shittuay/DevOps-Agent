@@ -2341,6 +2341,10 @@ sets `title` on the tool and in `annotations` (`_tool_title()` turns `get_ec2_in
 "Get EC2 Instances"; add acronyms to `_TITLE_WORDS`). Guard: `tests/test_mcp_tool_titles.py`.
 Read-only hints come from name prefixes plus whole-segment suffixes (`_list`, `_status`...); a
 plain substring test once marked `create_listener` read-only.
+Directory policy also bars tool descriptions from instructing the model about other tools or its
+own behaviour. The chat descriptions do that on purpose (find_ami before create_ec2_instance), so
+the connector serves plain versions from `_MCP_DESCRIPTIONS` in `routes/mcp.py`; a new
+description that names another tool fails `test_descriptions_do_not_steer_the_model`.
 Field answers and the reviewer test-account notes are in `mcp/CONNECTOR_SUBMISSION.md`.
 
 ### Documentation layout

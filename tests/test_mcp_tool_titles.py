@@ -42,3 +42,27 @@ def test_create_tools_are_never_read_only():
     # still read-only
     for n in ('docker_list_containers', 'rollout_status', 'pagerduty_list_incidents'):
         assert tools[n]['readOnlyHint'] is True, n
+
+
+def test_descriptions_do_not_steer_the_model():
+    """Directory policy: no instructions about other tools or model behaviour."""
+    import re
+    tools = _listed_tools()
+    names = {t['name'] for t in tools}
+    steering = re.compile(r'(?i)\b(you must|always call|never use|use this instead|'
+                          r'instead of calling|call this after|use \w+ first|'
+                          r'confirm .* with the user)\b')
+    bad = []
+    for t in tools:
+        d = t['description']
+        others = [n for n in names if n != t['name'] and re.search(r'\b' + re.escape(n) + r'\b', d)]
+        if others:
+            bad.append(f"{t['name']} names {others}")
+        if steering.search(d):
+            bad.append(f"{t['name']}: {steering.search(d).group(0)}")
+    assert not bad, bad
+
+
+def test_overrides_only_cover_real_tools():
+    names = {t['name'] for t in _listed_tools()}
+    assert set(mcp._MCP_DESCRIPTIONS) <= names
