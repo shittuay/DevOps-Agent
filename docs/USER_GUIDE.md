@@ -11,7 +11,7 @@ credentials:
 
 | Works | Doesn't work |
 |-------|--------------|
-| Kubernetes, using your local kubeconfig | AWS, Azure and GCP tools (they refuse to run without a signed-in user's saved credentials) |
+| Kubernetes, using your local kubeconfig (set `K8S_USE_LOCAL_KUBECONFIG=true`) | AWS, Azure and GCP tools (they refuse to run without a signed-in user's saved credentials) |
 | Local Git repositories | Integration tools (GitHub Actions, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog) **unless** you pass the token in your request |
 | Terraform and Ansible on this machine | Workflows, approvals, dashboards and everything else in the web app |
 | Shell commands on this machine | |
@@ -80,6 +80,7 @@ exploring.
 | "Agent not initialized" | `ANTHROPIC_API_KEY` is missing from `config/.env`; run `python main.py init` and add it |
 | "Authentication required" from an AWS, Azure or GCP tool | Expected in the CLI; use the web app for cloud accounts |
 | "connect it in Settings > Integrations" | Pass the token in your request (for example "using token ghp_...") or use the web app |
+| Kubernetes tools say they need a signed-in user | Set `K8S_USE_LOCAL_KUBECONFIG=true` so the CLI uses your kubeconfig |
 | Kubernetes config not found | Check `~/.kube/config` or set `KUBECONFIG`; confirm `kubectl get pods` works |
 | Command timed out | Raise `safety.command_timeout_seconds` in `config/config.yaml` |
 

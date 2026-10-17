@@ -235,7 +235,7 @@ def _get_boto_kwargs(creds: Dict[str, str], region: Optional[str] = None) -> Dic
     }
 
 
-def get_user_boto_client(user_id: int, service: str, region: Optional[str] = None):
+def get_user_boto_client(user_id: int, service: str, region: Optional[str] = None, **client_kwargs):
     """
     Get a boto3 client configured with user-specific AWS credentials.
 
@@ -260,7 +260,7 @@ def get_user_boto_client(user_id: int, service: str, region: Optional[str] = Non
         )
 
     try:
-        return boto3.client(service, **_get_boto_kwargs(creds, region))
+        return boto3.client(service, **_get_boto_kwargs(creds, region), **client_kwargs)
     except Exception as e:
         raise Exception(f"Failed to create AWS client: {str(e)}")
 

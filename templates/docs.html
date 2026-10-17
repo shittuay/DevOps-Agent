@@ -863,8 +863,12 @@
       <p>DevOps Agent supports <strong>76 Kubernetes tools</strong> covering pods, deployments, services, namespaces, ConfigMaps, secrets, ingress, nodes, and jobs.</p>
 
       <h3 class="subsection-title">Connecting a cluster</h3>
-      <p>Kubernetes tools read a kubeconfig file (<code>~/.kube/config</code> or the path in <code>KUBECONFIG</code>) on the machine where DevOps Agent runs.</p>
-      <div class="alert alert-warn"><span class="alert-icon">⚠️</span><span>Kubernetes tools run on the server where DevOps Agent itself runs. On devopsagent.io that is our server, not your machine, so they are meant for self-hosted installs of DevOps Agent.</span></div>
+      <p>Kubernetes tools work with the <strong>EKS clusters in your connected AWS account</strong>. There is nothing extra to upload: DevOps Agent finds the cluster and signs in to it with the same AWS connection you set up in <strong>Settings → Cloud Credentials</strong>.</p>
+      <ol>
+        <li><strong>Let DevOps Agent into the cluster.</strong> In the EKS console, open the cluster, go to <strong>Access</strong>, and create an access entry for the IAM role DevOps Agent uses (the one in your Cloud Credentials). Attach <code>AmazonEKSViewPolicy</code> for read-only access, or a broader policy if you want it to make changes. The cluster's authentication mode must include <strong>API</strong>.</li>
+        <li><strong>Pick a cluster.</strong> With one cluster in your default region, nothing else is needed. With several, name the one you mean (for example "list pods in prod", or <code>us-west-2/prod</code> for another region). Ask "which Kubernetes clusters can you see?" to list them.</li>
+      </ol>
+      <div class="alert alert-warn"><span class="alert-icon">⚠️</span><span>The cluster's API endpoint must be public (you can limit it to specific IP ranges in EKS). Private-only clusters, GKE, AKS and other clusters aren't supported on devopsagent.io yet. Self-hosted installs can set <code>K8S_USE_LOCAL_KUBECONFIG=true</code> to use the server's own kubeconfig instead.</span></div>
       <p>To use a specific context, include the context name in your message:</p>
       <div class="code-block">
         Show pods in the production namespace using context prod-cluster
