@@ -629,7 +629,7 @@
                 <a href="/chat" class="header-button{% if request.path.startswith('/chat') %} active{% endif %}"><i class="fa-solid fa-terminal"></i> Chat</a>
                 <a href="/dashboard" class="header-button{% if request.path.startswith('/dashboard') %} active{% endif %}"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
                 <a href="/workflows" class="header-button{% if request.path.startswith('/workflows') %} active{% endif %}"><i class="fa-solid fa-diagram-project"></i> Workflows</a>
-                {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
+                {% if current_user.is_authenticated %}
                 <a href="/approvals" class="header-button" id="approvalsNavBtn" style="position:relative;">
                     <span>&#9203;</span> Approvals
                     <!-- Hidden until the count fetch below finds pending approvals, which

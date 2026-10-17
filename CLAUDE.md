@@ -2284,6 +2284,21 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
   is admin-only too, and no longer prints the first 12 characters of the Anthropic key.
 - Pinned by `tests/test_approval_self_confirm.py`, `tests/test_org_admin_approvals.py` and
 `tests/test_approval_consistency.py`.
+- **Finding and confirming a waiting request (2026-10-17).** Kimi chats use the non-streaming
+  `/api/chat`, which never sent the approval card, so users were told to "click the button in
+  chat" with no button. Requests filed there (and `_pending_approval` from the Claude gate or an
+  AWS permission request) are collected in the greenlet-local `_filed_approvals`, returned as
+  `approvals` in the response, and drawn by `renderApprovalCard()` in `index.html` (shared with
+  the streaming `approval_required` event). Also: `create_request()` returns an identical pending
+  request instead of filing a copy (typing "approve" made the model re-call the tool); the
+  Approvals link and `/api/approvals/count` are for every signed-in user and count their own
+  self-confirmable requests too; `/approvals` shows "Waiting for your confirmation" above the
+  queue (`static/js/my_requests.js`, shared with `/approvals/mine`), because an admin's own
+  requests never appeared there; bell notifications use `data-notif-*` attributes (the inline
+  `onclick` with a quoted link was a syntax error, so none were clickable); and
+  `_approval_status_context()` puts the user's last 24 hours of requests with their real status
+  into the prompt, after the agent claimed requests were approved and then "flipped back".
+  Guard: `tests/test_approval_chat_visibility.py`.
 
 Still open: the CLI (no
 signed-in user) runs risky tools unconfirmed; an approver's medium-risk call through either API

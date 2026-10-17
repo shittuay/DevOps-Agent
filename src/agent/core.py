@@ -734,6 +734,9 @@ class DevOpsAgent:
     _sandbox_mode = _greenlet_local_property('_sandbox_mode', default=False)
     _current_conversation_id = _greenlet_local_property('_current_conversation_id')
     _pending_approval = _greenlet_local_property('_pending_approval')
+    # Approval requests filed this turn on the non-streaming (Kimi /api/chat) path,
+    # which has no SSE event to show the card; app.py returns them in the response.
+    _filed_approvals = _greenlet_local_property('_filed_approvals', default_factory=list)
     _last_tools_used = _greenlet_local_property('_last_tools_used', default_factory=list)
     # Structured per-call record for the most recent turn: one dict per tool the
     # model requested, whether or not it ran. See _record_tool_call.
@@ -1864,6 +1867,7 @@ class DevOpsAgent:
             Agent's response text
         """
         self.logger.info(f"Processing isolated message for user {user_id}: {user_message[:100]}...")
+        self._filed_approvals = []
 
         # Set user context for cloud operations (thread-local)
         self._set_cloud_user_context(user_id)
@@ -1922,6 +1926,14 @@ class DevOpsAgent:
 
             # Capture pending download before restoring state
             result_pending_download = self.pending_download
+
+            # An approval filed by the Claude gate or an AWS permission request
+            # (_pending_approval) also needs its card on this non-streaming path.
+            pending = getattr(self, '_pending_approval', None)
+            if pending and not any(a['approval_id'] == pending.get('approval_id')
+                                   for a in self._filed_approvals):
+                self._filed_approvals.append(pending)
+            self._pending_approval = None
 
             return self._append_guard_notes(response_text)
 
@@ -2104,9 +2116,12 @@ class DevOpsAgent:
         trial_context: Optional[str] = None,
     ) -> tuple[str, str]:
         """Return (stable_core, volatile_tail) for the cached Claude path."""
+        session_context = '\n\n'.join(
+            part for part in (self._session_resource_context(), self._approval_status_context()) if part
+        )
         tail = build_volatile_tail(
             user_preferences_context, trial_context,
-            session_context=self._session_resource_context(),
+            session_context=session_context,
         )
         return STABLE_SYSTEM_PROMPT, tail
 
@@ -2162,6 +2177,42 @@ class DevOpsAgent:
             )
         except Exception as e:
             self.logger.debug(f"session resource context skipped: {e}")
+            return ''
+
+    def _approval_status_context(self) -> str:
+        """The user's approval requests from the last 24 hours, with their real status.
+
+        Without this the model guessed: it told a user requests had been approved
+        and then "flipped back to pending" (2026-10-17). Empty when there are none.
+        """
+        user_id = getattr(self, '_current_user_id', None)
+        if not user_id or getattr(self, '_sandbox_mode', False):
+            return ''
+        try:
+            from datetime import timedelta
+            from models import ApprovalRequest
+
+            rows = (
+                ApprovalRequest.query
+                .filter(
+                    ApprovalRequest.requester_id == user_id,  # user isolation
+                    ApprovalRequest.created_at >= utcnow() - timedelta(hours=24),
+                )
+                .order_by(ApprovalRequest.created_at.desc())
+                .limit(15)
+                .all()
+            )
+            if not rows:
+                return ''
+            lines = [f"- #{r.id} {r.tool_name}: {r.status}" for r in rows]
+            return (
+                "The user's approval requests in the last 24 hours, with their current status "
+                "(the only source for whether one was approved or ran; never claim otherwise; "
+                "the user approves with the Confirm button in chat or on /approvals/mine, "
+                "typing 'approve' does nothing):\n" + "\n".join(lines)
+            )
+        except Exception as e:
+            self.logger.debug(f"approval status context skipped: {e}")
             return ''
 
     def _build_system_prompt(self, user_preferences_context: Optional[str] = None, trial_context: Optional[str] = None) -> str:
@@ -2515,6 +2566,13 @@ class DevOpsAgent:
                                         )
                                         from services.approval_service import waiting_message
                                         result = {'success': False, 'error': waiting_message(_req)}
+                                        if not any(a['approval_id'] == _req.id for a in self._filed_approvals):
+                                            self._filed_approvals.append({
+                                                'approval_id': _req.id,
+                                                'tool_name': tool_name,
+                                                'risk_level': validation.risk_level,
+                                                'risk_reason': _reason,
+                                            })
                                 except Exception as _e:
                                     self.logger.warning(f"Kimi (non-streaming) approval intercept failed: {_e}")
                             if _is_approver:

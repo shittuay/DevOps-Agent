@@ -2822,6 +2822,7 @@
                         const cleanText = fullText.replace(/\n?🐝 \*Swarm active — \d+ agents[^*]*\*\n*/g, '');
                         const elapsedSec = Math.round((Date.now() - fetchStart) / 1000);
                         textDiv.innerHTML = formatMessage(cleanText);
+                        (data.approvals || []).forEach(a => renderApprovalCard(textDiv, a));
                         if (swarmMatch) {
                             const badge = document.createElement('div');
                             badge.className = 'swarm-meta';
@@ -2933,104 +2934,8 @@
                                 return;
                             } else if (evt.type === 'approval_required') {
                                 // ===== APPROVAL REQUIRED =====
-                                const approvalId = evt.approval_id;
-                                const toolLabel = evt.tool_name.replace(/_/g, ' ');
-                                // An AWS permission request: show the exact policy and how it gets added.
-                                const perm = evt.permission || null;
-                                const permHtml = perm ? `
-                                        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Policy to add:</div>
-                                        <pre style="font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:pre-wrap;overflow-x:auto;background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin:0 0 10px;">${escapeHtml(JSON.stringify(perm.policy, null, 2))}</pre>
-                                        ${perm.sensitive ? `<div style="font-size:13px;color:#ef4444;margin-bottom:10px;">&#9888; Sensitive permission (identity, keys or secret values). DevOps Agent never adds these itself; add it only if you mean the agent to have it.</div>` : ''}
-                                        ${perm.mode === 'self'
-                                            ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">On yes, DevOps Agent adds this to its own role (within the permissions boundary you set) and retries.</div>`
-                                            : `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">To approve: add it in AWS, then confirm here and DevOps Agent retries.<br>Console: ${escapeHtml((perm.manual||{}).console||'')}</div>
-                                               ${(perm.manual||{}).cli ? `<pre style="font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin:0 0 14px;">${escapeHtml(perm.manual.cli)}</pre>` : ''}`}` : '';
-                                textDiv.innerHTML = `
-                                    <div id="approval-card-${approvalId}" style="border:1px solid rgba(245,158,11,0.4);border-radius:12px;padding:20px;background:rgba(245,158,11,0.08);">
-                                        <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#f59e0b;">${perm ? '&#128273; AWS permission needed' : '&#9203; Approval Required'}</div>
-                                        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--accent-primary);margin-bottom:6px;">${escapeHtml(perm ? perm.action : evt.tool_name)}</div>
-                                        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">${escapeHtml(evt.risk_reason)}</div>${permHtml}
-                                        <div id="approval-wait-${approvalId}" style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
-                                            Waiting for an approver
-                                            <span class="approval-dots">&#8226;&#8226;&#8226;</span>
-                                        </div>
-                                    </div>`;
-                                // Solo accounts confirm their own risky actions.
-                                fetch(`/api/approvals/${approvalId}/status`).then(r => r.ok ? r.json() : null).then(s => {
-                                    if (!s || !s.can_confirm) return;
-                                    const wait = document.getElementById(`approval-wait-${approvalId}`);
-                                    if (!wait) return;
-                                    wait.innerHTML = `
-                                        <span>${perm ? 'Add this permission and retry?' : 'This action needs your confirmation before it runs.'}</span>
-                                        <button type="button" data-act="confirm" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.15);color:#10b981;font-weight:600;cursor:pointer;">${perm ? (perm.mode === 'self' ? 'Yes, add it &amp; retry' : 'I added it, retry') : 'Confirm &amp; run'}</button>
-                                        <button type="button" data-act="cancel" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#ef4444;font-weight:600;cursor:pointer;">${perm ? 'No' : 'Cancel'}</button>`;
-                                    wait.style.flexWrap = 'wrap';
-                                    wait.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
-                                        wait.querySelectorAll('button').forEach(b => b.disabled = true);
-                                        try {
-                                            const res = await fetch(`/api/approvals/${approvalId}/${btn.dataset.act}`, {
-                                                method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
-                                            });
-                                            const d = await res.json();
-                                            if (!d.success) {
-                                                wait.querySelector('span').textContent = d.error || 'Something went wrong.';
-                                                wait.querySelectorAll('button').forEach(b => b.disabled = false);
-                                            } else {
-                                                wait.innerHTML = btn.dataset.act === 'confirm' ? 'Running…' : 'Cancelling…';
-                                            }
-                                        } catch (_) {
-                                            wait.querySelectorAll('button').forEach(b => b.disabled = false);
-                                        }
-                                    }));
-                                }).catch(() => {});
-                                // Animate the dots
-                                let _dotState = 0;
-                                const _dotAnim = setInterval(() => {
-                                    const dots = textDiv.querySelector('.approval-dots');
-                                    if (!dots) { clearInterval(_dotAnim); return; }
-                                    _dotState = (_dotState + 1) % 4;
-                                    dots.textContent = '\u25cf'.repeat(_dotState) || '\u00b7\u00b7\u00b7';
-                                }, 600);
-                                // Poll for status change
-                                const _pollInterval = setInterval(async () => {
-                                    try {
-                                        const r = await fetch(`/api/approvals/${approvalId}/status`);
-                                        if (!r.ok) return;
-                                        const s = await r.json();
-                                        if (s.status === 'pending') return;
-                                        clearInterval(_pollInterval);
-                                        clearInterval(_dotAnim);
-                                        const card = document.getElementById(`approval-card-${approvalId}`);
-                                        if (!card) return;
-                                        if (s.status === 'executed') {
-                                            const res = s.execution_result || {};
-                                            const ok = res.success !== false;
-                                            card.style.borderColor = ok ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)';
-                                            card.style.background = ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
-                                            card.innerHTML = `
-                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:${ok?'#10b981':'#ef4444'};">${ok?(s.approver_id === s.requester_id ? '&#10003; Confirmed &amp; Executed' : '&#10003; Approved &amp; Executed'):'&#10007; Executed with error'}</div>
-                                                <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);white-space:pre-wrap;overflow-x:auto;">${JSON.stringify(res, null, 2).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
-                                        } else if (s.status === 'rejected' && s.approver_id === s.requester_id) {
-                                            card.style.borderColor = 'rgba(156,163,175,0.4)';
-                                            card.style.background = 'rgba(156,163,175,0.08)';
-                                            card.innerHTML = `
-                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#9ca3af;">Cancelled</div>
-                                                <div style="font-size:13px;color:var(--text-secondary);">You cancelled this request. Nothing was changed.</div>`;
-                                        } else if (s.status === 'rejected') {
-                                            card.style.borderColor = 'rgba(239,68,68,0.4)';
-                                            card.style.background = 'rgba(239,68,68,0.08)';
-                                            card.innerHTML = `
-                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#ef4444;">&#10007; Request Rejected</div>
-                                                <div style="font-size:13px;color:var(--text-secondary);">Rejected by ${escapeHtml(s.approver_name||'approver')}.${s.approver_note?' Note: '+escapeHtml(s.approver_note):''}</div>`;
-                                        } else if (s.status === 'expired') {
-                                            card.style.borderColor = 'rgba(156,163,175,0.4)';
-                                            card.style.background = 'rgba(156,163,175,0.08)';
-                                            card.innerHTML = `
-                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#9ca3af;">&#9203; Request Expired</div>
-                                                <div style="font-size:13px;color:var(--text-secondary);">Nobody confirmed it within 24 hours, so it was not run.</div>`;
-                                        }
-                                    } catch (_) {}
-                                }, 4000);
+                                textDiv.innerHTML = '';
+                                renderApprovalCard(textDiv, evt);
                                 isProcessing = false;
                                 updateSendButton(false);
                                 input.focus();
@@ -4112,9 +4017,9 @@
         // Init learning mode on page load
         document.addEventListener('DOMContentLoaded', initLearningMode);
 
-        // Approvals nav badge — polled only for approvers/admins (fetching for
-        // everyone produced a 403 console error every 30s for regular users)
-        {% if current_user.is_authenticated and current_user.role in ('approver', 'admin') %}
+        // Approvals nav link and badge, for every signed-in user: the count covers
+        // requests they review and their own requests only they can confirm.
+        {% if current_user.is_authenticated %}
         (function() {
             function refreshApprovalsBadge() {
                 fetch('/api/approvals/count')
@@ -4131,7 +4036,7 @@
                             badge.style.display = 'none';
                         }
                     })
-                    .catch(() => {/* not an approver — keep link hidden */});
+                    .catch(() => {});
             }
             document.addEventListener('DOMContentLoaded', refreshApprovalsBadge);
             setInterval(refreshApprovalsBadge, 30000);
@@ -4285,6 +4190,112 @@
                 .catch(() => {});
         }
 
+        // Shows a risky action's confirm/cancel card (streaming event, or the
+        // approvals list returned by the non-streaming /api/chat path).
+        function renderApprovalCard(host, evt) {
+                                const approvalId = evt.approval_id;
+                                const toolLabel = evt.tool_name.replace(/_/g, ' ');
+                                // An AWS permission request: show the exact policy and how it gets added.
+                                const perm = evt.permission || null;
+                                const permHtml = perm ? `
+                                        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Policy to add:</div>
+                                        <pre style="font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:pre-wrap;overflow-x:auto;background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin:0 0 10px;">${escapeHtml(JSON.stringify(perm.policy, null, 2))}</pre>
+                                        ${perm.sensitive ? `<div style="font-size:13px;color:#ef4444;margin-bottom:10px;">&#9888; Sensitive permission (identity, keys or secret values). DevOps Agent never adds these itself; add it only if you mean the agent to have it.</div>` : ''}
+                                        ${perm.mode === 'self'
+                                            ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">On yes, DevOps Agent adds this to its own role (within the permissions boundary you set) and retries.</div>`
+                                            : `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">To approve: add it in AWS, then confirm here and DevOps Agent retries.<br>Console: ${escapeHtml((perm.manual||{}).console||'')}</div>
+                                               ${(perm.manual||{}).cli ? `<pre style="font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin:0 0 14px;">${escapeHtml(perm.manual.cli)}</pre>` : ''}`}` : '';
+                                const holder = document.createElement('div');
+                                holder.style.marginTop = '12px';
+                                host.appendChild(holder);
+                                holder.innerHTML = `
+                                    <div id="approval-card-${approvalId}" style="border:1px solid rgba(245,158,11,0.4);border-radius:12px;padding:20px;background:rgba(245,158,11,0.08);">
+                                        <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#f59e0b;">${perm ? '&#128273; AWS permission needed' : '&#9203; Approval Required'}</div>
+                                        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--accent-primary);margin-bottom:6px;">${escapeHtml(perm ? perm.action : evt.tool_name)}</div>
+                                        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">${escapeHtml(evt.risk_reason)}</div>${permHtml}
+                                        <div id="approval-wait-${approvalId}" style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
+                                            Waiting for an approver
+                                            <span class="approval-dots">&#8226;&#8226;&#8226;</span>
+                                        </div>
+                                    </div>`;
+                                // Solo accounts confirm their own risky actions.
+                                fetch(`/api/approvals/${approvalId}/status`).then(r => r.ok ? r.json() : null).then(s => {
+                                    if (!s || !s.can_confirm) return;
+                                    const wait = document.getElementById(`approval-wait-${approvalId}`);
+                                    if (!wait) return;
+                                    wait.innerHTML = `
+                                        <span>${perm ? 'Add this permission and retry?' : 'This action needs your confirmation before it runs.'}</span>
+                                        <button type="button" data-act="confirm" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.15);color:#10b981;font-weight:600;cursor:pointer;">${perm ? (perm.mode === 'self' ? 'Yes, add it &amp; retry' : 'I added it, retry') : 'Confirm &amp; run'}</button>
+                                        <button type="button" data-act="cancel" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#ef4444;font-weight:600;cursor:pointer;">${perm ? 'No' : 'Cancel'}</button>`;
+                                    wait.style.flexWrap = 'wrap';
+                                    wait.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
+                                        wait.querySelectorAll('button').forEach(b => b.disabled = true);
+                                        try {
+                                            const res = await fetch(`/api/approvals/${approvalId}/${btn.dataset.act}`, {
+                                                method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+                                            });
+                                            const d = await res.json();
+                                            if (!d.success) {
+                                                wait.querySelector('span').textContent = d.error || 'Something went wrong.';
+                                                wait.querySelectorAll('button').forEach(b => b.disabled = false);
+                                            } else {
+                                                wait.innerHTML = btn.dataset.act === 'confirm' ? 'Running…' : 'Cancelling…';
+                                            }
+                                        } catch (_) {
+                                            wait.querySelectorAll('button').forEach(b => b.disabled = false);
+                                        }
+                                    }));
+                                }).catch(() => {});
+                                // Animate the dots
+                                let _dotState = 0;
+                                const _dotAnim = setInterval(() => {
+                                    const dots = holder.querySelector('.approval-dots');
+                                    if (!dots) { clearInterval(_dotAnim); return; }
+                                    _dotState = (_dotState + 1) % 4;
+                                    dots.textContent = '\u25cf'.repeat(_dotState) || '\u00b7\u00b7\u00b7';
+                                }, 600);
+                                // Poll for status change
+                                const _pollInterval = setInterval(async () => {
+                                    try {
+                                        const r = await fetch(`/api/approvals/${approvalId}/status`);
+                                        if (!r.ok) return;
+                                        const s = await r.json();
+                                        if (s.status === 'pending') return;
+                                        clearInterval(_pollInterval);
+                                        clearInterval(_dotAnim);
+                                        const card = document.getElementById(`approval-card-${approvalId}`);
+                                        if (!card) return;
+                                        if (s.status === 'executed') {
+                                            const res = s.execution_result || {};
+                                            const ok = res.success !== false;
+                                            card.style.borderColor = ok ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)';
+                                            card.style.background = ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
+                                            card.innerHTML = `
+                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:${ok?'#10b981':'#ef4444'};">${ok?(s.approver_id === s.requester_id ? '&#10003; Confirmed &amp; Executed' : '&#10003; Approved &amp; Executed'):'&#10007; Executed with error'}</div>
+                                                <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);white-space:pre-wrap;overflow-x:auto;">${JSON.stringify(res, null, 2).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
+                                        } else if (s.status === 'rejected' && s.approver_id === s.requester_id) {
+                                            card.style.borderColor = 'rgba(156,163,175,0.4)';
+                                            card.style.background = 'rgba(156,163,175,0.08)';
+                                            card.innerHTML = `
+                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#9ca3af;">Cancelled</div>
+                                                <div style="font-size:13px;color:var(--text-secondary);">You cancelled this request. Nothing was changed.</div>`;
+                                        } else if (s.status === 'rejected') {
+                                            card.style.borderColor = 'rgba(239,68,68,0.4)';
+                                            card.style.background = 'rgba(239,68,68,0.08)';
+                                            card.innerHTML = `
+                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#ef4444;">&#10007; Request Rejected</div>
+                                                <div style="font-size:13px;color:var(--text-secondary);">Rejected by ${escapeHtml(s.approver_name||'approver')}.${s.approver_note?' Note: '+escapeHtml(s.approver_note):''}</div>`;
+                                        } else if (s.status === 'expired') {
+                                            card.style.borderColor = 'rgba(156,163,175,0.4)';
+                                            card.style.background = 'rgba(156,163,175,0.08)';
+                                            card.innerHTML = `
+                                                <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#9ca3af;">&#9203; Request Expired</div>
+                                                <div style="font-size:13px;color:var(--text-secondary);">Nobody confirmed it within 24 hours, so it was not run.</div>`;
+                                        }
+                                    } catch (_) {}
+                                }, 4000);
+        }
+
         function renderNotifications(notifs) {
             const list = document.getElementById('notifList');
             if (!notifs || notifs.length === 0) {
@@ -4302,7 +4313,9 @@
                 bodyEl.className = 'notif-item-body';
                 bodyEl.textContent = n.body;
                 // Build safe HTML
-                return `<div class="notif-item${unreadClass}" onclick="handleNotifClick(${n.id}, ${JSON.stringify(n.link || '')})">
+                // data-* attributes, not an inline onclick: JSON.stringify(link) puts
+                // double quotes inside onclick="...", which broke every notification click.
+                return `<div class="notif-item${unreadClass}" data-notif-id="${Number(n.id)}" data-notif-link="${String(n.link || '').replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')}" role="button" tabindex="0">
                     <div class="notif-dot ${dotClass}"></div>
                     <div>
                         <div class="notif-item-title">${escapeHtml(n.title)}</div>
@@ -4327,9 +4340,15 @@
             return Math.floor(diff / 86400) + 'd ago';
         }
 
+        document.addEventListener('click', function(e) {
+            const item = e.target.closest && e.target.closest('.notif-item[data-notif-id]');
+            if (!item) return;
+            handleNotifClick(parseInt(item.dataset.notifId, 10), item.dataset.notifLink || '');
+        });
+
         function handleNotifClick(id, link) {
             fetch('/api/notifications/read', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
-            if (link) window.location.href = link;
+            if (link && link.startsWith('/') && !link.startsWith('//')) window.location.href = link;
             else fetchNotifications();
         }
 

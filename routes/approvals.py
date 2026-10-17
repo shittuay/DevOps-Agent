@@ -98,13 +98,29 @@ def get_pending():
     return jsonify(result)
 
 
+def _own_confirmable_count(user) -> int:
+    """The user's own pending requests that only they can confirm."""
+    from services import approval_service
+    n = sum(1 for r in approval_service.get_pending_for_requester(user.id)
+            if approval_service.can_self_confirm(r))
+    n += sum(1 for c in InfrastructureChange.query.filter_by(user_id=user.id, status='pending').all()
+             if approval_service.can_confirm_own_change(c, user))
+    return n
+
+
 @approvals_bp.route('/api/approvals/count')
 @login_required
-@_reviewer_required
 def get_count():
+    """Everything waiting on this user: requests they review, plus their own ones only
+    they can confirm. Open to every signed-in user (the nav badge is shown to all);
+    before 2026-10-17 it was reviewer-only, and an admin's own requests never counted."""
     from services import approval_service
-    reqs = approval_service.get_pending_for_approver(current_user.id)
-    return jsonify({'count': len(reqs) + len(_pending_changes_for_reviewer())})
+    reviewing = 0
+    if _is_reviewer(current_user):
+        reviewing = (len(approval_service.get_pending_for_approver(current_user.id))
+                     + len(_pending_changes_for_reviewer()))
+    own = _own_confirmable_count(current_user)
+    return jsonify({'count': reviewing + own, 'reviewing': reviewing, 'own': own})
 
 
 @approvals_bp.route('/api/approvals/<int:approval_id>/status')
