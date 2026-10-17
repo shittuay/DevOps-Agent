@@ -21,8 +21,25 @@ _KEY_FIELDS = [
 ]
 
 
+def _short(value, limit: int = 60) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, sort_keys=True, default=str)
+    return text if len(text) <= limit else text[:limit - 1] + '…'
+
+
 def build_risk_reason(tool_name: str, tool_input: dict) -> str:
     """Generate a human-readable risk reason from tool name and input."""
+    tool_input = tool_input or {}
+    if tool_name.endswith('_api_write'):
+        # The generic escape hatches said only "This will execute: aws api write",
+        # so the owner confirmed blind (2026-10-17). Name the call and its arguments.
+        service = tool_input.get('service') or tool_input.get('api_group') or ''
+        operation = tool_input.get('operation') or tool_input.get('method') or 'an API call'
+        params = tool_input.get('params') or {}
+        shown = []
+        if isinstance(params, dict):
+            shown = [f"{k}={_short(v)}" for k, v in list(params.items())[:3]]
+        call = f"{service} {operation}".strip()
+        return f"This will call {call}" + (f": {', '.join(shown)}" if shown else '')
     parts = []
     for field in _KEY_FIELDS:
         val = tool_input.get(field)

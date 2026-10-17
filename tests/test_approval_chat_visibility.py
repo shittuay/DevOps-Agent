@@ -139,3 +139,16 @@ def test_prompt_lists_real_request_statuses(app, users):
     assert "typing 'approve' does nothing" in text
     agent._current_user_id = users['admin'].id
     assert agent._approval_status_context() == ''
+
+
+def test_api_write_requests_say_what_they_will_do():
+    from services.approval_service import build_risk_reason
+    reason = build_risk_reason('aws_api_write', {
+        'service': 'iam', 'operation': 'create_role',
+        'params': {'RoleName': 'eksClusterRole', 'AssumeRolePolicyDocument': {'Version': '2012-10-17'}},
+    })
+    assert reason.startswith('This will call iam create_role: RoleName=eksClusterRole')
+    assert 'aws api write' not in reason
+    k8s = build_risk_reason('k8s_api_write', {'api_group': 'batch', 'method': 'delete_namespaced_job'})
+    assert k8s == 'This will call batch delete_namespaced_job'
+    assert build_risk_reason('delete_ec2_instance', {'instance_id': 'i-1'}) == 'This will delete ec2 instance: instance_id=i-1'
