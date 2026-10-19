@@ -1,6 +1,8 @@
 """
 Flask Web Interface for DevOps Agent with API Key Configuration and Authentication
 """
+import hmac
+from html import escape as html_escape
 import os
 import sys
 
@@ -4509,13 +4511,17 @@ def submit_contact():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        name = data.get('name', '').strip()
-        email = data.get('email', '').strip()
-        category = data.get('category', '').strip()
-        message = data.get('message', '').strip()
+        name = str(data.get('name', '')).strip()
+        email = str(data.get('email', '')).strip()
+        category = str(data.get('category', '')).strip()
+        message = str(data.get('message', '')).strip()
 
         if not all([name, email, category, message]):
             return jsonify({'error': 'All fields are required'}), 400
+
+        if (len(name) > 100 or len(email) > 254 or len(category) > 50
+                or len(message) > 5000 or any(c in name + email + category for c in '\r\n')):
+            return jsonify({'error': 'One or more fields are too long or contain invalid characters'}), 400
 
         try:
             validate_email(email, check_deliverability=False)
@@ -4542,15 +4548,17 @@ def submit_contact():
         # Forward message to support inbox
         try:
             support_email = os.getenv('SUPPORT_EMAIL', 'hello@devopsagent.io')
+            safe_name, safe_email = html_escape(name), html_escape(email)
+            safe_category, safe_message = html_escape(category), html_escape(message)
             html = email_service._wrap_html(f"""
                 <h2 style="color:#333;margin-bottom:12px;">New Contact Message</h2>
                 <table style="width:100%;border-collapse:collapse;font-size:14px;">
-                    <tr><td style="padding:8px 0;color:#666;width:100px;"><strong>From</strong></td><td style="padding:8px 0;">{name} &lt;{email}&gt;</td></tr>
-                    <tr><td style="padding:8px 0;color:#666;"><strong>Category</strong></td><td style="padding:8px 0;">{category}</td></tr>
-                    <tr><td style="padding:8px 0;color:#666;"><strong>Message</strong></td><td style="padding:8px 0;white-space:pre-wrap;">{message}</td></tr>
+                    <tr><td style="padding:8px 0;color:#666;width:100px;"><strong>From</strong></td><td style="padding:8px 0;">{safe_name} &lt;{safe_email}&gt;</td></tr>
+                    <tr><td style="padding:8px 0;color:#666;"><strong>Category</strong></td><td style="padding:8px 0;">{safe_category}</td></tr>
+                    <tr><td style="padding:8px 0;color:#666;"><strong>Message</strong></td><td style="padding:8px 0;white-space:pre-wrap;">{safe_message}</td></tr>
                 </table>
                 <div style="margin-top:20px;">
-                    <a href="mailto:{email}" style="display:inline-block;padding:10px 24px;background:linear-gradient(135deg,#ff6b35,#f7931e);color:white;text-decoration:none;border-radius:8px;font-weight:600;">Reply to {name}</a>
+                    <a href="mailto:{safe_email}" style="display:inline-block;padding:10px 24px;background:linear-gradient(135deg,#ff6b35,#f7931e);color:white;text-decoration:none;border-radius:8px;font-weight:600;">Reply to {safe_name}</a>
                 </div>
             """)
             email_service.send_email(support_email, f"[DevOps Agent] Contact: {category} from {name}", html)
@@ -5395,8 +5403,9 @@ def init_database():
         }), 403
 
     # Verify the secret token
-    provided_token = request.headers.get('X-Init-Secret') or request.json.get('secret') if request.json else None
-    if not provided_token or provided_token != init_secret:
+    body = request.get_json(silent=True) or {}
+    provided_token = request.headers.get('X-Init-Secret') or body.get('secret')
+    if not provided_token or not hmac.compare_digest(str(provided_token), init_secret):
         security_logger.warning(f"Unauthorized database initialization attempt from {request.remote_addr}")
         return jsonify({'error': 'Unauthorized'}), 403
 

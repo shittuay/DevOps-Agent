@@ -3365,3 +3365,12 @@ listed tool categories and said AWS/Azure/GCP credentials were not configured. T
   on its own.
 The addendum's hardcoded "$0.042/hour" price was replaced with the estimates rule.
 Guard: `tests/test_sandbox_first_run.py`.
+
+## 2026-10-18 scheduled review fixes
+
+- `routes/auth.py` `reset_mfa()`: the emailed link used to disable 2FA **and call `login_user()`**, so mailbox access alone gave a session, skipping the password, lockout and SSO enforcement. It now only turns 2FA off, refuses locked/SSO-enforced accounts and a missing expiry, and sends the user to the login page.
+- `app.py` `submit_contact()`: name/email/category/message were interpolated unescaped into the support email HTML. Now `html_escape`d, length-capped, and CR/LF rejected in header-bound fields.
+- `src/tools/cicd_tools.py`: GitHub Actions calls validate owner/repo/workflow id as a single path segment (`_gh_segment`), cast `run_id` to int, and set `timeout=GITHUB_API_TIMEOUT`.
+- `/init-database-secret-endpoint-12345`: constant-time secret compare; fixed the `or ... if ... else` precedence bug.
+- Not changed: `_reject_flag_like` still exists separately in `ansible_tools.py` and `git_tools.py`; the guardrails pipeline is still hand-copied at 8 sites.
+- Guard: `tests/test_review_fixes_2026_10_18.py`.

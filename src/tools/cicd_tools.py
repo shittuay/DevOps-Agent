@@ -1,4 +1,5 @@
 """CI/CD pipeline integration tools for DevOps Agent."""
+import re
 import requests
 import jenkins
 from github import Github, GithubException
@@ -8,6 +9,23 @@ from ..utils import get_logger, assert_safe_url, safe_request
 
 
 logger = get_logger(__name__)
+
+
+GITHUB_API_TIMEOUT = 30
+_GH_SEGMENT_RE = re.compile(r'[A-Za-z0-9_.-]+')
+
+
+def _gh_segment(value: Any, param_name: str) -> str:
+    """Return value if it is a single safe GitHub URL path segment, else raise ValueError.
+
+    Owner, repo and workflow ids come from chat text and are interpolated into
+    api.github.com paths; '/' or '..' would let the call reach other endpoints
+    with the user's token.
+    """
+    text = str(value)
+    if text in ('.', '..') or not _GH_SEGMENT_RE.fullmatch(text):
+        raise ValueError(f"Invalid {param_name}: {text!r}")
+    return text
 
 
 def _disable_jenkins_redirects(server: jenkins.Jenkins) -> jenkins.Jenkins:
@@ -675,8 +693,9 @@ def cancel_github_workflow_run(
         tok = _get_github_token(github_token)
         # ssrf-safe: hardcoded api.github.com
         resp = requests.post(
-            f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/runs/{run_id}/cancel',
-            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
+            f'https://api.github.com/repos/{_gh_segment(repo_owner, "repo_owner")}/{_gh_segment(repo_name, "repo_name")}/actions/runs/{int(run_id)}/cancel',
+            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'},
+            timeout=GITHUB_API_TIMEOUT
         )
         if resp.status_code == 202:
             return {'success': True, 'message': f'Workflow run {run_id} cancelled', 'run_id': run_id}
@@ -697,8 +716,9 @@ def rerun_failed_github_jobs(
         tok = _get_github_token(github_token)
         # ssrf-safe: hardcoded api.github.com
         resp = requests.post(
-            f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/runs/{run_id}/rerun-failed-jobs',
-            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
+            f'https://api.github.com/repos/{_gh_segment(repo_owner, "repo_owner")}/{_gh_segment(repo_name, "repo_name")}/actions/runs/{int(run_id)}/rerun-failed-jobs',
+            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'},
+            timeout=GITHUB_API_TIMEOUT
         )
         if resp.status_code == 201:
             return {'success': True, 'message': f'Failed jobs in run {run_id} queued for re-run', 'run_id': run_id}
@@ -718,8 +738,9 @@ def list_github_runners(
         tok = _get_github_token(github_token)
         # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
-            f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/runners',
-            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
+            f'https://api.github.com/repos/{_gh_segment(repo_owner, "repo_owner")}/{_gh_segment(repo_name, "repo_name")}/actions/runners',
+            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'},
+            timeout=GITHUB_API_TIMEOUT
         )
         resp.raise_for_status()
         data = resp.json()
@@ -757,8 +778,9 @@ def list_github_secrets(
         tok = _get_github_token(github_token)
         # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
-            f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets',
-            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
+            f'https://api.github.com/repos/{_gh_segment(repo_owner, "repo_owner")}/{_gh_segment(repo_name, "repo_name")}/actions/secrets',
+            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'},
+            timeout=GITHUB_API_TIMEOUT
         )
         resp.raise_for_status()
         data = resp.json()
@@ -787,8 +809,9 @@ def list_github_environments(
         tok = _get_github_token(github_token)
         # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
-            f'https://api.github.com/repos/{repo_owner}/{repo_name}/environments',
-            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
+            f'https://api.github.com/repos/{_gh_segment(repo_owner, "repo_owner")}/{_gh_segment(repo_name, "repo_name")}/environments',
+            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'},
+            timeout=GITHUB_API_TIMEOUT
         )
         resp.raise_for_status()
         data = resp.json()
@@ -824,8 +847,9 @@ def get_github_workflow_usage(
         tok = _get_github_token(github_token)
         # ssrf-safe: hardcoded api.github.com
         resp = requests.get(
-            f'https://api.github.com/repos/{repo_owner}/{repo_name}/actions/workflows/{workflow_id}/timing',
-            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'}
+            f'https://api.github.com/repos/{_gh_segment(repo_owner, "repo_owner")}/{_gh_segment(repo_name, "repo_name")}/actions/workflows/{_gh_segment(workflow_id, "workflow_id")}/timing',
+            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json'},
+            timeout=GITHUB_API_TIMEOUT
         )
         resp.raise_for_status()
         data = resp.json()

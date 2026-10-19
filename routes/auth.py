@@ -726,7 +726,11 @@ def reset_mfa():
     if not user or user.mfa_reset_token != hashed_token:
         return render_template(_LOGIN_TEMPLATE, error='Invalid or expired reset link.')
 
-    if utcnow() > user.mfa_reset_expires:
+    from services import sso_service
+    if sso_service.sso_login_required(user) or user.is_locked():
+        return render_template(_LOGIN_TEMPLATE, error='Invalid or expired reset link.')
+
+    if not user.mfa_reset_expires or utcnow() > user.mfa_reset_expires:
         user.mfa_reset_token = None
         user.mfa_reset_expires = None
         db.session.commit()
@@ -741,9 +745,11 @@ def reset_mfa():
     user.mfa_reset_expires = None
     db.session.commit()
 
-    login_user(user)
-    security_logger.info(f"MFA reset and login for {user.email} via email token")
-    return redirect(url_for('chat'))
+    # No login here: the emailed link only removes the second factor. The
+    # password is still required, so a mailbox alone never yields a session.
+    security_logger.info(f"MFA reset for {user.email} via email token")
+    return render_template(_LOGIN_TEMPLATE,
+        success='Two-factor authentication has been turned off. Sign in with your password.')
 
 
 @auth_bp.route('/setup-2fa')
