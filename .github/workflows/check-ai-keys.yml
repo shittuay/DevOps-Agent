@@ -108,6 +108,10 @@ jobs:
                                             'messages': [{'role': 'user', 'content': 'hi'}]})
                     print(f'RESULT model {model}: http={r.status_code}' + ('' if r.status_code == 200 else ' body=' + r.text[:160]))
         PYEOF
+        echo "=== recent chat errors ==="
+        journalctl -u devops-agent --since "-25 min" --no-pager 2>/dev/null \
+          | grep -iE "anthropic|claude|groq|fallback|401|APIError|authentication|Traceback|Started|Stopping" \
+          | grep -viE "GET /static" | tail -12 | cut -c1-230 | sed 's/^/RESULT journal: /'
         echo "=== agent claude call ==="
         timeout 120 venv/bin/python3 - << 'PYEOF2' 2>&1 | tail -12 | sed 's/^\(RESULT \)\{0,1\}/RESULT agent: /'
         import os, traceback
@@ -168,6 +172,9 @@ jobs:
         echo "::notice title=AI key check::ssm status=$STATUS"
         echo "$OUT"
         # GitHub keeps at most 10 annotations of each level per step.
+        echo "$OUT" | grep '^RESULT journal' | while IFS= read -r line; do
+          echo "::error title=Journal::${line}"
+        done
         echo "$OUT" | grep '^RESULT agent' | while IFS= read -r line; do
           echo "::warning title=Agent run::${line}"
         done
