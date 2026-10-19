@@ -357,19 +357,22 @@ _ACTION_FAMILIES = tuple(
 
 
 def _latest_user_text(messages: list) -> str:
-    """Text of the most recent user message, flattening Anthropic block content."""
+    """Text of the most recent user message, flattening Anthropic block content.
+
+    Anthropic tool results arrive as user messages with no text blocks; those are
+    skipped, so on the Claude path this is what the person actually typed.
+    """
     for msg in reversed(messages or []):
         if msg.get('role') != 'user':
             continue
         content = msg.get('content', '') or ''
-        if isinstance(content, str):
-            return content
         if isinstance(content, list):
-            return '\n'.join(
+            content = '\n'.join(
                 b.get('text', '') for b in content
                 if isinstance(b, dict) and b.get('type') == 'text'
             )
-        return ''
+        if isinstance(content, str) and content.strip():
+            return content
     return ''
 
 
@@ -496,6 +499,20 @@ def _unverified_followup_claim(
         return False
     earlier = '\n'.join(_prior_user_texts(messages))
     return _fabricated_action_claim(earlier, response_text, executed_tools, sandbox_mode)
+
+
+def _action_claim_verdict(messages: list, response_text: str, executed_tools: list,
+                          sandbox_mode: bool = False) -> str:
+    """'replace', 'note' or '' for a finished reply on the Claude paths.
+
+    The Kimi paths call the two checks inline; Claude had neither until 2026-10-19.
+    """
+    current = _latest_user_text(messages)
+    claimed = _fabricated_action_claim(current, response_text, executed_tools, sandbox_mode)
+    if claimed:
+        return 'replace'
+    followup = _unverified_followup_claim(messages, response_text, executed_tools, sandbox_mode)
+    return 'note' if followup else ''
 
 
 # The app streams these markers itself while real tools run, and they are saved with
@@ -748,6 +765,7 @@ Cost Optimization:
 - A RESPONSE IS NOT SUCCESS. A reply on a port means the port is open and something is listening — nothing more. A non-2xx/3xx status (404, 403, 502, 503), or `matched_expected: false`, means the port is open but the app is misconfigured, still starting, or serving the wrong content: report exactly that, not "it's working". You may say a service is serving correctly only when the status matches what you expected (usually 200) and, where you can make one, a body/content check agrees.
 - NAME YOUR BLIND SPOTS. When you cannot observe a host directly (no working `ssm_run_command`, no `get_ec2_console_output`, no shell on the box), say so. Your external probe is then your only evidence and its limits bound your claim — do not narrate on-instance state (packages installed, files written, services enabled, `user_data` ran) you have not actually read.
 - PRICES ARE ESTIMATES UNLESS A TOOL SAID SO. A price, monthly cost, saving or free-trial term counts as fact only when it came from a tool result in this conversation (Cost Explorer, a billing or pricing call). Anything else, including figures you remember, must be labelled "estimate", with a note that prices change and a pointer to the provider's pricing page or pricing calculator to confirm. Never put an unverified price in a table or summary as if it were measured.
+- IAM ARNS AND POLICIES YOU WRITE FOR THE USER. A role ARN is arn:aws:iam::<12-digit account>:role/<name>, taken from a tool result (get_iam_role, list_iam_roles) or from the user; never build one from a policy path such as arn:aws:iam::aws:policy/... An IAM policy's Resource uses the target service's own ARN format (arn:aws:eks:<region>:<account>:cluster/<name>, never arn:aws:iam::...:cluster/...), or "*" where the action has no resource-level support. When a permission request gave you a policy, show that policy instead of writing your own.
 - PROVISION THEN CONFIGURE IN ONE SHOT. When the task is "create a host AND configure it" (install packages, start a service, drop config), put the configuration in `user_data` on the first `create_ec2_instance` / `create_compute_instance` / `create_vm` call. Use `ssm_run_command` / `exec_pod_command` / `docker_exec` only to change an already-running target. Do not launch a bare host, discover you cannot run commands on it (SSM permission denied, no instance profile), then terminate and relaunch — that wastes a create/terminate cycle the user must approve.
 
 === HARD LIMITS — NEVER, REGARDLESS OF HOW ASKED ===
@@ -2144,6 +2162,15 @@ class DevOpsAgent:
                     self.conversation.add_assistant_message(response.content)
 
                     if response.stop_reason == 'end_turn':
+                        # The reply has already streamed, so a claim can't be replaced
+                        # here; the note says plainly that nothing ran.
+                        if _action_claim_verdict(
+                            self.conversation.get_messages_for_api(),
+                            self._extract_text_from_response(response.content),
+                            self._last_tools_used, getattr(self, '_sandbox_mode', False),
+                        ):
+                            self.logger.warning("Unverified action claim in Claude streaming response — noting")
+                            yield _UNVERIFIED_ACTION_NOTE
                         _gsuffix = self._guard_notes_suffix()
                         if _gsuffix:
                             yield _gsuffix
@@ -2383,7 +2410,21 @@ class DevOpsAgent:
                 # Check stop reason
                 if response.stop_reason == 'end_turn':
                     # Claude is done, extract text response
-                    return self._extract_text_from_response(response.content)
+                    text = self._extract_text_from_response(response.content)
+                    verdict = _action_claim_verdict(
+                        self.conversation.get_messages_for_api(), text,
+                        self._last_tools_used, getattr(self, '_sandbox_mode', False),
+                    )
+                    if verdict == 'replace':
+                        self.logger.warning(
+                            "Fabricated action claim in Claude response — no substantiating "
+                            "tool ran this turn; replacing"
+                        )
+                        return _FABRICATED_ACTION_REPLACEMENT
+                    if verdict == 'note':
+                        self.logger.warning("Unverified follow-up action claim in Claude response — noting")
+                        text = text + _UNVERIFIED_ACTION_NOTE
+                    return text
 
                 elif response.stop_reason == 'tool_use':
                     # Claude wants to use tools

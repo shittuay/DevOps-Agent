@@ -3418,5 +3418,15 @@ The owner's free-tier (Kimi) chat creating an EKS cluster. Fixed (`tests/test_ek
 - **"Error: Rate limit exceeded. 10 per 1 hour".** `/api/chat*` 429s now say the plan limit
   and roughly when it resets (`Retry-After`), and the chat page doesn't prefix them with "Error:".
 
-Not fixed: the model's own wrong IAM advice (a role ARN built from a policy path, an EKS ARN
-under `arn:aws:iam`). The Claude tool loop still has no fabricated-claim check.
+Follow-up the same day (`tests/test_eks_session_fixes.py`, `tests/conftest.py`):
+- The Claude tool loops now run the fabricated-claim check (`_action_claim_verdict`):
+  replace on the non-streaming path, append the note on the streaming path.
+- System prompt rule "IAM ARNS AND POLICIES YOU WRITE FOR THE USER" covers the wrong IAM
+  advice (a role ARN built from a policy path, an EKS ARN under `arn:aws:iam`).
+- **Flaky `test_change_governance_org_scope` (blocked two deploys):** `POST /api/changes`
+  500'd with `ObjectDeletedError`. The suite shares one SQLite connection (StaticPool);
+  `_notify_change`'s background thread rolls that connection back on app-context teardown,
+  and when that lands between the next request's INSERT and COMMIT the row disappears.
+  Test-only (Postgres gives each thread its own connection). An autouse conftest fixture
+  makes `routes.changes._notify_change` a no-op. Other daemon-thread dispatchers
+  (webhooks, budget alerts) have the same shape if a test ever creates rows right after them.
