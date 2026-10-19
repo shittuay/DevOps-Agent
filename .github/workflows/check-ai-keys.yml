@@ -58,9 +58,13 @@ jobs:
             prod = json.loads(sm.get_secret_value(SecretId='devops-agent/production')['SecretString'])
             ck = (prod.get('CLAUDE_API_KEY') or '').strip()
             if ck:
-                code = requests.get('https://api.anthropic.com/v1/models', timeout=15,
-                                    headers={'x-api-key': ck, 'anthropic-version': '2023-06-01'}).status_code
-                print(f'RESULT secret CLAUDE_API_KEY: http={code} len={len(ck)} prefix_ok={ck.startswith("sk-ant-")}')
+                h = {'x-api-key': ck, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'}
+                r = requests.get('https://api.anthropic.com/v1/models', timeout=15, headers=h)
+                print(f'RESULT secret CLAUDE_API_KEY models: http={r.status_code} body={r.text[:200]}')
+                r = requests.post('https://api.anthropic.com/v1/messages', timeout=30, headers=h,
+                                  json={'model': 'claude-sonnet-4-6', 'max_tokens': 5,
+                                        'messages': [{'role': 'user', 'content': 'hi'}]})
+                print(f'RESULT secret CLAUDE_API_KEY messages(claude-sonnet-4-6): http={r.status_code} body={r.text[:200]}')
         except Exception as exc:
             print(f'RESULT secret CLAUDE_API_KEY probe failed: {type(exc).__name__}')
         print('RESULT FLASK_ENV in .env = ' + repr(envfile.get('FLASK_ENV', '')))
