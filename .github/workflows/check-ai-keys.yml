@@ -109,9 +109,10 @@ jobs:
                     print(f'RESULT model {model}: http={r.status_code}' + ('' if r.status_code == 200 else ' body=' + r.text[:160]))
         PYEOF
         echo "=== agent claude call ==="
-        set -a; . ./.env; set +a
-        timeout 90 venv/bin/python3 - << 'PYEOF2' 2>&1 | grep -E "^RESULT" | head -20
+        timeout 120 venv/bin/python3 - << 'PYEOF2' 2>&1 | tail -12 | sed 's/^\(RESULT \)\{0,1\}/RESULT agent: /'
         import os, traceback
+        from dotenv import load_dotenv
+        load_dotenv('.env')
         from services.secrets_manager import init_secrets
         print('RESULT init_secrets=' + str(init_secrets()))
         try:
