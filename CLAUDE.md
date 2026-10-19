@@ -1156,6 +1156,13 @@ created" after a real mutation is the more damaging error.
   response paths.
 - **Known gap:** the Claude (professional/business) tool loop has no hallucination check
   at all, this one included. Pre-existing, not a regression.
+- **Follow-ups (2026-10-19):** a latest message with no action verb and no question
+  ("okay", "this is the role: X") is checked against the previous 3 user messages by
+  `_unverified_followup_claim`, which *appends* `_UNVERIFIED_ACTION_NOTE` rather than
+  replacing. Claim regexes also cover in-progress wording ("creation is in progress",
+  "state is CREATING"). History replay strips the app's own `_[Executing tool...]_`
+  marker (`_strip_system_markers`); otherwise the model copies it and the strong check
+  replaces real answers.
 
 `_should_require_tool_use()` / `_TOOL_SIGNAL_RE` were **deleted** — they were defined and
 never called from anywhere in the repo, so a guard that looked present in review enforced
@@ -2349,6 +2356,10 @@ policy and ask the account owner yes/no, then retry. `services/aws_permissions.p
   wildcards are the only ones `is_sensitive()` accepts; identity prefixes never get bundles.
 - **Retry:** up to 3 tries (`RETRY_DELAYS`, IAM propagation). A different denied action on
   retry files a follow-up request (`next_permission_request`).
+- **Access-level hint (2026-10-19):** from the second distinct *write* permission a user is
+  refused within 6 hours, `access_level_hint()` adds `access_level_hint` to the model's note,
+  telling it to suggest switching the stack to `PolicyLevel=Manage` once instead of filing
+  more one-off requests (an EKS cluster on a Read role took seven).
 - **CloudFormation:** `AllowSelfGrant` (default `No`) adds `DevOpsAgentSelfGrant`
   (Put/DeleteRolePolicy on its own role; deny boundary/trust/attach changes) and the
   `DevOpsAgentBoundary` managed policy as the permissions boundary (all services except

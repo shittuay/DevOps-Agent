@@ -20,6 +20,7 @@ import json
 import logging
 import re
 import time
+from datetime import timedelta
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -243,10 +244,56 @@ def file_request(user_id: int, conversation_id: Optional[str], tool_name: str,
                           conversation_id=conversation_id)
 
 
+_READ_VERBS = ('List', 'Describe', 'Get', 'BatchGet')
+HINT_AFTER_WRITE_DENIALS = 2
+HINT_WINDOW = timedelta(hours=6)
+
+MANAGE_ACCESS_HINT = (
+    "The account owner has now been asked for {count} separate write permissions ({actions}). "
+    "Stop the one-at-a-time requests and tell them the one-step fix: their DevOps Agent role is "
+    "on a read-only access level. Switching the CloudFormation stack to the 'Manage' access level "
+    "lets DevOps Agent create, change and delete resources in every AWS service, including "
+    "iam:PassRole to AWS services (IAM itself stays read-only, so creating a new IAM role still "
+    "needs its own permission). Console: CloudFormation > the DevOps Agent stack > Update > "
+    "Replace current template with "
+    "https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json > set PolicyLevel "
+    "to Manage > Submit. CLI: aws cloudformation update-stack --stack-name YOUR_STACK_NAME "
+    "--template-url https://devopsagent-cf-templates.s3.amazonaws.com/devops-agent-role.json "
+    "--parameters ParameterKey=ExternalId,UsePreviousValue=true "
+    "ParameterKey=PolicyLevel,ParameterValue=Manage ParameterKey=RoleName,UsePreviousValue=true "
+    "--capabilities CAPABILITY_NAMED_IAM. Never write IAM policies yourself with guessed resource "
+    "ARNs; use the policy in the permission request."
+)
+
+
+def _is_write_action(action: Optional[str]) -> bool:
+    verb = (action or '').split(':', 1)[-1]
+    return bool(verb) and not verb.startswith(_READ_VERBS)
+
+
+def access_level_hint(user_id: int) -> Optional[str]:
+    """The Manage-access suggestion once a user has hit several missing write permissions.
+
+    A read-level role refuses every create, so one task (an EKS cluster) became seven
+    separate requests in a row, each needing the owner to edit IAM by hand (2026-10-19).
+    """
+    from models import ApprovalRequest
+    from src.utils.timeutils import utcnow
+    rows = ApprovalRequest.query.filter(
+        ApprovalRequest.requester_id == user_id,
+        ApprovalRequest.tool_name == PERMISSION_TOOL,
+        ApprovalRequest.created_at >= utcnow() - HINT_WINDOW,
+    ).all()
+    actions = sorted({a for a in ((r.tool_input or {}).get('action') for r in rows) if _is_write_action(a)})
+    if len(actions) < HINT_AFTER_WRITE_DENIALS:
+        return None
+    return MANAGE_ACCESS_HINT.format(count=len(actions), actions=', '.join(actions))
+
+
 def model_note(req) -> Dict[str, Any]:
     """What the agent sees in place of the bare AccessDenied."""
     ti = req.tool_input or {}
-    return {
+    note = {
         'permission_request_id': req.id,
         'missing_permission': ti.get('action'),
         'policy': ti.get('policy'),
@@ -257,6 +304,10 @@ def model_note(req) -> Dict[str, Any]:
             "you will retry automatically. Do not try other tools to get around the missing permission."
         ),
     }
+    hint = access_level_hint(req.requester_id)
+    if hint:
+        note['access_level_hint'] = hint
+    return note
 
 
 def _put_self_policy(user_id: int, principal: Dict, policy: Dict) -> None:
@@ -321,6 +372,9 @@ def execute_grant(req, run_tool) -> Dict[str, Any]:
                                    ti.get('original_input') or {}, retry, category_of(ti['original_tool']))
             if new_req is not None:
                 follow_up = {'permission_request_id': new_req.id, 'missing_permission': nxt['action']}
+                hint = access_level_hint(req.requester_id)
+                if hint:
+                    follow_up['access_level_hint'] = hint
     return {
         'success': not still_denied and bool(isinstance(retry, dict) and retry.get('success', True)),
         'permission': ti.get('action'),
