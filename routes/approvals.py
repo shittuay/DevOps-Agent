@@ -131,7 +131,11 @@ def get_status(approval_id):
     is_approver = approval_service.can_approve(req, current_user)
     if current_user.id != req.requester_id and not is_approver:
         return jsonify({'error': 'Access denied'}), 403
+    approval_service._recover_interrupted_runs()
     data = req.to_dict()
+    data['running'] = req.status == 'approved'
+    if req.status == 'executed':
+        data['summary'] = approval_service.summarize_result(req.tool_name, req.execution_result)
     data['can_confirm'] = (
         current_user.id == req.requester_id
         and req.status == 'pending'
@@ -179,7 +183,7 @@ def get_mine():
 @login_required
 def confirm_own(approval_id):
     from services import approval_service
-    result = approval_service.confirm_own(approval_id, current_user.id)
+    result = approval_service.confirm_own(approval_id, current_user.id, background=True)
     return jsonify(result), (200 if result['success'] else 400)
 
 
@@ -263,7 +267,7 @@ def get_history():
 def approve(approval_id):
     data = request.get_json() or {}
     from services import approval_service
-    result = approval_service.approve(approval_id, current_user.id, data.get('note'))
+    result = approval_service.approve(approval_id, current_user.id, data.get('note'), background=True)
     status = 200 if result['success'] else 400
     return jsonify(result), status
 

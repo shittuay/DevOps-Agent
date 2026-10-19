@@ -7,6 +7,7 @@ for high-risk tool calls that require a second human sign-off.
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 from src.utils.timeutils import utcnow
@@ -320,8 +321,15 @@ def _notify_approvers(req):
     db.session.commit()
 
 
-def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> dict:
-    """Approve a request, execute the tool, and notify the requester."""
+def approve(approval_id: int, approver_id: int, note: Optional[str] = None,
+            background: bool = False) -> dict:
+    """Approve a request, execute the tool, and notify the requester.
+
+    background=True (the web pages) returns as soon as the run starts; the page
+    polls /api/approvals/<id>/status. A long tool call inside the HTTP request
+    outlived Cloudflare's ~100s limit, so the browser saw an error while the
+    tool kept running.
+    """
     from models import ApprovalRequest, User
 
     req = ApprovalRequest.query.get(approval_id)
@@ -338,10 +346,10 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None) -> d
     if req.status != 'pending':
         return {'success': False, 'error': f'Request is already {req.status}'}
 
-    return _run_approved(req, approver, note, self_confirmed=False)
+    return _run_approved(req, approver, note, self_confirmed=False, background=background)
 
 
-def confirm_own(approval_id: int, user_id: int) -> dict:
+def confirm_own(approval_id: int, user_id: int, background: bool = False) -> dict:
     """The requester confirms their own request. Only allowed for solo accounts."""
     from models import ApprovalRequest, User
 
@@ -356,7 +364,7 @@ def confirm_own(approval_id: int, user_id: int) -> dict:
     user = User.query.get(user_id)
     if not user:
         return {'success': False, 'error': 'Request not found'}
-    return _run_approved(req, user, None, self_confirmed=True)
+    return _run_approved(req, user, None, self_confirmed=True, background=background)
 
 
 def cancel_own(approval_id: int, user_id: int) -> dict:
@@ -390,16 +398,103 @@ def get_pending_for_requester(user_id: int) -> list:
     )
 
 
-def _run_approved(req, decided_by, note: Optional[str], self_confirmed: bool) -> dict:
-    """Mark a request approved, execute it, and record the outcome."""
-    from models import User, AppNotification, ChatMessage, db
+# How long a run may stay 'approved' (running) before it is treated as cut off,
+# e.g. by a deploy restart. Tool calls are bounded far below this.
+RUN_STALE_MINUTES = 30
 
-    now = utcnow()
-    req.status = 'approved'
-    req.approver_id = decided_by.id
-    req.decided_at = now
-    req.approver_note = note if not self_confirmed else 'Confirmed by the requester'
+INTERRUPTED_RESULT = {
+    'success': False,
+    'interrupted': True,
+    'error': ('The run was cut off before it reported back (for example by a server '
+              'restart). It may or may not have made the change; check your account '
+              'before trying again.'),
+}
+
+
+def _start_background(fn) -> None:
+    """Run fn on a daemon thread. Tests replace this to run inline."""
+    threading.Thread(target=fn, daemon=True, name='approval-run').start()
+
+
+def summarize_result(tool_name: str, result) -> str:
+    """One plain sentence about what an approved tool call did."""
+    label = (tool_name or 'The action').replace('_', ' ')
+    label = label[:1].upper() + label[1:]
+    if not isinstance(result, dict):
+        return f"{label} finished."
+    if result.get('interrupted'):
+        return result.get('error')
+    if result.get('success') is False:
+        err = str(result.get('error') or 'no error message was returned')
+        return f"{label} failed: {err[:400]}"
+    msg = str(result.get('message') or '').strip()
+    text = f"{label} finished. {msg[:400]}" if msg else f"{label} finished."
+    verification = result.get('_verification') or {}
+    if verification.get('status') == 'unconfirmed':
+        text += " A read-back hasn't confirmed the change yet; it may still be in progress."
+    return text
+
+
+def _result_message(req, decided_by, result, self_confirmed: bool) -> str:
+    heading = "**Confirmed by you.**" if self_confirmed else f"**Approval granted** by {decided_by.username}."
+    details = json.dumps(result, indent=2, default=str)
+    if len(details) > 3000:
+        details = details[:3000] + '\n... (truncated)'
+    return (
+        f"{heading} {summarize_result(req.tool_name, result)}\n\n"
+        f"Details ({req.tool_name}):\n```json\n{details}\n```"
+    )
+
+
+def _claim(req, decided_by, note: Optional[str], self_confirmed: bool) -> bool:
+    """Move pending -> approved in one UPDATE, so two clicks can't run it twice."""
+    from models import ApprovalRequest, db
+
+    claimed = ApprovalRequest.query.filter_by(id=req.id, status='pending').update({
+        'status': 'approved',
+        'approver_id': decided_by.id,
+        'decided_at': utcnow(),
+        'approver_note': note if not self_confirmed else 'Confirmed by the requester',
+    }, synchronize_session=False)
     db.session.commit()
+    db.session.refresh(req)
+    return bool(claimed)
+
+
+def _run_approved(req, decided_by, note: Optional[str], self_confirmed: bool,
+                  background: bool = False) -> dict:
+    """Mark a request approved, execute it, and record the outcome."""
+    from flask import current_app
+
+    if not _claim(req, decided_by, note, self_confirmed):
+        return {'success': False, 'error': f'Request is already {req.status}'}
+
+    if not background:
+        return _finish_run(req, decided_by, self_confirmed)
+
+    app = current_app._get_current_object()
+    req_id, decided_by_id = req.id, decided_by.id
+
+    def _worker():
+        from models import ApprovalRequest, User, db
+        with app.app_context():
+            try:
+                fresh = ApprovalRequest.query.get(req_id)
+                who = User.query.get(decided_by_id)
+                if fresh is not None and who is not None and fresh.status == 'approved':
+                    _finish_run(fresh, who, self_confirmed)
+            except Exception as e:
+                logger.error(f"Background run failed for approval {req_id}: {e}", exc_info=True)
+            finally:
+                db.session.remove()
+
+    _start_background(_worker)
+    return {'success': True, 'status': 'running', 'approval_id': req_id}
+
+
+def _finish_run(req, decided_by, self_confirmed: bool) -> dict:
+    """Execute an already-claimed request and record the outcome."""
+    from models import User, AppNotification, ChatMessage, db
 
     try:
         result = _execute_tool(req)
@@ -412,13 +507,9 @@ def _run_approved(req, decided_by, note: Optional[str], self_confirmed: bool) ->
     req.executed_at = utcnow()
     db.session.commit()
 
-    heading = "**Confirmed by you.**" if self_confirmed else f"**Approval granted** by {decided_by.username}."
     if req.conversation_id:
         try:
-            result_text = (
-                f"{heading}\n\n"
-                f"**Result ({req.tool_name}):**\n```json\n{json.dumps(result, indent=2)}\n```"
-            )
+            result_text = _result_message(req, decided_by, result, self_confirmed)
             msg = ChatMessage(
                 user_id=req.requester_id,
                 conversation_id=req.conversation_id,
@@ -712,3 +803,25 @@ def _expire_stale():
         ApprovalRequest.expires_at <= now,
     ).update({'status': 'expired'})
     db.session.commit()
+    _recover_interrupted_runs()
+
+
+def _recover_interrupted_runs():
+    """A run left 'approved' long past any tool's runtime was cut off (e.g. a restart).
+
+    Record that honestly instead of leaving the card saying "Running" forever.
+    """
+    from models import ApprovalRequest, db
+
+    cutoff = utcnow() - timedelta(minutes=RUN_STALE_MINUTES)
+    stuck = ApprovalRequest.query.filter(
+        ApprovalRequest.status == 'approved',
+        ApprovalRequest.executed_at.is_(None),
+        ApprovalRequest.decided_at <= cutoff,
+    ).all()
+    for req in stuck:
+        req.status = 'executed'
+        req.execution_result = dict(INTERRUPTED_RESULT)
+        req.executed_at = utcnow()
+    if stuck:
+        db.session.commit()

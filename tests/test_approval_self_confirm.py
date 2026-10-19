@@ -135,7 +135,7 @@ def test_solo_user_confirms_own_request(app, people, fake_execute):
 
     resp = client.post(f'/api/approvals/{req.id}/confirm', json={})
     assert resp.status_code == 200, resp.get_json()
-    assert resp.get_json()['result']['success'] is True
+    assert resp.get_json()['status'] == 'running'
     assert fake_execute == [req.id]
 
     stored = ApprovalRequest.query.get(req.id)
