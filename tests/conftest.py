@@ -71,6 +71,23 @@ def client(app):
     return c
 
 
+@pytest.fixture(autouse=True)
+def _no_change_notification_thread(monkeypatch):
+    """Keep change-request notifications off a background thread in tests.
+
+    The suite shares one SQLite connection (StaticPool). The notification thread's
+    app-context teardown rolls that connection back, and when it lands between the
+    next request's INSERT and COMMIT the new row vanishes: POST /api/changes then
+    500s with ObjectDeletedError. It failed CI twice on 2026-10-19. Production
+    (Postgres) gives each thread its own connection, so this is test-only.
+    """
+    try:
+        import routes.changes as changes_routes
+    except Exception:
+        return
+    monkeypatch.setattr(changes_routes, '_notify_change', lambda *a, **k: None)
+
+
 @pytest.fixture(scope='function')
 def db_session(app):
     """Yield the current db session; rollback uncommitted changes after each test."""

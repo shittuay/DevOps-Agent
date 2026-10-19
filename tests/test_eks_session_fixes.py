@@ -69,7 +69,42 @@ def test_followup_note_is_appended_not_replacing_on_both_kimi_paths():
     with open('src/agent/core.py', encoding='utf-8') as f:
         src = f.read()
     assert src.count('if _unverified_followup_claim(') == 2
-    assert src.count('_UNVERIFIED_ACTION_NOTE') == 3  # definition + 2 call sites
+    # definition + 2 Kimi sites + 2 Claude sites
+    assert src.count('_UNVERIFIED_ACTION_NOTE') == 5
+
+
+# --- Claude paths (no check at all before 2026-10-19) ---------------------------------
+
+def _claude_conv(*turns):
+    """Anthropic-format history: tool results are user messages with no text."""
+    msgs = []
+    for text in turns:
+        msgs.append({'role': 'user', 'content': [{'type': 'text', 'text': text}]})
+        msgs.append({'role': 'assistant', 'content': [{'type': 'tool_use', 'id': 't', 'name': 'x', 'input': {}}]})
+        msgs.append({'role': 'user', 'content': [{'type': 'tool_result', 'tool_use_id': 't', 'content': '{}'}]})
+    return msgs
+
+
+def test_latest_user_text_skips_tool_results():
+    assert core._latest_user_text(_claude_conv('list vpcs', 'create the cluster')) == 'create the cluster'
+
+
+def test_claude_verdict():
+    assert core._action_claim_verdict(_claude_conv('create the cluster'), LIE, []) == 'replace'
+    assert core._action_claim_verdict(_claude_conv('create the cluster', 'okay'), LIE, []) == 'note'
+    assert core._action_claim_verdict(_claude_conv('create the cluster'), LIE, ['create_eks_cluster']) == ''
+    assert core._action_claim_verdict(_claude_conv('create the cluster'), LIE, [], sandbox_mode=True) == ''
+
+
+def test_claude_paths_are_wired():
+    with open('src/agent/core.py', encoding='utf-8') as f:
+        src = f.read()
+    assert src.count('_action_claim_verdict(') == 3  # definition + non-streaming + streaming
+
+
+def test_prompt_rules_out_invented_iam_arns():
+    assert 'never build one from a policy path' in core.STABLE_SYSTEM_PROMPT
+    assert 'never arn:aws:iam::...:cluster/' in core.STABLE_SYSTEM_PROMPT
 
 
 # --- 2/3. markers in history, streaming check ---------------------------------------

@@ -1154,8 +1154,11 @@ created" after a real mutation is the more damaging error.
 - Adding a mutation verb the families don't cover, or a new response path, means updating
   `_ACTION_FAMILIES` / wiring the guard; the test file asserts it appears on exactly 2
   response paths.
-- **Known gap:** the Claude (professional/business) tool loop has no hallucination check
-  at all, this one included. Pre-existing, not a regression.
+- **Claude paths (2026-10-19):** both end-turn exits call `_action_claim_verdict()`. The
+  non-streaming path replaces like Kimi; the streaming path has already sent the text, so
+  it can only append `_UNVERIFIED_ACTION_NOTE`. `_latest_user_text` skips Anthropic
+  tool-result-only user messages, or the request would always read as empty. The weak/strong
+  hallucination checks still run only on Kimi.
 - **Follow-ups (2026-10-19):** a latest message with no action verb and no question
   ("okay", "this is the role: X") is checked against the previous 3 user messages by
   `_unverified_followup_claim`, which *appends* `_UNVERIFIED_ACTION_NOTE` rather than
