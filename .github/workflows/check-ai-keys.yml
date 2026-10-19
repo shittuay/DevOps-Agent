@@ -100,6 +100,13 @@ jobs:
             except Exception as exc:
                 code, detail = type(exc).__name__, ''
             print(f'RESULT {name}: http={code} {shape}{detail}')
+            if name == 'ANTHROPIC_API_KEY' and code == 200:
+                for model in ('claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'):
+                    r = requests.post('https://api.anthropic.com/v1/messages', timeout=30,
+                                      headers={**headers(key), 'content-type': 'application/json'},
+                                      json={'model': model, 'max_tokens': 5,
+                                            'messages': [{'role': 'user', 'content': 'hi'}]})
+                    print(f'RESULT model {model}: http={r.status_code}' + ('' if r.status_code == 200 else ' body=' + r.text[:160]))
         PYEOF
         SCRIPT
 
