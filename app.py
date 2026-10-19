@@ -3720,6 +3720,9 @@ def api_chat_stream():
         sb = sandbox_active
         _stream_max_tools = model_config.max_tools
         _stream_trust = model_config.trust_tool_results
+        # Read prefs here: inside generate() the request session is gone and
+        # touching the ORM object raises DetachedInstanceError.
+        _stream_swarm_agents = _swarm_agents_for(model_config, prefs, sandbox_active)
 
         db.session.commit()
 
@@ -3771,7 +3774,7 @@ def api_chat_stream():
                             provider=_provider_arg,
                             max_tools=_stream_max_tools,
                             trust_tool_results=_stream_trust,
-                            swarm_max_agents=_swarm_agents_for(mc, prefs, sb),
+                            swarm_max_agents=_stream_swarm_agents,
                         )
                         # Collect initial chunks to detect agent-swallowed errors
                         # The agent catches Anthropic exceptions and yields error text

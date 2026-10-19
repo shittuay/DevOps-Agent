@@ -3374,3 +3374,23 @@ Guard: `tests/test_sandbox_first_run.py`.
 - `/init-database-secret-endpoint-12345`: constant-time secret compare; fixed the `or ... if ... else` precedence bug.
 - Not changed: `_reject_flag_like` still exists separately in `ansible_tools.py` and `git_tools.py`; the guardrails pipeline is still hand-copied at 8 sites.
 - Guard: `tests/test_review_fixes_2026_10_18.py`.
+
+## 2026-10-19: Streamed chat broken since #273 — DetachedInstanceError, not the API key
+
+**Symptom:** from 2026-10-16 every non-sandbox `/api/chat/stream` turn failed. The owner
+rotated the Anthropic key, which changed nothing. `logs/agent.log` showed Anthropic
+`200 OK` followed by `Chat: anthropic raised, using the backup model: Instance
+<UserPreferences ...> is not bound to a Session`, then Groq `401 invalid_api_key`.
+The `200 OK` was the Haiku guardrail pre-screen; the chat call itself was never made.
+
+**Cause:** #273 added `swarm_max_agents=_swarm_agents_for(mc, prefs, sb)` inside the
+stream route's `generate()` closure. The generator runs after the view returns, when the
+request session is gone, so reading `prefs.swarm_enabled` raised before
+`process_message_streaming` was called. Kimi streaming hit the same line.
+
+**Fix:** compute `_stream_swarm_agents` in the view next to the other captured values.
+`tests/test_stream_detached_prefs.py` fails if `generate()` references `prefs`, `conv`,
+`sub`, `conversation`, `subscription` or `current_user`.
+
+**Also found:** the Groq fallback key (`GROQ_API_KEY`) is invalid, so any primary-model
+failure becomes a total failure. Not fixed here; it needs a new key.
