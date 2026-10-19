@@ -30,6 +30,26 @@ _ANTHROPIC_FAIL_PATTERNS = [
 ]
 
 
+def fallback_failure_message(primary_provider: str, primary_error: str) -> str:
+    """Plain words for when the main model failed and the backup model failed too.
+
+    Replaces the backup provider's raw exception text (for example a Groq
+    "Error code: 401 - {...}"), which named the wrong service and helped nobody.
+    """
+    name = 'Claude' if primary_provider == 'anthropic' else 'Kimi'
+    err = (primary_error or '').lower()
+    if 'credit balance' in err or 'insufficient balance' in err:
+        reason = f'the {name} account is out of credits'
+    elif 'rate limit' in err:
+        reason = f'the {name} account reached its rate limit'
+    elif 'overloaded' in err or 'temporary api issue' in err:
+        reason = f'{name} is overloaded right now'
+    else:
+        reason = f'{name} returned an error'
+    return (f"{name} couldn't answer this time ({reason}), and the backup model isn't "
+            f"available either. Nothing was changed. Please try again in a minute.")
+
+
 def is_anthropic_error(text: str) -> bool:
     """Check if a response string is actually an Anthropic API error caught by the agent."""
     if not text:

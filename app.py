@@ -2584,6 +2584,7 @@ def manage_budget_alert(alert_id):
 from services.chat_service import (
     FREE_TIER_SYSTEM_PROMPT,
     is_anthropic_error as _is_anthropic_error,
+    fallback_failure_message as _fallback_failure_message,
     process_free_tier_chat as _process_free_tier_chat,
     stream_free_tier_chat as _stream_free_tier_chat,
     generate_upgrade_pitch as _generate_upgrade_pitch,
@@ -3731,6 +3732,7 @@ def api_chat_stream():
             )
             full_response = []
             actual_mc = mc
+            _primary_error = ''
             from services.secret_detector import StreamingRedactor
             _secret_redactor = StreamingRedactor()
 
@@ -3784,6 +3786,9 @@ def api_chat_stream():
                             combined = ''.join(initial_buf)
                             if _is_anthropic_error(combined):
                                 actual_mc = _groq_fallback_mc
+                                _primary_error = combined
+                                app.logger.warning('Chat: %s failed, using the backup model: %s',
+                                                   mc.provider, redact_secrets(combined)[:300])
                                 stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
                                 _buf_exhausted = False
                                 break
@@ -3814,6 +3819,9 @@ def api_chat_stream():
                             combined = ''.join(initial_buf)
                             if _is_anthropic_error(combined):
                                 actual_mc = _groq_fallback_mc
+                                _primary_error = combined
+                                app.logger.warning('Chat: %s failed, using the backup model: %s',
+                                                   mc.provider, redact_secrets(combined)[:300])
                                 stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
                             else:
                                 for buf_chunk in initial_buf:
@@ -3822,9 +3830,12 @@ def api_chat_stream():
                                     if _safe:
                                         yield f"data: {_json.dumps({'type': 'chunk', 'content': _safe})}\n\n"
                                 stream_source = iter([])  # already consumed
-                    except Exception:
+                    except Exception as _primary_exc:
                         # Actual exception (not swallowed by agent) — fallback to Groq
                         actual_mc = _groq_fallback_mc
+                        _primary_error = str(_primary_exc)
+                        app.logger.warning('Chat: %s raised, using the backup model: %s',
+                                           mc.provider, redact_secrets(_primary_error)[:300])
                         stream_source = _stream_free_tier_chat(msg_text, conversation_history, preferences_context)
 
                 _approval_sentinel = '\x00APPROVAL_REQUIRED\x00'
@@ -3986,8 +3997,13 @@ def api_chat_stream():
                         _real_balance = CreditService.balance(uid)
                     except Exception:
                         _real_balance = None
+                app.logger.error('Chat stream failed (%s): %s', actual_mc.provider, redact_secrets(str(e))[:300])
+                if actual_mc is _groq_fallback_mc:
+                    _err_text = _fallback_failure_message(mc.provider, _primary_error)
+                else:
+                    _err_text = 'Something went wrong while answering. Nothing was changed. Please try again.'
                 try:
-                    yield f"data: {_json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                    yield f"data: {_json.dumps({'type': 'error', 'content': _err_text})}\n\n"
                     # Always send done so the frontend doesn't hang waiting for stream close.
                     # Omit credits_remaining entirely if the balance lookup itself
                     # failed — the frontend already treats "undefined" as "leave the

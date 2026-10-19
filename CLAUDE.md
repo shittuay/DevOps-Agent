@@ -1446,6 +1446,17 @@ Users can override tier default via chat toolbar toggle (`/api/model/switch`).
 - **Tool format**: `_convert_tools_to_openai_format()` converts Anthropic format to OpenAI function-calling format.
 - **Credit exhaustion**: Free users get 200 response with `trial_ended: true` (kept for the UI; it means "this month's free credits are used"), not 402.
 - **Groq fallback**: Used when both Anthropic and Kimi are down. See `GROQ_FALLBACK_MODEL` in `chat_service.py`.
+  The streaming route logs the main model's failure text (`Chat: ... using the backup model`) and,
+  if Groq fails too, sends `fallback_failure_message()` instead of Groq's raw exception
+  (2026-10-18: a dead `GROQ_API_KEY` turned every Claude hiccup into "Error code: 401 - Invalid
+  API Key"). Guard: `tests/test_fallback_failure_message.py`.
+- **Where the AI keys come from in production:** `devops-agent/production` in Secrets Manager
+  overrides the server's `.env`, but only for names in `MANAGED_SECRET_KEYS`. The app reads
+  `ANTHROPIC_API_KEY` (not `CLAUDE_API_KEY`). Anthropic keys created outside a workspace are
+  refused without an `anthropic-workspace-id` header, so use a workspace key. The secret held
+  only Brevo and Stripe keys from at least 2026-10-15 (startup logs say "Loaded 2 secrets"); the
+  rest live in `.env`. The `diag-ai-keys` branch has a workflow that probes each key from the
+  server and reports only status codes.
 
 ### Learning Mode & Sandbox
 
