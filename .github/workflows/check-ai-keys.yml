@@ -33,7 +33,33 @@ jobs:
         venv/bin/python3 - << 'PYEOF' 2>&1
         import re, requests
         from services.secrets_manager import get_all_secrets
+        import boto3, json
+        sm = boto3.client('secretsmanager', region_name='us-east-1')
+        for sid in ('devops-agent/production', 'ANTHROPIC_API_KEY'):
+            try:
+                v = sm.get_secret_value(SecretId=sid)
+                body = v.get('SecretString') or ''
+                try:
+                    names = sorted(json.loads(body).keys())
+                    print(f'RESULT secret {sid}: JSON keys={names} updated={v.get("CreatedDate")}')
+                except Exception:
+                    print(f'RESULT secret {sid}: not JSON, length={len(body)}')
+            except Exception as exc:
+                print(f'RESULT secret {sid}: cannot read ({type(exc).__name__}: {str(exc)[:150]})')
+        envfile = {}
+        try:
+            for line in open('.env'):
+                if '=' in line and not line.lstrip().startswith('#'):
+                    k, _, val = line.strip().partition('=')
+                    envfile[k.strip()] = val.strip().strip('"').strip("'")
+        except Exception:
+            pass
+        print('RESULT .env has: ' + ', '.join(f'{k}={k in envfile}' for k in ('ANTHROPIC_API_KEY', 'MOONSHOT_API_KEY', 'GROQ_API_KEY', 'FLASK_ENV', 'USE_AWS_SECRETS')))
         s = get_all_secrets() or {}
+        for k in ('ANTHROPIC_API_KEY', 'MOONSHOT_API_KEY', 'GROQ_API_KEY'):
+            if not s.get(k) and envfile.get(k):
+                s[k] = envfile[k]
+                print(f'RESULT {k}: using the .env value for the probe below')
         checks = [
             ('ANTHROPIC_API_KEY', 'sk-ant-', 'https://api.anthropic.com/v1/models',
              lambda k: {'x-api-key': k, 'anthropic-version': '2023-06-01'}),
