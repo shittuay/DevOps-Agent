@@ -76,14 +76,50 @@ async function myRequestAct(type, id, action) {
             status.style.color = '#10b981';
             status.innerHTML = 'Confirmed. Run it from <a href="/changes">Change history</a>.';
         } else {
-            const ok = (data.result || {}).success !== false;
-            status.style.color = ok ? '#10b981' : '#ef4444';
-            status.textContent = ok ? 'Done. The result is also in the chat.' : 'Ran, but returned an error: ' + ((data.result || {}).error || 'unknown');
+            status.style.color = 'var(--text-secondary)';
+            status.textContent = 'Running in your account…';
+            watchMyRequest(id, status);
         }
     } catch (e) {
+        // The click may have gone through even though the reply was lost.
+        if (type !== 'change') { watchMyRequest(id, status); return; }
         status.style.color = '#ef4444';
         status.textContent = 'Network error. Refresh to see the current state.';
     }
+}
+
+// Follow a confirmed request until it finishes, showing that it is still alive.
+function watchMyRequest(id, status) {
+    const tick = async () => {
+        let s = null;
+        try {
+            const r = await fetch(`/api/approvals/${id}/status`);
+            if (r.ok) s = await r.json();
+        } catch (_) { /* try again next tick */ }
+        if (!s || s.status === 'approved') {
+            if (s && s.decided_at) {
+                const secs = Math.max(0, Math.round((Date.now() - Date.parse(s.decided_at)) / 1000));
+                status.textContent = `Running in your account (${secs < 60 ? secs + 's' : Math.floor(secs / 60) + 'm ' + String(secs % 60).padStart(2, '0') + 's'})…`;
+            }
+            setTimeout(tick, 4000);
+            return;
+        }
+        if (s.status === 'pending') {
+            status.style.color = '#ef4444';
+            status.textContent = "It didn't start. Refresh and try again.";
+            return;
+        }
+        if (s.status === 'executed') {
+            const ok = (s.execution_result || {}).success !== false;
+            status.style.color = ok ? '#10b981' : '#ef4444';
+            status.textContent = (s.summary || (ok ? 'Done.' : 'It ran, but failed.')) +
+                (s.conversation_id ? ' Open the chat to continue.' : '');
+            return;
+        }
+        status.style.color = 'var(--text-secondary)';
+        status.textContent = `This request is ${s.status}.`;
+    };
+    setTimeout(tick, 800);
 }
 
 

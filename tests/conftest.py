@@ -192,3 +192,24 @@ def test_subscription(app, test_user, db_session):
             db.session.commit()
     except Exception:
         db.session.rollback()
+
+
+@pytest.fixture(autouse=True)
+def _approval_runs_inline(monkeypatch):
+    """Approved actions run on a background thread in production; run them inline in tests.
+
+    The suite shares one in-memory SQLite connection, so a real second thread
+    writing to it would be flaky. tests/test_approval_background_run.py covers
+    the deferred behaviour by capturing the job instead of running it.
+    """
+    try:
+        from services import approval_service
+    except Exception:
+        return
+
+    def _inline(fn):
+        from models import db
+        fn()
+        db.session.expire_all()  # the job wrote through its own session
+
+    monkeypatch.setattr(approval_service, '_start_background', _inline)

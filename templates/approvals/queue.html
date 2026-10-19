@@ -309,7 +309,7 @@ async function confirmApprove(key) {
         if (res.ok) {
             const msg = r._type === 'change'
                 ? 'Approved — go to Changes to execute.'
-                : 'Approved — tool executed.';
+                : 'Approved. It is running now; the requester sees the result in their chat.';
             setStatus(key, msg);
             document.getElementById(`row-${key}`).style.opacity = '0.4';
             setTimeout(loadQueue, 1500);

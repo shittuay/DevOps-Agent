@@ -2322,6 +2322,25 @@ all three model paths, and the MCP connector) files an `ApprovalRequest`. Then:
   iam create_role: RoleName=..."); they used to read only "This will execute: aws api write".
   Guard: `tests/test_approval_chat_visibility.py`.
 
+- **Confirm/approve from a web page runs in the background (2026-10-19).** `/api/approvals/<id>/confirm`
+  and `/approve` call `confirm_own`/`approve` with `background=True`: `_claim()` moves the row
+  pending -> approved in one conditional UPDATE (two clicks can never run it twice), the route
+  returns `{status: 'running'}` at once, and `_finish_run()` executes on a daemon thread that
+  re-enters the app context and re-queries by id. It used to run the tool inside the HTTP request,
+  so a long call (an EKS create, a ~57s delete read-back) hit Cloudflare's ~100s limit: the browser
+  showed an error, a second click said "already approved", and the chat card stopped polling on
+  `approved` and stayed on "Running" forever. Now the card (`renderApprovalCard`) and
+  `/approvals/mine` treat `approved` as running with elapsed time; a lost POST reply checks the
+  status before offering the buttons again. `/status` returns `running` and a plain `summary`
+  (`summarize_result()`); the result saved to the chat starts with that sentence, JSON below as
+  Details. When the run finishes, `continueAfterApproval()` sends "The approved action has
+  finished... continue" so the agent picks the task back up; it shows a Continue button instead
+  if a reply is streaming or the user is typing. A row left `approved` for `RUN_STALE_MINUTES`
+  (30, e.g. a restart killed the thread) becomes `executed` with `INTERRUPTED_RESULT`, which says
+  it may or may not have run. `gate_api_call` (developer APIs) stays synchronous. Tests run jobs
+  inline via the autouse `_approval_runs_inline` fixture in `tests/conftest.py`. Guard:
+  `tests/test_approval_background_run.py`.
+
 Still open: the CLI (no
 signed-in user) runs risky tools unconfirmed; an approver's medium-risk call through either API
 runs directly without verification/audit (it skips the approval service).
