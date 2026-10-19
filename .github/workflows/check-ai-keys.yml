@@ -112,6 +112,11 @@ jobs:
         journalctl -u devops-agent --since "-25 min" --no-pager 2>/dev/null \
           | grep -iE "anthropic|claude|groq|fallback|401|APIError|authentication|Traceback|Started|Stopping" \
           | grep -viE "GET /static" | tail -12 | cut -c1-230 | sed 's/^/RESULT journal: /'
+        ls -t logs/*.log 2>/dev/null | head -4 | sed 's/^/RESULT journal: logfile /'
+        for f in $(ls -t logs/*.log 2>/dev/null | head -3); do
+          grep -aiE "anthropic|claude|groq|fallback|invalid api key|authentication" "$f" | grep -a "2026-10-19 0[23]:" \
+            | tail -4 | cut -c1-230 | sed "s|^|RESULT journal: $(basename $f): |"
+        done
         echo "=== agent claude call ==="
         timeout 120 venv/bin/python3 - << 'PYEOF2' 2>&1 | tail -12 | sed 's/^\(RESULT \)\{0,1\}/RESULT agent: /'
         import os, traceback
