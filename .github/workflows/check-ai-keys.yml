@@ -108,6 +108,28 @@ jobs:
                                             'messages': [{'role': 'user', 'content': 'hi'}]})
                     print(f'RESULT model {model}: http={r.status_code}' + ('' if r.status_code == 200 else ' body=' + r.text[:160]))
         PYEOF
+        echo "=== agent claude call ==="
+        set -a; . ./.env; set +a
+        timeout 90 venv/bin/python3 - << 'PYEOF2' 2>&1 | grep -E "^RESULT" | head -20
+        import os, traceback
+        from services.secrets_manager import init_secrets
+        print('RESULT init_secrets=' + str(init_secrets()))
+        try:
+            from src.config.config_manager import ConfigManager
+            from src.agent.core import DevOpsAgent
+            from src.tools import command_tools, verification_tools, aws_tools, devops_operations_tools
+            cm = ConfigManager()
+            print('RESULT claude_model config=' + repr(cm.claude_model) + ' max_tokens=' + repr(cm.claude_max_tokens))
+            a = DevOpsAgent(cm)
+            for m in (command_tools, verification_tools, aws_tools, devops_operations_tools):
+                a.register_tools_from_module(m)
+            out = ''.join(str(c) for c in a.process_message_streaming(
+                user_message='Reply with the single word hello.', conversation_history=[],
+                user_id=None, model_override='claude-sonnet-4-6', provider=None, max_tools=40))
+            print('RESULT agent output: ' + out[:400].replace('\n', ' '))
+        except Exception:
+            print('RESULT agent exception: ' + traceback.format_exc()[-600:].replace('\n', ' | '))
+        PYEOF2
         SCRIPT
 
         CMD=$(jq -Rs . /tmp/probe.sh)
