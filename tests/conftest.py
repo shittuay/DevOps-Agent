@@ -208,8 +208,19 @@ def _approval_runs_inline(monkeypatch):
         return
 
     def _inline(fn):
-        from models import db
         fn()
-        db.session.expire_all()  # the job wrote through its own session
+        _expire_approval_rows()  # the job wrote through its own session
 
     monkeypatch.setattr(approval_service, '_start_background', _inline)
+
+
+def _expire_approval_rows():
+    """Reload ApprovalRequest rows a background job changed through its own session.
+
+    Only these: expire_all() on the suite's shared session would also expire
+    leftovers from earlier tests whose rows were since bulk-deleted.
+    """
+    from models import db, ApprovalRequest
+    for obj in list(db.session.identity_map.values()):
+        if isinstance(obj, ApprovalRequest):
+            db.session.expire(obj)

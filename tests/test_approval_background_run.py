@@ -53,8 +53,8 @@ def test_confirm_returns_before_the_tool_runs(app, people, deferred, executed):
     assert status['status'] == 'approved' and status['running'] is True
 
     deferred[0]()
-    from models import db
-    db.session.expire_all()
+    from tests.conftest import _expire_approval_rows
+    _expire_approval_rows()
     assert executed == [req.id]
     done = client.get(f'/api/approvals/{req.id}/status').get_json()
     assert done['status'] == 'executed' and done['running'] is False
