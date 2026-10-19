@@ -118,16 +118,31 @@ jobs:
         try:
             from src.config.config_manager import ConfigManager
             from src.agent.core import DevOpsAgent
-            from src.tools import command_tools, verification_tools, aws_tools, devops_operations_tools
+            from src.tools import (command_tools, verification_tools, aws_tools, devops_operations_tools,
+                gcp_tools, azure_tools, kubernetes_tools, git_tools, github_tools, docker_tools, cicd_tools,
+                terraform_tools, monitoring_tools, ansible_tools, alerting_tools, sonarqube_tools, nexus_tools)
             cm = ConfigManager()
             print('RESULT claude_model config=' + repr(cm.claude_model) + ' max_tokens=' + repr(cm.claude_max_tokens))
             a = DevOpsAgent(cm)
-            for m in (command_tools, verification_tools, aws_tools, devops_operations_tools):
+            for m in (command_tools, verification_tools, aws_tools, gcp_tools, azure_tools, kubernetes_tools,
+                      git_tools, github_tools, docker_tools, cicd_tools, terraform_tools, monitoring_tools,
+                      ansible_tools, alerting_tools, sonarqube_tools, nexus_tools, devops_operations_tools):
                 a.register_tools_from_module(m)
-            out = ''.join(str(c) for c in a.process_message_streaming(
-                user_message='Reply with the single word hello.', conversation_history=[],
-                user_id=None, model_override='claude-sonnet-4-6', provider=None, max_tools=40))
-            print('RESULT agent output: ' + out[:400].replace('\n', ' '))
+            print('RESULT tools registered=' + str(len(a.tool_definitions)))
+            for msg in ('Without using any tool, reply with the single word hello.',
+                        'What can you help me with on AWS, Azure, GCP and Kubernetes? One sentence, no tools.'):
+                out = ''.join(str(c) for c in a.process_message_streaming(
+                    user_message=msg, conversation_history=[],
+                    user_id=None, model_override='claude-sonnet-4-6', provider=None, max_tools=100))
+                print('RESULT agent output: ' + out[:300].replace('\n', ' '))
+            import anthropic
+            c = anthropic.Anthropic(api_key=os.environ['ANTHROPIC_API_KEY'])
+            try:
+                c.messages.create(model='claude-sonnet-4-6', max_tokens=5, tools=a.tool_definitions,
+                                  messages=[{'role': 'user', 'content': 'hi'}])
+                print('RESULT all tools accepted')
+            except Exception as exc:
+                print('RESULT all tools rejected: ' + str(exc)[:300])
         except Exception:
             print('RESULT agent exception: ' + traceback.format_exc()[-600:].replace('\n', ' | '))
         PYEOF2
