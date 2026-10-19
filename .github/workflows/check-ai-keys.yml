@@ -54,6 +54,18 @@ jobs:
                     envfile[k.strip()] = val.strip().strip('"').strip("'")
         except Exception:
             pass
+        try:
+            prod = json.loads(sm.get_secret_value(SecretId='devops-agent/production')['SecretString'])
+            ck = (prod.get('CLAUDE_API_KEY') or '').strip()
+            if ck:
+                code = requests.get('https://api.anthropic.com/v1/models', timeout=15,
+                                    headers={'x-api-key': ck, 'anthropic-version': '2023-06-01'}).status_code
+                print(f'RESULT secret CLAUDE_API_KEY: http={code} len={len(ck)} prefix_ok={ck.startswith("sk-ant-")}')
+        except Exception as exc:
+            print(f'RESULT secret CLAUDE_API_KEY probe failed: {type(exc).__name__}')
+        print('RESULT FLASK_ENV in .env = ' + repr(envfile.get('FLASK_ENV', '')))
+        import os as _os
+        print('RESULT config/.env exists = ' + str(_os.path.exists('config/.env')))
         print('RESULT .env has: ' + ', '.join(f'{k}={k in envfile}' for k in ('ANTHROPIC_API_KEY', 'MOONSHOT_API_KEY', 'GROQ_API_KEY', 'FLASK_ENV', 'USE_AWS_SECRETS')))
         s = get_all_secrets() or {}
         for k in ('ANTHROPIC_API_KEY', 'MOONSHOT_API_KEY', 'GROQ_API_KEY'):
