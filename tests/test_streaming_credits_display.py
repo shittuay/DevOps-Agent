@@ -39,7 +39,7 @@ def test_generic_stream_exception_handler_looks_up_the_real_balance():
     idx = src.find("except Exception as e:")
     found = False
     while idx != -1:
-        window = src[idx:idx + 2000]
+        window = src[idx:idx + 3000]  # handler grew on 2026-10-18 (plain fallback message)
         if "'error': True" in window or '"error": True' in window:
             if 'CreditService.balance(' in window:
                 found = True
