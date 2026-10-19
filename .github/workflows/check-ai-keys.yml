@@ -112,7 +112,17 @@ jobs:
         journalctl -u devops-agent --since "-25 min" --no-pager 2>/dev/null \
           | grep -iE "anthropic|claude|groq|fallback|401|APIError|authentication|Traceback|Started|Stopping" \
           | grep -viE "GET /static" | tail -12 | cut -c1-230 | sed 's/^/RESULT journal: /'
-        ls -t logs/*.log 2>/dev/null | head -4 | sed 's/^/RESULT journal: logfile /'
+        grep -ahE "Loaded [0-9]+ secrets|Loaded secrets from" logs/*.log 2>/dev/null | tail -6 | cut -c1-200 | sed 's/^/RESULT journal: /'
+        journalctl -u devops-agent --since "-30 days" --no-pager 2>/dev/null | grep -aE "Loaded [0-9]+ secrets" | tail -4 | cut -c1-200 | sed 's/^/RESULT journal: /'
+        venv/bin/python3 -c "
+        import boto3
+        sm = boto3.client('secretsmanager', region_name='us-east-1')
+        try:
+            for v in sm.list_secret_version_ids(SecretId='devops-agent/production', IncludeDeprecated=True)['Versions']:
+                print('RESULT journal: version', v['VersionId'][:8], v.get('VersionStages'), v.get('CreatedDate'))
+        except Exception as e:
+            print('RESULT journal: versions unreadable', type(e).__name__)
+        " 2>&1 | tail -8
         for f in $(ls -t logs/*.log 2>/dev/null | head -3); do
           grep -aE "ERROR|WARNING|rror" "$f" | grep -av "Node.js" \
             | tail -6 | cut -c1-230 | sed "s|^|RESULT journal: $(basename $f): |"
