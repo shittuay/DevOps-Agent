@@ -94,10 +94,12 @@ jobs:
             shape = (f'len={len(raw)} prefix_ok={key.startswith(prefix)} '
                      f'extra_whitespace={raw != key} inner_space={inner_space}')
             try:
-                code = requests.get(url, headers=headers(key), timeout=15).status_code
+                r = requests.get(url, headers=headers(key), timeout=15)
+                code = r.status_code
+                detail = '' if code == 200 else ' body=' + r.text[:160]
             except Exception as exc:
-                code = type(exc).__name__
-            print(f'RESULT {name}: http={code} {shape}')
+                code, detail = type(exc).__name__, ''
+            print(f'RESULT {name}: http={code} {shape}{detail}')
         PYEOF
         SCRIPT
 
