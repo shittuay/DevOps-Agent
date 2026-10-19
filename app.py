@@ -527,6 +527,13 @@ def ensure_clean_transaction():
 def handle_rate_limit(e):
     """Return a clean 429 response instead of letting it bubble up as 500."""
     limit = getattr(e, 'description', str(e))
+    if request.path.startswith('/api/chat'):
+        retry_after = _rate_limit_retry_after()
+        resp = jsonify({'error': _chat_rate_limit_message(limit, retry_after),
+                        'rate_limited': True, 'retry_after': retry_after})
+        if retry_after:
+            resp.headers['Retry-After'] = str(retry_after)
+        return resp, 429
     if request.path.startswith('/api/') or request.path.startswith('/chat'):
         return jsonify({'error': f'Rate limit exceeded. {limit}'}), 429
     # Both branches must carry the status explicitly: render_template() alone
@@ -535,6 +542,31 @@ def handle_rate_limit(e):
     if _template_exists('429.html'):
         return render_template('429.html', limit=limit), 429
     return f'<h1>429 Too Many Requests</h1><p>{limit}</p>', 429
+
+
+def _rate_limit_retry_after():
+    """Seconds until the breached limit's window resets, or None if unknown."""
+    try:
+        import time
+        from extensions import limiter as _limiter
+        current = _limiter.current_limit
+        if current is not None:
+            return max(1, int(current.reset_at - time.time()))
+    except Exception:
+        pass
+    return None
+
+
+def _chat_rate_limit_message(limit, retry_after):
+    """Plain words for a chat user who hit their plan's message limit.
+
+    A bare "Rate limit exceeded. 10 per 1 hour" read like a crash (2026-10-19).
+    """
+    count = str(limit).split(' per ')[0].strip()
+    when = (f"in about {max(1, round(retry_after / 60))} minute(s)" if retry_after
+            else "later this hour")
+    return (f"You've reached your plan's limit of {count} messages per hour. "
+            f"You can send more {when}. Paid plans allow more messages per hour (see Billing).")
 
 
 def _template_exists(name):

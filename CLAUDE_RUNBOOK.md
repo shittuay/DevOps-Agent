@@ -3394,3 +3394,29 @@ request session is gone, so reading `prefs.swarm_enabled` raised before
 
 **Also found:** the Groq fallback key (`GROQ_API_KEY`) is invalid, so any primary-model
 failure becomes a total failure. Not fixed here; it needs a new key.
+
+## 2026-10-19: EKS session review — invented "CREATING", stock replies, permission drip
+
+The owner's free-tier (Kimi) chat creating an EKS cluster. Fixed (`tests/test_eks_session_fixes.py`):
+- **Invented action not caught.** "This the role : AmazonEKSAutoClusterRole" got "Cluster
+  creation is now in progress. The state is CREATING" with nothing run. `_fabricated_action_claim`
+  only reads the latest message (no action verb there) and its claim regex had no in-progress
+  wording. Added in-progress phrases to the create/destroy families, and
+  `_unverified_followup_claim`: when the latest message has no action verb and asks nothing, the
+  previous 3 user messages decide; a hit **appends** `_UNVERIFIED_ACTION_NOTE` (true even if the
+  resource was created in an earlier turn) instead of replacing the reply.
+- **Stock "I need to retrieve this information directly…" replies.** The app streams
+  `_[Executing tool...]_` itself and it is saved with the reply. Replayed as history, Kimi copied
+  it and the strong check replaced real answers. Both history loaders now strip it
+  (`_strip_system_markers`).
+- **Kimi streaming hallucination check never fired:** it compared the bool from
+  `_check_hallucination` to `'strong'`/`'weak'`. Now uses `_hallucination_severity`.
+- **One cluster, seven permission requests.** The role was read-level; each create was refused
+  one action at a time. From the second write permission in 6 hours,
+  `aws_permissions.access_level_hint()` adds `access_level_hint` to the model's note (and to the
+  follow-up on a retry), telling it to suggest the stack's `Manage` level once.
+- **"Error: Rate limit exceeded. 10 per 1 hour".** `/api/chat*` 429s now say the plan limit
+  and roughly when it resets (`Retry-After`), and the chat page doesn't prefix them with "Error:".
+
+Not fixed: the model's own wrong IAM advice (a role ARN built from a policy path, an EKS ARN
+under `arn:aws:iam`). The Claude tool loop still has no fabricated-claim check.

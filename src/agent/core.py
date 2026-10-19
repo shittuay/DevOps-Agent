@@ -307,8 +307,14 @@ _ACTION_FAMILIES = tuple(
             'create',
             re.compile(r'\b(?:create|creating|launch|launching|provision|provisioning|'
                        r'spin\s*up|deploy|deploying)\b', re.IGNORECASE),
+            # In-progress phrasing counts: "Cluster creation is now in progress. The
+            # state is CREATING" was reported with nothing run (2026-10-19).
             re.compile(r'\b(?:created|launched|provisioned|deployed)\b'
-                       r'|\bis\s+(?:now\s+)?live\b', re.IGNORECASE),
+                       r'|\bis\s+(?:now\s+)?live\b'
+                       r'|\b(?:creation|provisioning|deployment|launch)\s+(?:is|has)\s+(?:now\s+)?'
+                       r'(?:started|begun|in\s+progress|underway)\b'
+                       r'|\b(?:is|are)\s+(?:now\s+)?(?:creating|provisioning|launching)\b'
+                       r'|\b(?:state|status)\b[^.\n|]{0,15}\bcreating\b', re.IGNORECASE),
             ('create_', 'launch_', 'run_', 'provision_', 'deploy_', 'trigger_',
              'apply_', 'docker_compose_up', 'docker_build_image'),
         ),
@@ -316,7 +322,11 @@ _ACTION_FAMILIES = tuple(
             'destroy',
             re.compile(r'\b(?:delete|deleting|terminate|terminating|destroy|destroying|'
                        r'remove|removing|tear\s*down)\b', re.IGNORECASE),
-            re.compile(r'\b(?:deleted|terminated|destroyed|removed|torn\s+down)\b',
+            re.compile(r'\b(?:deleted|terminated|destroyed|removed|torn\s+down)\b'
+                       r'|\b(?:deletion|termination|teardown)\s+(?:is|has)\s+(?:now\s+)?'
+                       r'(?:started|begun|in\s+progress|underway)\b'
+                       r'|\b(?:is|are)\s+(?:now\s+)?(?:deleting|terminating)\b'
+                       r'|\b(?:state|status)\b[^.\n|]{0,15}\b(?:deleting|shutting-down)\b',
                        re.IGNORECASE),
             ('delete_', 'terminate_', 'destroy_', 'remove_', 'purge_', 'drop_',
              'deregister_', 'manage_ec2_instance', 'manage_vm',
@@ -434,6 +444,68 @@ _FABRICATED_ACTION_REPLACEMENT = (
     "be reachable for your account — check that your cloud credentials are "
     "connected under Settings."
 )
+
+# Follow-ups ("okay", "this is the role: X") carry no action verb of their own, so
+# _fabricated_action_claim never looked at them; the request lives in an earlier
+# message. The history-based check appends this note instead of replacing the reply:
+# the resource may really have been created in an earlier turn, and this stays true.
+_UNVERIFIED_ACTION_NOTE = (
+    "\n\n---\n**Note:** no tool that creates, deletes or changes resources ran in this "
+    "reply. If the text above says something was just created, started or deleted, that "
+    "did not happen in this reply. Check the Approvals page for anything still waiting, "
+    "or ask me to check its current state."
+)
+
+_FOLLOWUP_HISTORY_TURNS = 3
+_READ_REQUEST_RE = re.compile(
+    r'\?|\b(?:list|show|get|describe|check|status|what|which|how|why|when|where)\b',
+    re.IGNORECASE,
+)
+
+
+def _prior_user_texts(messages: list, limit: int = _FOLLOWUP_HISTORY_TURNS) -> list:
+    """Text of the user messages before the latest one, newest first."""
+    texts = []
+    for msg in reversed(messages or []):
+        if msg.get('role') != 'user':
+            continue
+        content = msg.get('content', '') or ''
+        if isinstance(content, list):
+            content = '\n'.join(b.get('text', '') for b in content
+                                if isinstance(b, dict) and b.get('type') == 'text')
+        if isinstance(content, str) and content.strip():
+            texts.append(content)
+    return texts[1:limit + 1]
+
+
+def _unverified_followup_claim(
+    messages: list,
+    response_text: str,
+    executed_tools: list,
+    sandbox_mode: bool = False,
+) -> bool:
+    """True when a follow-up reply claims a mutation that no tool performed this turn.
+
+    Only for follow-ups: the latest message names no action and asks nothing, and an
+    action was requested in one of the previous few user messages.
+    """
+    if sandbox_mode or not response_text:
+        return False
+    current = _latest_user_text(messages)
+    if _READ_REQUEST_RE.search(current) or any(r.search(current) for _, r, _, _ in _ACTION_FAMILIES):
+        return False
+    earlier = '\n'.join(_prior_user_texts(messages))
+    return _fabricated_action_claim(earlier, response_text, executed_tools, sandbox_mode)
+
+
+# The app streams these markers itself while real tools run, and they are saved with
+# the reply. Replayed as history, the model copies them, which _STRONG_HALLUCINATION_PATTERNS
+# then reads as fabrication and replaces a real answer (2026-10-19).
+_SYSTEM_MARKER_RE = re.compile(r'\n*_\[Executing tool\.\.\.\]_\n*')
+
+
+def _strip_system_markers(text: str) -> str:
+    return _SYSTEM_MARKER_RE.sub('\n\n', text or '')
 
 
 def _json_default(obj):
@@ -1904,7 +1976,7 @@ class DevOpsAgent:
                     # its content collapses the surrounding user turns into consecutive
                     # entries and trades one 400 for another. Substitute the same
                     # placeholder text app.py's save path uses for empty responses.
-                    text = msg.get('content', '').strip() or EMPTY_ASSISTANT_PLACEHOLDER
+                    text = _strip_system_markers(msg.get('content', '')).strip() or EMPTY_ASSISTANT_PLACEHOLDER
                     self.conversation.add_assistant_message([{
                         'type': 'text',
                         'text': text
@@ -2004,7 +2076,7 @@ class DevOpsAgent:
                     # its content collapses the surrounding user turns into consecutive
                     # entries and trades one 400 for another. Substitute the same
                     # placeholder text app.py's save path uses for empty responses.
-                    text = msg.get('content', '').strip() or EMPTY_ASSISTANT_PLACEHOLDER
+                    text = _strip_system_markers(msg.get('content', '')).strip() or EMPTY_ASSISTANT_PLACEHOLDER
                     self.conversation.add_assistant_message([{
                         'type': 'text',
                         'text': text
@@ -2643,6 +2715,12 @@ class DevOpsAgent:
                         "tool ran this turn; replacing"
                     )
                     return _FABRICATED_ACTION_REPLACEMENT
+                if _unverified_followup_claim(
+                    messages, text, self._last_tools_used[executed_from:],
+                    getattr(self, '_sandbox_mode', False),
+                ):
+                    self.logger.warning("Unverified follow-up action claim in Kimi response — noting")
+                    text = text + _UNVERIFIED_ACTION_NOTE
                 # Skip weak patterns when real resource IDs already exist in prior
                 # assistant messages — the agent is referencing legitimately-fetched data.
                 tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
@@ -2939,10 +3017,20 @@ class DevOpsAgent:
                         )
                         yield _FABRICATED_ACTION_REPLACEMENT
                         return
+                    if _unverified_followup_claim(
+                        messages, collected_content, self._last_tools_used[executed_from:],
+                        getattr(self, '_sandbox_mode', False),
+                    ):
+                        self.logger.warning(
+                            "Unverified follow-up action claim in Kimi streaming response — noting"
+                        )
+                        collected_content = collected_content + _UNVERIFIED_ACTION_NOTE
                     # Skip weak patterns when real resource IDs already exist in prior
                     # assistant messages — the agent is referencing legitimately-fetched data.
                     tools_in_context = tools_called_this_turn or _history_has_real_resource_data(messages)
-                    severity = _check_hallucination(collected_content, tools_in_context, getattr(self, '_sandbox_mode', False))
+                    # _hallucination_severity, not the bool _check_hallucination: compared
+                    # against 'strong'/'weak' below, a bool never matched either.
+                    severity = _hallucination_severity(collected_content, tools_in_context, getattr(self, '_sandbox_mode', False))
                     if severity == 'strong':
                         self.logger.warning("Detected strong hallucination in Kimi streaming response — replacing")
                         yield _HALLUCINATION_REPLACEMENT
