@@ -48,8 +48,9 @@ jobs:
                 print(f'RESULT {name}: missing from the secret')
                 continue
             key = raw.strip()
+            inner_space = bool(re.search(r'\s', key))
             shape = (f'len={len(raw)} prefix_ok={key.startswith(prefix)} '
-                     f'extra_whitespace={raw != key} inner_space={bool(re.search(r"\s", key))}')
+                     f'extra_whitespace={raw != key} inner_space={inner_space}')
             try:
                 code = requests.get(url, headers=headers(key), timeout=15).status_code
             except Exception as exc:
