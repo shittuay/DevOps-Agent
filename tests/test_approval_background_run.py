@@ -152,7 +152,7 @@ def test_api_gate_still_runs_synchronously(app, people, executed):
     src = (ROOT / 'services' / 'approval_service.py').read_text()
     gate = src[src.index('def gate_api_call'):]
     gate = gate[:gate.index('\ndef ', 1)]
-    assert 'confirm_own(req.id, user.id)' in gate
+    assert 'confirm_own(req.id, user.id, return_raw=True)' in gate
     assert 'background=True' not in gate
 
 

@@ -3,7 +3,21 @@
 The Claude Connectors Directory submission portal flags any tool missing these. Until
 2026-10-16 no tool had a title.
 """
+import pytest
+
 from routes import mcp
+
+
+@pytest.fixture(autouse=True)
+def _full_catalog(monkeypatch):
+    """Check every tool a server can list, including the self-hosted host-local ones."""
+    from src.tools.host_local import HOST_TOOLS_ENV
+    monkeypatch.setenv(HOST_TOOLS_ENV, 'true')
+    monkeypatch.setattr(mcp, '_tool_cache', None)
+    monkeypatch.setattr(mcp, '_tool_map', None)
+    yield
+    mcp._tool_cache = None
+    mcp._tool_map = None
 
 
 def _listed_tools():
