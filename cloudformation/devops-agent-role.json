@@ -170,11 +170,16 @@
               "Sid": "NeverSecretValues",
               "Effect": "Deny",
               "Action": [
+                "ec2:GetPasswordData",
+                "redshift-serverless:GetCredentials",
+                "redshift:GetClusterCredentials",
+                "redshift:GetClusterCredentialsWithIAM",
+                "secretsmanager:BatchGetSecretValue",
                 "secretsmanager:GetSecretValue",
                 "ssm:GetParameter",
+                "ssm:GetParameterHistory",
                 "ssm:GetParameters",
-                "ssm:GetParametersByPath",
-                "ssm:GetParameterHistory"
+                "ssm:GetParametersByPath"
               ],
               "Resource": "*"
             }
@@ -585,11 +590,16 @@
                       "Sid": "NeverSecretValues",
                       "Effect": "Deny",
                       "Action": [
+                        "ec2:GetPasswordData",
+                        "redshift-serverless:GetCredentials",
+                        "redshift:GetClusterCredentials",
+                        "redshift:GetClusterCredentialsWithIAM",
+                        "secretsmanager:BatchGetSecretValue",
                         "secretsmanager:GetSecretValue",
                         "ssm:GetParameter",
+                        "ssm:GetParameterHistory",
                         "ssm:GetParameters",
-                        "ssm:GetParametersByPath",
-                        "ssm:GetParameterHistory"
+                        "ssm:GetParametersByPath"
                       ],
                       "Resource": "*"
                     },
@@ -618,11 +628,16 @@
                       "Sid": "NeverSecretValues",
                       "Effect": "Deny",
                       "Action": [
+                        "ec2:GetPasswordData",
+                        "redshift-serverless:GetCredentials",
+                        "redshift:GetClusterCredentials",
+                        "redshift:GetClusterCredentialsWithIAM",
+                        "secretsmanager:BatchGetSecretValue",
                         "secretsmanager:GetSecretValue",
                         "ssm:GetParameter",
+                        "ssm:GetParameterHistory",
                         "ssm:GetParameters",
-                        "ssm:GetParametersByPath",
-                        "ssm:GetParameterHistory"
+                        "ssm:GetParametersByPath"
                       ],
                       "Resource": "*"
                     }
