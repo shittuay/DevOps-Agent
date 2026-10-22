@@ -18,13 +18,14 @@ SECRET_PATTERNS: List[Tuple[str, re.Pattern, int]] = [
     # AWS Access Key ID (starts with AKIA)
     ('AWS Access Key', re.compile(r'\b(AKIA[0-9A-Z]{16})\b'), 1),
 
-    # AWS Secret Access Key (40-char base64)
-    ('AWS Secret Key', re.compile(r'(?:aws_secret_access_key|secret.?key)\s*[=:]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', re.IGNORECASE), 1),
+    # AWS Secret Access Key (40-char base64). `["\']?` after the label lets the
+    # JSON form ("SecretAccessKey": "...") match too; tool results are JSON.
+    ('AWS Secret Key', re.compile(r'(?:aws_secret_access_key|secret_?access_?key|secret.?key)["\']?\s*[=:]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', re.IGNORECASE), 1),
 
     # Generic API Key patterns
     # 'api[_-]?key' already matches 'apikey' via the optional separator, so a
     # separate '|apikey' alternative never fires.
-    ('API Key', re.compile(r'(?:api[_-]?key)\s*[=:]\s*["\']?([A-Za-z0-9_\-]{20,})["\']?', re.IGNORECASE), 1),
+    ('API Key', re.compile(r'(?:api[_-]?key)["\']?\s*[=:]\s*["\']?([A-Za-z0-9_\-]{20,})["\']?', re.IGNORECASE), 1),
 
     # Anthropic API Key
     ('Anthropic Key', re.compile(r'\b(sk-ant-[A-Za-z0-9_\-]{20,})\b'), 1),
@@ -44,20 +45,22 @@ SECRET_PATTERNS: List[Tuple[str, re.Pattern, int]] = [
     # Generic Bearer Token
     ('Bearer Token', re.compile(r'Bearer\s+([A-Za-z0-9_\-.]{20,})', re.IGNORECASE), 1),
 
-    # Private Key Block
-    ('Private Key', re.compile(r'(-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----)', re.IGNORECASE), 1),
+    # Private Key Block: the whole block, body included (matching only the
+    # BEGIN line left the key itself in the text). An unterminated block,
+    # e.g. a truncated result, is redacted to the end of the text.
+    ('Private Key', re.compile(
+        r'(-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----'
+        r'[\s\S]*?(?:-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----|\Z))',
+        re.IGNORECASE), 1),
 
     # Azure Client Secret (UUID-like followed by secret)
-    ('Azure Secret', re.compile(r'(?:client.?secret|azure.?secret)\s*[=:]\s*["\']?([A-Za-z0-9_\-.~]{30,})["\']?', re.IGNORECASE), 1),
-
-    # GCP Service Account Key indicator
-    ('GCP Key', re.compile(r'"private_key"\s*:\s*"(-----BEGIN)', re.IGNORECASE), 0),
+    ('Azure Secret', re.compile(r'(?:client.?secret|azure.?secret)["\']?\s*[=:]\s*["\']?([A-Za-z0-9_\-.~]{30,})["\']?', re.IGNORECASE), 1),
 
     # Database connection strings with passwords
     ('DB Password', re.compile(r'(?:postgres|mysql|mongodb)(?:ql)?://[^:]+:([^@\s]{8,})@', re.IGNORECASE), 1),
 
     # Generic password in key=value
-    ('Password', re.compile(r'(?:password|passwd|pwd)\s*[=:]\s*["\']?([^\s"\']{8,})["\']?', re.IGNORECASE), 1),
+    ('Password', re.compile(r'(?:password|passwd|pwd)["\']?\s*[=:]\s*["\']?([^\s"\']{8,})["\']?', re.IGNORECASE), 1),
 
     # Slack webhook URL
     ('Slack Webhook', re.compile(r'(https://hooks\.slack\.com/services/[A-Za-z0-9/]+)'), 1),
@@ -114,11 +117,18 @@ def redact_secrets(text: str) -> str:
     if not findings:
         return text
 
-    # Sort by position descending so replacements don't shift indices
-    findings.sort(key=lambda f: f['start'], reverse=True)
+    # Two patterns can match overlapping text (a "password=..." inside a DB URL,
+    # or anything inside a key block). Keep the earliest, longest match and drop
+    # any that overlap it, or the second replacement would splice into the first.
+    findings.sort(key=lambda f: (f['start'], -(f['end'] - f['start'])))
+    kept = []
+    for finding in findings:
+        if kept and finding['start'] < kept[-1]['end']:
+            continue
+        kept.append(finding)
 
     result = text
-    for finding in findings:
+    for finding in reversed(kept):
         secret = finding['match']
         # Show first 4 chars for identification, redact the rest
         if len(secret) > 8:
@@ -133,6 +143,47 @@ def redact_secrets(text: str) -> str:
 def contains_secrets(text: str) -> bool:
     """Quick check if text contains any secrets."""
     return len(scan_for_secrets(text)) > 0
+
+
+# Tools whose purpose is to hand back a live secret value. Their results are
+# never stored as-is (see approval_service); the requester downloads them once.
+SECRET_DISCLOSING_TOOLS = frozenset({
+    'get_secret_value', 'create_ec2_keypair', 'create_iam_access_key',
+    'generate_s3_presigned_url', 'list_storage_account_keys', 'regenerate_storage_key',
+    'terraform_state_pull', 'terraform_output', 'terraform_state_show',
+})
+
+# Field names (lowercased, separators removed) whose value is a credential.
+# Matched on the whole name or as a suffix, so "SecretAccessKey" and
+# "db_password" match but "secret_name", "SecretArn" and "NextToken" don't.
+_SECRET_FIELD_SUFFIXES = (
+    'password', 'passwd', 'secretaccesskey', 'secretkey', 'secretvalue', 'secretstring',
+    'clientsecret', 'privatekey', 'keymaterial', 'apikey', 'accesstoken', 'refreshtoken',
+    'authtoken', 'sessiontoken', 'bearertoken', 'authorization', 'connectionstring',
+)
+
+
+def _is_secret_field(name) -> bool:
+    key = re.sub(r'[^a-z0-9]', '', str(name).lower())
+    return key in ('secret', 'token') or key.endswith(_SECRET_FIELD_SUFFIXES)
+
+
+def redact_structure(value):
+    """Deep copy of a tool result/input with credentials masked.
+
+    Masks credential-named fields outright and runs every other string through
+    redact_secrets(), for anything persisted or shown to someone other than
+    the caller (approval rows, the chat copy, reviewers' pages).
+    """
+    if isinstance(value, dict):
+        return {k: (REDACT_PLACEHOLDER if _is_secret_field(k) and v not in (None, '')
+                    else redact_structure(v))
+                for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_structure(v) for v in value]
+    if isinstance(value, str):
+        return redact_secrets(value)
+    return value
 
 
 class StreamingRedactor:

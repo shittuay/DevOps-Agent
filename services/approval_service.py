@@ -349,8 +349,13 @@ def approve(approval_id: int, approver_id: int, note: Optional[str] = None,
     return _run_approved(req, approver, note, self_confirmed=False, background=background)
 
 
-def confirm_own(approval_id: int, user_id: int, background: bool = False) -> dict:
-    """The requester confirms their own request. Only allowed for solo accounts."""
+def confirm_own(approval_id: int, user_id: int, background: bool = False,
+                return_raw: bool = False) -> dict:
+    """The requester confirms their own request. Only allowed for solo accounts.
+
+    return_raw=True (the developer API, where the caller is the requester and
+    has no other way to receive a new key) returns the unredacted result.
+    """
     from models import ApprovalRequest, User
 
     _expire_stale()
@@ -364,7 +369,8 @@ def confirm_own(approval_id: int, user_id: int, background: bool = False) -> dic
     user = User.query.get(user_id)
     if not user:
         return {'success': False, 'error': 'Request not found'}
-    return _run_approved(req, user, None, self_confirmed=True, background=background)
+    return _run_approved(req, user, None, self_confirmed=True, background=background,
+                         return_raw=return_raw)
 
 
 def cancel_own(approval_id: int, user_id: int) -> dict:
@@ -446,6 +452,84 @@ def _result_message(req, decided_by, result, self_confirmed: bool) -> str:
     )
 
 
+# How long the requester has to download a result kept back from storage.
+DOWNLOAD_TTL_MINUTES = 60
+
+
+def stored_result(tool_name: str, result, approval_id) -> tuple:
+    """Split a tool result into (copy safe to store and show, one-time download or None).
+
+    A key pair's file, or the whole result of a tool whose job is to return a
+    secret, goes into the download; what is stored says where to get it.
+    """
+    from services.secret_detector import SECRET_DISCLOSING_TOOLS, redact_structure
+
+    if not isinstance(result, dict):
+        return redact_structure(result), None
+    if result.get('success') is False:
+        return redact_structure(result), None
+
+    file = result.get('download_file')
+    if isinstance(file, dict) and file.get('content'):
+        download = {
+            'filename': str(file.get('filename') or f'{tool_name}-{approval_id}.txt'),
+            'content': file['content'],
+            'content_type': file.get('content_type') or 'application/octet-stream',
+        }
+    elif tool_name in SECRET_DISCLOSING_TOOLS:
+        download = {
+            'filename': f'{tool_name}-{approval_id}.json',
+            'content': json.dumps(result, indent=2, default=str),
+            'content_type': 'application/json',
+        }
+    else:
+        return redact_structure(result), None
+
+    if tool_name in SECRET_DISCLOSING_TOOLS:
+        safe = {k: result[k] for k in ('success', 'message', 'warning', '_verification') if k in result}
+        safe = redact_structure(safe)
+    else:
+        safe = redact_structure({k: v for k, v in result.items() if k != 'download_file'})
+    safe['download_file'] = {'filename': download['filename'], 'ready_for_download': True}
+    safe['note'] = (f"The values this call returned are not stored. Download {download['filename']} "
+                    f"once from the approval card within {DOWNLOAD_TTL_MINUTES} minutes.")
+    return safe, download
+
+
+def _encrypt_download(download: dict) -> Optional[str]:
+    from services.sso_service import encrypt_secret
+    try:
+        return encrypt_secret(json.dumps(download))
+    except Exception as e:
+        logger.error(f"Could not encrypt the download for an approval: {e}")
+        return None
+
+
+def download_result(approval_id: int, user_id: int) -> Optional[dict]:
+    """Hand the requester their kept-back file once, then delete it."""
+    from models import ApprovalRequest, db
+    from services.sso_service import decrypt_secret
+
+    req = ApprovalRequest.query.get(approval_id)
+    if not req or req.requester_id != user_id or not req.download_payload:
+        return None
+    if not req.executed_at or utcnow() - req.executed_at > timedelta(minutes=DOWNLOAD_TTL_MINUTES):
+        req.download_payload = None
+        db.session.commit()
+        return None
+    # Clear it in the same statement that reads it, so two requests can't both get it.
+    payload = req.download_payload
+    taken = ApprovalRequest.query.filter_by(id=req.id, download_payload=payload).update(
+        {'download_payload': None}, synchronize_session=False)
+    db.session.commit()
+    if not taken:
+        return None
+    try:
+        return json.loads(decrypt_secret(payload) or 'null')
+    except ValueError:
+        return None
+
+
 def _claim(req, decided_by, note: Optional[str], self_confirmed: bool) -> bool:
     """Move pending -> approved in one UPDATE, so two clicks can't run it twice."""
     from models import ApprovalRequest, db
@@ -462,7 +546,7 @@ def _claim(req, decided_by, note: Optional[str], self_confirmed: bool) -> bool:
 
 
 def _run_approved(req, decided_by, note: Optional[str], self_confirmed: bool,
-                  background: bool = False) -> dict:
+                  background: bool = False, return_raw: bool = False) -> dict:
     """Mark a request approved, execute it, and record the outcome."""
     from flask import current_app
 
@@ -470,7 +554,7 @@ def _run_approved(req, decided_by, note: Optional[str], self_confirmed: bool,
         return {'success': False, 'error': f'Request is already {req.status}'}
 
     if not background:
-        return _finish_run(req, decided_by, self_confirmed)
+        return _finish_run(req, decided_by, self_confirmed, return_raw=return_raw)
 
     app = current_app._get_current_object()
     req_id, decided_by_id = req.id, decided_by.id
@@ -492,16 +576,26 @@ def _run_approved(req, decided_by, note: Optional[str], self_confirmed: bool,
     return {'success': True, 'status': 'running', 'approval_id': req_id}
 
 
-def _finish_run(req, decided_by, self_confirmed: bool) -> dict:
-    """Execute an already-claimed request and record the outcome."""
+def _finish_run(req, decided_by, self_confirmed: bool, return_raw: bool = False) -> dict:
+    """Execute an already-claimed request and record the outcome.
+
+    The row, the chat copy and every reply to a reviewer get a redacted
+    result. A new key pair or a disclosed secret value is kept encrypted for
+    the requester to download once (download_result), never stored readable.
+    """
     from models import User, AppNotification, ChatMessage, db
 
     try:
-        result = _execute_tool(req)
+        raw = _execute_tool(req)
     except Exception as e:
         logger.error(f"Tool execution failed for approval {req.id}: {e}", exc_info=True)
-        result = {'success': False, 'error': str(e)}
+        raw = {'success': False, 'error': str(e)}
 
+    result, download = stored_result(req.tool_name, raw, req.id)
+    req.download_payload = _encrypt_download(download) if download else None
+    if download and not req.download_payload:
+        result['note'] = ("The values this call returned could not be kept for download. "
+                          "They are not stored anywhere; create a new one if you need it.")
     req.status = 'executed'
     req.execution_result = result
     req.executed_at = utcnow()
@@ -521,8 +615,9 @@ def _finish_run(req, decided_by, self_confirmed: bool) -> dict:
         except Exception as e:
             logger.warning(f"Failed to append result to conversation: {e}")
 
+    returned = raw if return_raw else result
     if self_confirmed:
-        return {'success': True, 'result': result}
+        return {'success': True, 'result': returned}
 
     try:
         result_summary = 'succeeded' if result.get('success') else 'failed'
@@ -553,7 +648,7 @@ def _finish_run(req, decided_by, self_confirmed: bool) -> dict:
     except Exception as e:
         logger.warning(f"Failed to notify requester after approval: {e}")
 
-    return {'success': True, 'result': result}
+    return {'success': True, 'result': returned}
 
 
 def reject(approval_id: int, approver_id: int, note: Optional[str] = None) -> dict:
@@ -774,7 +869,7 @@ def gate_api_call(user, tool_name: str, params: dict, risk_level: str,
     if not can_self_confirm(req):
         return 202, {**base, 'status': 'pending_approval', 'can_confirm': False,
                      'message': 'Still waiting for an owner, admin or approver of your organization.'}
-    outcome = confirm_own(req.id, user.id)
+    outcome = confirm_own(req.id, user.id, return_raw=True)
     if not outcome.get('success'):
         return 409, {**base, 'error': outcome.get('error', 'Could not confirm')}
     return 200, {**base, 'status': 'executed', 'result': outcome.get('result'), 'ran_now': True}
@@ -804,6 +899,20 @@ def _expire_stale():
     ).update({'status': 'expired'})
     db.session.commit()
     _recover_interrupted_runs()
+    _drop_expired_downloads()
+
+
+def _drop_expired_downloads():
+    """A result nobody downloaded in time is deleted, not kept indefinitely."""
+    from models import ApprovalRequest, db
+
+    cutoff = utcnow() - timedelta(minutes=DOWNLOAD_TTL_MINUTES)
+    dropped = ApprovalRequest.query.filter(
+        ApprovalRequest.download_payload.isnot(None),
+        ApprovalRequest.executed_at <= cutoff,
+    ).update({'download_payload': None}, synchronize_session=False)
+    if dropped:
+        db.session.commit()
 
 
 def _recover_interrupted_runs():

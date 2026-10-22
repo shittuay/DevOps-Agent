@@ -333,14 +333,14 @@ def handle_callback(config: Dict, code: str, redirect_uri: str, nonce: str) -> I
     claims = _validate_id_token(ep, id_token, nonce)
 
     email = claims.get('email')
-    verified = bool(claims.get('email_verified', False))
+    verified = _claim_true(claims.get('email_verified', False))
     name = claims.get('name')
     if (not email or not name) and token.get('access_token'):
         info = _fetch_userinfo(ep, token['access_token'])
         email = email or info.get('email')
         name = name or info.get('name')
         if 'email_verified' in info:
-            verified = verified or bool(info['email_verified'])
+            verified = verified or _claim_true(info['email_verified'])
 
     if not email:
         raise SSOError("Identity provider did not supply an email address")
@@ -420,6 +420,29 @@ def _unique_username(base: str) -> str:
     return candidate
 
 
+def _claim_true(value) -> bool:
+    """An IdP claim is true only as a real boolean or the string "true".
+
+    Some providers (e.g. Cognito userinfo) send the string "false", which
+    bool() would read as True.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() == 'true'
+    return value is True
+
+
+def email_domain_verified_for_org(org, email: str) -> bool:
+    """True when ``email``'s domain is a DNS-verified domain of ``org``."""
+    from models import OrganizationDomain
+    if not org or not email or '@' not in email:
+        return False
+    domain = email.rsplit('@', 1)[1].strip().lower()
+    if not domain:
+        return False
+    return OrganizationDomain.query.filter_by(
+        organization_id=org.id, domain=domain, verified=True).first() is not None
+
+
 def find_or_provision_user(org, identity: Identity):
     """JIT-create or link a user for an SSO identity and ensure org membership.
 
@@ -429,6 +452,12 @@ def find_or_provision_user(org, identity: Identity):
 
     if not identity.email_verified:
         raise SSOError("Your identity provider has not verified this email address")
+    if not email_domain_verified_for_org(org, identity.email):
+        # Any signed-in user can create an org and point it at an IdP they
+        # control, so the asserted email is only trusted for domains this org
+        # has proven it owns. Without this, an IdP could assert any address
+        # and be logged in as that account.
+        raise SSOError("This email's domain is not verified for this organization's single sign-on")
 
     config = org.sso_config or {}
     default_role = config.get('default_role', 'member')
@@ -452,6 +481,8 @@ def find_or_provision_user(org, identity: Identity):
         db.session.flush()  # assign id
         created = True
     else:
+        if user.sso_organization_id and user.sso_organization_id != org.id:
+            raise SSOError("This account signs in through a different organization")
         # Link SSO identity on first federated login without clobbering existing data.
         if not user.sso_provider:
             user.sso_provider = identity.provider

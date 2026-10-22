@@ -451,3 +451,68 @@ def test_handle_callback_oidc_nonce_mismatch_raises(sso_app, monkeypatch):
     config = _signed_oidc(monkeypatch, nonce_in_token='NONCE1')
     with pytest.raises(sso_service.SSOError):
         sso_service.handle_callback(config, 'code', 'https://app.test/cb', 'WRONG')
+
+
+# --------------------------------------------------------------------------- #
+# Account takeover guard: an IdP is only trusted for its org's verified domains
+# --------------------------------------------------------------------------- #
+
+def _victim(email='admin@victim.com'):
+    user = User(email=email, username=email.split('@')[0], role='admin')
+    user.set_password('victim-password')
+    db.session.add(user)
+    db.session.commit()
+    return user
+
+
+def test_provision_refuses_email_outside_org_domains(sso_app):
+    victim = _victim()
+    org = _make_org()  # verified for acme.com only
+    with pytest.raises(sso_service.SSOError):
+        sso_service.find_or_provision_user(org, _identity(email='admin@victim.com'))
+    db.session.refresh(victim)
+    assert victim.sso_provider is None
+    assert OrganizationMember.query.filter_by(user_id=victim.id).count() == 0
+
+
+def test_provision_refuses_unverified_org_domain(sso_app):
+    _victim()
+    org = _make_org(domains=())
+    db.session.add(OrganizationDomain(organization_id=org.id, domain='victim.com', verified=False))
+    db.session.commit()
+    with pytest.raises(sso_service.SSOError):
+        sso_service.find_or_provision_user(org, _identity(email='admin@victim.com'))
+
+
+def test_provision_refuses_domain_verified_by_another_org(sso_app):
+    _victim()
+    real = Organization(name='Victim', slug='victim', owner_id=1)
+    db.session.add(real)
+    db.session.commit()
+    db.session.add(OrganizationDomain(organization_id=real.id, domain='victim.com', verified=True))
+    db.session.commit()
+    attacker_org = _make_org()
+    with pytest.raises(sso_service.SSOError):
+        sso_service.find_or_provision_user(attacker_org, _identity(email='admin@victim.com'))
+
+
+def test_provision_refuses_user_linked_to_another_org(sso_app):
+    org = _make_org()
+    other = Organization(name='Other', slug='other', owner_id=1)
+    db.session.add(other)
+    db.session.commit()
+    user = User(email='alice@acme.com', username='alice', sso_provider='generic_oidc',
+                sso_subject='x', sso_organization_id=other.id)
+    user.set_password('pw')
+    db.session.add(user)
+    db.session.commit()
+    with pytest.raises(sso_service.SSOError):
+        sso_service.find_or_provision_user(org, _identity())
+
+
+def test_string_false_email_verified_is_false():
+    assert sso_service._claim_true('false') is False
+    assert sso_service._claim_true('False') is False
+    assert sso_service._claim_true('true') is True
+    assert sso_service._claim_true(True) is True
+    assert sso_service._claim_true(1) is False

@@ -2,6 +2,7 @@
 import os
 import subprocess
 import shlex
+import shutil
 import time
 from typing import Dict, Any, List, Optional
 from ..utils import get_logger
@@ -80,8 +81,11 @@ def execute_command(
                 'error': str(e)
             }
 
-        binary = os.path.basename(command_args[0])
-        if binary not in _ALLOWED_BINARIES:
+        # The allowlist names a program, not a file: "/tmp/x/ls" or "./ls"
+        # would pass a basename check and run whatever file sits there.
+        binary = command_args[0] if command_args else ''
+        resolved = shutil.which(binary) if binary and '/' not in binary and '\\' not in binary else None
+        if binary not in _ALLOWED_BINARIES or not resolved:
             logger.warning(f"Blocked execution of non-allowlisted binary: {binary}")
             return {
                 'success': False,
@@ -95,7 +99,7 @@ def execute_command(
             }
 
         result = subprocess.run(
-            command_args,
+            [resolved] + command_args[1:],
             shell=False,
             capture_output=True,
             text=True,
