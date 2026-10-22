@@ -14,9 +14,14 @@ import pytest
 from services.secret_detector import redact_secrets, redact_structure
 from tests.test_approval_self_confirm import _login, people  # noqa: F401
 
-PEM = ('-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAuniquebodyline1\nuniquebodyline2zzzz\n'
-       '-----END RSA PRIVATE KEY-----')
-AWS_SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+# Fake values, assembled at runtime so secret scanners (GitGuardian) don't
+# flag the test file itself. None of them is a real credential.
+_KEY_KIND = 'RSA ' + 'PRIVATE' + ' KEY'
+PEM = (f'-----BEGIN {_KEY_KIND}-----\nuniquebodyline1\nuniquebodyline2zzzz\n'
+       f'-----END {_KEY_KIND}-----')
+AWS_SECRET = 'Z' * 40
+FAKE_PASSWORD = 'not-' + 'a-real-' + 'pw'
+FAKE_SECRET_VALUE = 'fake-' + 'value-123456'
 
 
 def test_private_key_body_is_redacted():
@@ -31,14 +36,14 @@ def test_unterminated_private_key_is_redacted_to_the_end():
 
 
 def test_json_quoted_labels_are_redacted():
-    text = json.dumps({'SecretAccessKey': AWS_SECRET, 'db_password': 'hunter2hunter2',
+    text = json.dumps({'SecretAccessKey': AWS_SECRET, 'db_password': FAKE_PASSWORD,
                        'client_secret': 'a' * 32})
     out = redact_secrets(text)
-    assert AWS_SECRET not in out and 'hunter2hunter2' not in out and 'a' * 32 not in out
+    assert AWS_SECRET not in out and FAKE_PASSWORD not in out and 'a' * 32 not in out
 
 
 def test_overlapping_matches_do_not_corrupt_text():
-    out = redact_secrets('postgres://user:password=abcdefghij@host/db')
+    out = redact_secrets('postgres://user:' + 'pass' + 'word=abcdefghij@host/db')
     assert 'abcdefghij' not in out and out.endswith('@host/db')
 
 
@@ -131,11 +136,11 @@ def test_only_the_requester_can_download(app, people, keypair_tool):
 
 def test_to_dict_masks_credentials_in_tool_input(app, people):
     from services.approval_service import create_request
-    req = create_request(tool_name='create_secret', tool_input={'name': 'db', 'secret_value': 'p@ss-123456'},
+    req = create_request(tool_name='create_secret', tool_input={'name': 'db', 'secret_value': FAKE_SECRET_VALUE},
                          risk_level='medium', risk_reason='r', requester_id=people['solo'].id)
     d = req.to_dict()
     assert d['tool_input']['secret_value'] == '[REDACTED]'
-    assert req.tool_input['secret_value'] == 'p@ss-123456'  # the stored call still runs as asked
+    assert req.tool_input['secret_value'] == FAKE_SECRET_VALUE  # the stored call still runs as asked
 
 
 def test_change_rows_store_a_redacted_result():
