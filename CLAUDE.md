@@ -2426,6 +2426,15 @@ sets `title` on the tool and in `annotations` (`_tool_title()` turns `get_ec2_in
 "Get EC2 Instances"; add acronyms to `_TITLE_WORDS`). Guard: `tests/test_mcp_tool_titles.py`.
 Read-only hints come from name prefixes plus whole-segment suffixes (`_list`, `_status`...); a
 plain substring test once marked `create_listener` read-only.
+**Every tool sets all four hints explicitly (2026-10-23).** Reviews reject a connector over an
+unset hint or one that doesn't match the tool. Until then only high-risk tools were
+`destructiveHint: true`, so ~200 medium-risk tools that overwrite or remove settings
+(`put_iam_inline_policy`, `revoke_security_group_ingress`, `update_cloudformation_stack`) said
+false, and none set `idempotentHint` (reported by an outside vendor's sales email). Now
+`_get_tool_annotations()`: destructive = safety.py risk medium or above, or a `manage_*` tool;
+read-only = a read by name (`_READ_ONLY_PREFIXES` / `_READ_ONLY_SECOND_WORDS` / `_READ_ONLY_NAMES`)
+and not destructive; idempotent = read-only or `put_`/`set_`/`tag_`; openWorld always true.
+`tests/test_mcp_tool_titles.py` checks every hint on every tool.
 Directory policy also bars tool descriptions from instructing the model about other tools or its
 own behaviour. The chat descriptions do that on purpose (find_ami before create_ec2_instance), so
 the connector serves plain versions from `_MCP_DESCRIPTIONS` in `routes/mcp.py`; a new
