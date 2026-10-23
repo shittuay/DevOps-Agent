@@ -39,6 +39,12 @@ aws cloudformation update-stack --stack-name YOUR_STACK_NAME \
 policies listed above and copy the deny statements from `cloudformation/devops-agent-role.json`
 (`DevOpsAgentGuardrails`).
 
+On every level that deny covers reads that return a credential or secret value:
+Secrets Manager `GetSecretValue`/`BatchGetSecretValue`, SSM `GetParameter*`,
+`ec2:GetPasswordData` and the Redshift credential calls. The list is
+`CREDENTIAL_VALUE_ACTIONS` in `services/aws_permissions.py`; the template builder
+imports it. Existing stacks pick up an addition only after an `update-stack` like the one above.
+
 Azure and Google Cloud already work this way: the setup script assigns the built-in
 **Reader** / **Contributor** role (Azure) or **Viewer** / **Editor** role (Google Cloud).
 
