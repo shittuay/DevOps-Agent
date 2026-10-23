@@ -202,6 +202,23 @@ def test_guardrails_hold_on_every_level():
     assert {'s3:GetObject', 'dynamodb:GetItem', 'dynamodb:Scan', 'lambda:GetFunction'} <= read_deny
 
 
+def test_credential_reads_are_denied_on_every_level_but_manage_keeps_data_reads():
+    """2026-10-22 review: BatchGetSecretValue, GetPasswordData and the Redshift credential
+    calls were missing from the deny; at Manage, BatchGetSecretValue returned plaintext
+    secrets through aws_api_read with no approval. The deny is built from the app's own
+    list, so the two can't drift. Data reads stay allowed at Manage (owner, 2026-10-15)."""
+    from services.aws_permissions import CREDENTIAL_VALUE_ACTIONS
+    t = _load(CF_TEMPLATE)
+    guard = t['Resources']['DevOpsAgentRole']['Properties']['Policies'][2]['PolicyDocument']['Fn::If']
+    for doc in (guard[1], guard[2]):
+        deny = {a for s in doc['Statement'] if s['Sid'] == 'NeverSecretValues' for a in s['Action']}
+        assert set(CREDENTIAL_VALUE_ACTIONS) == deny
+    assert {'secretsmanager:BatchGetSecretValue', 'ec2:GetPasswordData',
+            'redshift:GetClusterCredentials', 'redshift-serverless:GetCredentials'} <= CREDENTIAL_VALUE_ACTIONS
+    manage_deny = {a for s in guard[2]['Statement'] for a in s['Action']}
+    assert not ({'s3:GetObject', 'lambda:GetFunction'} & manage_deny)
+
+
 def test_setup_pages_offer_every_level_and_pass_it_to_cloudformation():
     allowed = set(_load(CF_TEMPLATE)['Parameters']['PolicyLevel']['AllowedValues'])
     for name, select_id in (('settings.html', 'awsPolicyLevel'), ('onboarding.html', 'aws-policy-level')):

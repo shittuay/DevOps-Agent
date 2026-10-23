@@ -46,8 +46,21 @@ _CODE = re.compile(r'An error occurred \((\w+)\)')
 # owner can still add them by hand (option A) after seeing a warning.
 SENSITIVE_PREFIXES = ('iam:', 'organizations:', 'sts:', 'account:', 'kms:', 'billing:',
                       'aws-portal:', 'sso:', 'identitystore:')
-SENSITIVE_ACTIONS = {'secretsmanager:GetSecretValue', 'ssm:GetParameter', 'ssm:GetParameters',
-                     'ssm:GetParametersByPath', 'lambda:GetFunction', 's3:GetObject'}
+# Reads that hand back a live credential or secret value. The CloudFormation template
+# denies exactly these on every access level (scripts/build_cf_template.py imports this
+# set, so the AWS-side deny and this check can't drift apart). BatchGetSecretValue,
+# GetPasswordData and the Redshift credential calls were missing from both until the
+# 2026-10-22 review; at the Manage level BatchGetSecretValue was reachable through
+# aws_api_read with no approval.
+CREDENTIAL_VALUE_ACTIONS = frozenset({
+    'secretsmanager:GetSecretValue', 'secretsmanager:BatchGetSecretValue',
+    'ssm:GetParameter', 'ssm:GetParameters', 'ssm:GetParametersByPath', 'ssm:GetParameterHistory',
+    'ec2:GetPasswordData',
+    'redshift:GetClusterCredentials', 'redshift:GetClusterCredentialsWithIAM',
+    'redshift-serverless:GetCredentials',
+})
+# Data reads are sensitive to self-grant too, but stay allowed at the Manage level.
+SENSITIVE_ACTIONS = CREDENTIAL_VALUE_ACTIONS | {'lambda:GetFunction', 's3:GetObject'}
 
 # Tool category (src/agent/tool_selection.py) -> IAM service prefix, used only when
 # AWS's message doesn't name the action itself.

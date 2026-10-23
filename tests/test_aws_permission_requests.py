@@ -75,7 +75,11 @@ def test_policy_is_minimal():
 
 
 def test_sensitive_actions():
-    for a in ('iam:CreateRole', 'sts:AssumeRole', 'secretsmanager:GetSecretValue', 'kms:Decrypt', 'ec2:*'):
+    for a in ('iam:CreateRole', 'sts:AssumeRole', 'secretsmanager:GetSecretValue', 'kms:Decrypt', 'ec2:*',
+              # Credential-vending reads (2026-10-22 review)
+              'secretsmanager:BatchGetSecretValue', 'ec2:GetPasswordData',
+              'redshift:GetClusterCredentials', 'redshift-serverless:GetCredentials',
+              'ssm:GetParameterHistory'):
         assert ap.is_sensitive(a), a
     assert not ap.is_sensitive('ec2:RunInstances')
 
