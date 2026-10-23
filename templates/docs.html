@@ -1157,8 +1157,8 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
       <h3 class="subsection-title">Authentication</h3>
       <p>Pass your API key in the <code>X-API-Key</code> header on every request:</p>
       <pre class="code-block">X-API-Key: YOUR_API_KEY</pre>
-      <p>Alternatively, use the <code>api_key</code> query parameter for clients that cannot set headers:</p>
-      <pre class="code-block">GET /api-gateway/v1/resources?api_key=YOUR_API_KEY</pre>
+      <p><code>Authorization: Bearer YOUR_API_KEY</code> also works. Keys in the URL (<code>?api_key=</code>) are refused, because URLs end up in logs.</p>
+      <p>A key can only do what its scopes allow: <code>read</code> reads resources, costs and tools; <code>agent</code> (what Settings creates) also chats and runs tools; <code>write</code> runs tools; <code>admin</code> does everything. A key with an IP allow-list only works from those addresses.</p>
 
       <h3 class="subsection-title">Base URL</h3>
       <pre class="code-block">https://devopsagent.io/api-gateway/v1</pre>
@@ -1259,7 +1259,7 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
         <thead><tr><th>Method</th><th>How</th><th>Used by</th></tr></thead>
         <tbody>
           <tr><td>OAuth 2.0</td><td>Authorization Code flow with PKCE. Clients register themselves (Dynamic Client Registration); accounts with two-factor on are asked for their code.</td><td>Claude.ai connectors</td></tr>
-          <tr><td>API Key</td><td><code>Authorization: Bearer YOUR_API_KEY</code> header, or <code>?api_key=</code> query param.</td><td>Claude Desktop, custom clients</td></tr>
+          <tr><td>API Key</td><td><code>Authorization: Bearer YOUR_API_KEY</code> header (an <code>agent</code>, <code>write</code> or <code>admin</code> key).</td><td>Claude Desktop, custom clients</td></tr>
         </tbody>
       </table>
       <p>Create API keys in <a href="/settings#api-keys">Settings → API Keys</a>.</p>

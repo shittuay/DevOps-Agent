@@ -1132,8 +1132,12 @@ def initialize_agent():
         # Create agent
         agent = DevOpsAgent(config_manager)
 
-        # Register tools
-        agent.register_tools_from_module(command_tools)
+        # Register tools. Host-local modules act on this server, not the
+        # user's cloud account, so they need an explicit self-hosted opt-in.
+        from src.tools.host_local import host_tools_enabled
+        host_tools = host_tools_enabled()
+        if host_tools:
+            agent.register_tools_from_module(command_tools)
         agent.register_tools_from_module(verification_tools)  # http_check / tcp_check — always available
         if config_manager.aws_enabled:
             agent.register_tools_from_module(aws_tools)
@@ -1142,14 +1146,16 @@ def initialize_agent():
         agent.register_tools_from_module(azure_tools)
         if config_manager.k8s_enabled:
             agent.register_tools_from_module(kubernetes_tools)
-        agent.register_tools_from_module(git_tools)
+        if host_tools:
+            agent.register_tools_from_module(git_tools)
         agent.register_tools_from_module(github_tools)
-        agent.register_tools_from_module(docker_tools)
+        if host_tools:
+            agent.register_tools_from_module(docker_tools)
         if config_manager.jenkins_enabled or config_manager.github_enabled:
             agent.register_tools_from_module(cicd_tools)
 
         # Register Terraform tools if enabled
-        if config_manager.get('terraform.enabled', True):
+        if host_tools and config_manager.get('terraform.enabled', True):
             agent.register_tools_from_module(terraform_tools)
             logger.info("Terraform tools enabled")
 
@@ -1159,7 +1165,7 @@ def initialize_agent():
             logger.info("Monitoring tools enabled (Prometheus, Grafana, Datadog)")
 
         # Register Ansible tools if enabled
-        if config_manager.get('ansible.enabled', True):
+        if host_tools and config_manager.get('ansible.enabled', True):
             agent.register_tools_from_module(ansible_tools)
             logger.info("Ansible tools enabled")
 
@@ -5364,10 +5370,14 @@ def remove_memory(memory_id):
 
 @app.route('/api/sandbox/run', methods=['POST'])
 @login_required
+@_admin_required
 def run_sandbox_command():
-    """Execute a command in a Docker sandbox."""
+    """Execute a command in a Docker sandbox on this server (self-hosted, admins only)."""
     from services.sandbox import run_sandboxed, run_script_sandboxed, is_docker_available
+    from src.tools.host_local import host_tools_enabled
 
+    if not host_tools_enabled():
+        return jsonify({'error': 'Not available on this server'}), 404
     if not is_docker_available():
         return jsonify({'error': 'Docker sandbox not available on this system'}), 503
 
@@ -5378,18 +5388,21 @@ def run_sandbox_command():
     if not command and not script:
         return jsonify({'error': 'command or script required'}), 400
 
+    try:
+        timeout = max(1, min(int(data.get('timeout', 30)), 60))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'timeout must be a number of seconds'}), 400
+
+    # Always without network: with it, a container reaches the instance
+    # metadata endpoint and this server's internal services.
     if script:
         result = run_script_sandboxed(
             script=script,
             language=data.get('language', 'sh'),
-            timeout=min(data.get('timeout', 30), 60),
+            timeout=timeout,
         )
     else:
-        result = run_sandboxed(
-            command=command,
-            timeout=min(data.get('timeout', 30), 60),
-            network=data.get('network', False),
-        )
+        result = run_sandboxed(command=command, timeout=timeout, network=False)
 
     return jsonify(result)
 

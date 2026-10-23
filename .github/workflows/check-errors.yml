@@ -48,7 +48,9 @@ jobs:
 
         echo "========================================"
         echo "DB path: $DB"
-        echo "DB_URL: $DB_URL"
+        # Never print the URL itself: it carries the database password, and
+        # this log is readable by anyone with read access to the repo.
+        echo "DB_URL: $(echo "$DB_URL" | sed -E 's#^([a-z0-9+]+://)[^@/]*@#\1***@#')"
         echo "VENV path: $VENV"
         echo "========================================"
 
@@ -100,8 +102,11 @@ jobs:
                 """).fetchall()
             if not rows:
                 print("No subscription rows found.")
+            def mask(e):
+                name, _, domain = (e or '').partition('@')
+                return f"{name[:2]}***@{domain}" if domain else '***'
             for email, tier, remaining, used_month, used_total, reset, period_end, pay_status, updated in rows:
-                print(f"  {email} | tier={tier} | remaining={remaining} | used_this_month={used_month} "
+                print(f"  {mask(email)} | tier={tier} | remaining={remaining} | used_this_month={used_month} "
                       f"| used_total={used_total} | last_reset={reset} | period_end={period_end} "
                       f"| payment_status={pay_status} | updated_at={updated}")
             con.close()
@@ -347,7 +352,8 @@ jobs:
             if rows:
                 print(f"Users with violations: {len(rows)}")
                 for email, v, blocked in rows:
-                    print(f"  {email}: {v} violations, blocked_until={blocked}")
+                    name, _, domain = (email or '').partition('@')
+                    print(f"  {name[:2]}***@{domain}: {v} violations, blocked_until={blocked}")
             else:
                 print("No guardrail violations.")
         except Exception as e:

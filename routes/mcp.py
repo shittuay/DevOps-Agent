@@ -407,6 +407,10 @@ def _get_all_tools():
             'src.tools.alerting_tools',
         ]
 
+        from src.tools.host_local import host_tools_enabled, is_host_local
+        if not host_tools_enabled():
+            loaders = [m for m in loaders if not is_host_local(m)]
+
         all_tools = []
         for module_path in loaders:
             try:
@@ -609,11 +613,9 @@ def _authenticate() -> Optional[Dict[str, Any]]:
     Validate Bearer token — accepts both API keys and OAuth access tokens.
     Returns an object with a .user_id attribute on success, None on failure.
     """
+    # Header only: a key in the URL ends up in proxy and access logs.
     raw_auth = request.headers.get('Authorization', '')
-    bearer = (
-        raw_auth.removeprefix('Bearer ').strip()
-        or request.args.get('api_key', '')
-    )
+    bearer = raw_auth.removeprefix('Bearer ').strip()
     logger.info(f"MCP auth: method={request.method} path={request.path} "
                 f"has_auth_header={bool(raw_auth)} bearer_len={len(bearer)} "
                 f"oauth_tokens_count={len(_oauth_tokens)}")
@@ -635,10 +637,18 @@ def _authenticate() -> Optional[Dict[str, Any]]:
         from services.api_gateway import APIGatewayService
         svc = APIGatewayService()
         result = svc.get_api_key_by_key(bearer)
-        if result:
-            logger.info(f"MCP auth: API key accepted")
-        else:
+        if not result:
             logger.warning(f"MCP auth: API key not found either — rejecting")
+            return None
+        # Same scope and IP allow-list rules as the developer API: MCP runs tools.
+        from services.api_key_service import key_allows, key_ip_allowed
+        if not key_ip_allowed(result, request.remote_addr):
+            logger.warning("MCP auth: API key used from an IP outside its allow-list — rejecting")
+            return None
+        if not key_allows(result, 'execute'):
+            logger.warning("MCP auth: API key scopes do not allow tool calls — rejecting")
+            return None
+        logger.info(f"MCP auth: API key accepted")
         return result
     except Exception as e:
         logger.error(f"MCP auth: API key lookup error: {e}")

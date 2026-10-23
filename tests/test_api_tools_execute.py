@@ -58,7 +58,9 @@ def test_initialize_agent_populates_config(app):
         assert ok, f"initialize_agent failed: {err}"
         a = app.config.get('DEVOPS_AGENT')
         assert a is not None, "DEVOPS_AGENT not set — REST tool endpoints would 503"
-        assert 'execute_command' in a.tools
+        # Host-local tools need the self-hosted opt-in (tests/test_host_local_tools.py)
+        assert 'execute_command' not in a.tools
+        assert 'http_check' in a.tools
         # Idempotent: a second call is a no-op that still reports success
         ok2, _ = appmod.initialize_agent()
         assert ok2

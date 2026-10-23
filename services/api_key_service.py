@@ -149,10 +149,9 @@ class APIKeyService:
         if api_key.expires_at and api_key.expires_at < utcnow():
             return False, None, "API key has expired"
 
-        # Check IP whitelist
-        if api_key.allowed_ips and ip_address:
-            if ip_address not in api_key.allowed_ips:
-                return False, None, "IP address not allowed"
+        # Check IP allow-list (no address at all doesn't skip it)
+        if not key_ip_allowed(api_key, ip_address):
+            return False, None, "IP address not allowed"
 
         # Check scope
         if required_scope and not api_key.has_scope(required_scope):
@@ -254,6 +253,42 @@ class APIKeyService:
 
 # Global service instance
 api_key_service = APIKeyService()
+
+
+# What each stored scope lets a key do. 'agent' is what Settings > API Keys
+# issues: chat through /v1/agent and tool calls through MCP and /v1/execute.
+# The "read:resources"-style names are older form values; they map to the
+# plain scope they always described.
+_SCOPE_GRANTS = {
+    'admin': frozenset({'read', 'write', 'agent', 'execute'}),
+    'agent': frozenset({'read', 'agent', 'execute'}),
+    'write': frozenset({'read', 'write', 'execute'}),
+    'read': frozenset({'read'}),
+}
+
+
+def key_grants(api_key) -> frozenset:
+    """Every capability the key's scopes give it."""
+    granted = set()
+    for scope in (getattr(api_key, 'scopes', None) or []):
+        scope = str(scope).strip().lower()
+        if scope in _SCOPE_GRANTS:
+            granted |= _SCOPE_GRANTS[scope]
+        elif scope.startswith('read:'):
+            granted |= _SCOPE_GRANTS['read']
+        elif scope.startswith(('write:', 'delete:')):
+            granted |= _SCOPE_GRANTS['write']
+    return frozenset(granted)
+
+
+def key_allows(api_key, capability: str) -> bool:
+    return capability in key_grants(api_key)
+
+
+def key_ip_allowed(api_key, ip_address) -> bool:
+    """An allow-list, when set, must contain the caller's address."""
+    allowed = getattr(api_key, 'allowed_ips', None) or []
+    return not allowed or (bool(ip_address) and ip_address in allowed)
 
 
 def init_api_key_service(app):

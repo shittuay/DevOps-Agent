@@ -3134,21 +3134,27 @@ class ApprovalRequest(db.Model):
     approver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     decided_at = db.Column(db.DateTime, nullable=True)
     approver_note = db.Column(db.Text, nullable=True)
-    execution_result = db.Column(db.JSON, nullable=True)
+    execution_result = db.Column(db.JSON, nullable=True)  # redacted copy; see approval_service._finish_run
     executed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow)
+    # Fernet-encrypted {filename, content, content_type} the requester downloads
+    # once (a new key pair, a secret value). Cleared on download or expiry.
+    download_payload = db.Column(db.Text, nullable=True)
 
     requester = db.relationship('User', foreign_keys=[requester_id], backref=db.backref('approval_requests_made', cascade='all, delete-orphan'))
     approver_user = db.relationship('User', foreign_keys=[approver_id], backref='approval_requests_decided')
 
     def to_dict(self):
+        # Reviewers see these too, so credentials passed in or returned are masked
+        # (rows stored before results were redacted at write time included).
+        from services.secret_detector import redact_structure
         return {
             'id': self.id,
             'requester_id': self.requester_id,
             'requester_name': self.requester.username if self.requester else None,
             'conversation_id': self.conversation_id,
             'tool_name': self.tool_name,
-            'tool_input': self.tool_input,
+            'tool_input': redact_structure(self.tool_input),
             'risk_level': self.risk_level,
             'risk_reason': self.risk_reason,
             'status': self.status,
@@ -3157,9 +3163,10 @@ class ApprovalRequest(db.Model):
             'approver_name': self.approver_user.username if self.approver_user else None,
             'decided_at': (self.decided_at.isoformat() + 'Z') if self.decided_at else None,
             'approver_note': self.approver_note,
-            'execution_result': self.execution_result,
+            'execution_result': redact_structure(self.execution_result),
             'executed_at': (self.executed_at.isoformat() + 'Z') if self.executed_at else None,
             'created_at': self.created_at.isoformat() + 'Z',
+            'download_available': bool(self.download_payload),
         }
 
     def __repr__(self):

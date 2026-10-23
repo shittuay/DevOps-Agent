@@ -20,14 +20,37 @@ _WEBHOOK_EVENTS = [
 ]
 
 
-def api_key_required(f):
-    """Decorator to validate API key and inject X-RateLimit-* headers."""
+def _api_key_from_request():
+    """X-API-Key or Authorization: Bearer. Never the query string: a key in a
+    URL lands in proxy and access logs and browser history."""
+    key = request.headers.get('X-API-Key')
+    if not key:
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            key = auth[7:].strip()
+    return key or None
+
+
+def api_key_required(capability: str):
+    """Validate the API key, its scope for ``capability`` and its IP allow-list,
+    then inject X-RateLimit-* headers. Capabilities: read, agent, execute
+    (see services.api_key_service.key_grants)."""
+    def decorator(f):
+        return _api_key_checked(f, capability)
+    return decorator
+
+
+def _api_key_checked(f, capability: str):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         from services.api_gateway import APIGatewayService
+        from services.api_key_service import key_allows, key_ip_allowed
 
-        api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+        api_key = _api_key_from_request()
         if not api_key:
+            if request.args.get('api_key'):
+                return jsonify({'error': 'Send the API key in the X-API-Key header, not the URL',
+                                'docs': '/developers'}), 401
             return jsonify({'error': 'API key required', 'docs': '/developers'}), 401
 
         service = APIGatewayService()
@@ -35,6 +58,11 @@ def api_key_required(f):
 
         if not key_record:
             return jsonify({'error': 'Invalid API key', 'docs': '/developers'}), 401
+        if not key_ip_allowed(key_record, request.remote_addr):
+            return jsonify({'error': 'This API key is not allowed from your IP address'}), 403
+        if not key_allows(key_record, capability):
+            return jsonify({'error': f"This API key's scopes do not allow '{capability}'",
+                            'scopes': list(key_record.scopes or [])}), 403
 
         allowed, rate_info = service.check_rate_limit(key_record)
         if not allowed:
@@ -272,7 +300,7 @@ def _resource_json(r, detail: bool = False) -> dict:
 
 # External API endpoints (for SDK/external use)
 @api_gateway_bp.route('/v1/resources', methods=['GET'])
-@api_key_required
+@api_key_required('read')
 def api_list_resources():
     """External API: List resources"""
     from models import InfrastructureResource
@@ -285,7 +313,7 @@ def api_list_resources():
 
 
 @api_gateway_bp.route('/v1/resources/<resource_id>', methods=['GET'])
-@api_key_required
+@api_key_required('read')
 def api_get_resource(resource_id):
     """External API: Get resource details"""
     from models import InfrastructureResource
@@ -302,7 +330,7 @@ def api_get_resource(resource_id):
 
 
 @api_gateway_bp.route('/v1/analytics/costs', methods=['GET'])
-@api_key_required
+@api_key_required('read')
 def api_get_costs():
     """External API: Get cost data"""
     from services.analytics_service import AnalyticsService
@@ -334,7 +362,7 @@ def api_health():
 
 
 @api_gateway_bp.route('/v1/conversations', methods=['GET'])
-@api_key_required
+@api_key_required('read')
 def api_list_conversations():
     """List the authenticated user's API conversations.
 
@@ -381,7 +409,7 @@ def api_list_conversations():
 
 
 @api_gateway_bp.route('/v1/tools', methods=['GET'])
-@api_key_required
+@api_key_required('read')
 def api_list_tools():
     """List all available DevOps tools.
 
@@ -420,7 +448,7 @@ def api_list_tools():
 
 
 @api_gateway_bp.route('/v1/execute', methods=['POST'])
-@api_key_required
+@api_key_required('execute')
 def api_execute_tool():
     """Execute a specific DevOps tool directly (no AI layer).
 
@@ -557,7 +585,7 @@ def api_execute_tool():
 
 
 @api_gateway_bp.route('/v1/agent/stream', methods=['POST'])
-@api_key_required
+@api_key_required('agent')
 def api_agent_stream():
     """Stream an agent response via Server-Sent Events.
 
@@ -714,7 +742,7 @@ def api_agent_stream():
 
 
 @api_gateway_bp.route('/v1/agent', methods=['POST'])
-@api_key_required
+@api_key_required('agent')
 def api_agent():
     """
     Developer REST API — run an agent query programmatically.

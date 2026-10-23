@@ -114,6 +114,13 @@ function watchMyRequest(id, status) {
             status.style.color = ok ? '#10b981' : '#ef4444';
             status.textContent = (s.summary || (ok ? 'Done.' : 'It ran, but failed.')) +
                 (s.conversation_id ? ' Open the chat to continue.' : '');
+            if (s.can_download && s.download_url) {
+                const link = document.createElement('a');
+                link.href = s.download_url;
+                link.setAttribute('download', '');
+                link.textContent = ' Download ' + (((s.execution_result || {}).download_file || {}).filename || 'the result') + ' (once only)';
+                status.appendChild(link);
+            }
             return;
         }
         status.style.color = 'var(--text-secondary)';

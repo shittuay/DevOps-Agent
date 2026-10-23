@@ -41,7 +41,9 @@ Base URL: `https://devopsagent.io/api-gateway/v1`
 curl -H "X-API-Key: $DEVOPS_AGENT_KEY" https://devopsagent.io/api-gateway/v1/health
 ```
 
-(`?api_key=` in the query string also works, but headers don't end up in logs, so prefer them.)
+`Authorization: Bearer <key>` also works. A key in the query string (`?api_key=`) is refused, because URLs end up in logs.
+
+**Scopes:** `read` covers the read endpoints (resources, costs, conversations, tools); `agent` (what Settings → API Keys creates) adds `/agent`, `/agent/stream` and `/execute`; `write` adds `/execute`; `admin` covers everything. A request outside the key's scopes, or from an address outside its IP allow-list, gets 403.
 
 `/agent`, `/agent/stream` and `/execute` need a **Professional or Business** plan and one credit
 per call. Other plans get `403`; no credits left gets `402 insufficient_credits`.

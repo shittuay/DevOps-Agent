@@ -1512,6 +1512,9 @@ Optional:
   unset and `FLASK_ENV=production` (or `USE_AWS_SECRETS=true`); outside
   production it still builds a local default, now from
   `DEV_DB_USER`/`DEV_DB_PASSWORD`/`DEV_DB_HOST`.
+- `DEVOPS_AGENT_HOST_TOOLS` - `true` registers the tools that act on this server (shell commands,
+  git, docker, terraform, ansible) and enables `/api/sandbox/run`. Self-hosted installs only; leave it
+  unset on the hosted site (2026-10-22).
 - `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — consumed by
   `docker-compose.yml` only. **`POSTGRES_PASSWORD` has no default and compose
   refuses to start without it** (`${POSTGRES_PASSWORD:?…}` on both the `db` and
@@ -2228,6 +2231,43 @@ Step 8 done (agreed with the owner first):
   carry `Deprecation`, `Sunset` (`API_V1_SUNSET`, default 2027-01-12) and a successor `Link`.
   **Removing `/api/v1` is a separate change on or after that date.** Guard:
   `tests/test_one_developer_api.py`.
+
+### 2026-10-22 code review fixes
+
+A full read-only review found five issues the owner asked to fix first (CLAUDE_RUNBOOK.md has the detail):
+- **SSO trusts an IdP only for its org's verified domains.** `sso_service.find_or_provision_user()` refuses
+  an email whose domain is not a DNS-verified `OrganizationDomain` of that org
+  (`email_domain_verified_for_org`), and a user already linked to another org. Any signed-in user can
+  create an org and point it at their own IdP, so without this an asserted `admin@...` logged in as that
+  admin. String claims like `email_verified: "false"` are false (`_claim_true`).
+- **Host-local tools are off on the hosted site.** `command_tools`, `git_tools`, `docker_tools`,
+  `terraform_tools` and `ansible_tools` act on this server, so they register (chat agent and MCP) only
+  with `DEVOPS_AGENT_HOST_TOOLS=true` (`src/tools/host_local.py`); the CLI keeps them. `execute_command`
+  resolves its program on PATH and refuses any path (`/tmp/x/ls` passed the old basename check).
+  `/api/sandbox/run` is admin-only, needs the same flag, and never has network. Guard:
+  `tests/test_host_local_tools.py`.
+- **Approved results are stored redacted.** `approval_service.stored_result()` writes a redacted copy to
+  `ApprovalRequest.execution_result` and the chat; a key file, or the whole result of a
+  `secret_detector.SECRET_DISCLOSING_TOOLS` tool, is kept Fernet-encrypted in `download_payload` for the
+  requester to download once within `DOWNLOAD_TTL_MINUTES` (60) via `/api/approvals/<id>/download`
+  (the chat card and /approvals/mine show the link). `to_dict()` redacts `tool_input` and
+  `execution_result` for reviewers. `InfrastructureChange.execution_result` goes through
+  `core._stored_change_result()`. The developer API's synchronous confirm still returns the raw result to
+  the key's owner (`return_raw`). `secret_detector` now redacts whole PEM blocks, JSON-quoted labels, and
+  never splices overlapping matches; use `redact_structure()` for dicts. Guard:
+  `tests/test_approval_result_redaction.py`.
+- **`check-errors.yml` no longer prints the database password or full emails.**
+- **API keys: scopes, IP allow-list, header only.** `/api-gateway/v1` routes declare a capability
+  (`@api_key_required('read'|'agent'|'execute')`), checked by `api_key_service.key_grants()` /
+  `key_ip_allowed()`: `read` reads, `agent` (Settings' default) chats and runs tools, `write` runs tools,
+  `admin` everything. MCP API keys need `execute`. `?api_key=` is refused. Guard:
+  `tests/test_api_key_scopes.py`.
+
+Still open from that review (not fixed): org invitations join on GET and aren't bound to an email; TOTP
+setup marks the email verified; `_is_safe_redirect` accepts `http:/evil.com`; login messages reveal which
+accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
+`terraform_apply(plan_file='-destroy')`; `query_bigquery` unclassified; `*_api_read` can read secret
+values; stored XSS in Settings > Learning and the map's `esc()`; `/api/run-migration` is login-only.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 

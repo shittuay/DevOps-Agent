@@ -141,7 +141,30 @@ def get_status(approval_id):
         and req.status == 'pending'
         and approval_service.can_self_confirm(req)
     )
+    data['can_download'] = current_user.id == req.requester_id and bool(req.download_payload)
+    if data['can_download']:
+        data['download_url'] = url_for('approvals.download_result', approval_id=req.id)
     return jsonify(data)
+
+
+@approvals_bp.route('/api/approvals/<int:approval_id>/download')
+@login_required
+def download_result(approval_id):
+    """The requester's one-time copy of a new key or secret an approved call returned."""
+    from flask import Response
+    from services import approval_service
+    file = approval_service.download_result(approval_id, current_user.id)
+    if not file:
+        return jsonify({'error': 'This download is not available. It can be downloaded once, '
+                                 'within an hour of the action running.'}), 404
+    filename = ''.join(c for c in str(file.get('filename') or 'result.txt')
+                       if c.isalnum() or c in '._-') or 'result.txt'
+    return Response(
+        file.get('content') or '',
+        mimetype=file.get('content_type') or 'application/octet-stream',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"',
+                 'Cache-Control': 'no-store'},
+    )
 
 
 @approvals_bp.route('/approvals/mine')
